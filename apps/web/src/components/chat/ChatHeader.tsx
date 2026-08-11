@@ -11,7 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ChangeRequestStateLike } from "@t3tools/client-runtime/state/thread-settled";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -30,7 +30,7 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
-import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useEnvironment, usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { threadEnvironment } from "../../state/threads";
@@ -42,6 +42,7 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { resolveSiblingLaunchpadUrl } from "~/workspaceNavigation";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -124,6 +125,9 @@ export const ChatHeader = memo(function ChatHeader({
   onDeleteProjectScript,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const activeEnvironment = useEnvironment(activeThreadEnvironmentId);
+  const launchpadUrl =
+    typeof window === "undefined" ? null : resolveSiblingLaunchpadUrl(window.location.href);
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
@@ -219,6 +223,19 @@ export const ChatHeader = memo(function ChatHeader({
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb ariaLabel="Thread breadcrumb" className="flex-1">
+        {activeEnvironment ? (
+          <>
+            <WorkspaceBreadcrumbItem>
+              <span
+                className="max-w-40 truncate rounded-md border border-border/70 bg-muted/45 px-2 py-0.5 text-xs font-semibold text-foreground"
+                title={activeEnvironment.label}
+              >
+                {activeEnvironment.label}
+              </span>
+            </WorkspaceBreadcrumbItem>
+            <WorkspaceBreadcrumbSeparator />
+          </>
+        ) : null}
         {/* The project always leads the header: knowing which project a
             thread lives in is priority zero, and the thread title alone
             doesn't answer it. */}
@@ -307,6 +324,18 @@ export const ChatHeader = memo(function ChatHeader({
           rightPanelOpen ? "pr-0" : "pr-16",
         )}
       >
+        {launchpadUrl ? (
+          <a
+            href={launchpadUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open Team Launchpad in a new tab"
+            title="Open Team Launchpad"
+            className="inline-flex size-8 items-center justify-center rounded-md border border-border/70 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ExternalLinkIcon aria-hidden className="size-4" />
+          </a>
+        ) : null}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

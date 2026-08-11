@@ -32,6 +32,21 @@ That gives you:
 - transport security at the network layer
 - less exposure than opening the server to the public internet
 
+## Managed Team Workspaces
+
+A managed host can set `T3CODE_ENVIRONMENT_LABEL` to give the environment a
+clear operator-owned name, such as `Iotor · Management`. The label is shown in
+the conversation header and environment surfaces; it is display metadata, not
+an access-control key.
+
+When a managed T3 Code origin uses the private hostname convention
+`t3code.<team>.<domain>`, the conversation header also offers a Launchpad link.
+It opens the matching `launchpad.<team>.<domain>` origin in a separate tab,
+preserving the private T3 origin's HTTP or HTTPS transport while dropping its
+service port. The link is hidden for local, public, and unrelated installations,
+and it does not make the Launchpad public or bypass its network and application
+authorization.
+
 ## Enabling Network Access
 
 There are three ways to reach your server from another device: expose the desktop app's backend,

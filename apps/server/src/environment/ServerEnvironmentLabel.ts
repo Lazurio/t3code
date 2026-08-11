@@ -8,6 +8,9 @@ import * as ProcessRunner from "../processRunner.ts";
 
 interface ResolveServerEnvironmentLabelInput {
   readonly cwdBaseName: string;
+  /** Operator-owned label for a hosted environment. It is display metadata,
+      never an authorization or persistence key. */
+  readonly configuredLabel?: string | null;
 }
 
 const ServerEnvironmentLabelCommandProbe = Schema.Literals([
@@ -182,6 +185,11 @@ const resolveFriendlyHostLabel = Effect.fn("resolveFriendlyHostLabel")(function*
 export const resolveServerEnvironmentLabel = Effect.fn("resolveServerEnvironmentLabel")(function* (
   input: ResolveServerEnvironmentLabelInput,
 ) {
+  const configuredLabel = normalizeLabel(input.configuredLabel);
+  if (configuredLabel) {
+    return configuredLabel;
+  }
+
   const friendlyHostLabel = yield* resolveFriendlyHostLabel();
   if (friendlyHostLabel) {
     return friendlyHostLabel;

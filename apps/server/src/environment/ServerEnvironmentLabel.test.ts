@@ -61,6 +61,29 @@ afterEach(() => {
 });
 
 describe("resolveServerEnvironmentLabel", () => {
+  it.effect("prefers an operator-configured hosted environment label", () =>
+    Effect.gen(function* () {
+      const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
+        cwdBaseName: "t3code",
+        configuredLabel: "  Iotor · Management  ",
+      }).pipe(Effect.provide(withHostPlatform(TestLayer, "linux", "container-hostname")));
+
+      expect(result).toBe("Iotor · Management");
+      expect(runMock).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("ignores a blank configured label", () =>
+    Effect.gen(function* () {
+      const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
+        cwdBaseName: "t3code",
+        configuredLabel: "   ",
+      }).pipe(Effect.provide(withHostPlatform(TestLayer, "win32", "container-hostname")));
+
+      expect(result).toBe("container-hostname");
+    }),
+  );
+
   it.effect("uses hostname fallback regardless of launch mode", () =>
     Effect.gen(function* () {
       const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
