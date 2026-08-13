@@ -16,7 +16,11 @@ export const HOSTED_APP_CHANNEL =
   hostedAppChannel === "latest" || hostedAppChannel === "nightly" ? hostedAppChannel : null;
 export const HOSTED_APP_CHANNEL_LABEL =
   HOSTED_APP_CHANNEL === "nightly" ? "Nightly" : HOSTED_APP_CHANNEL === "latest" ? "Latest" : null;
-export const APP_BASE_NAME = injectedDesktopAppBranding?.baseName ?? "T3 Code";
+const configuredHostedAppName = HOSTED_APP_CHANNEL
+  ? import.meta.env.VITE_HOSTED_APP_NAME?.trim() || null
+  : null;
+export const APP_BASE_NAME =
+  injectedDesktopAppBranding?.baseName ?? configuredHostedAppName ?? "T3 Code";
 export const APP_STAGE_LABEL =
   injectedDesktopAppBranding?.stageLabel ??
   HOSTED_APP_CHANNEL_LABEL ??

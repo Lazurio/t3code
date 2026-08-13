@@ -1,6 +1,27 @@
-import type { AdvertisedEndpoint, DesktopBridge, DesktopWslState } from "@t3tools/contracts";
+import {
+  AuthStandardClientScopes,
+  type AdvertisedEndpoint,
+  type AuthEnvironmentScope,
+  type DesktopBridge,
+  type DesktopWslState,
+} from "@t3tools/contracts";
 
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
+
+export function resolveStandardInviteScopes(
+  availableScopes: ReadonlyArray<AuthEnvironmentScope>,
+): ReadonlyArray<AuthEnvironmentScope> {
+  const available = new Set(availableScopes);
+  return AuthStandardClientScopes.filter((scope) => available.has(scope));
+}
+
+export function resolveAvailableInviteScopes(
+  requestedScopes: ReadonlyArray<AuthEnvironmentScope>,
+  availableScopes: ReadonlyArray<AuthEnvironmentScope>,
+): ReadonlyArray<AuthEnvironmentScope> {
+  const available = new Set(availableScopes);
+  return [...new Set(requestedScopes)].filter((scope) => available.has(scope));
+}
 
 /**
  * A QR code encoding a loopback URL makes the scanning device dial itself, so

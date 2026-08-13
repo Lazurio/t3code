@@ -1,4 +1,5 @@
 import {
+  ChevronDownIcon,
   ChevronsLeftRightEllipsisIcon,
   PlusIcon,
   QrCodeIcon,
@@ -16,7 +17,6 @@ import {
   AuthRelayReadScope,
   AuthRelayWriteScope,
   AuthReviewWriteScope,
-  AuthStandardClientScopes,
   AuthTerminalOperateScope,
   type AuthClientSession,
   type AuthEnvironmentScope,
@@ -43,6 +43,8 @@ import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls
 import {
   applyWslEnableSelection,
   isQrShareableEndpoint,
+  resolveAvailableInviteScopes,
+  resolveStandardInviteScopes,
   selectQrEndpointOption,
 } from "./ConnectionsSettings.logic";
 import {
@@ -130,6 +132,7 @@ import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { ServerUpdateAction, ServerUpdateProgress } from "../ServerUpdateAction";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
@@ -666,7 +669,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
 
   const expiresAbsolute = formatAccessTimestamp(pairingLink.expiresAt);
 
-  const primaryLabel = pairingLink.label ?? "Pairing link";
+  const primaryLabel = pairingLink.label ?? "Device invite";
   const selectedQrOption = selectQrEndpointOption(
     endpointCopyOptions,
     qrEndpointId,
@@ -695,7 +698,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
           <p className="text-xs text-muted-foreground" title={expiresAbsolute}>
             {formatExpiresInLabel(pairingLink.expiresAt, nowMs)}
             <span aria-hidden> · </span>
-            <AccessScopeSummary scopes={pairingLink.scopes} label="Pairing link scopes" />
+            <AccessScopeSummary scopes={pairingLink.scopes} label="Invite scopes" />
           </p>
           {shareablePairingUrl === null ? (
             <p className="text-[11px] text-muted-foreground/70">
@@ -964,21 +967,32 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
 });
 
 type AuthorizedClientsHeaderActionProps = {
+  availableScopes: ReadonlyArray<AuthEnvironmentScope>;
   clientSessions: ReadonlyArray<ServerClientSessionRecord>;
   isRevokingOtherClients: boolean;
   onRevokeOtherClients: () => void;
 };
 
 const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
+  availableScopes,
   clientSessions,
   isRevokingOtherClients,
   onRevokeOtherClients,
 }: AuthorizedClientsHeaderActionProps) {
+  const standardInviteScopes = useMemo(
+    () => resolveStandardInviteScopes(availableScopes),
+    [availableScopes],
+  );
+  const availablePairingScopeOptions = useMemo(
+    () => PAIRING_SCOPE_OPTIONS.filter(({ scope }) => availableScopes.includes(scope)),
+    [availableScopes],
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
-  const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthEnvironmentScope>>([
-    ...AuthStandardClientScopes,
-  ]);
+  const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthEnvironmentScope>>(() =>
+    resolveStandardInviteScopes(availableScopes),
+  );
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
 
   const handleCreatePairingLink = useCallback(async () => {
@@ -986,27 +1000,34 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     try {
       await createServerPairingCredential({ label: pairingLabel, scopes: pairingScopes });
       setPairingLabel("");
-      setPairingScopes([...AuthStandardClientScopes]);
+      setPairingScopes(standardInviteScopes);
+      setAdvancedOpen(false);
       setDialogOpen(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create pairing URL.";
+      const message = error instanceof Error ? error.message : "Failed to create device invite.";
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not create pairing URL",
+          title: "Could not create device invite",
           description: message,
         }),
       );
     } finally {
       setIsCreatingPairingLink(false);
     }
-  }, [pairingLabel, pairingScopes]);
+  }, [pairingLabel, pairingScopes, standardInviteScopes]);
 
-  const togglePairingScope = useCallback((scope: AuthEnvironmentScope, checked: boolean) => {
-    setPairingScopes((current) =>
-      checked ? [...current, scope] : current.filter((currentScope) => currentScope !== scope),
-    );
-  }, []);
+  const togglePairingScope = useCallback(
+    (scope: AuthEnvironmentScope, checked: boolean) => {
+      setPairingScopes((current) =>
+        resolveAvailableInviteScopes(
+          checked ? [...current, scope] : current.filter((currentScope) => currentScope !== scope),
+          availableScopes,
+        ),
+      );
+    },
+    [availableScopes],
+  );
 
   return (
     <div className="flex items-center gap-2">
@@ -1024,32 +1045,31 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
-          if (!open) {
-            setPairingLabel("");
-            setPairingScopes([...AuthStandardClientScopes]);
-          }
+          setPairingLabel("");
+          setPairingScopes(standardInviteScopes);
+          setAdvancedOpen(false);
         }}
       >
         <DialogTrigger
           render={
             <Button size="xs" variant="default">
               <PlusIcon className="size-3" />
-              Create link
+              Invite device
             </Button>
           }
         />
         <DialogPopup className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create pairing link</DialogTitle>
+            <DialogTitle>Invite device</DialogTitle>
             <DialogDescription>
-              Generate a one-time link that another device can use to pair with this backend as an
-              authorized client.
+              Create a one-time link or QR code for a desktop, phone, or tablet. The invite expires
+              automatically and can be revoked at any time.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-5">
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-foreground">
-                Client label (optional)
+                Device label (optional)
               </span>
               <Input
                 value={pairingLabel}
@@ -1060,53 +1080,81 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
               />
             </label>
             <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-xs font-medium text-foreground">Permissions</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Limit what the paired client can do.
+              <div className="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-medium text-foreground">Standard permissions</h3>
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                      Recommended for everyday use. The device can work with tasks, terminals, and
+                      reviews, but cannot manage access or relay settings.
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-md border border-primary/30 bg-background px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                    Default
+                  </span>
+                </div>
+              </div>
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger className="group flex w-full items-center justify-between rounded-lg border border-input px-3 py-2 text-left text-xs font-medium text-foreground hover:bg-muted/30">
+                  Advanced permissions
+                  <ChevronDownIcon className="size-3.5 text-muted-foreground transition-transform group-data-panel-open:rotate-180" />
+                </CollapsibleTrigger>
+                <CollapsiblePanel className="space-y-3 pt-3">
+                  <p className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs leading-snug text-warning">
+                    Advanced permissions can expose access or relay controls. Grant only what this
+                    device needs. The server rejects permissions this session cannot delegate.
                   </p>
-                </div>
-                <div className="flex gap-1">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={isCreatingPairingLink}
-                    onClick={() => setPairingScopes([AuthOrchestrationReadScope])}
-                  >
-                    Read only
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={isCreatingPairingLink}
-                    onClick={() => setPairingScopes([...AuthStandardClientScopes])}
-                  >
-                    Standard
-                  </Button>
-                </div>
-              </div>
-              <div className="divide-y divide-border/60 rounded-lg border border-input bg-muted/25">
-                {PAIRING_SCOPE_OPTIONS.map(({ scope, title, description }) => (
-                  <label
-                    key={scope}
-                    className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
-                  >
-                    <Checkbox
-                      className="mt-0.5"
-                      checked={pairingScopes.includes(scope)}
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={
+                        isCreatingPairingLink ||
+                        !availableScopes.includes(AuthOrchestrationReadScope)
+                      }
+                      onClick={() =>
+                        setPairingScopes(
+                          resolveAvailableInviteScopes(
+                            [AuthOrchestrationReadScope],
+                            availableScopes,
+                          ),
+                        )
+                      }
+                    >
+                      Read only
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="outline"
                       disabled={isCreatingPairingLink}
-                      onCheckedChange={(checked) => togglePairingScope(scope, checked === true)}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-xs font-medium text-foreground">{title}</span>
-                      <span className="block text-xs leading-snug text-muted-foreground">
-                        {description}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+                      onClick={() => setPairingScopes(standardInviteScopes)}
+                    >
+                      Reset to Standard
+                    </Button>
+                  </div>
+                  <div className="divide-y divide-border/60 rounded-lg border border-input bg-muted/25">
+                    {availablePairingScopeOptions.map(({ scope, title, description }) => (
+                      <label
+                        key={scope}
+                        className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
+                      >
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={pairingScopes.includes(scope)}
+                          disabled={isCreatingPairingLink}
+                          onCheckedChange={(checked) => togglePairingScope(scope, checked === true)}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-medium text-foreground">{title}</span>
+                          <span className="block text-xs leading-snug text-muted-foreground">
+                            {description}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </CollapsiblePanel>
+              </Collapsible>
               {pairingScopes.length === 0 ? (
                 <p className="text-xs text-destructive">Select at least one permission.</p>
               ) : pairingScopes.includes(AuthAccessWriteScope) ? (
@@ -1128,7 +1176,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
               disabled={isCreatingPairingLink || pairingScopes.length === 0}
               onClick={() => void handleCreatePairingLink()}
             >
-              {isCreatingPairingLink ? "Creating…" : "Create link"}
+              {isCreatingPairingLink ? "Creating…" : "Create invite"}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -1191,7 +1239,9 @@ const PairingClientsList = memo(function PairingClientsList({
 
       {pairingLinks.length === 0 && clientSessions.length === 0 && !isLoading ? (
         <div className={accessRowClassName(presentation)}>
-          <p className="text-xs text-muted-foreground/60">No pairing links or client sessions.</p>
+          <p className="text-xs text-muted-foreground/60">
+            No pending invites or authorized devices.
+          </p>
         </div>
       ) : null}
     </>
@@ -3059,9 +3109,10 @@ export function ConnectionsSettings() {
 
           {isLocalBackendRemotelyReachable ? (
             <SettingsSection
-              title="Authorized clients"
+              title="Authorized devices"
               headerAction={
                 <AuthorizedClientsHeaderAction
+                  availableScopes={currentSessionScopes ?? []}
                   clientSessions={desktopClientSessions}
                   isRevokingOtherClients={isRevokingOtherDesktopClients}
                   onRevokeOtherClients={handleRevokeOtherDesktopClients}

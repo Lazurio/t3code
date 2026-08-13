@@ -32,6 +32,28 @@ That gives you:
 - transport security at the network layer
 - less exposure than opening the server to the public internet
 
+## Naming an Environment
+
+Set `T3CODE_ENVIRONMENT_LABEL` on the server process when people need a stable, human-readable
+workspace name such as `Management Workspace`:
+
+```bash
+T3CODE_ENVIRONMENT_LABEL="Management Workspace" npx t3 serve
+```
+
+The same generic setting works for local, hosted, and remote environments. It does not change the
+connection protocol or add workspace membership. T3 Code resolves the label in this order:
+
+1. the non-empty `T3CODE_ENVIRONMENT_LABEL` runtime override
+2. the operating system's friendly machine name (`ComputerName` on macOS or `PRETTY_HOSTNAME` /
+   `hostnamectl --pretty` on Linux)
+3. the machine hostname
+4. the server working directory name
+
+The resolved label travels in the existing environment descriptor and appears in the conversation
+header, so one web client can distinguish multiple Team Workspaces without URL conventions or
+client-specific source changes.
+
 ## Enabling Network Access
 
 There are three ways to reach your server from another device: expose the desktop app's backend,
@@ -44,7 +66,13 @@ If you are already running the desktop app and want to make it reachable from ot
 1. Open **Settings** → **Connections**.
 2. Under **This environment**, toggle **Network access** on. This will restart the app and run the backend on all network interfaces.
 3. The settings panel will show the default reachable endpoint, with a `+N` control when more endpoints are available. Expand it to inspect alternatives such as loopback, LAN, private-network, or HTTPS endpoints.
-4. Use **Create Link** to generate a pairing link you can share with another device.
+4. Under **Authorized devices**, use **Invite device** to generate a one-time pairing link or QR
+   code you can share with another device.
+
+The invite starts with Standard permissions, which are suitable for an ordinary desktop or mobile
+client and cannot manage access or relay settings. Custom grants live under **Advanced
+permissions**. T3 Code only offers scopes held by the current administrator, and the server rejects
+any attempted scope escalation.
 
 The default endpoint controls the QR code and primary copy action for pairing links. You can change it from the expanded endpoint list. The preference is stored by endpoint type, so choosing the local LAN endpoint survives normal IP address changes when you move between networks.
 
