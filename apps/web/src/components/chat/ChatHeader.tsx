@@ -30,7 +30,7 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
-import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useEnvironment, usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { threadEnvironment } from "../../state/threads";
@@ -124,6 +124,7 @@ export const ChatHeader = memo(function ChatHeader({
   onDeleteProjectScript,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const activeEnvironment = useEnvironment(activeThreadEnvironmentId);
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
@@ -219,6 +220,19 @@ export const ChatHeader = memo(function ChatHeader({
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb ariaLabel="Thread breadcrumb" className="flex-1">
+        {activeEnvironment ? (
+          <>
+            <WorkspaceBreadcrumbItem>
+              <span
+                className="max-w-40 truncate rounded-md border border-border/70 bg-muted/45 px-2 py-0.5 text-xs font-semibold text-foreground"
+                title={activeEnvironment.label}
+              >
+                {activeEnvironment.label}
+              </span>
+            </WorkspaceBreadcrumbItem>
+            <WorkspaceBreadcrumbSeparator />
+          </>
+        ) : null}
         {/* The project always leads the header: knowing which project a
             thread lives in is priority zero, and the thread title alone
             doesn't answer it. */}

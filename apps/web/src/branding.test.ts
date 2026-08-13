@@ -7,6 +7,7 @@ import {
 const originalWindow = globalThis.window;
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.resetModules();
 
   if (originalWindow === undefined) {
@@ -19,6 +20,8 @@ afterEach(() => {
 
 describe("branding", () => {
   it("uses injected desktop branding when available", async () => {
+    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "latest");
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "Lazurio T3 Code");
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
@@ -41,6 +44,7 @@ describe("branding", () => {
 
   it("normalizes hosted app channel metadata", async () => {
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "nightly");
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "");
 
     const branding = await import("./branding");
 
@@ -52,6 +56,7 @@ describe("branding", () => {
 
   it("does not label the latest hosted app channel", async () => {
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "latest");
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "");
 
     const branding = await import("./branding");
 
@@ -63,11 +68,32 @@ describe("branding", () => {
 
   it("ignores unknown hosted app channels", async () => {
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "preview");
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "Lazurio T3 Code");
 
     const branding = await import("./branding");
 
     expect(branding.HOSTED_APP_CHANNEL).toBeNull();
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBeNull();
+    expect(branding.APP_BASE_NAME).toBe("T3 Code");
+  });
+
+  it("uses an explicit hosted web name for a hosted channel", async () => {
+    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "latest");
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "  Lazurio T3 Code  ");
+
+    const branding = await import("./branding");
+
+    expect(branding.APP_BASE_NAME).toBe("Lazurio T3 Code");
+    expect(branding.APP_DISPLAY_NAME).toBe("Lazurio T3 Code");
+  });
+
+  it("keeps vanilla web branding when a hosted name has no hosted channel", async () => {
+    vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "");
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "Lazurio T3 Code");
+
+    const branding = await import("./branding");
+
+    expect(branding.APP_BASE_NAME).toBe("T3 Code");
   });
 });
 

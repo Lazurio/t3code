@@ -38,7 +38,11 @@ const configuredClerkCliOAuthClientId = repoEnv.VITE_CLERK_CLI_OAUTH_CLIENT_ID?.
 const configuredRelayTracingUrl = repoEnv.VITE_RELAY_OTLP_TRACES_URL?.trim() || "";
 const configuredRelayTracingDataset = repoEnv.VITE_RELAY_OTLP_TRACES_DATASET?.trim() || "";
 const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim() || "";
-const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
+const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim().toLowerCase() || "";
+const configuredHostedAppName =
+  configuredHostedAppChannel === "latest" || configuredHostedAppChannel === "nightly"
+    ? process.env.VITE_HOSTED_APP_NAME?.trim() || ""
+    : "";
 const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
@@ -141,6 +145,31 @@ function devCompressionPlugin(): Plugin {
   };
 }
 
+function hostedAppNameHtmlPlugin(): Plugin {
+  return {
+    name: "t3code:hosted-app-name-html",
+    transformIndexHtml(html) {
+      if (!configuredHostedAppName) return html;
+
+      const escapedAppName = configuredHostedAppName
+        .replaceAll("&", "&amp;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+      const escapedDisplayName =
+        configuredHostedAppChannel === "nightly" ? `${escapedAppName} (Nightly)` : escapedAppName;
+
+      return html
+        .replace("<title>T3 Code (Alpha)</title>", `<title>${escapedDisplayName}</title>`)
+        .replace(
+          'aria-label="T3 Code splash screen"',
+          `aria-label="${escapedAppName} splash screen"`,
+        )
+        .replace('alt="T3 Code"', `alt="${escapedAppName}"`);
+    },
+  };
+}
+
 // Vite rejects requests whose Host header isn't localhost, which blocks sharing
 // a dev server over Tailscale/LAN. Tailnet names are safe to allow wholesale:
 // the DNS is controlled by tailscale, so they can't be rebound by an attacker.
@@ -155,6 +184,7 @@ export default defineConfig(() => {
   return {
     assetsInclude: ["**/*.wasm"],
     plugins: [
+      hostedAppNameHtmlPlugin(),
       devCompressionPlugin(),
       tanstackRouter(),
       react(),
@@ -201,6 +231,7 @@ export default defineConfig(() => {
       "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(configuredRelayTracingToken),
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
+      "import.meta.env.VITE_HOSTED_APP_NAME": JSON.stringify(configuredHostedAppName),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
     },
     resolve: {

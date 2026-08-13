@@ -3,8 +3,42 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyWslEnableSelection,
   isQrShareableEndpoint,
+  resolveAvailableInviteScopes,
+  resolveStandardInviteScopes,
   selectQrEndpointOption,
 } from "./ConnectionsSettings.logic";
+
+describe("device invite scopes", () => {
+  it("uses the standard client grant as the safe default", () => {
+    expect(
+      resolveStandardInviteScopes([
+        "orchestration:read",
+        "orchestration:operate",
+        "terminal:operate",
+        "review:write",
+        "access:read",
+        "access:write",
+        "relay:read",
+        "relay:write",
+      ]),
+    ).toEqual([
+      "orchestration:read",
+      "orchestration:operate",
+      "terminal:operate",
+      "review:write",
+      "relay:read",
+    ]);
+  });
+
+  it("never offers or submits scopes the current session cannot delegate", () => {
+    expect(
+      resolveAvailableInviteScopes(
+        ["orchestration:read", "access:write", "access:write", "relay:write"],
+        ["orchestration:read", "access:write"],
+      ),
+    ).toEqual(["orchestration:read", "access:write"]);
+  });
+});
 
 const baseWslState: DesktopWslState = {
   enabled: false,
