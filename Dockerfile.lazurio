@@ -1,0 +1,51 @@
+ARG NODE_BASE_IMAGE
+ARG BUN_BASE_IMAGE
+
+FROM $BUN_BASE_IMAGE AS bun-runtime
+
+FROM $NODE_BASE_IMAGE AS build
+
+ARG BUN_VERSION
+ARG HOSTED_APP_NAME
+ARG PNPM_VERSION
+ARG SOURCE_DATE_EPOCH
+
+ENV SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
+    VITE_HOSTED_APP_NAME=$HOSTED_APP_NAME
+
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx \
+    && test "$(bun --version)" = "$BUN_VERSION"
+
+WORKDIR /source
+COPY . .
+RUN npm install --global "pnpm@$PNPM_VERSION" --no-audit --no-fund \
+    && pnpm install --frozen-lockfile \
+    && pnpm exec vp run --filter @t3tools/web build \
+    && pnpm exec vp run --filter t3 build \
+    && test -s /source/apps/server/dist/client/index.html \
+    && pnpm --filter t3 deploy --prod --legacy /opt/lazurio-t3
+
+FROM $NODE_BASE_IMAGE
+
+ARG RELEASE_TAG
+ARG SOURCE_REVISION
+ARG UPSTREAM_BASE
+
+ENV NODE_ENV=production \
+    PATH=/opt/lazurio-t3/dist:$PATH
+
+LABEL org.opencontainers.image.source="https://github.com/Lazurio/t3code" \
+      org.opencontainers.image.revision="$SOURCE_REVISION" \
+      org.opencontainers.image.version="$RELEASE_TAG" \
+      io.lazurio.t3code.upstream-base="$UPSTREAM_BASE" \
+      io.lazurio.t3code.distribution="browser"
+
+COPY --from=build /opt/lazurio-t3 /opt/lazurio-t3
+
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin t3code
+
+USER 10001:10001
+WORKDIR /home/t3code
+ENTRYPOINT ["node", "/opt/lazurio-t3/dist/bin.mjs"]
+CMD ["serve", "--host", "127.0.0.1"]
