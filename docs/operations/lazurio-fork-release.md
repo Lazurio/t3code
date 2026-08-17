@@ -132,14 +132,33 @@ The fork needs only two narrow lanes:
   publishes desktop/mobile packages, relays, hosted infrastructure, or an infrastructure pin.
 
 The release workflow must run from one immutable Lazurio tag, verify the exact source SHA before
-building, and publish no `latest`, branch, channel, or moving alias. Its GitHub Release is the human
-audit surface for the exact source SHA, upstream base, changelog, checksums, SBOM, provenance,
-attestation, and final OCI digest. Repository PR CI remains read-only; package and release write
-permissions exist only inside the separately reviewable, explicitly dispatched release workflow.
+building, prove that commit is already contained in `origin/main`, and publish no `latest`, branch,
+channel, or moving alias. Its GitHub Release is the human audit surface for the exact source SHA,
+upstream base, changelog, checksums, SBOM, provenance, attestation, and final OCI digest. Repository
+PR CI remains read-only; package and release write permissions exist only inside the separately
+reviewable, explicitly dispatched release workflow.
+
+Before the first dispatch, GitHub must enforce both controls natively:
+
+- an active tag ruleset for `lazurio-*` restricts creation to the release authority and rejects
+  update, deletion, and force-push;
+- the `lazurio-t3code-release` environment requires an independent reviewer, prevents self-review,
+  limits deployment to the protected release tags, and defines
+  `LAZURIO_T3CODE_RELEASE_CONTROL=reviewed-v1`.
+
+The workflow fails when the environment variable is absent, but that source check does not replace
+the server-side tag ruleset. These are GitHub release controls, not a Lazurio identity store. Read
+them back immediately before dispatch; do not let first use silently create an unprotected
+environment.
 
 The read-only fork CI must be green at the exact source commit; local validation is useful review
 evidence but not a release gate substitute. GitHub Release creation and infrastructure promotion
 remain separate explicit Principal actions.
+
+If the OCI push succeeds but a later attestation, evidence, or GitHub Release step fails, never
+overwrite or reuse that tag. Quarantine the evidence-incomplete digest from deployment, record the
+failed run, fix the cause through review, and cut the next immutable revision tag. Deleting the
+dangling package version is a separate destructive action, not automatic recovery.
 
 ## Required release evidence
 
