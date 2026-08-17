@@ -19,6 +19,12 @@ NodeTest.test("release workflow is manual and keeps repository CI read-only", ()
 });
 
 NodeTest.test("release workflow publishes one immutable GHCR tag with standard evidence", () => {
+  const tagFetchIndex = workflow.indexOf(
+    'git fetch --filter=blob:none --no-tags origin "$GITHUB_REF"',
+  );
+  const tagCheckoutIndex = workflow.indexOf("git checkout --detach FETCH_HEAD");
+  const mainFetchIndex = workflow.indexOf('"refs/heads/main:refs/remotes/origin/main"');
+
   NodeAssert.match(workflow, /IMAGE: ghcr\.io\/lazurio\/t3code/);
   NodeAssert.match(workflow, /environment: lazurio-t3code-release/);
   NodeAssert.match(workflow, /test "\$RELEASE_CONTROL" = "reviewed-v1"/);
@@ -28,6 +34,9 @@ NodeTest.test("release workflow publishes one immutable GHCR tag with standard e
     workflow,
     /git merge-base --is-ancestor "\$SOURCE_SHA" refs\/remotes\/origin\/main/,
   );
+  NodeAssert.ok(tagFetchIndex >= 0);
+  NodeAssert.ok(tagFetchIndex < tagCheckoutIndex);
+  NodeAssert.ok(tagCheckoutIndex < mainFetchIndex);
   NodeAssert.doesNotMatch(workflow, /git fetch[^\n]*--depth/);
   NodeAssert.match(workflow, /OCI tag .* already exists and will not be overwritten/);
   NodeAssert.match(workflow, /provenance: mode=max/);
