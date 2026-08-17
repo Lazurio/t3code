@@ -41,6 +41,7 @@ jobs:
     if: github.repository == 'Lazurio/t3code'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    environment: lazurio-t3code-release
     permissions:
       attestations: write
       contents: write
@@ -49,6 +50,7 @@ jobs:
     env:
       IMAGE: ghcr.io/lazurio/t3code
       RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_CONTROL: ${{ vars.LAZURIO_T3CODE_RELEASE_CONTROL }}
       SOURCE_SHA: ${{ inputs.expected_source_sha }}
       PROVENANCE: ${{ inputs.provenance }}
       UPSTREAM_TAG: ${{ inputs.upstream_tag }}
@@ -64,6 +66,7 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$UPSTREAM_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$RELEASE_CONTROL" = "reviewed-v1"
           test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
 
           case "$PROVENANCE" in
@@ -83,8 +86,11 @@ jobs:
           git init .
           git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
           git fetch --filter=blob:none --no-tags origin "$GITHUB_REF"
+          git fetch --filter=blob:none --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main
 
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --filter=blob:none upstream \
@@ -222,20 +228,25 @@ jobs:
               }
             }' > release/release-evidence.json
 
-          cat > release/RELEASE_NOTES.md <<EOF
-          # Lazurio T3 Code $RELEASE_TAG
-
-          This is an immutable **$PROVENANCE** browser distribution for Lazurio Team Workspaces.
-          Official desktop and mobile applications remain vanilla upstream T3 Code clients.
-
-          - Source: `$SOURCE_SHA`
-          - Upstream base: `$UPSTREAM_TAG` at `$UPSTREAM_SHA`
-          - OCI image: `$IMAGE@$IMAGE_DIGEST`
-          - GitHub attestation: $ATTESTATION_URL
-
-          No `latest`, branch, hosted channel, desktop/mobile package, relay, infrastructure pin,
-          or live deployment is published by this release.
-          EOF
+          jq -nr \
+            --arg tag "$RELEASE_TAG" \
+            --arg release_provenance "$PROVENANCE" \
+            --arg source "$SOURCE_SHA" \
+            --arg upstream_tag "$UPSTREAM_TAG" \
+            --arg upstream_sha "$UPSTREAM_SHA" \
+            --arg image "$IMAGE" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg attestation "$ATTESTATION_URL" \
+            '"# Lazurio T3 Code \($tag)\n\n" +
+             "This is an immutable **\($release_provenance)** browser distribution for Lazurio Team Workspaces.\n" +
+             "Official desktop and mobile applications remain vanilla upstream T3 Code clients.\n\n" +
+             "- Source: `\($source)`\n" +
+             "- Upstream base: `\($upstream_tag)` at `\($upstream_sha)`\n" +
+             "- OCI image: `\($image)@\($digest)`\n" +
+             "- GitHub attestation: \($attestation)\n\n" +
+             "No `latest`, branch, hosted channel, desktop/mobile package, relay, infrastructure pin,\n" +
+             "or live deployment is published by this release.\n"' \
+            > release/RELEASE_NOTES.md
 
           (
             cd release
