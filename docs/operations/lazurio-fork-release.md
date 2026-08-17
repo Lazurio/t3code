@@ -61,8 +61,9 @@ a Lazurio Admin roster or translate proxy headers into T3 scopes.
 - DEV-6442 source base: `c196f422ed387a1cc2cdb671b0472782e5610339`
 - Latest stable upstream release observed on 2026-08-17: `v0.0.33`, target
   `3b72d17cbca691f0b64e6d4a10c9e349f42873a5`
-- At that readback the fork source base was 34 commits behind `v0.0.33`; upstream `main` was 173
-  commits ahead and was producing `v0.0.34-nightly.*` builds.
+- The stable target is an ancestor of the fork source base. The source base contains 34
+  post-`v0.0.33` commits from the `v0.0.34-nightly.*` development line; it is not a published
+  upstream stable snapshot. At the same readback upstream `main` was another 175 commits ahead.
 
 Lazurio tracks upstream stable releases, not every upstream `main` or nightly build. Each stable
 update is its own reviewed sync PR. Preserve upstream history, reapply only the bounded fork patch,
@@ -71,11 +72,11 @@ base while building or releasing.
 
 Use this order for every update:
 
-1. Open an upstream-sync PR from the next stable upstream tag.
+1. Wait for the next upstream stable release, then open an upstream-sync PR from that exact tag.
 2. Reconcile the bounded Lazurio patch without changing native protocol contracts.
 3. Run fork CI, both web builds, server authorization tests, and physical pairing smoke with the
    current official stable desktop and mobile clients.
-4. Review the exact diff and create an immutable fork tag such as `lazurio-v0.0.33-r1` only after
+4. Review the exact diff and create an immutable fork tag such as `lazurio-v0.0.34-r1` only after
    the source PR is published.
 5. Produce release evidence for the exact tag commit and built artifact.
 6. Update infrastructure to the exact fork commit and resulting image/artifact digest in a separate
@@ -86,6 +87,11 @@ Team Workspaces never self-update from a branch, tag alias, package channel, or 
 An update recreates the shared Workspace container and can interrupt T3 Code, Launchpad, running
 module previews, terminals, and Agent jobs. Operators must announce/drain the Workspace, preserve
 durable volumes, and retain the previous exact pin for rollback.
+
+For a time-sensitive pilot, an explicitly approved pre-stable snapshot may be pinned only by exact
+fork commit and artifact digest after all other gates pass. Its tag and evidence must say
+`pilot`/`prestable` rather than imply upstream-stable provenance, and the next upstream stable sync
+remains mandatory before general rollout.
 
 ## Fork-safe automation
 
