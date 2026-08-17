@@ -158,7 +158,7 @@ artifact. It must contain:
   "artifact": {
     "image": "ghcr.io/lazurio/t3code",
     "digest": "sha256:<64 lowercase hex characters>",
-    "release_assets_sha256": "<checksum-file digest>"
+    "checksums": "SHA256SUMS"
   },
   "configuration": {
     "hosted_app_channel": null,
