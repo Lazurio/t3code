@@ -219,7 +219,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
           Effect.result,
         );
-        assert.isTrue(Result.isFailure(result), JSON.stringify(env));
+        assert.isTrue(Result.isFailure(result), `${env.T3CODE_MODE}/${env.T3CODE_HOST ?? "unset"}`);
       }
     }),
   );
