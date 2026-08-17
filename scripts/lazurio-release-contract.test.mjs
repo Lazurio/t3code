@@ -59,7 +59,14 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
     dockerfile,
     /pnpm --config\.allowUnusedPatches=true --filter t3 deploy \\\n\s+--prod --legacy --ignore-scripts \/opt\/lazurio-t3/,
   );
+  NodeAssert.match(dockerfile, /pnpm --dir \/opt\/lazurio-t3 rebuild node-pty/);
+  NodeAssert.match(
+    dockerfile,
+    /test -f \/opt\/lazurio-t3\/node_modules\/node-pty\/build\/Release\/pty\.node/,
+  );
   NodeAssert.doesNotMatch(workspaceConfig, /^allowUnusedPatches:/m);
+  NodeAssert.match(forkCi, /pty\.spawn\("\/bin\/sh"/);
+  NodeAssert.match(forkCi, /pty-smoke=PASS/);
   NodeAssert.match(dockerfile, /VITE_HOSTED_APP_NAME=\$HOSTED_APP_NAME/);
   NodeAssert.doesNotMatch(dockerfile, /VITE_HOSTED_APP_CHANNEL/);
   NodeAssert.match(dockerfile, /USER 10001:10001/);
