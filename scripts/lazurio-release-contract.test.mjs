@@ -5,6 +5,7 @@ import * as NodeTest from "node:test";
 const workflow = await NodeFSP.readFile(".github/workflows/lazurio-release.yml", "utf8");
 const dockerfile = await NodeFSP.readFile("Dockerfile.lazurio", "utf8");
 const forkCi = await NodeFSP.readFile(".github/workflows/lazurio-fork-ci.yml", "utf8");
+const workspaceConfig = await NodeFSP.readFile("pnpm-workspace.yaml", "utf8");
 
 NodeTest.test("release workflow is manual and keeps repository CI read-only", () => {
   const triggerBlock = workflow.slice(workflow.indexOf("on:"), workflow.indexOf("\npermissions:"));
@@ -54,6 +55,11 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
   NodeAssert.match(dockerfile, /ARG NODE_BASE_IMAGE/);
   NodeAssert.match(dockerfile, /ARG BUN_BASE_IMAGE/);
   NodeAssert.match(dockerfile, /pnpm install --frozen-lockfile/);
+  NodeAssert.match(
+    dockerfile,
+    /pnpm --config\.allowUnusedPatches=true --filter t3 deploy \\\n\s+--prod --legacy --ignore-scripts \/opt\/lazurio-t3/,
+  );
+  NodeAssert.doesNotMatch(workspaceConfig, /^allowUnusedPatches:/m);
   NodeAssert.match(dockerfile, /VITE_HOSTED_APP_NAME=\$HOSTED_APP_NAME/);
   NodeAssert.doesNotMatch(dockerfile, /VITE_HOSTED_APP_CHANNEL/);
   NodeAssert.match(dockerfile, /USER 10001:10001/);
