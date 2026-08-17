@@ -63,14 +63,8 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
     dockerfile,
     /require\.resolve\('node-pty\/package\.json', \{ paths: \['\/source\/apps\/server'\] \}\)/,
   );
-  NodeAssert.match(
-    dockerfile,
-    /test -f "\$node_pty_source\/build\/Release\/pty\.node"/,
-  );
-  NodeAssert.match(
-    dockerfile,
-    /cp -a "\$node_pty_source\/build" "\$node_pty_target\/"/,
-  );
+  NodeAssert.match(dockerfile, /test -f "\$node_pty_source\/build\/Release\/pty\.node"/);
+  NodeAssert.match(dockerfile, /cp -a "\$node_pty_source\/build" "\$node_pty_target\/"/);
   NodeAssert.doesNotMatch(dockerfile, /rebuild node-pty/);
   NodeAssert.match(
     dockerfile,
