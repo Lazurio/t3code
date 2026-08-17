@@ -210,6 +210,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         },
         {
           T3CODE_MODE: "web",
+          T3CODE_HOST: "",
+          T3CODE_EXTERNAL_ORIGIN: externalOrigin,
+        },
+        {
+          T3CODE_MODE: "web",
           T3CODE_EXTERNAL_ORIGIN: externalOrigin,
         },
       ]) {

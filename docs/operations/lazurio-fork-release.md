@@ -105,6 +105,9 @@ Use this order for every update:
 7. Roll out Management first, then the other Team Workspaces serially after acceptance.
 
 Team Workspaces never self-update from a branch, tag alias, package channel, or GitHub release.
+Do not run `t3 service install` inside a Team Workspace: the container supervisor starts the
+operator-pinned `t3 serve` payload, and enabling T3's launcher-managed service would create a
+second lifecycle owner and reopen its remote self-update path.
 An update recreates the shared Workspace container and can interrupt T3 Code, Launchpad, running
 module previews, terminals, and Agent jobs. Operators must announce/drain the Workspace, preserve
 durable volumes, and retain the previous exact pin for rollback.
