@@ -59,7 +59,19 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
     dockerfile,
     /pnpm --config\.allowUnusedPatches=true --filter t3 deploy \\\n\s+--prod --legacy --ignore-scripts \/opt\/lazurio-t3/,
   );
-  NodeAssert.match(dockerfile, /pnpm --dir \/opt\/lazurio-t3 rebuild node-pty/);
+  NodeAssert.match(
+    dockerfile,
+    /require\.resolve\('node-pty\/package\.json', \{ paths: \['\/source\/apps\/server'\] \}\)/,
+  );
+  NodeAssert.match(
+    dockerfile,
+    /test -f "\$node_pty_source\/build\/Release\/pty\.node"/,
+  );
+  NodeAssert.match(
+    dockerfile,
+    /cp -a "\$node_pty_source\/build" "\$node_pty_target\/"/,
+  );
+  NodeAssert.doesNotMatch(dockerfile, /rebuild node-pty/);
   NodeAssert.match(
     dockerfile,
     /test -f \/opt\/lazurio-t3\/node_modules\/node-pty\/build\/Release\/pty\.node/,
