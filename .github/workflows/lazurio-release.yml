@@ -1,0 +1,277 @@
+name: Lazurio T3 Code Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable Lazurio tag to publish
+        required: true
+        type: string
+      expected_source_sha:
+        description: Exact 40-character source commit
+        required: true
+        type: string
+      provenance:
+        description: Declared upstream provenance
+        required: true
+        type: choice
+        options:
+          - pilot/prestable
+          - upstream-stable
+      upstream_tag:
+        description: Exact recorded upstream stable or nightly tag
+        required: true
+        type: string
+      expected_upstream_sha:
+        description: Exact 40-character upstream tag commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: none
+
+concurrency:
+  group: lazurio-t3code-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish immutable browser image and evidence
+    if: github.repository == 'Lazurio/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/lazurio/t3code
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      PROVENANCE: ${{ inputs.provenance }}
+      UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+      UPSTREAM_SHA: ${{ inputs.expected_upstream_sha }}
+    steps:
+      - id: source
+        name: Fetch and verify the exact release source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$RELEASE_TAG" =~ ^lazurio-(v[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+|pilot-prestable-[0-9]{8}\.[0-9]+)$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$UPSTREAM_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+
+          case "$PROVENANCE" in
+            pilot/prestable)
+              [[ "$RELEASE_TAG" =~ ^lazurio-pilot-prestable- ]]
+              [[ "$UPSTREAM_TAG" =~ -nightly\. ]]
+              ;;
+            upstream-stable)
+              [[ "$RELEASE_TAG" =~ ^lazurio-v ]]
+              [[ ! "$UPSTREAM_TAG" =~ -nightly\. ]]
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --filter=blob:none --no-tags origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --filter=blob:none upstream \
+            "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-$UPSTREAM_TAG"
+          test "$(git rev-parse "refs/tags/upstream-$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_SHA"
+          git merge-base --is-ancestor "$UPSTREAM_SHA" "$SOURCE_SHA"
+
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          echo "source_date_epoch=$source_date_epoch" >> "$GITHUB_OUTPUT"
+          echo "source_date_iso=$(date -u -d "@$source_date_epoch" +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse an existing release or image tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists." >&2
+            exit 1
+          fi
+          if docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "OCI tag $IMAGE:$RELEASE_TAG already exists and will not be overwritten." >&2
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - id: build
+        name: Build and publish the immutable browser image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile.lazurio
+          platforms: linux/amd64
+          push: true
+          pull: true
+          tags: ${{ env.IMAGE }}:${{ env.RELEASE_TAG }}
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            NODE_BASE_IMAGE=node:24.19.0-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584
+            BUN_BASE_IMAGE=oven/bun:1.3.14@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834
+            BUN_VERSION=1.3.14
+            HOSTED_APP_NAME=Lazurio T3 Code
+            PNPM_VERSION=11.10.0
+            RELEASE_TAG=${{ env.RELEASE_TAG }}
+            SOURCE_DATE_EPOCH=${{ steps.source.outputs.source_date_epoch }}
+            SOURCE_REVISION=${{ env.SOURCE_SHA }}
+            UPSTREAM_BASE=${{ env.UPSTREAM_SHA }}
+          labels: |
+            org.opencontainers.image.created=${{ steps.source.outputs.source_date_iso }}
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+            org.opencontainers.image.source=https://github.com/Lazurio/t3code
+            org.opencontainers.image.version=${{ env.RELEASE_TAG }}
+
+      - id: attest
+        name: Attest the published OCI digest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Assemble immutable release evidence
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          test -f "$ATTESTATION_BUNDLE"
+          install -m 0644 "$ATTESTATION_BUNDLE" release/attestation.jsonl
+          printf '%s\n' "$BUILD_METADATA" | jq --sort-keys . > release/build-metadata.json
+          docker buildx imagetools inspect "$IMAGE@$IMAGE_DIGEST" \
+            --format '{{ json .SBOM }}' | jq --sort-keys . > release/sbom.spdx.json
+          docker buildx imagetools inspect "$IMAGE@$IMAGE_DIGEST" \
+            --format '{{ json .Provenance }}' | jq --sort-keys . > release/provenance.slsa.json
+          git log --no-merges --pretty='format:- %s (%h)' \
+            "$UPSTREAM_SHA..$SOURCE_SHA" > release/CHANGELOG.md
+
+          jq -n --sort-keys \
+            --arg repository "https://github.com/$GITHUB_REPOSITORY" \
+            --arg source "$SOURCE_SHA" \
+            --arg tag "$RELEASE_TAG" \
+            --arg provenance "$PROVENANCE" \
+            --arg upstream_repository "https://github.com/pingdotgg/t3code" \
+            --arg upstream_tag "$UPSTREAM_TAG" \
+            --arg upstream_sha "$UPSTREAM_SHA" \
+            --arg image "$IMAGE" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg attestation "$ATTESTATION_URL" \
+            --arg run "$RUN_URL" \
+            '{
+              schema_version: "t3code.fork-release.v1",
+              source: {
+                repository: $repository,
+                commit: $source,
+                tag: $tag,
+                provenance: $provenance,
+                upstream_repository: $upstream_repository,
+                upstream_release: $upstream_tag,
+                upstream_base: $upstream_sha
+              },
+              artifact: {
+                image: $image,
+                digest: $digest,
+                sbom: "sbom.spdx.json",
+                provenance: "provenance.slsa.json",
+                build_metadata: "build-metadata.json",
+                attestation_bundle: "attestation.jsonl",
+                checksums: "SHA256SUMS"
+              },
+              configuration: {
+                hosted_app_channel: null,
+                hosted_app_name: "Lazurio T3 Code",
+                external_origin: "injected per Team at runtime"
+              },
+              validation: {
+                workflow_run: $run,
+                attestation: $attestation
+              }
+            }' > release/release-evidence.json
+
+          cat > release/RELEASE_NOTES.md <<EOF
+          # Lazurio T3 Code $RELEASE_TAG
+
+          This is an immutable **$PROVENANCE** browser distribution for Lazurio Team Workspaces.
+          Official desktop and mobile applications remain vanilla upstream T3 Code clients.
+
+          - Source: `$SOURCE_SHA`
+          - Upstream base: `$UPSTREAM_TAG` at `$UPSTREAM_SHA`
+          - OCI image: `$IMAGE@$IMAGE_DIGEST`
+          - GitHub attestation: $ATTESTATION_URL
+
+          No `latest`, branch, hosted channel, desktop/mobile package, relay, infrastructure pin,
+          or live deployment is published by this release.
+          EOF
+
+          (
+            cd release
+            sha256sum \
+              CHANGELOG.md \
+              RELEASE_NOTES.md \
+              attestation.jsonl \
+              build-metadata.json \
+              provenance.slsa.json \
+              release-evidence.json \
+              sbom.spdx.json > SHA256SUMS
+          )
+
+      - name: Publish the matching GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            "$RELEASE_TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --title "Lazurio T3 Code $RELEASE_TAG"
+            --notes-file release/RELEASE_NOTES.md
+            --latest=false
+          )
+          if [[ "$PROVENANCE" == "pilot/prestable" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}" \
+            release/CHANGELOG.md \
+            release/RELEASE_NOTES.md \
+            release/SHA256SUMS \
+            release/attestation.jsonl \
+            release/build-metadata.json \
+            release/provenance.slsa.json \
+            release/release-evidence.json \
+            release/sbom.spdx.json
