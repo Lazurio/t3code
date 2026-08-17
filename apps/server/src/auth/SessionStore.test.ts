@@ -13,7 +13,9 @@ import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 const makeServerConfigLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "externalOrigin">
+  >,
 ) =>
   Layer.effect(
     ServerConfig.ServerConfig,
@@ -27,7 +29,9 @@ const makeServerConfigLayer = (
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-session-test-" })));
 
 const makeSessionStoreLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "externalOrigin">
+  >,
 ) =>
   SessionStore.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
@@ -60,6 +64,20 @@ const failingSessionLookupCredentialLayer = Layer.effect(
 );
 
 it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
+  it.effect("uses the stable hosted cookie name for an explicit external origin", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+
+      expect(sessions.cookieName).toBe("__Host-t3_session");
+    }).pipe(
+      Effect.provide(
+        makeSessionStoreLayer({
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        }),
+      ),
+    ),
+  );
+
   it.effect("issues and verifies signed browser session tokens", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;

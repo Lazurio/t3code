@@ -54,6 +54,40 @@ The resolved label travels in the existing environment descriptor and appears in
 header, so one web client can distinguish multiple Team Workspaces without URL conventions or
 client-specific source changes.
 
+## Running Behind a Trusted HTTPS Reverse Proxy
+
+A hosted Team Workspace can keep T3 Code bound to loopback while making its browser UI available
+through a separately secured HTTPS reverse proxy:
+
+```bash
+T3CODE_EXTERNAL_ORIGIN=https://t3code.management.example.test \
+T3CODE_ENVIRONMENT_LABEL="Management Workspace" \
+npx t3 serve --host 127.0.0.1
+```
+
+`T3CODE_EXTERNAL_ORIGIN` must be exactly one absolute HTTPS origin. Credentials, paths, query
+parameters, fragments, and plain HTTP origins are rejected. The setting does not expose the server,
+change its bind address, or derive trust from forwarded headers. It enables T3 Code's existing
+remote-reachable authorization policy and administrative device controls for a server deliberately
+published by a trusted proxy. Browser session cookies for this mode use the stable
+`__Host-t3_session` name and the `Secure`, `HttpOnly`, and `SameSite=Lax` attributes.
+
+The configured origin is also enforced for cookie-authenticated mutations and WebSocket upgrades.
+Native Bearer/DPoP clients are unaffected. The hosted server intentionally does not expose the
+loopback-only T3 Connect link-proof operation through the reverse proxy; T3 Connect remains a
+local-machine flow.
+
+The operator remains responsible for TLS, network restrictions, browser authentication, and
+forwarding the existing HTTP and WebSocket routes. Keep the backend on loopback, do not publish its
+port directly, and do not put pairing credentials in proxy configuration or access logs. Official
+desktop and mobile clients use the same native T3 protocol and do not require a Lazurio-specific
+client build.
+
+Declaring an external origin does not give a browser administrative access. The browser still needs
+a native T3 session containing `access:write` before it can create or revoke device invitations.
+An invitation can delegate only scopes held by its creator, so a standard paired client cannot turn
+itself or another device into an administrator.
+
 ## Enabling Network Access
 
 There are three ways to reach your server from another device: expose the desktop app's backend,

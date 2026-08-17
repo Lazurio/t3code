@@ -17,6 +17,7 @@ import {
   AuthRelayReadScope,
   AuthRelayWriteScope,
   AuthReviewWriteScope,
+  AuthStandardClientScopes,
   AuthTerminalOperateScope,
   type AuthClientSession,
   type AuthEnvironmentScope,
@@ -3112,7 +3113,7 @@ export function ConnectionsSettings() {
               title="Authorized devices"
               headerAction={
                 <AuthorizedClientsHeaderAction
-                  availableScopes={currentSessionScopes ?? []}
+                  availableScopes={currentSessionScopes ?? AuthStandardClientScopes}
                   clientSessions={desktopClientSessions}
                   isRevokingOtherClients={isRevokingOtherDesktopClients}
                   onRevokeOtherClients={handleRevokeOtherDesktopClients}

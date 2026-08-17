@@ -29,11 +29,19 @@ export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
   readonly port: number;
   readonly host: string | undefined;
+  readonly externalOrigin?: URL | undefined;
   readonly instanceKey: string;
   readonly development: boolean;
 }): string {
   if (input.mode === "desktop") {
     return `${SESSION_COOKIE_NAME}_${input.port}`;
+  }
+
+  if (!input.development && input.externalOrigin !== undefined) {
+    // Hosted browser sessions are HTTPS-only, host-only and Path=/, so the
+    // standard __Host- prefix prevents a sibling subdomain from planting a
+    // cookie with the same name.
+    return `__Host-${SESSION_COOKIE_NAME}`;
   }
 
   if (!input.development && isRemoteReachableHost(input.host)) {

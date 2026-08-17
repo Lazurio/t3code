@@ -39,10 +39,7 @@ const configuredRelayTracingUrl = repoEnv.VITE_RELAY_OTLP_TRACES_URL?.trim() || 
 const configuredRelayTracingDataset = repoEnv.VITE_RELAY_OTLP_TRACES_DATASET?.trim() || "";
 const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim() || "";
 const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim().toLowerCase() || "";
-const configuredHostedAppName =
-  configuredHostedAppChannel === "latest" || configuredHostedAppChannel === "nightly"
-    ? process.env.VITE_HOSTED_APP_NAME?.trim() || ""
-    : "";
+const configuredHostedAppName = process.env.VITE_HOSTED_APP_NAME?.trim() || "";
 const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
@@ -159,13 +156,24 @@ function hostedAppNameHtmlPlugin(): Plugin {
       const escapedDisplayName =
         configuredHostedAppChannel === "nightly" ? `${escapedAppName} (Nightly)` : escapedAppName;
 
-      return html
-        .replace("<title>T3 Code (Alpha)</title>", `<title>${escapedDisplayName}</title>`)
-        .replace(
-          'aria-label="T3 Code splash screen"',
-          `aria-label="${escapedAppName} splash screen"`,
-        )
-        .replace('alt="T3 Code"', `alt="${escapedAppName}"`);
+      const replaceRequired = (input: string, expected: string, replacement: string) => {
+        if (!input.includes(expected)) {
+          throw new Error(`Hosted app branding expected HTML pattern was not found: ${expected}`);
+        }
+        return input.replace(expected, replacement);
+      };
+
+      let brandedHtml = replaceRequired(
+        html,
+        "<title>T3 Code (Alpha)</title>",
+        `<title>${escapedDisplayName}</title>`,
+      );
+      brandedHtml = replaceRequired(
+        brandedHtml,
+        'aria-label="T3 Code splash screen"',
+        `aria-label="${escapedAppName} splash screen"`,
+      );
+      return replaceRequired(brandedHtml, 'alt="T3 Code"', `alt="${escapedAppName}"`);
     },
   };
 }

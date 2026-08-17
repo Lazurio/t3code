@@ -100,6 +100,19 @@ describe("session cookie isolation", () => {
     ).toBe("t3_session");
   });
 
+  it("keeps a reverse-proxied loopback server on the hosted cookie", () => {
+    expect(
+      resolveSessionCookieName({
+        mode: "web",
+        port: 3773,
+        host: "127.0.0.1",
+        externalOrigin: new URL("https://t3code.management.example.test/"),
+        instanceKey: "/srv/hosted-workspace",
+        development: false,
+      }),
+    ).toBe("__Host-t3_session");
+  });
+
   it("retains desktop port scoping", () => {
     expect(
       resolveSessionCookieName({
