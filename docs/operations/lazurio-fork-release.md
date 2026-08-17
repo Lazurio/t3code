@@ -21,7 +21,7 @@ set the optional display name:
 
 ```bash
 VITE_HOSTED_APP_NAME="Lazurio T3 Code" \
-vp run --filter @t3tools/web build
+pnpm exec vp run --filter @t3tools/web build
 ```
 
 Do not set `VITE_HOSTED_APP_CHANNEL` for a Team Workspace. That upstream variable selects the
@@ -54,6 +54,22 @@ its own native scope delegation: an administrative session can create and revoke
 while a standard Builder session cannot mint an administrative credential. The fork does not keep
 a Lazurio Admin roster or translate proxy headers into T3 scopes.
 
+## Pilot theme capability
+
+The accepted pilot source is deliberately a pre-stable snapshot, but its browser theme capability
+is not a Lazurio port. The recorded source base is the direct child of upstream nightly
+`v0.0.34-nightly.20260811.1071` at `f0b57ca2313bd7971cefb366d3b3808152b014fc`, and already includes:
+
+- the modular Theme Library and the Appearance settings route;
+- built-in light and dark palettes, custom theme import/export, and the theme editor;
+- OKLCH palette handling and Open VSX theme search/import.
+
+`VITE_HOSTED_APP_NAME` changes only the browser display name. It does not select, remove, or fork
+theme code, so the vanilla and Lazurio browser builds expose the same theme surface from the same
+source revision. Later upstream theme changes remain part of the next reviewed stable-sync task;
+they must not be pulled into the pilot through an unbounded `main` or nightly merge. Native desktop
+and mobile themes continue to come from the official upstream applications.
+
 ## Upstream provenance and sync policy
 
 - Fork: `https://github.com/Lazurio/t3code`
@@ -69,6 +85,11 @@ Lazurio tracks upstream stable releases, not every upstream `main` or nightly bu
 update is its own reviewed sync PR. Preserve upstream history, reapply only the bounded fork patch,
 and record the upstream stable tag and exact target commit. Never silently replace the recorded
 base while building or releasing.
+
+The Iotor pilot is the explicit exception already described below: it may use the accepted exact
+pre-stable source, but its immutable tag, GitHub Release, OCI metadata, and changelog must all say
+`pilot`/`prestable`. It must not be presented as an upstream stable build. The next published
+upstream stable still triggers a separate reviewed sync before general rollout.
 
 Use this order for every update:
 
@@ -103,12 +124,19 @@ The fork needs only two narrow lanes:
 
 - PR CI with read-only repository permission: formatting/lint, web and server typechecks, focused
   tests, and default plus opt-in web builds;
-- a manually dispatched release-evidence job that never publishes desktop/mobile packages, relays,
-  or hosted infrastructure and never promotes an infrastructure pin.
+- a manually dispatched release job that publishes only an immutable
+  `ghcr.io/lazurio/t3code@sha256:<digest>` OCI image and the matching GitHub Release. It never
+  publishes desktop/mobile packages, relays, hosted infrastructure, or an infrastructure pin.
 
-Until that fork-safe CI is explicitly enabled and green in `Lazurio/t3code`, local validation is
-useful review evidence but not a release gate substitute. GitHub Release creation and infrastructure
-promotion remain explicit Principal actions.
+The release workflow must run from one immutable Lazurio tag, verify the exact source SHA before
+building, and publish no `latest`, branch, channel, or moving alias. Its GitHub Release is the human
+audit surface for the exact source SHA, upstream base, changelog, checksums, SBOM, provenance,
+attestation, and final OCI digest. Repository PR CI remains read-only; package and release write
+permissions exist only inside the separately reviewable, explicitly dispatched release workflow.
+
+The read-only fork CI must be green at the exact source commit; local validation is useful review
+evidence but not a release gate substitute. GitHub Release creation and infrastructure promotion
+remain separate explicit Principal actions.
 
 ## Required release evidence
 
@@ -121,14 +149,16 @@ artifact. It must contain:
   "source": {
     "repository": "https://github.com/Lazurio/t3code",
     "commit": "<exact 40-character fork commit>",
-    "tag": "<immutable lazurio-vX.Y.Z-rN tag>",
+    "tag": "<immutable lazurio-vX.Y.Z-rN or lazurio-pilot-prestable-X tag>",
+    "provenance": "upstream-stable or pilot/prestable",
     "upstream_repository": "https://github.com/pingdotgg/t3code",
-    "upstream_release": "<exact stable upstream tag>",
-    "upstream_base": "<exact upstream tag commit>"
+    "upstream_release": "<exact stable or nightly upstream tag>",
+    "upstream_base": "<exact recorded upstream tag commit>"
   },
   "artifact": {
-    "name": "<immutable artifact name>",
-    "sha256": "<64-character digest>"
+    "image": "ghcr.io/lazurio/t3code",
+    "digest": "sha256:<64 lowercase hex characters>",
+    "release_assets_sha256": "<checksum-file digest>"
   },
   "configuration": {
     "hosted_app_channel": null,
@@ -149,15 +179,16 @@ artifact. It must contain:
 }
 ```
 
-Generate the source and artifact fields from the final clean release checkout, not from a working
-tree or mutable branch name:
+Generate the source and artifact fields from the final clean release checkout and published OCI
+manifest, not from a working tree or mutable branch name:
 
 ```bash
 git diff --quiet && git diff --cached --quiet
 git rev-parse HEAD
-git rev-parse <stable-upstream-tag>^{commit}
-git merge-base --is-ancestor <stable-upstream-tag> HEAD
-shasum -a 256 <packaged-artifact>
+git rev-parse <recorded-upstream-tag>^{commit}
+git merge-base --is-ancestor <recorded-upstream-tag> HEAD
+docker buildx imagetools inspect ghcr.io/lazurio/t3code@sha256:<digest>
+shasum -a 256 <release-assets>
 ```
 
 The ancestry check must pass. The evidence record and packaged artifact are a pair: changing either
