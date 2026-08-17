@@ -20,8 +20,14 @@ NodeTest.test("release workflow is manual and keeps repository CI read-only", ()
 
 NodeTest.test("release workflow publishes one immutable GHCR tag with standard evidence", () => {
   NodeAssert.match(workflow, /IMAGE: ghcr\.io\/lazurio\/t3code/);
+  NodeAssert.match(workflow, /environment: lazurio-t3code-release/);
+  NodeAssert.match(workflow, /test "\$RELEASE_CONTROL" = "reviewed-v1"/);
   NodeAssert.match(workflow, /test "\$GITHUB_REF" = "refs\/tags\/\$RELEASE_TAG"/);
   NodeAssert.match(workflow, /test "\$\(git rev-parse HEAD\)" = "\$SOURCE_SHA"/);
+  NodeAssert.match(
+    workflow,
+    /git merge-base --is-ancestor "\$SOURCE_SHA" refs\/remotes\/origin\/main/,
+  );
   NodeAssert.doesNotMatch(workflow, /git fetch[^\n]*--depth/);
   NodeAssert.match(workflow, /OCI tag .* already exists and will not be overwritten/);
   NodeAssert.match(workflow, /provenance: mode=max/);
@@ -30,6 +36,7 @@ NodeTest.test("release workflow publishes one immutable GHCR tag with standard e
   NodeAssert.match(workflow, /release\/sbom\.spdx\.json/);
   NodeAssert.match(workflow, /release\/provenance\.slsa\.json/);
   NodeAssert.match(workflow, /release\/SHA256SUMS/);
+  NodeAssert.doesNotMatch(workflow, /cat > release\/RELEASE_NOTES\.md <<EOF/);
   NodeAssert.doesNotMatch(workflow, /anchore\/sbom-action/);
   NodeAssert.doesNotMatch(workflow, /:\s*latest\b/);
 });
