@@ -162,8 +162,8 @@ dangling package version is a separate destructive action, not automatic recover
 
 ## Required release evidence
 
-Before any release or deployment, create one immutable evidence record next to the packaged web
-artifact. It must contain:
+The manual release workflow creates one immutable machine evidence record next to the packaged
+browser/server payload. It must contain:
 
 ```json
 {
@@ -171,7 +171,7 @@ artifact. It must contain:
   "source": {
     "repository": "https://github.com/Lazurio/t3code",
     "commit": "<exact 40-character fork commit>",
-    "tag": "<immutable lazurio-vX.Y.Z-rN or lazurio-pilot-prestable-X tag>",
+    "tag": "<immutable lazurio-vX.Y.Z-rN or lazurio-pilot-prestable-YYYYMMDD.N tag>",
     "provenance": "upstream-stable or pilot/prestable",
     "upstream_repository": "https://github.com/pingdotgg/t3code",
     "upstream_release": "<exact stable or nightly upstream tag>",
@@ -180,6 +180,10 @@ artifact. It must contain:
   "artifact": {
     "image": "ghcr.io/lazurio/t3code",
     "digest": "sha256:<64 lowercase hex characters>",
+    "sbom": "sbom.spdx.json",
+    "provenance": "provenance.slsa.json",
+    "build_metadata": "build-metadata.json",
+    "attestation_bundle": "attestation.jsonl",
     "checksums": "SHA256SUMS"
   },
   "configuration": {
@@ -188,18 +192,17 @@ artifact. It must contain:
     "external_origin": "injected per Team at runtime"
   },
   "validation": {
-    "checks": [
-      "fork PR CI",
-      "focused server authorization tests",
-      "default web build",
-      "opt-in hosted web build",
-      "vanilla desktop pairing and access-management smoke",
-      "vanilla mobile pairing smoke"
-    ],
-    "fable_5_review": "PASS"
+    "workflow_run": "<exact GitHub Actions run URL>",
+    "attestation": "<exact GitHub attestation URL>"
   }
 }
 ```
+
+This machine record states only what the release workflow can prove. It must not claim physical
+desktop/mobile pairing, an independent review, or a live deployment. Those release-readiness and
+promotion gates stay in the canonical infrastructure acceptance runbook and are checked by the
+protected environment reviewer before dispatch; copying them into this JSON would create a second,
+unverifiable checklist.
 
 Generate the source and artifact fields from the final clean release checkout and published OCI
 manifest, not from a working tree or mutable branch name:
@@ -227,6 +230,6 @@ The fork remains MIT-licensed. Retain the upstream copyright and license and inc
 "Based on T3 Code" attribution in an appropriate product/about surface; Lazurio branding must not
 imply that the fork is an official T3 Tools distribution.
 
-A release remains blocked unless all listed checks passed against the recorded source commit and
-the exact diff was reviewed. Merging source, creating a GitHub Release, publishing an artifact,
-changing a hosted pin, or deploying live infrastructure are separate publication actions.
+A release remains blocked unless the canonical acceptance gates passed against the recorded source
+commit and the exact diff was reviewed. Merging source, creating a GitHub Release, publishing an
+artifact, changing a hosted pin, or deploying live infrastructure are separate publication actions.
