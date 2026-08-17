@@ -1,0 +1,79 @@
+name: Lazurio Fork CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: none
+
+concurrency:
+  group: lazurio-fork-ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  server-and-web:
+    name: Server and web compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact public revision without credentials
+        run: |
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_REF}"
+          git checkout --detach FETCH_HEAD
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm exec vp fmt --check
+
+      - name: Lint
+        run: pnpm exec vp lint --report-unused-disable-directives
+
+      - name: Typecheck server and web
+        run: |
+          pnpm exec vp run --filter t3 typecheck
+          pnpm exec vp run --filter @t3tools/web typecheck
+
+      - name: Test hosted-origin and access compatibility
+        run: |
+          cd apps/server
+          pnpm exec vp test run \
+            src/cli/config.test.ts \
+            src/cli/pair.test.ts \
+            src/serverRuntimeState.test.ts \
+            src/auth/EnvironmentAuth.test.ts \
+            src/auth/EnvironmentAuthPolicy.test.ts \
+            src/auth/SessionStore.test.ts \
+            src/auth/utils.test.ts \
+            src/server.test.ts
+          cd ../web
+          pnpm exec vp test run \
+            src/branding.test.ts \
+            src/components/settings/ConnectionsSettings.logic.test.ts
+
+      - name: Build vanilla web distribution
+        run: pnpm exec vp run --filter @t3tools/web build
+
+      - name: Build Lazurio browser distribution
+        env:
+          VITE_HOSTED_APP_NAME: Lazurio T3 Code
+        run: pnpm exec vp run --filter @t3tools/web build
