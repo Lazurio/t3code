@@ -26,7 +26,12 @@ RUN npm install --global "pnpm@$PNPM_VERSION" --no-audit --no-fund \
     && test -s /source/apps/server/dist/client/index.html \
     && pnpm --config.allowUnusedPatches=true --filter t3 deploy \
       --prod --legacy --ignore-scripts /opt/lazurio-t3 \
-    && pnpm --dir /opt/lazurio-t3 rebuild node-pty \
+    && node_pty_source="$(node -p "require.resolve('node-pty/package.json', { paths: ['/source/apps/server'] })")" \
+    && node_pty_source="${node_pty_source%/package.json}" \
+    && node_pty_target=/opt/lazurio-t3/node_modules/node-pty \
+    && test -f "$node_pty_source/build/Release/pty.node" \
+    && test -d "$node_pty_target" \
+    && cp -a "$node_pty_source/build" "$node_pty_target/" \
     && test -f /opt/lazurio-t3/node_modules/node-pty/build/Release/pty.node
 
 FROM $NODE_BASE_IMAGE
