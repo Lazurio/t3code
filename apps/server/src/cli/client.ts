@@ -270,6 +270,17 @@ const dispatchClientCommand = (
     );
   });
 
+export const readClientSnapshot = (connectionPath: string) =>
+  withClientConnection(connectionPath, fetchClientSnapshot);
+
+export const readClientThreadSnapshot = (connectionPath: string, threadId: ThreadId) =>
+  withClientConnection(connectionPath, (connection) =>
+    fetchClientThreadSnapshot(connection, threadId),
+  );
+
+export const sendClientCommand = (connectionPath: string, command: ClientOrchestrationCommand) =>
+  withClientConnection(connectionPath, (connection) => dispatchClientCommand(connection, command));
+
 const provideClientHttp = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(remoteHttpClientLayer(globalThis.fetch)));
 
@@ -322,11 +333,10 @@ const snapshotCommand = Command.make("snapshot", {
 }).pipe(
   Command.withDescription("Read the environment's orchestration command snapshot as JSON."),
   Command.withHandler((flags) =>
-    withClientConnection(flags.connection, (connection) =>
-      fetchClientSnapshot(connection).pipe(
-        Effect.flatMap((snapshot) => Console.log(encodePresentationJson(snapshot))),
-      ),
-    ).pipe(provideClientHttp),
+    readClientSnapshot(flags.connection).pipe(
+      Effect.flatMap((snapshot) => Console.log(encodePresentationJson(snapshot))),
+      provideClientHttp,
+    ),
   ),
 );
 
@@ -336,11 +346,10 @@ const threadCommand = Command.make("thread", {
 }).pipe(
   Command.withDescription("Read one thread snapshot as JSON."),
   Command.withHandler((flags) =>
-    withClientConnection(flags.connection, (connection) =>
-      fetchClientThreadSnapshot(connection, ThreadId.make(flags.threadId)).pipe(
-        Effect.flatMap((snapshot) => Console.log(encodePresentationJson(snapshot))),
-      ),
-    ).pipe(provideClientHttp),
+    readClientThreadSnapshot(flags.connection, ThreadId.make(flags.threadId)).pipe(
+      Effect.flatMap((snapshot) => Console.log(encodePresentationJson(snapshot))),
+      provideClientHttp,
+    ),
   ),
 );
 
@@ -365,10 +374,8 @@ const dispatchCommand = Command.make("dispatch", {
           ),
         );
       const command = yield* decodeClientCommandDocument(flags.commandFile, contents);
-      return yield* withClientConnection(flags.connection, (connection) =>
-        dispatchClientCommand(connection, command).pipe(
-          Effect.flatMap((result) => Console.log(encodePresentationJson(result))),
-        ),
+      return yield* sendClientCommand(flags.connection, command).pipe(
+        Effect.flatMap((result) => Console.log(encodePresentationJson(result))),
       );
     }).pipe(provideClientHttp),
   ),

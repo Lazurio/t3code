@@ -70,6 +70,11 @@ orchestration contracts. It exists for callers that cannot or should not drive t
 including automation inside a shared hosted workspace and an agent coordinator delegating work to a
 T3 environment on another machine.
 
+The existing graphical surfaces and project-oriented CLI do not expose a supported general-purpose
+machine entry point for orchestration reads and dispatch. Making the adapter official keeps those
+callers inside T3's existing execution boundary instead of encouraging UI automation or independent
+implementations of pairing, authorization, command validation, and response decoding.
+
 Those deployment contexts do not create new T3 roles or protocol variants. The environment's live
 session scopes remain the authorization boundary; the target project and explicit command fields
 describe the requested work. In particular, client-originated `thread.turn.start` commands require

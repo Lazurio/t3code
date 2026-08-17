@@ -80,8 +80,8 @@ local-machine flow.
 The operator remains responsible for TLS, network restrictions, browser authentication, and
 forwarding the existing HTTP and WebSocket routes. Keep the backend on loopback, do not publish its
 port directly, and do not put pairing credentials in proxy configuration or access logs. Official
-desktop and mobile clients use the same native T3 protocol and do not require a Lazurio-specific
-client build.
+desktop and mobile clients use the same native T3 protocol and do not require a
+distribution-specific client build.
 
 Declaring an external origin does not give a browser administrative access. The browser still needs
 a native T3 session containing `access:write` before it can create or revoke device invitations.
@@ -189,7 +189,10 @@ the environment the project lives on. Every saved environment is offered, not on
 Use `t3 client` when another local program or agent harness needs to operate an existing T3
 environment without driving the graphical interface. This is the same environment, pairing, scope,
 and orchestration protocol used by the web, desktop, and mobile clients; it is not a separate server
-mode or automation control plane.
+mode or automation control plane. The graphical clients and project-oriented CLI are useful for
+interactive work, but they do not provide a supported, general machine-facing entry point for
+reading and dispatching orchestration work. Without this adapter, automation would have to drive the
+UI or duplicate T3's pairing and HTTP contracts.
 
 First create a one-time pairing credential on the target environment with `t3 auth pairing create`.
 Give the credential to the client through `T3CODE_CLIENT_PAIRING_TOKEN`, not a command-line argument,
@@ -207,8 +210,9 @@ unset T3CODE_CLIENT_PAIRING_TOKEN
 ```
 
 The command prints non-secret connection metadata. The connection file contains the resulting bearer
-credential and is written with owner-only permissions on platforms that support POSIX modes. Keep it
-outside repositories, logs, and build artifacts; possession of the file does not grant more access
+credential and is atomically written with owner-only `0600` permissions on platforms that support
+POSIX modes. The caller deliberately chooses its path and remains responsible for custody: keep it
+outside repositories, logs, and build artifacts. Possession of the file does not grant more access
 than the scopes recorded in the server session.
 
 The initial client surface is intentionally small:
@@ -223,6 +227,47 @@ npx t3 client dispatch command.json --connection "$T3_CLIENT_CONNECTION"
 stable `commandId` for the server's existing idempotency behavior. A `thread.turn.start` command must
 also choose both `runtimeMode` and `interactionMode` explicitly; the machine client never silently
 decides whether T3's provider sandbox or approval flow is enabled.
+
+For example, this complete sequence pairs once, reads the current environment and one existing
+thread, then starts a turn on that thread:
+
+```bash
+read -rsp "T3 pairing credential: " T3CODE_CLIENT_PAIRING_TOKEN
+export T3CODE_CLIENT_PAIRING_TOKEN
+T3_CLIENT_CONNECTION="${XDG_CONFIG_HOME:-$HOME/.config}/t3/workspace-automation.json"
+npx t3 client pair https://t3.example.test \
+  --connection "$T3_CLIENT_CONNECTION" \
+  --label "Workspace automation" \
+  --device-type bot
+unset T3CODE_CLIENT_PAIRING_TOKEN
+
+npx t3 client snapshot --connection "$T3_CLIENT_CONNECTION"
+npx t3 client thread thread-1 --connection "$T3_CLIENT_CONNECTION"
+
+cat >turn-command.json <<'JSON'
+{
+  "type": "thread.turn.start",
+  "commandId": "automation-turn-20260817-001",
+  "threadId": "thread-1",
+  "message": {
+    "messageId": "automation-message-20260817-001",
+    "role": "user",
+    "text": "Run the focused checks and report the result.",
+    "attachments": []
+  },
+  "runtimeMode": "approval-required",
+  "interactionMode": "default",
+  "createdAt": "2026-08-17T12:00:00.000Z"
+}
+JSON
+npx t3 client dispatch turn-command.json --connection "$T3_CLIENT_CONNECTION"
+```
+
+Use IDs returned by `snapshot`; if there is no suitable thread, dispatch an existing
+`thread.create` command first. Keep the same `commandId` when retrying the same logical operation so
+the server can apply its existing idempotency behavior. The example writes `turn-command.json` only
+for clarity—it contains task content, not the bearer credential—but callers should still keep
+generated command files out of repositories unless they intentionally want to version them.
 
 The CLI has no background daemon, scheduler, identity database, persona flag, or separate policy
 engine. Different uses—such as workspace automation and a personal agent delegating work—vary by the
