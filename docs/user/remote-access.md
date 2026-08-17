@@ -50,9 +50,9 @@ connection protocol or add workspace membership. T3 Code resolves the label in t
 3. the machine hostname
 4. the server working directory name
 
-The resolved label travels in the existing environment descriptor and appears in the conversation
-header, so one web client can distinguish multiple Team Workspaces without URL conventions or
-client-specific source changes.
+The resolved label travels in the existing environment descriptor. An opt-in branded browser
+distribution displays it in the conversation header, so one web client can distinguish multiple
+Team Workspaces without URL conventions or client-specific protocol changes.
 
 ## Running Behind a Trusted HTTPS Reverse Proxy
 

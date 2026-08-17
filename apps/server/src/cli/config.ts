@@ -386,7 +386,7 @@ export const resolveServerConfig = (
     );
     if (
       env.externalOrigin !== undefined &&
-      (mode !== "web" || host === undefined || !isLoopbackHost(host))
+      (mode !== "web" || host === undefined || host.trim().length === 0 || !isLoopbackHost(host))
     ) {
       return yield* Effect.fail(
         invalidConfigValue(
