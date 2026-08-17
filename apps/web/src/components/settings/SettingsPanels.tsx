@@ -38,7 +38,12 @@ import { createModelSelection } from "@t3tools/shared/model";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
-import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
+import {
+  APP_VERSION,
+  HOSTED_APP_CHANNEL,
+  HOSTED_APP_CHANNEL_LABEL,
+  WEB_DISTRIBUTION_NAME,
+} from "../../branding";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -2286,6 +2291,23 @@ export function GeneralSettingsPanel() {
             description="Current version of the application."
           />
         )}
+        {WEB_DISTRIBUTION_NAME ? (
+          <SettingsRow
+            title="Distribution"
+            description={`${WEB_DISTRIBUTION_NAME} is an independently maintained distribution based on the open-source T3 Code project.`}
+            control={
+              <Button
+                render={
+                  <a href="https://github.com/pingdotgg/t3code" target="_blank" rel="noreferrer" />
+                }
+                size="xs"
+                variant="outline"
+              >
+                Upstream source
+              </Button>
+            }
+          />
+        ) : null}
         <SettingsRow
           {...searchableSetting("diagnostics")}
           description={diagnosticsDescription}

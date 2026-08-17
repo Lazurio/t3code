@@ -131,8 +131,15 @@ export class ServePortOccupiedError extends Schema.TaggedErrorClass<ServePortOcc
 }
 
 /** The URL a browser or phone should pair through, absent Tailscale. */
-export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
-  state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+export const resolveDirectPairingBaseUrl = (
+  state: PersistedServerRuntimeState,
+  interfaces?: Parameters<typeof resolveHeadlessConnectionString>[2],
+): string =>
+  state.devUrl ??
+  state.externalOrigin ??
+  (isWildcardHost(state.host)
+    ? resolveHeadlessConnectionString(state.host, state.port, interfaces)
+    : state.origin);
 
 export class DevServerNotProxiableError extends Schema.TaggedErrorClass<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -335,6 +342,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
     mode: "web",
     port: state.port,
     host: state.host,
+    externalOrigin: state.externalOrigin ? new URL(state.externalOrigin) : undefined,
     cwd: process.cwd(),
     baseDir,
     ...derivedPaths,
@@ -530,7 +538,7 @@ export const pairCommand = Command.make("pair", {
       yield* Console.log(
         formatPairOutput({
           serverLabel: target.descriptor.label,
-          origin: target.state.origin,
+          origin: pairingBaseUrl,
           pairingUrl,
           token: issued.credential,
           expiresAt: issued.expiresAt,

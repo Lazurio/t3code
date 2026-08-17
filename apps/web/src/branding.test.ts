@@ -40,6 +40,7 @@ describe("branding", () => {
     expect(branding.APP_BASE_NAME).toBe("T3 Code");
     expect(branding.APP_STAGE_LABEL).toBe("Nightly");
     expect(branding.APP_DISPLAY_NAME).toBe("T3 Code (Nightly)");
+    expect(branding.WEB_DISTRIBUTION_NAME).toBeNull();
   });
 
   it("normalizes hosted app channel metadata", async () => {
@@ -66,7 +67,7 @@ describe("branding", () => {
     expect(branding.APP_DISPLAY_NAME).toBe("T3 Code");
   });
 
-  it("ignores unknown hosted app channels", async () => {
+  it("ignores unknown hosted app channels without discarding an explicit web name", async () => {
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "preview");
     vi.stubEnv("VITE_HOSTED_APP_NAME", "Lazurio T3 Code");
 
@@ -74,7 +75,7 @@ describe("branding", () => {
 
     expect(branding.HOSTED_APP_CHANNEL).toBeNull();
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBeNull();
-    expect(branding.APP_BASE_NAME).toBe("T3 Code");
+    expect(branding.APP_BASE_NAME).toBe("Lazurio T3 Code");
   });
 
   it("uses an explicit hosted web name for a hosted channel", async () => {
@@ -87,13 +88,16 @@ describe("branding", () => {
     expect(branding.APP_DISPLAY_NAME).toBe("Lazurio T3 Code");
   });
 
-  it("keeps vanilla web branding when a hosted name has no hosted channel", async () => {
+  it("uses an explicit web name without enabling the upstream hosted-static channel", async () => {
     vi.stubEnv("VITE_HOSTED_APP_CHANNEL", "");
     vi.stubEnv("VITE_HOSTED_APP_NAME", "Lazurio T3 Code");
 
     const branding = await import("./branding");
 
-    expect(branding.APP_BASE_NAME).toBe("T3 Code");
+    expect(branding.HOSTED_APP_CHANNEL).toBeNull();
+    expect(branding.APP_BASE_NAME).toBe("Lazurio T3 Code");
+    expect(branding.APP_DISPLAY_NAME).toBe("Lazurio T3 Code");
+    expect(branding.WEB_DISTRIBUTION_NAME).toBe("Lazurio T3 Code");
   });
 });
 

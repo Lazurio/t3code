@@ -41,11 +41,35 @@ describe("pair base URL selection", () => {
     );
   });
 
-  it("pairs through the bound host when there is no dev server", () => {
-    expect(resolveDirectPairingBaseUrl({ ...baseState, host: "100.64.0.7" })).toBe(
-      "http://100.64.0.7:3773",
-    );
-    expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://localhost:3773");
+  it("pairs through the recorded browser origin when there is no dev server", () => {
+    expect(
+      resolveDirectPairingBaseUrl({
+        ...baseState,
+        host: "127.0.0.1",
+        externalOrigin: "https://t3code.management.example.test/",
+      }),
+    ).toBe("https://t3code.management.example.test/");
+    expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://127.0.0.1:3773");
+  });
+
+  it("preserves a reachable direct pairing URL for a vanilla wildcard bind", () => {
+    expect(
+      resolveDirectPairingBaseUrl(
+        { ...baseState, host: "0.0.0.0" },
+        {
+          en0: [
+            {
+              address: "192.0.2.25",
+              netmask: "255.255.255.0",
+              family: "IPv4",
+              mac: "00:00:5e:00:53:01",
+              internal: false,
+              cidr: "192.0.2.25/24",
+            },
+          ],
+        },
+      ),
+    ).toBe("http://192.0.2.25:3773");
   });
 });
 

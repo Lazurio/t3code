@@ -41,6 +41,7 @@ import {
   WorkspaceBreadcrumbItem,
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
+import { WEB_DISTRIBUTION_NAME } from "../../branding";
 import { cn } from "~/lib/utils";
 
 interface ChatHeaderProps {
@@ -125,6 +126,7 @@ export const ChatHeader = memo(function ChatHeader({
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeEnvironment = useEnvironment(activeThreadEnvironmentId);
+  const showEnvironmentLabel = activeEnvironment !== null && WEB_DISTRIBUTION_NAME !== null;
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
@@ -220,7 +222,7 @@ export const ChatHeader = memo(function ChatHeader({
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb ariaLabel="Thread breadcrumb" className="flex-1">
-        {activeEnvironment ? (
+        {showEnvironmentLabel && activeEnvironment ? (
           <>
             <WorkspaceBreadcrumbItem>
               <span
