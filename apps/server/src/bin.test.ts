@@ -215,6 +215,18 @@ it.layer(NodeServices.layer)("bin cli parsing", (it) => {
     }),
   );
 
+  it.effect("exposes the generic paired machine client without T3 Connect configuration", () =>
+    Effect.gen(function* () {
+      const { output } = yield* captureStdout(runCli(["client", "--help"], noConnectCli));
+
+      assert.include(output, "Use T3 as a paired headless client.");
+      assert.include(output, "pair");
+      assert.include(output, "snapshot");
+      assert.include(output, "thread");
+      assert.include(output, "dispatch");
+    }),
+  );
+
   it.effect("reports fresh headless connect state without requiring local configuration", () =>
     Effect.gen(function* () {
       const baseDir = NodeFS.mkdtempSync(

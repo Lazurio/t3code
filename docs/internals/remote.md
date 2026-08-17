@@ -63,6 +63,36 @@ separate target kind. A Tailscale URL is paired through the ordinary bearer path
 host plus pairing code. Tailscale is an endpoint provider and transport, not a distinct runtime
 concept.
 
+### Headless machine client
+
+The `t3 client` command is a thin machine-facing adapter over the same bearer pairing and typed HTTP
+orchestration contracts. It exists for callers that cannot or should not drive the graphical client,
+including automation inside a shared hosted workspace and an agent coordinator delegating work to a
+T3 environment on another machine.
+
+Those deployment contexts do not create new T3 roles or protocol variants. The environment's live
+session scopes remain the authorization boundary; the target project and explicit command fields
+describe the requested work. In particular, client-originated `thread.turn.start` commands require
+both `runtimeMode` and `interactionMode`, so the caller chooses the existing provider sandbox and
+approval behavior rather than inheriting a headless-client default.
+
+The first surface deliberately reuses shipped primitives:
+
+- `pair` discovers the environment and exchanges a one-time token through the existing bearer flow;
+- `snapshot` and `thread` read the existing HTTP projections;
+- `dispatch` validates one `ClientOrchestrationCommand` and preserves its caller-supplied `commandId`
+  for the server's existing idempotency behavior.
+
+The caller chooses a single connection-document path. That file contains a bearer secret and cached
+environment identity, but it is not a connection catalog or source of authority: every operation
+re-discovers the endpoint, verifies the stable `environmentId`, and lets the server enforce the live
+session and scopes. There is no machine-client daemon, scheduler, retry database, persona enum,
+additional IAM layer, or second orchestration protocol.
+
+This small HTTP surface is sufficient for bounded, stateless calls. A future long-running client may
+compose the existing connection supervisor and WebSocket snapshot/subscription machinery from
+`@t3tools/client-runtime`; it must not invent a parallel resume or event protocol.
+
 ### AdvertisedEndpoint
 
 A server- or desktop-authored candidate endpoint for an environment: a concrete HTTP and WebSocket

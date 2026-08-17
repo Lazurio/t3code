@@ -184,6 +184,52 @@ npx t3 serve --tailscale-serve --tailscale-serve-port 8443
 Once paired, add projects normally: open the Command Palette and choose **Add Project**, then pick
 the environment the project lives on. Every saved environment is offered, not only the local one.
 
+### Paired Machine Client
+
+Use `t3 client` when another local program or agent harness needs to operate an existing T3
+environment without driving the graphical interface. This is the same environment, pairing, scope,
+and orchestration protocol used by the web, desktop, and mobile clients; it is not a separate server
+mode or automation control plane.
+
+First create a one-time pairing credential on the target environment with `t3 auth pairing create`.
+Give the credential to the client through `T3CODE_CLIENT_PAIRING_TOKEN`, not a command-line argument,
+then exchange it into one caller-owned connection file:
+
+```bash
+read -rsp "T3 pairing credential: " T3CODE_CLIENT_PAIRING_TOKEN
+export T3CODE_CLIENT_PAIRING_TOKEN
+T3_CLIENT_CONNECTION="${XDG_CONFIG_HOME:-$HOME/.config}/t3/workspace-automation.json"
+npx t3 client pair https://t3.example.test \
+  --connection "$T3_CLIENT_CONNECTION" \
+  --label "Workspace automation" \
+  --device-type bot
+unset T3CODE_CLIENT_PAIRING_TOKEN
+```
+
+The command prints non-secret connection metadata. The connection file contains the resulting bearer
+credential and is written with owner-only permissions on platforms that support POSIX modes. Keep it
+outside repositories, logs, and build artifacts; possession of the file does not grant more access
+than the scopes recorded in the server session.
+
+The initial client surface is intentionally small:
+
+```bash
+npx t3 client snapshot --connection "$T3_CLIENT_CONNECTION"
+npx t3 client thread THREAD_ID --connection "$T3_CLIENT_CONNECTION"
+npx t3 client dispatch command.json --connection "$T3_CLIENT_CONNECTION"
+```
+
+`dispatch` accepts exactly one existing `ClientOrchestrationCommand` JSON document. Callers supply a
+stable `commandId` for the server's existing idempotency behavior. A `thread.turn.start` command must
+also choose both `runtimeMode` and `interactionMode` explicitly; the machine client never silently
+decides whether T3's provider sandbox or approval flow is enabled.
+
+The CLI has no background daemon, scheduler, identity database, persona flag, or separate policy
+engine. Different uses—such as workspace automation and a personal agent delegating work—vary by the
+paired environment, live server scopes, project, and explicit command fields rather than by forking
+the T3 protocol. Revoke the corresponding session with `t3 auth session revoke` when the client no
+longer needs access.
+
 ### Option 3: Desktop-Managed SSH Launch
 
 Use this when you want the desktop app to start or reuse T3 Code on another machine over SSH.
