@@ -137,9 +137,7 @@ export const resolveDirectPairingBaseUrl = (
 ): string =>
   state.devUrl ??
   state.externalOrigin ??
-  (isWildcardHost(state.host)
-    ? resolveHeadlessConnectionString(state.host, state.port, interfaces)
-    : state.origin);
+  resolveHeadlessConnectionString(state.host, state.port, interfaces);
 
 export class DevServerNotProxiableError extends Schema.TaggedErrorClass<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
