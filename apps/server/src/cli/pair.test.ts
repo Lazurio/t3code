@@ -53,6 +53,9 @@ describe("pair base URL selection", () => {
     expect(resolveDirectPairingBaseUrl({ ...baseState, host: "127.0.0.1" })).toBe(
       "http://127.0.0.1:3773",
     );
+    expect(resolveDirectPairingBaseUrl({ ...baseState, host: "192.168.1.10" })).toBe(
+      "http://192.168.1.10:3773",
+    );
   });
 
   it("preserves a reachable direct pairing URL for a vanilla wildcard bind", () => {
