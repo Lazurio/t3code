@@ -1968,6 +1968,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         headers: {
           cookie: ownerCookie,
           "content-type": "application/json",
+          origin: "https://t3code.management.example.test",
         },
         body: jsonRequestBody({
           challenge: "relay-link-challenge",
