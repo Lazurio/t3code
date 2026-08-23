@@ -49,7 +49,10 @@ describe("pair base URL selection", () => {
         externalOrigin: "https://t3code.management.example.test/",
       }),
     ).toBe("https://t3code.management.example.test/");
-    expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://127.0.0.1:3773");
+    expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://localhost:3773");
+    expect(resolveDirectPairingBaseUrl({ ...baseState, host: "127.0.0.1" })).toBe(
+      "http://127.0.0.1:3773",
+    );
   });
 
   it("preserves a reachable direct pairing URL for a vanilla wildcard bind", () => {
