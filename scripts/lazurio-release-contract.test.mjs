@@ -55,6 +55,7 @@ NodeTest.test("release workflow publishes one immutable GHCR tag with standard e
 NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", () => {
   NodeAssert.match(dockerfile, /ARG NODE_BASE_IMAGE/);
   NodeAssert.match(dockerfile, /ARG BUN_BASE_IMAGE/);
+  NodeAssert.match(dockerfile, /pnpm config set allowUnusedPatches true --location=project/);
   NodeAssert.match(dockerfile, /pnpm install --frozen-lockfile/);
   NodeAssert.match(
     dockerfile,
@@ -62,7 +63,7 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
   );
   NodeAssert.match(
     dockerfile,
-    /pnpm --config\.allowUnusedPatches=true --filter t3 deploy \\\n\s+--prod --legacy --ignore-scripts \/opt\/lazurio-t3/,
+    /pnpm --filter t3 deploy \\\n\s+--prod --legacy --ignore-scripts \/opt\/lazurio-t3/,
   );
   NodeAssert.match(
     dockerfile,
