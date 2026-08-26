@@ -19,12 +19,13 @@ RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx \
 WORKDIR /source
 COPY . .
 RUN npm install --global "pnpm@$PNPM_VERSION" --no-audit --no-fund \
+    && pnpm config set allowUnusedPatches true --location=project \
     && pnpm install --frozen-lockfile \
     && node scripts/lazurio-stamp-package-version.mjs "$PACKAGE_VERSION" \
     && pnpm exec vp run --filter @t3tools/web build \
     && pnpm exec vp run --filter t3 build \
     && test -s /source/apps/server/dist/client/index.html \
-    && pnpm --config.allowUnusedPatches=true --filter t3 deploy \
+    && pnpm --filter t3 deploy \
       --prod --legacy --ignore-scripts /opt/lazurio-t3 \
     && node_pty_source="$(node -p "require.resolve('node-pty/package.json', { paths: ['/source/apps/server'] })")" \
     && node_pty_source="${node_pty_source%/package.json}" \
