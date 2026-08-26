@@ -62,6 +62,23 @@ describe("serverRuntimeState", () => {
     }),
   );
 
+  it.effect("records the trusted external origin without changing the bind origin", () =>
+    Effect.gen(function* () {
+      const state = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: {
+          host: "127.0.0.1",
+          devUrl: undefined,
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        },
+        port: 13_773,
+      });
+
+      assert.equal(state.host, "127.0.0.1");
+      assert.equal(state.origin, "http://127.0.0.1:13773");
+      assert.equal(state.externalOrigin, "https://t3code.management.example.test/");
+    }),
+  );
+
   it.effect("treats a missing runtime state file as absent", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

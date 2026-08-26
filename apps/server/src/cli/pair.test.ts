@@ -41,7 +41,17 @@ describe("pair base URL selection", () => {
     );
   });
 
-  it("pairs through the bound host when there is no dev server", () => {
+  it("pairs through the trusted browser origin when one is recorded", () => {
+    expect(
+      resolveDirectPairingBaseUrl({
+        ...baseState,
+        host: "127.0.0.1",
+        externalOrigin: "https://t3code.management.example.test/",
+      }),
+    ).toBe("https://t3code.management.example.test/");
+  });
+
+  it("pairs through the bound host when there is no browser origin", () => {
     expect(resolveDirectPairingBaseUrl({ ...baseState, host: "100.64.0.7" })).toBe(
       "http://100.64.0.7:3773",
     );

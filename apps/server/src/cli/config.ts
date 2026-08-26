@@ -16,6 +16,7 @@ import { Argument, Flag } from "effect/unstable/cli";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+import { isLoopbackHost } from "../startupAccess.ts";
 
 export const modeFlag = Flag.choice("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
@@ -75,6 +76,41 @@ export const tailscaleServePortFlag = Flag.integer("tailscale-serve-port").pipe(
   Flag.optional,
 );
 
+const invalidConfigValue = (message: string) =>
+  new Config.ConfigError(
+    new Schema.SchemaError(
+      new SchemaIssue.InvalidValue({
+        message,
+      }),
+    ),
+  );
+
+const validateExternalOrigin = (value: string) => {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) {
+      throw new Error("invalid external origin");
+    }
+    return Effect.succeed(new URL(url.origin));
+  } catch {
+    return Effect.fail(
+      invalidConfigValue("T3CODE_EXTERNAL_ORIGIN must be an absolute HTTPS origin."),
+    );
+  }
+};
+
+export const externalOriginConfig = Config.nonEmptyString("T3CODE_EXTERNAL_ORIGIN").pipe(
+  Config.map((value) => value.trim()),
+  Config.mapOrFail(validateExternalOrigin),
+);
+
 const EnvServerConfig = Config.all({
   logLevel: Config.logLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
   traceMinLevel: Config.logLevel("T3CODE_TRACE_MIN_LEVEL").pipe(Config.withDefault("Info")),
@@ -104,6 +140,7 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  externalOrigin: externalOriginConfig.pipe(Config.option, Config.map(Option.getOrUndefined)),
   t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
@@ -347,6 +384,16 @@ export const resolveServerConfig = (
       ),
       () => (mode === "desktop" ? "127.0.0.1" : undefined),
     );
+    if (
+      env.externalOrigin !== undefined &&
+      (mode !== "web" || host === undefined || host.trim().length === 0 || !isLoopbackHost(host))
+    ) {
+      return yield* Effect.fail(
+        invalidConfigValue(
+          "T3CODE_EXTERNAL_ORIGIN requires web mode and an explicit loopback T3CODE_HOST.",
+        ),
+      );
+    }
     const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
 
     const config: ServerConfig.ServerConfig["Service"] = {
@@ -373,6 +420,7 @@ export const resolveServerConfig = (
       ...derivedPaths,
       serverTracePath,
       host,
+      ...(env.externalOrigin ? { externalOrigin: env.externalOrigin } : {}),
       staticDir,
       devUrl,
       devAllowedOrigins: env.devAllowedOrigins,
