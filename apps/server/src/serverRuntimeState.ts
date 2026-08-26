@@ -49,10 +49,7 @@ const runtimeOriginForConfig = (
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<
-    ServerConfig.ServerConfig["Service"],
-    "host" | "devUrl" | "externalOrigin"
-  >;
+  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl" | "externalOrigin">;
   readonly port: number;
 }): Effect.Effect<PersistedServerRuntimeState> =>
   Effect.map(DateTime.now, (now) => ({
