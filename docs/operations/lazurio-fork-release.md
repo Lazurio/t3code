@@ -6,8 +6,8 @@ Workspaces. The fork does not own a client, protocol, identity model, or product
 
 ## Exact upstream base
 
-This update is based directly on upstream stable tag `v0.0.34` at
-`badae6a5cc8325dcd5a145bea6f7b8ac692818a1` and preserves its complete ancestry. Updates are
+This update is based directly on upstream stable tag `v0.0.35` at
+`f925d639421844f02b3166d29281905dbba6d529` and preserves its complete ancestry. Updates are
 rebuilt from an exact upstream stable tag; they do not merge the previous diverged fork history.
 
 The old pilot source remains immutable and auditably retained by tag and release
@@ -23,17 +23,25 @@ The source overlay is deliberately limited to two generic server capabilities:
   bound to an explicit loopback host behind an operator-managed reverse proxy;
 - `T3CODE_ENVIRONMENT_LABEL`: an explicit human-readable environment label.
 
-The rest of the overlay is packaging and automation: fork-safe read-only CI, a non-root OCI
-Dockerfile, and a manually dispatched immutable release workflow.
+The rest of the overlay is browser presentation, packaging, and automation: opt-in hosted product
+identity, fork-safe read-only CI, a non-root OCI Dockerfile, and a manually dispatched immutable
+release workflow.
 
 The fork does not change `packages/contracts`, `packages/client-runtime`, `apps/mobile`, or
 `apps/desktop`. It does not add Lazurio headers, routes, endpoints, token formats, wire schemas,
 client packages, or a second IAM. The canonical web connection route remains
 `/settings/connections`; any Lazurio navigation to it belongs in Dashboard or infrastructure.
 
-Upstream `v0.0.34` already owns the Connections UI, one-use pairing credentials, QR presentation,
+Upstream `v0.0.35` already owns the Connections UI, one-use pairing credentials, QR presentation,
 session/device listing, and revocation. Earlier fork-only invitation presentation and machine-client
-work are intentionally absent. The browser distribution keeps vanilla T3 Code branding.
+work are intentionally absent. A release image opts the browser shell into the generic
+`VITE_HOSTED_APP_NAME` identity `Lazurio T3 Code`; vanilla builds and official desktop/mobile
+clients remain T3 Code.
+
+The product identity and Workspace identity have separate owners. The build identifies the hosted
+browser distribution. At runtime, the existing `T3CODE_ENVIRONMENT_LABEL` descriptor supplies the
+Team Workspace label, so the header and document title can show values such as
+`Lazurio T3 Code — Iotor / Management` without an Iotor-specific source patch.
 
 ## Hosted origin semantics
 
@@ -66,18 +74,18 @@ Only these workflows are active:
 
 Fork CI fetches the exact upstream tag, verifies its SHA and ancestry, rejects any overlay change in
 the four client/protocol boundary paths, runs formatting/lint/typechecks and focused server/web
-tests, builds the vanilla web distribution, validates the release contract, and builds the OCI
-image without publishing it.
+tests, builds the vanilla web distribution, validates the release contract, and builds the branded
+OCI image without publishing it.
 
 The release workflow accepts only an existing immutable Lazurio tag whose exact source is already
 on `main`. It verifies the requested upstream tag/SHA, publishes one GHCR tag with SBOM,
 provenance and attestation, and creates the matching GitHub Release. It publishes no `latest`,
 branch, client package, relay, hosted channel, infrastructure pin, or deployment.
 
-For `v0.0.34`, release packaging runs
-`scripts/lazurio-stamp-package-version.mjs 0.0.34` against only the server and web package
+For `v0.0.35`, release packaging runs
+`scripts/lazurio-stamp-package-version.mjs 0.0.35` against only the server and web package
 manifests before building, so the deployed discovery
-descriptor reports `serverVersion: "0.0.34"`, even though source package manifests retain the
+descriptor reports `serverVersion: "0.0.35"`, even though source package manifests retain the
 upstream development version before release stamping.
 
 ## Required vanilla-client gate

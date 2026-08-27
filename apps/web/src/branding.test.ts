@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  formatHostedDocumentTitle,
   resolveServerBackedAppDisplayName,
   resolveServerBackedAppStageLabel,
 } from "./branding.logic";
@@ -7,6 +8,7 @@ import {
 const originalWindow = globalThis.window;
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.resetModules();
 
   if (originalWindow === undefined) {
@@ -19,6 +21,7 @@ afterEach(() => {
 
 describe("branding", () => {
   it("uses injected desktop branding when available", async () => {
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "Lazurio T3 Code");
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
@@ -37,6 +40,7 @@ describe("branding", () => {
     expect(branding.APP_BASE_NAME).toBe("T3 Code");
     expect(branding.APP_STAGE_LABEL).toBe("Nightly");
     expect(branding.APP_DISPLAY_NAME).toBe("T3 Code (Nightly)");
+    expect(branding.HOSTED_APP_NAME).toBeNull();
   });
 
   it("normalizes hosted app channel metadata", async () => {
@@ -68,6 +72,22 @@ describe("branding", () => {
 
     expect(branding.HOSTED_APP_CHANNEL).toBeNull();
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBeNull();
+  });
+
+  it("uses the opt-in hosted browser identity without changing desktop branding", async () => {
+    vi.stubEnv("VITE_HOSTED_APP_NAME", "  Lazurio T3 Code  ");
+    vi.stubEnv("VITE_DISTRIBUTION_RELEASE", "lazurio-v0.0.35-r1");
+    vi.stubEnv("VITE_DISTRIBUTION_UPSTREAM_TAG", "v0.0.35");
+    vi.stubEnv("VITE_DISTRIBUTION_UPSTREAM_BASE", "f925d639421844f02b3166d29281905dbba6d529");
+
+    const branding = await import("./branding");
+
+    expect(branding.HOSTED_APP_NAME).toBe("Lazurio T3 Code");
+    expect(branding.APP_BASE_NAME).toBe("Lazurio T3 Code");
+    expect(branding.APP_DISPLAY_NAME).toBe("Lazurio T3 Code");
+    expect(branding.DISTRIBUTION_RELEASE).toBe("lazurio-v0.0.35-r1");
+    expect(branding.DISTRIBUTION_UPSTREAM_TAG).toBe("v0.0.35");
+    expect(branding.DISTRIBUTION_UPSTREAM_BASE).toBe("f925d639421844f02b3166d29281905dbba6d529");
   });
 });
 
@@ -110,6 +130,24 @@ describe("branding logic", () => {
         fallbackDisplayName: "T3 Code (Alpha)",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.28-nightly.20260616",
+      }),
+    ).toBe("T3 Code (Alpha)");
+  });
+
+  it("adds the runtime Workspace identity only to hosted browser titles", () => {
+    expect(
+      formatHostedDocumentTitle({
+        appDisplayName: "Lazurio T3 Code",
+        hostedAppName: "Lazurio T3 Code",
+        environmentLabel: " Iotor / Management ",
+      }),
+    ).toBe("Lazurio T3 Code — Iotor / Management");
+
+    expect(
+      formatHostedDocumentTitle({
+        appDisplayName: "T3 Code (Alpha)",
+        hostedAppName: null,
+        environmentLabel: "Iotor / Management",
       }),
     ).toBe("T3 Code (Alpha)");
   });

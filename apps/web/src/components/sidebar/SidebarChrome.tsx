@@ -8,9 +8,10 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { APP_BASE_NAME, HOSTED_APP_NAME } from "../../branding";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { useEnvironments } from "../../state/environments";
+import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
@@ -38,6 +39,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron: boolean;
 }) {
   const stageLabel = useEnvironmentStageLabel();
+  const primaryEnvironmentLabel = usePrimaryEnvironment()?.label ?? null;
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const backdropVariant = resolveSidebarStageBackdropVariant(
     stageLabel,
@@ -64,7 +66,10 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
         )}
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
+      <SidebarBrand
+        environmentLabel={HOSTED_APP_NAME ? primaryEnvironmentLabel : null}
+        onBackdrop={backdropVariant !== null}
+      />
       {pillLabel ? (
         <Badge
           className="relative z-10 ml-1 rounded-full px-1.5 text-muted-foreground"
@@ -79,25 +84,52 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
-function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+function SidebarBrand({
+  environmentLabel,
+  onBackdrop,
+}: {
+  environmentLabel: string | null;
+  onBackdrop: boolean;
+}) {
   return (
     <Link
-      aria-label="Go to threads"
+      aria-label={
+        environmentLabel ? `Go to threads in ${environmentLabel}` : `Go to ${APP_BASE_NAME} threads`
+      }
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-9 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
     >
-      <T3Wordmark />
-      <span
-        className={cn(
-          "-translate-y-px truncate text-sm font-medium tracking-tight",
-          onBackdrop ? "text-white/70" : "text-muted-foreground",
-        )}
-      >
-        Code
-      </span>
+      {HOSTED_APP_NAME ? (
+        <span className="flex min-w-0 flex-col justify-center leading-none">
+          <span className="truncate text-sm font-semibold tracking-tight">{APP_BASE_NAME}</span>
+          {environmentLabel ? (
+            <span
+              className={cn(
+                "mt-1 truncate text-[10px] font-medium tracking-wide",
+                onBackdrop ? "text-white/75" : "text-muted-foreground",
+              )}
+              data-hosted-environment-label
+            >
+              Workspace · {environmentLabel}
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <>
+          <T3Wordmark />
+          <span
+            className={cn(
+              "-translate-y-px truncate text-sm font-medium tracking-tight",
+              onBackdrop ? "text-white/70" : "text-muted-foreground",
+            )}
+          >
+            Code
+          </span>
+        </>
+      )}
     </Link>
   );
 }

@@ -152,6 +152,10 @@ jobs:
             SOURCE_DATE_EPOCH=${{ steps.source.outputs.source_date_epoch }}
             SOURCE_REVISION=${{ env.SOURCE_SHA }}
             UPSTREAM_BASE=${{ env.UPSTREAM_SHA }}
+            VITE_DISTRIBUTION_RELEASE=${{ env.RELEASE_TAG }}
+            VITE_DISTRIBUTION_UPSTREAM_BASE=${{ env.UPSTREAM_SHA }}
+            VITE_DISTRIBUTION_UPSTREAM_TAG=${{ env.UPSTREAM_TAG }}
+            VITE_HOSTED_APP_NAME=Lazurio T3 Code
           labels: |
             org.opencontainers.image.created=${{ steps.source.outputs.source_date_iso }}
             org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
@@ -221,7 +225,9 @@ jobs:
               },
               configuration: {
                 hosted_app_channel: null,
-                hosted_app_name: null,
+                hosted_app_name: "Lazurio T3 Code",
+                distribution_release: $tag,
+                workspace_label: "injected by T3CODE_ENVIRONMENT_LABEL at runtime",
                 external_origin: "injected per Team at runtime"
               },
               validation: {
@@ -241,6 +247,7 @@ jobs:
             --arg attestation "$ATTESTATION_URL" \
             '"# Lazurio T3 Code \($tag)\n\n" +
              "This is an immutable **\($release_provenance)** browser distribution for Lazurio Team Workspaces.\n" +
+             "The hosted UI identifies itself as **Lazurio T3 Code** and shows the runtime Team Workspace label.\n" +
              "Official desktop and mobile applications remain vanilla upstream T3 Code clients.\n\n" +
              "- Source: `\($source)`\n" +
              "- Upstream base: `\($upstream_tag)` at `\($upstream_sha)`\n" +

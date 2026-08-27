@@ -79,8 +79,13 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
   NodeAssert.doesNotMatch(workspaceConfig, /^allowUnusedPatches:/m);
   NodeAssert.match(forkCi, /pty\.spawn\("\/bin\/sh"/);
   NodeAssert.match(forkCi, /pty-smoke=PASS/);
-  NodeAssert.doesNotMatch(dockerfile, /VITE_HOSTED_APP_NAME/);
+  NodeAssert.match(dockerfile, /ARG VITE_HOSTED_APP_NAME/);
+  NodeAssert.match(dockerfile, /VITE_HOSTED_APP_NAME=\$VITE_HOSTED_APP_NAME/);
   NodeAssert.doesNotMatch(dockerfile, /VITE_HOSTED_APP_CHANNEL/);
+  NodeAssert.match(workflow, /VITE_HOSTED_APP_NAME=Lazurio T3 Code/);
+  NodeAssert.match(workflow, /VITE_DISTRIBUTION_RELEASE=\$\{\{ env\.RELEASE_TAG \}\}/);
+  NodeAssert.match(workflow, /hosted_app_name: "Lazurio T3 Code"/);
+  NodeAssert.match(workflow, /workspace_label: "injected by T3CODE_ENVIRONMENT_LABEL at runtime"/);
   NodeAssert.match(dockerfile, /USER 10001:10001/);
   NodeAssert.match(dockerfile, /CMD \["serve", "--host", "127\.0\.0\.1"\]/);
   NodeAssert.match(versionStamp, /apps\/server\/package\.json/);
@@ -89,11 +94,12 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
 });
 
 NodeTest.test("fork CI proves the exact upstream base and protected client boundaries", () => {
-  NodeAssert.match(forkCi, /refs\/tags\/v0\.0\.34:refs\/tags\/upstream-v0\.0\.34/);
-  NodeAssert.match(forkCi, /badae6a5cc8325dcd5a145bea6f7b8ac692818a1/);
+  NodeAssert.match(forkCi, /refs\/tags\/v0\.0\.35:refs\/tags\/upstream-v0\.0\.35/);
+  NodeAssert.match(forkCi, /f925d639421844f02b3166d29281905dbba6d529/);
   NodeAssert.match(
     forkCi,
     /\^\(packages\/contracts\|packages\/client-runtime\|apps\/mobile\|apps\/desktop\)/,
   );
-  NodeAssert.match(forkCi, /--build-arg PACKAGE_VERSION=0\.0\.34/);
+  NodeAssert.match(forkCi, /--build-arg PACKAGE_VERSION=0\.0\.35/);
+  NodeAssert.match(forkCi, /--build-arg "VITE_HOSTED_APP_NAME=Lazurio T3 Code"/);
 });
