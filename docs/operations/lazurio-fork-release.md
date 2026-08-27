@@ -17,19 +17,27 @@ branches are never rewritten as part of a stable sync.
 
 ## Patch budget
 
-The source overlay is deliberately limited to two generic server capabilities:
+The hosted-distribution overlay retains two generic server capabilities:
 
 - `T3CODE_EXTERNAL_ORIGIN`: one explicit HTTPS browser origin for a web-mode server that remains
   bound to an explicit loopback host behind an operator-managed reverse proxy;
 - `T3CODE_ENVIRONMENT_LABEL`: an explicit human-readable environment label.
 
+The collaboration overlay is additive and deliberately narrow: arbitrary browser files use a new
+optional `contextFiles` lane beside the unchanged image-only `ChatAttachment` union, opaque
+streamed storage, exact-file signed downloads, and web-only upload/download affordances. Official
+vanilla Desktop and Mobile clients continue to use their image-only wire behavior and silently
+ignore the optional field. When upstream stable ships equivalent generic-file support, the fork
+adopts the upstream contract and removes this patch after persisted-data reconciliation.
+
 The rest of the overlay is browser presentation, packaging, and automation: opt-in hosted product
 identity, fork-safe read-only CI, a non-root OCI Dockerfile, and a manually dispatched immutable
 release workflow.
 
-The fork does not change `packages/contracts`, `packages/client-runtime`, `apps/mobile`, or
-`apps/desktop`. It does not add Lazurio headers, routes, endpoints, token formats, wire schemas,
-client packages, or a second IAM. The canonical web connection route remains
+The fork does not change `apps/mobile` or `apps/desktop`, publish a Lazurio client, or add Lazurio
+headers, routes, endpoints, identity, or a second IAM. Its additive contract and reducer changes are
+limited to the generic-file lane and are covered by a decoder frozen to upstream v0.0.35. The
+canonical web connection route remains
 `/settings/connections`; any Lazurio navigation to it belongs in Dashboard or infrastructure.
 
 Upstream `v0.0.35` already owns the Connections UI, one-use pairing credentials, QR presentation,
@@ -87,6 +95,39 @@ For `v0.0.35`, release packaging runs
 manifests before building, so the deployed discovery
 descriptor reports `serverVersion: "0.0.35"`, even though source package manifests retain the
 upstream development version before release stamping.
+
+## Context-file migration lease
+
+The v0.0.35 overlay temporarily leases migration id `44` under the deliberately fork-identifiable
+row name `LazurioProjectionThreadMessagesContextFiles`. Fork CI requires it to remain the unique
+last migration. This lease must never be carried blindly across an upstream stable bump: upstream's
+next migration may also use id 44, and the monotonic migrator would otherwise skip it.
+
+Before adopting the first upstream stable whose manifest owns id 44 or greater:
+
+1. stop the Management candidate and take a verified database backup together with the persistent
+   builder home;
+2. build the candidate from the exact new upstream stable, retain all upstream migrations, and move
+   or remove the context-file overlay according to upstream parity;
+3. verify that the live ledger has no applied migration above 44 and that id 44 has exactly the fork
+   name above;
+4. in one reviewed transaction, run the guarded reconciliation below and require exactly one row to
+   change:
+
+   ```sql
+   DELETE FROM effect_sql_migrations
+   WHERE migration_id = 44
+     AND name = 'LazurioProjectionThreadMessagesContextFiles';
+   ```
+
+5. start the candidate so upstream id 44 and any renumbered idempotent overlay migration run in
+   canonical order; verify both the migration ledger and resulting schema;
+6. require the pinned vanilla decoder fixtures, source CI, Management browser file E2E, and official
+   vanilla Desktop/Mobile acceptance before any further rollout.
+
+If any precondition or affected-row assertion differs, restore the database backup and stop. Never
+delete a migration row by id alone, and never run this procedure after a higher migration has
+already been applied.
 
 ## Required vanilla-client gate
 

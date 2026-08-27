@@ -121,6 +121,25 @@ describe("ProviderSessionStartInput", () => {
 });
 
 describe("ProviderSendTurnInput", () => {
+  it("accepts verified local context-file paths", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      input: "Review the file",
+      contextFiles: [
+        {
+          type: "file",
+          id: "thread-1-00000000-0000-4000-8000-000000000001",
+          name: "requirements.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 42,
+          path: "/tmp/t3/requirements.bin",
+        },
+      ],
+    });
+
+    expect(parsed.contextFiles?.[0]?.path).toBe("/tmp/t3/requirements.bin");
+  });
+
   it("accepts codex modelSelection", () => {
     const parsed = decodeProviderSendTurnInput({
       threadId: "thread-1",

@@ -53,6 +53,7 @@ import {
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
+  AssetAttachmentNotFoundError,
   RpcClientId,
   EnvironmentAuthorizationError,
   ThreadId,
@@ -98,6 +99,7 @@ import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl } from "./assets/AssetAccess.ts";
 import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/AttachmentUpload.ts";
+import { findProjectedContextFile } from "./assets/ContextFileAccess.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -2018,7 +2020,37 @@ const makeWsRpcLayer = (
             WS_METHODS.assetsCreateUrl,
             Effect.gen(function* () {
               if (input.resource._tag === "attachment") {
-                return yield* issueAssetUrl({ resource: input.resource });
+                return yield* issueAssetUrl({
+                  resource: input.resource,
+                  ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
+                });
+              }
+              if (input.resource._tag === "context-file") {
+                const resource = input.resource;
+                const thread = yield* projectionSnapshotQuery
+                  .getThreadDetailById(resource.threadId)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new AssetWorkspaceContextResolutionError({
+                          resource,
+                          cause,
+                        }),
+                    ),
+                  );
+                const contextFile = Option.isSome(thread)
+                  ? findProjectedContextFile(thread.value.messages, resource)
+                  : undefined;
+                if (contextFile === undefined) {
+                  return yield* new AssetAttachmentNotFoundError({
+                    resource,
+                  });
+                }
+                return yield* issueAssetUrl({
+                  resource,
+                  purpose: "download",
+                  contextFile,
+                });
               }
               if (input.resource._tag === "project-favicon") {
                 const project = yield* projectionSnapshotQuery
@@ -2078,6 +2110,7 @@ const makeWsRpcLayer = (
               }
               return yield* issueAssetUrl({
                 resource: input.resource,
+                ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
                 workspaceRoot: thread.value.worktreePath ?? project.value.workspaceRoot,
               });
             }),

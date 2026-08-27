@@ -1,8 +1,19 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+const assetTestState = vi.hoisted(() => ({
+  calls: [] as Array<ReadonlyArray<unknown>>,
+}));
+
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
+vi.mock("../assets/assetUrls", () => ({
+  useAssetUrl: (...args: ReadonlyArray<unknown>) => {
+    assetTestState.calls.push(args);
+    return "https://signed.test/download/report.pdf";
+  },
+  useAssetUrlState: () => ({ _tag: "Loading" }),
+}));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
@@ -101,6 +112,34 @@ describe("ChatMarkdown file option chips", () => {
     expect(html).toContain("<button");
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain("select-text");
+  });
+
+  it("adds a signed exact download action to workspace file links", () => {
+    assetTestState.calls = [];
+    const environmentId = EnvironmentId.make("environment-download");
+    const threadId = ThreadId.make("thread-download");
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        threadRef={{ environmentId, threadId }}
+        text="[Report](/tmp/project/report.pdf)"
+      />,
+    );
+
+    expect(assetTestState.calls).toEqual([
+      [
+        environmentId,
+        {
+          _tag: "workspace-file",
+          threadId,
+          path: "/tmp/project/report.pdf",
+        },
+        "download",
+      ],
+    ]);
+    expect(html).toContain('href="https://signed.test/download/report.pdf"');
+    expect(html).toContain('download="report.pdf"');
+    expect(html).toContain('aria-label="Download report.pdf"');
   });
 });
 

@@ -2,6 +2,8 @@ import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  ContextFile,
+  PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   ProjectFaviconPath,
@@ -17,6 +19,11 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("attachment", {
     attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
   }),
+  Schema.TaggedStruct("context-file", {
+    threadId: ThreadId,
+    messageId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+    attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+  }),
   Schema.TaggedStruct("project-favicon", {
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
     // A cache-key hint only. The server reads the authoritative path from the
@@ -26,8 +33,12 @@ export const AssetResource = Schema.Union([
 ]);
 export type AssetResource = typeof AssetResource.Type;
 
+export const AssetPurpose = Schema.Literals(["preview", "download"]);
+export type AssetPurpose = typeof AssetPurpose.Type;
+
 export const AssetCreateUrlInput = Schema.Struct({
   resource: AssetResource,
+  purpose: Schema.optional(AssetPurpose),
 });
 export type AssetCreateUrlInput = typeof AssetCreateUrlInput.Type;
 
@@ -42,14 +53,29 @@ export type AssetCreateUrlResult = typeof AssetCreateUrlResult.Type;
 
 export const ATTACHMENT_UPLOAD_URL_TTL_MS = 10 * 60_000;
 
-export const AttachmentCreateUploadUrlInput = Schema.Struct({
-  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+const AttachmentUploadName = ContextFile.fields.name;
+const ImageAttachmentCreateUploadUrlInput = Schema.Struct({
+  type: Schema.optional(Schema.Literal("image")),
+  name: AttachmentUploadName,
   mimeType: Schema.Literals(PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES),
   sizeBytes: NonNegativeInt.check(
     Schema.isGreaterThanOrEqualTo(1),
     Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES),
   ),
 });
+const ContextFileCreateUploadUrlInput = Schema.Struct({
+  type: Schema.Literal("file"),
+  name: AttachmentUploadName,
+  mimeType: ContextFile.fields.mimeType,
+  sizeBytes: NonNegativeInt.check(
+    Schema.isGreaterThanOrEqualTo(1),
+    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES),
+  ),
+});
+export const AttachmentCreateUploadUrlInput = Schema.Union([
+  ImageAttachmentCreateUploadUrlInput,
+  ContextFileCreateUploadUrlInput,
+]);
 export type AttachmentCreateUploadUrlInput = typeof AttachmentCreateUploadUrlInput.Type;
 
 export const AttachmentCreateUploadUrlResult = Schema.Struct({

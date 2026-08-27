@@ -30,7 +30,7 @@ import * as ServerConfig from "./config.ts";
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "./assets/AssetAccess.ts";
 import {
   ATTACHMENT_UPLOAD_ROUTE_PREFIX,
-  storeAttachmentUpload,
+  storeAttachmentUploadStream,
   validateAttachmentUploadToken,
 } from "./assets/AttachmentUpload.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
@@ -50,7 +50,32 @@ const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 const DESKTOP_RENDERER_ORIGINS = ["t3code://app", "t3code-dev://app"];
 const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 
-export function assetResponseHeaders(filePath: string): Record<string, string> {
+function contentDispositionAttachment(fileName: string): string {
+  const safeName =
+    fileName
+      .replace(/[\\/"\p{Cc}]/gu, "_")
+      .trim()
+      .slice(0, 255) || "download";
+  const asciiName = safeName.replace(/[^\x20-\x7e]/g, "_");
+  const encodedName = encodeURIComponent(safeName).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
+}
+
+export function assetResponseHeaders(
+  filePath: string,
+  downloadName?: string,
+): Record<string, string> {
+  if (downloadName !== undefined) {
+    return {
+      "Cache-Control": "private, no-store",
+      "Content-Disposition": contentDispositionAttachment(downloadName),
+      "Content-Type": "application/octet-stream",
+      "X-Content-Type-Options": "nosniff",
+    };
+  }
   const lowerPath = filePath.toLowerCase();
   return {
     "Cache-Control": "private, max-age=3600",
@@ -228,7 +253,10 @@ export const assetRouteLayer = HttpRouter.add(
     }
     return yield* HttpServerResponse.file(asset.path, {
       status: 200,
-      headers: assetResponseHeaders(asset.path),
+      headers: assetResponseHeaders(
+        asset.path,
+        "purpose" in asset && asset.purpose === "download" ? asset.downloadName : undefined,
+      ),
     }).pipe(
       Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),
     );
@@ -265,15 +293,7 @@ export const attachmentUploadRouteLayer = HttpRouter.add(
       });
     }
 
-    const body = yield* request.arrayBuffer.pipe(
-      Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(claims.sizeBytes)),
-      Effect.orElseSucceed(() => null),
-    );
-    if (body === null) {
-      return HttpServerResponse.text("Failed to read the upload body.", { status: 400 });
-    }
-
-    const stored = yield* storeAttachmentUpload(claims, new Uint8Array(body));
+    const stored = yield* storeAttachmentUploadStream(claims, request.stream);
     return stored.ok
       ? HttpServerResponse.empty({ status: 204 })
       : HttpServerResponse.text(stored.detail, { status: stored.status });

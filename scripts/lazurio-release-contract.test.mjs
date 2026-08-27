@@ -5,6 +5,10 @@ import * as NodeTest from "node:test";
 const workflow = await NodeFSP.readFile(".github/workflows/lazurio-release.yml", "utf8");
 const dockerfile = await NodeFSP.readFile("Dockerfile.lazurio", "utf8");
 const forkCi = await NodeFSP.readFile(".github/workflows/lazurio-fork-ci.yml", "utf8");
+const vanillaCompatibility = await NodeFSP.readFile(
+  "packages/contracts/src/vanilla-v0.0.35-compat.test.ts",
+  "utf8",
+);
 const workspaceConfig = await NodeFSP.readFile("pnpm-workspace.yaml", "utf8");
 const versionStamp = await NodeFSP.readFile("scripts/lazurio-stamp-package-version.mjs", "utf8");
 
@@ -96,10 +100,13 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
 NodeTest.test("fork CI proves the exact upstream base and protected client boundaries", () => {
   NodeAssert.match(forkCi, /refs\/tags\/v0\.0\.35:refs\/tags\/upstream-v0\.0\.35/);
   NodeAssert.match(forkCi, /f925d639421844f02b3166d29281905dbba6d529/);
-  NodeAssert.match(
-    forkCi,
-    /\^\(packages\/contracts\|packages\/client-runtime\|apps\/mobile\|apps\/desktop\)/,
-  );
+  NodeAssert.match(forkCi, /\^apps\/\(mobile\|desktop\)/);
+  NodeAssert.match(forkCi, /vanilla-v0\.0\.35-compat/);
+  NodeAssert.match(forkCi, /name: Windows generic-file compatibility/);
+  NodeAssert.match(forkCi, /runs-on: windows-latest/);
+  NodeAssert.match(vanillaCompatibility, /upstream stable v0\.0\.34/);
+  NodeAssert.match(vanillaCompatibility, /badae6a5cc8325dcd5a145bea6f7b8ac692818a1/);
+  NodeAssert.match(forkCi, /pnpm exec vp test run src\/server\.test\.ts/);
   NodeAssert.match(forkCi, /--build-arg PACKAGE_VERSION=0\.0\.35/);
   NodeAssert.match(forkCi, /--build-arg "VITE_HOSTED_APP_NAME=Lazurio T3 Code"/);
 });

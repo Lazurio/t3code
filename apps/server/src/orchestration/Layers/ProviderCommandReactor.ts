@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  type ContextFile,
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
@@ -27,6 +28,8 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import * as ServerConfig from "../../config.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -307,6 +310,7 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
+  const serverConfig = yield* ServerConfig.ServerConfig;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
@@ -773,6 +777,7 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly contextFiles?: ReadonlyArray<ContextFile>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
     readonly createdAt: string;
@@ -792,6 +797,42 @@ const make = Effect.gen(function* () {
     }
     const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
+    const verifiedContextFiles = yield* Effect.forEach(
+      input.contextFiles ?? [],
+      (contextFile) =>
+        Effect.gen(function* () {
+          const attachmentPath = resolveAttachmentPath({
+            attachmentsDir: serverConfig.attachmentsDir,
+            attachment: contextFile,
+          });
+          if (attachmentPath === null) {
+            return yield* new ProviderAdapterRequestError({
+              provider: "server",
+              method: "thread.turn.start",
+              detail: `Context file '${contextFile.name}' has an invalid stored path.`,
+            });
+          }
+          const info = yield* fileSystem.stat(attachmentPath).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: "server",
+                  method: "thread.turn.start",
+                  detail: `Context file '${contextFile.name}' is not available: ${String(cause)}.`,
+                }),
+            ),
+          );
+          if (info.type !== "File" || Number(info.size) !== contextFile.sizeBytes) {
+            return yield* new ProviderAdapterRequestError({
+              provider: "server",
+              method: "thread.turn.start",
+              detail: `Context file '${contextFile.name}' does not match its persisted metadata.`,
+            });
+          }
+          return { ...contextFile, path: attachmentPath };
+        }),
+      { concurrency: 1 },
+    );
     const activeSession = yield* providerService
       .listSessions()
       .pipe(
@@ -824,6 +865,7 @@ const make = Effect.gen(function* () {
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+      ...(verifiedContextFiles.length > 0 ? { contextFiles: verifiedContextFiles } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     };
@@ -1204,6 +1246,7 @@ const make = Effect.gen(function* () {
       threadId: event.payload.threadId,
       messageText: message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+      ...(message.contextFiles !== undefined ? { contextFiles: message.contextFiles } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }
         : {}),

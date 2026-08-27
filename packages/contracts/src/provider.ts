@@ -10,6 +10,7 @@ import {
 } from "./baseSchemas.ts";
 import {
   ChatAttachment,
+  ContextFile,
   ModelSelection,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
@@ -72,6 +73,14 @@ export const ProviderSendTurnInput = Schema.Struct({
   ),
   attachments: Schema.optional(
     Schema.Array(ChatAttachment).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
+  ),
+  contextFiles: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        ...ContextFile.fields,
+        path: TrimmedNonEmptyString,
+      }),
+    ),
   ),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),

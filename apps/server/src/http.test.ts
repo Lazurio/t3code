@@ -55,4 +55,14 @@ describe("assetResponseHeaders", () => {
       "text/html; charset=utf-8",
     );
   });
+
+  it("serves downloads as opaque private attachments with a safe UTF-8 filename", () => {
+    expect(assetResponseHeaders("/opaque/file.bin", 'podklady žluťoučký/"draft".pdf')).toEqual({
+      "Cache-Control": "private, no-store",
+      "Content-Disposition":
+        "attachment; filename=\"podklady _lu_ou_k___draft_.pdf\"; filename*=UTF-8''podklady%20%C5%BElu%C5%A5ou%C4%8Dk%C3%BD__draft_.pdf",
+      "Content-Type": "application/octet-stream",
+      "X-Content-Type-Options": "nosniff",
+    });
+  });
 });

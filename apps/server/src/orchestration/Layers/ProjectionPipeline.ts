@@ -1,6 +1,7 @@
 import {
   ApprovalRequestId,
   type ChatAttachment,
+  type ContextFile,
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
   ThreadId,
@@ -109,6 +110,11 @@ interface AttachmentSideEffects {
 const materializeAttachmentsForProjection = Effect.fn("materializeAttachmentsForProjection")(
   (input: { readonly attachments: ReadonlyArray<ChatAttachment> }) =>
     Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
+);
+
+const materializeContextFilesForProjection = Effect.fn("materializeContextFilesForProjection")(
+  (input: { readonly contextFiles: ReadonlyArray<ContextFile> }) =>
+    Effect.succeed(input.contextFiles.length === 0 ? [] : input.contextFiles),
 );
 
 function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
@@ -369,6 +375,13 @@ function collectThreadAttachmentRelativePaths(
         continue;
       }
       relativePaths.add(attachmentRelativePath(attachment));
+    }
+    for (const contextFile of message.contextFiles ?? []) {
+      const attachmentThreadSegment = parseThreadSegmentFromAttachmentId(contextFile.id);
+      if (!attachmentThreadSegment || attachmentThreadSegment !== threadSegment) {
+        continue;
+      }
+      relativePaths.add(attachmentRelativePath(contextFile));
     }
   }
   return relativePaths;
@@ -1010,6 +1023,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                   attachments: event.payload.attachments,
                 })
               : previousMessage?.attachments;
+          const nextContextFiles =
+            event.payload.contextFiles !== undefined
+              ? yield* materializeContextFilesForProjection({
+                  contextFiles: event.payload.contextFiles,
+                })
+              : previousMessage?.contextFiles;
           yield* projectionThreadMessageRepository.upsert({
             messageId: event.payload.messageId,
             threadId: event.payload.threadId,
@@ -1017,6 +1036,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             role: event.payload.role,
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
+            ...(nextContextFiles !== undefined ? { contextFiles: [...nextContextFiles] } : {}),
             isStreaming: event.payload.streaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,

@@ -1,9 +1,21 @@
-import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@t3tools/contracts";
+import { CheckpointRef, EnvironmentId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
 import { codexFeedbackMessage } from "@t3tools/client-runtime/state/threads";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
+
+const assetTestState = vi.hoisted(() => ({
+  calls: [] as Array<ReadonlyArray<unknown>>,
+}));
+
+vi.mock("../../assets/assetUrls", () => ({
+  useAssetUrl: (...args: ReadonlyArray<unknown>) => {
+    assetTestState.calls.push(args);
+    return "https://signed.test/context/requirements.pdf";
+  },
+  useAssetUrlState: () => ({ _tag: "Loading" }),
+}));
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
@@ -237,6 +249,48 @@ function buildAssistantTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders persisted context files as secure download chips without duplicating fallback text", () => {
+    assetTestState.calls = [];
+    const entry = buildUserTimelineEntry(
+      'Please summarize this.\n\nAttached files available to the agent:\n- "requirements.pdf" (application/pdf, 42 bytes)',
+    );
+    const contextFile = {
+      type: "file" as const,
+      id: "thread-1-00000000-0000-4000-8000-000000000001",
+      name: "requirements.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 42,
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            ...entry,
+            message: { ...entry.message, contextFiles: [contextFile] },
+          },
+        ]}
+      />,
+    );
+
+    expect(assetTestState.calls).toEqual([
+      [
+        ACTIVE_THREAD_ENVIRONMENT_ID,
+        {
+          _tag: "context-file",
+          threadId: ThreadId.make("thread-1"),
+          messageId: entry.message.id,
+          attachmentId: contextFile.id,
+        },
+        "download",
+      ],
+    ]);
+    expect(markup).toContain("requirements.pdf");
+    expect(markup).toContain("application/pdf");
+    expect(markup).toContain('href="https://signed.test/context/requirements.pdf"');
+    expect(markup).not.toContain("Attached files available to the agent:");
+  });
+
   it("renders a feedback command and its pending response as normal thread messages", () => {
     const submission = {
       id: MessageId.make("feedback-command"),

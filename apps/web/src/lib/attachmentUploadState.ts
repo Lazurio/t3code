@@ -26,6 +26,7 @@ export function attachmentUploadBlockReason(input: {
   readonly imageIds: ReadonlyArray<string>;
   readonly uploadsByImageId: Readonly<Record<string, AttachmentUploadState>>;
   readonly environmentId: EnvironmentId;
+  readonly noun?: "image" | "attachment";
 }): string | null {
   let pending = 0;
   let failed = 0;
@@ -40,10 +41,17 @@ export function attachmentUploadBlockReason(input: {
   }
 
   if (failed > 0) {
-    return failed === 1 ? "Retry or remove the failed image" : "Retry or remove the failed images";
+    const noun = input.noun ?? "image";
+    return failed === 1
+      ? `Retry or remove the failed ${noun}`
+      : `Retry or remove the failed ${noun}s`;
   }
   if (pending > 0) {
-    return pending === 1 ? "Image still uploading" : "Images still uploading";
+    const noun = input.noun ?? "image";
+    const capitalizedNoun = `${noun.slice(0, 1).toUpperCase()}${noun.slice(1)}`;
+    return pending === 1
+      ? `${capitalizedNoun} still uploading`
+      : `${capitalizedNoun}s still uploading`;
   }
   return null;
 }

@@ -4,6 +4,11 @@
 Workspaces. It does not publish upstream desktop or mobile applications, deploy the upstream relay
 or hosted web application, manage upstream labels, or run upstream release schedules.
 
+The sole product-level overlay is additive generic-file collaboration for the hosted browser. It
+keeps the image attachment union and official client sources unchanged, and CI restricts contract
+and client-runtime edits to an explicit file allowlist plus a decoder frozen to the exact upstream
+stable. Equivalent future upstream support supersedes this overlay after migration reconciliation.
+
 The only active workflows in this fork are read-only `lazurio-fork-ci.yml` and the separately
 protected, manually dispatched `lazurio-release.yml`. CI receives no Lazurio runtime or deployment
 secrets, uses GitHub-hosted Ubuntu, and tests only the server/web compatibility and OCI packaging

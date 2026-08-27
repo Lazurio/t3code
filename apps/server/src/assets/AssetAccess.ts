@@ -1,4 +1,4 @@
-import type { AssetResource } from "@t3tools/contracts";
+import type { AssetPurpose, AssetResource, ContextFile } from "@t3tools/contracts";
 import {
   AssetAttachmentNotFoundError,
   AssetPreviewTypeValidationError,
@@ -73,12 +73,21 @@ const AssetClaimsSchema = Schema.Union([
     kind: Schema.Literal("workspace-file-exact"),
     workspaceRoot: Schema.String,
     relativePath: Schema.String,
+    purpose: Schema.optional(Schema.Literals(["preview", "download"])),
     expiresAt: Schema.Number,
   }),
   Schema.Struct({
     version: Schema.Literal(1),
     kind: Schema.Literal("attachment"),
     attachmentId: Schema.String,
+    expiresAt: Schema.Number,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    kind: Schema.Literal("context-file"),
+    attachmentId: Schema.String,
+    name: Schema.String,
+    sizeBytes: Schema.Number,
     expiresAt: Schema.Number,
   }),
   Schema.Struct({
@@ -101,7 +110,14 @@ const AssetClaimsJson = Schema.fromJsonString(AssetClaimsSchema);
 const decodeAssetClaims = Schema.decodeUnknownOption(AssetClaimsJson);
 const encodeAssetClaims = Schema.encodeSync(AssetClaimsJson);
 
-export type ResolvedAsset = { readonly kind: "file"; readonly path: string };
+export type ResolvedAsset =
+  | { readonly kind: "file"; readonly path: string }
+  | {
+      readonly kind: "file";
+      readonly path: string;
+      readonly purpose: "download";
+      readonly downloadName: string;
+    };
 
 function decodeClaims(encodedPayload: string): AssetClaims | null {
   try {
@@ -185,8 +201,10 @@ const resolveCanonicalWorkspaceFileForRequest = (input: {
 
 export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (input: {
   readonly resource: AssetResource;
+  readonly purpose?: AssetPurpose;
   readonly workspaceRoot?: string;
   readonly projectFaviconPath?: string;
+  readonly contextFile?: ContextFile;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -195,6 +213,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   let claims: AssetClaims;
   let fileName: string;
   let sourcePath: string | undefined;
+  const purpose = input.purpose ?? "preview";
 
   switch (input.resource._tag) {
     case "workspace-file": {
@@ -226,7 +245,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
               }),
           ),
         );
-      if (!isWorkspacePreviewEntryPath(resolved.relativePath)) {
+      if (purpose === "preview" && !isWorkspacePreviewEntryPath(resolved.relativePath)) {
         return yield* new AssetPreviewTypeValidationError({
           resource: input.resource,
         });
@@ -257,21 +276,23 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
             }),
         ),
       );
-      claims = isWorkspaceImagePreviewPath(resolved.relativePath)
-        ? {
-            version: 1,
-            kind: "workspace-file-exact",
-            workspaceRoot: canonicalWorkspaceRoot,
-            relativePath: resolved.relativePath,
-            expiresAt,
-          }
-        : {
-            version: 1,
-            kind: "workspace-file",
-            workspaceRoot: canonicalWorkspaceRoot,
-            baseRelativePath: path.dirname(resolved.relativePath),
-            expiresAt,
-          };
+      claims =
+        purpose === "download" || isWorkspaceImagePreviewPath(resolved.relativePath)
+          ? {
+              version: 1,
+              kind: "workspace-file-exact",
+              workspaceRoot: canonicalWorkspaceRoot,
+              relativePath: resolved.relativePath,
+              ...(purpose === "download" ? { purpose } : {}),
+              expiresAt,
+            }
+          : {
+              version: 1,
+              kind: "workspace-file",
+              workspaceRoot: canonicalWorkspaceRoot,
+              baseRelativePath: path.dirname(resolved.relativePath),
+              expiresAt,
+            };
       fileName = path.basename(resolved.relativePath);
       break;
     }
@@ -286,6 +307,11 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
           resource: input.resource,
         });
       }
+      if (attachmentPath.toLowerCase().endsWith(".bin")) {
+        return yield* new AssetAttachmentNotFoundError({
+          resource: input.resource,
+        });
+      }
       claims = {
         version: 1,
         kind: "attachment",
@@ -293,6 +319,56 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         expiresAt,
       };
       fileName = path.basename(attachmentPath);
+      break;
+    }
+    case "context-file": {
+      const contextFile = input.contextFile;
+      if (
+        purpose !== "download" ||
+        contextFile === undefined ||
+        contextFile.id !== input.resource.attachmentId
+      ) {
+        return yield* new AssetAttachmentNotFoundError({
+          resource: input.resource,
+        });
+      }
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentPath = resolveAttachmentPathById({
+        attachmentsDir: config.attachmentsDir,
+        attachmentId: contextFile.id,
+      });
+      if (!attachmentPath || !attachmentPath.toLowerCase().endsWith(".bin")) {
+        return yield* new AssetAttachmentNotFoundError({
+          resource: input.resource,
+        });
+      }
+      const info = yield* optionOnNotFound(fileSystem.stat(attachmentPath)).pipe(
+        Effect.mapError(
+          (cause) =>
+            new AssetWorkspaceAssetInspectionError({
+              resource: input.resource,
+              cause,
+            }),
+        ),
+      );
+      if (
+        Option.isNone(info) ||
+        info.value.type !== "File" ||
+        Number(info.value.size) !== contextFile.sizeBytes
+      ) {
+        return yield* new AssetAttachmentNotFoundError({
+          resource: input.resource,
+        });
+      }
+      claims = {
+        version: 1,
+        kind: "context-file",
+        attachmentId: contextFile.id,
+        name: contextFile.name,
+        sizeBytes: contextFile.sizeBytes,
+        expiresAt,
+      };
+      fileName = contextFile.name;
       break;
     }
     case "project-favicon": {
@@ -451,7 +527,7 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       attachmentsDir: config.attachmentsDir,
       attachmentId: claims.attachmentId,
     });
-    if (!attachmentPath) return null;
+    if (!attachmentPath || attachmentPath.toLowerCase().endsWith(".bin")) return null;
     const fileSystem = yield* FileSystem.FileSystem;
     const info = yield* optionOnNotFound(fileSystem.stat(attachmentPath)).pipe(
       Effect.tapError((cause) =>
@@ -465,6 +541,38 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     );
     return Option.isSome(info) && info.value.type === "File"
       ? ({ kind: "file", path: attachmentPath } satisfies ResolvedAsset)
+      : null;
+  }
+
+  if (claims.kind === "context-file") {
+    const decodedPath = decodeRelativePath(relativePath);
+    if (decodedPath !== claims.name) return null;
+    const config = yield* ServerConfig.ServerConfig;
+    const attachmentPath = resolveAttachmentPathById({
+      attachmentsDir: config.attachmentsDir,
+      attachmentId: claims.attachmentId,
+    });
+    if (!attachmentPath || !attachmentPath.toLowerCase().endsWith(".bin")) return null;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const info = yield* optionOnNotFound(fileSystem.stat(attachmentPath)).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to inspect context file asset.", {
+          attachmentId: claims.attachmentId,
+          path: attachmentPath,
+          cause,
+        }),
+      ),
+      Effect.orElseSucceed(() => Option.none()),
+    );
+    return Option.isSome(info) &&
+      info.value.type === "File" &&
+      Number(info.value.size) === claims.sizeBytes
+      ? ({
+          kind: "file",
+          path: attachmentPath,
+          purpose: "download",
+          downloadName: claims.name,
+        } satisfies ResolvedAsset)
       : null;
   }
 
@@ -501,9 +609,15 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       workspaceRoot: claims.workspaceRoot,
       relativePath: claims.relativePath,
     });
-    return exactWorkspaceFile
-      ? ({ kind: "file", path: exactWorkspaceFile } satisfies ResolvedAsset)
-      : null;
+    if (!exactWorkspaceFile) return null;
+    return claims.purpose === "download"
+      ? ({
+          kind: "file",
+          path: exactWorkspaceFile,
+          purpose: "download",
+          downloadName: path.basename(claims.relativePath),
+        } satisfies ResolvedAsset)
+      : ({ kind: "file", path: exactWorkspaceFile } satisfies ResolvedAsset);
   }
   const segments = decodedPath.split(/[\\/]/);
   if (

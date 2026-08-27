@@ -7,11 +7,13 @@ import {
   AttachmentUploadSigningKeyError,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import {
   createPendingAttachmentId,
@@ -42,6 +44,7 @@ const AttachmentUploadClaims = Schema.Struct({
   version: Schema.Literal(1),
   kind: Schema.Literal("attachment-upload"),
   attachmentId: Schema.String,
+  type: Schema.optional(Schema.Literals(["image", "file"])),
   name: Schema.String,
   mimeType: Schema.String,
   sizeBytes: Schema.Number,
@@ -96,6 +99,7 @@ export const issueAttachmentUploadUrl = Effect.fn("AttachmentUpload.issueUrl")(f
       version: 1,
       kind: "attachment-upload",
       attachmentId,
+      ...(input.type === "file" ? { type: "file" as const } : {}),
       name: input.name,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
@@ -139,20 +143,26 @@ export type StoreAttachmentUploadResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: number; readonly detail: string };
 
-export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(function* (
-  claims: AttachmentUploadClaims,
-  bytes: Uint8Array,
-) {
-  if (bytes.byteLength !== claims.sizeBytes) {
-    return {
-      ok: false,
-      status: 400,
-      detail: `Body was ${bytes.byteLength} bytes, expected ${claims.sizeBytes}.`,
-    } satisfies StoreAttachmentUploadResult;
-  }
+class AttachmentUploadSizeMismatchError extends Data.TaggedError(
+  "AttachmentUploadSizeMismatchError",
+)<{
+  readonly actual: number;
+  readonly expected: number;
+}> {}
 
+class AttachmentUploadStreamError extends Data.TaggedError("AttachmentUploadStreamError")<{
+  readonly cause: unknown;
+}> {}
+
+export const storeAttachmentUploadStream = Effect.fn("AttachmentUpload.storeStream")(function* (
+  claims: AttachmentUploadClaims,
+  bytes: Stream.Stream<Uint8Array, unknown>,
+) {
   const config = yield* ServerConfig.ServerConfig;
-  const extension = inferImageExtension({ mimeType: claims.mimeType, fileName: claims.name });
+  const extension =
+    claims.type === "file"
+      ? ".bin"
+      : inferImageExtension({ mimeType: claims.mimeType, fileName: claims.name });
   const relativePath = `${claims.attachmentId}${extension}`;
   const finalPath = resolveAttachmentRelativePath({
     attachmentsDir: config.attachmentsDir,
@@ -168,9 +178,32 @@ export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(functio
 
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const uploadBytes = bytes.pipe(
+    Stream.mapError((cause) => new AttachmentUploadStreamError({ cause })),
+  );
+  let receivedBytes = 0;
   return yield* Effect.gen(function* () {
     yield* fileSystem.makeDirectory(path.dirname(finalPath), { recursive: true });
-    yield* fileSystem.writeFile(partPath, bytes);
+    yield* uploadBytes.pipe(
+      Stream.mapEffect((chunk) => {
+        receivedBytes += chunk.byteLength;
+        return receivedBytes > claims.sizeBytes
+          ? Effect.fail(
+              new AttachmentUploadSizeMismatchError({
+                actual: receivedBytes,
+                expected: claims.sizeBytes,
+              }),
+            )
+          : Effect.succeed(chunk);
+      }),
+      Stream.run(fileSystem.sink(partPath)),
+    );
+    if (receivedBytes !== claims.sizeBytes) {
+      return yield* new AttachmentUploadSizeMismatchError({
+        actual: receivedBytes,
+        expected: claims.sizeBytes,
+      });
+    }
     yield* fileSystem.rename(partPath, finalPath);
     return { ok: true } satisfies StoreAttachmentUploadResult;
   }).pipe(
@@ -178,20 +211,30 @@ export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(functio
       fileSystem.remove(partPath, { force: true }).pipe(
         Effect.orElseSucceed(() => undefined),
         Effect.andThen(
-          Effect.logError("Failed to persist attachment upload.", {
-            attachmentId: claims.attachmentId,
-            cause,
-          }),
+          cause instanceof AttachmentUploadSizeMismatchError
+            ? Effect.void
+            : Effect.logError("Failed to persist attachment upload.", {
+                attachmentId: claims.attachmentId,
+                cause,
+              }),
         ),
         Effect.as({
           ok: false,
-          status: 500,
-          detail: "Failed to persist upload.",
+          status: cause instanceof AttachmentUploadSizeMismatchError ? 400 : 500,
+          detail:
+            cause instanceof AttachmentUploadSizeMismatchError
+              ? `Body was ${cause.actual} bytes, expected ${cause.expected}.`
+              : "Failed to persist upload.",
         } satisfies StoreAttachmentUploadResult),
       ),
     ),
   );
 });
+
+export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(
+  (claims: AttachmentUploadClaims, bytes: Uint8Array) =>
+    storeAttachmentUploadStream(claims, Stream.make(bytes)),
+);
 
 export const deletePendingAttachment = Effect.fn("AttachmentUpload.deletePending")(function* (
   attachmentId: string,

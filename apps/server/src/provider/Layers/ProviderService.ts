@@ -722,10 +722,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
 
     const attachments = parsed.attachments ?? [];
-    if (!parsed.input && attachments.length === 0) {
+    const contextFiles = parsed.contextFiles ?? [];
+    if (!parsed.input && attachments.length === 0 && contextFiles.length === 0) {
       return yield* toValidationError(
         "ProviderService.sendTurn",
-        "Either input text or at least one attachment is required",
+        "Either input text, an image attachment, or a context file is required",
       );
     }
 
@@ -745,10 +746,23 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ? []
         : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
     });
+    const contextFilePrompt =
+      contextFiles.length === 0
+        ? undefined
+        : [
+            "<attached_context_files>",
+            "The user supplied these files as context. Each path is a verified local regular file. Inspect a file with an appropriate workspace tool before claiming to have read or understood it.",
+            "Stored blob paths intentionally use a .bin suffix. If a reader selects formats by extension, make a private temporary non-executable copy named from the provided original file name, inspect that copy, and delete it afterward. Never execute a context file based on its name or MIME type.",
+            ...contextFiles.map(
+              (contextFile) =>
+                `- name=${JSON.stringify(contextFile.name)} mime_type=${JSON.stringify(contextFile.mimeType)} size_bytes=${contextFile.sizeBytes} path=${JSON.stringify(contextFile.path)}`,
+            ),
+            "</attached_context_files>",
+          ].join("\n");
     const inputTextWithAttachmentPaths =
-      attachmentPathLines.length === 0
+      attachmentPathLines.length === 0 && contextFilePrompt === undefined
         ? parsed.input
-        : [parsed.input, attachmentPathLines.join("\n")]
+        : [parsed.input, attachmentPathLines.join("\n"), contextFilePrompt]
             .filter((part): part is string => typeof part === "string" && part.length > 0)
             .join("\n\n");
 
@@ -758,12 +772,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ? { input: inputTextWithAttachmentPaths }
         : {}),
       attachments,
+      contextFiles,
     };
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",
       "provider.thread_id": input.threadId,
       "provider.interaction_mode": input.interactionMode,
       "provider.attachment_count": input.attachments.length,
+      "provider.context_file_count": input.contextFiles.length,
     });
     let metricProvider = "unknown";
     let metricModel = input.modelSelection?.model;

@@ -65,6 +65,7 @@ import {
   markPromotedDraftThreadByRef,
   markPromotedDraftThreads,
   markPromotedDraftThreadsByRef,
+  type ComposerContextFile,
   type ComposerImageAttachment,
   useComposerDraftStore,
   DraftId,
@@ -100,6 +101,27 @@ function makeImage(input: {
     mimeType,
     sizeBytes: file.size,
     previewUrl: input.previewUrl,
+    file,
+  };
+}
+
+function makeContextFile(input: {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+}): ComposerContextFile {
+  const name = input.name ?? "requirements.pdf";
+  const mimeType = input.mimeType ?? "application/pdf";
+  const file = new File([new Uint8Array(input.sizeBytes ?? 4).fill(1)], name, {
+    type: mimeType,
+  });
+  return {
+    type: "file",
+    id: input.id,
+    name,
+    mimeType,
+    sizeBytes: file.size,
     file,
   };
 }
@@ -254,6 +276,60 @@ describe("composerDraftStore addImages", () => {
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
     expect(draft?.images.map((image) => image.id)).toEqual(["img-shared"]);
     expect(revokeSpy).not.toHaveBeenCalledWith("blob:shared");
+  });
+});
+
+describe("composerDraftStore context files", () => {
+  const threadId = ThreadId.make("thread-context-files");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("deduplicates file handles and removes the empty ephemeral draft", () => {
+    const first = makeContextFile({ id: "file-1" });
+    const duplicate = makeContextFile({ id: "file-2" });
+
+    useComposerDraftStore.getState().addContextFiles(threadRef, [first, duplicate]);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.contextFiles.map((file) => file.id)).toEqual([
+      "file-1",
+    ]);
+
+    useComposerDraftStore.getState().removeContextFile(threadRef, first.id);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
+  it("never serializes browser File bytes or context-file metadata into localStorage state", () => {
+    const contextFile = makeContextFile({
+      id: "file-private",
+      name: "principal-source-material.pdf",
+    });
+    useComposerDraftStore.getState().addContextFiles(threadRef, [contextFile]);
+
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+      };
+    };
+    const serialized = JSON.stringify(
+      persistApi.getOptions().partialize(useComposerDraftStore.getState()),
+    );
+
+    expect(serialized).not.toContain(contextFile.name);
+    expect(serialized).not.toContain(contextFile.id);
+  });
+
+  it("keeps ephemeral files attached when only prompt and images are stashed", () => {
+    const contextFile = makeContextFile({ id: "file-stays-attached" });
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadRef, "stash this text");
+    store.addContextFiles(threadRef, [contextFile]);
+
+    store.clearComposerPromptAndImages(threadRef);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("");
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.contextFiles).toEqual([contextFile]);
   });
 });
 

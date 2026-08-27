@@ -39,4 +39,14 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.attachmentUploads,
     ).toBe(true);
   });
+
+  it("gates generic context-file uploads independently from image uploads", () => {
+    expect(decodeDescriptor(descriptor).capabilities.contextFileUploads).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, contextFileUploads: true },
+      }).capabilities.contextFileUploads,
+    ).toBe(true);
+  });
 });

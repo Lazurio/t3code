@@ -17,6 +17,9 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_COMBINED_ATTACHMENT_BYTES,
+  PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES,
+  PROVIDER_SEND_TURN_MAX_CONTEXT_FILES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
@@ -45,13 +48,18 @@ import {
   replaceTextRange,
 } from "../../composer-logic";
 import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
-import { deriveComposerSendState, readFileAsDataUrl } from "../ChatView.logic";
+import {
+  deriveComposerSendState,
+  exceedsContextFileTurnByteLimit,
+  readFileAsDataUrl,
+} from "../ChatView.logic";
 import {
   dataTransferHasComposerMention,
   makeComposerMentionDragHandlers,
 } from "./composerMentionDrag";
 import {
   type ComposerImageAttachment,
+  type ComposerContextFile,
   type DraftId,
   type PersistedComposerImageAttachment,
   hydrateImagesFromPersisted,
@@ -81,7 +89,9 @@ import {
 import {
   releaseAttachmentUpload,
   retryAttachmentUpload,
+  retryContextFileUpload,
   startAttachmentUpload,
+  startContextFileUpload,
   useAttachmentUploadStore,
 } from "../../lib/attachmentUploadQueue";
 import {
@@ -241,6 +251,8 @@ import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
+  FileIcon,
+  PaperclipIcon,
   PencilRulerIcon,
   type LucideIcon,
   LockIcon,
@@ -275,6 +287,14 @@ import {
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+
+const SAFE_CONTEXT_FILE_NAME_PATTERN = /^[^/\\\p{Cc}]+$/u;
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KiB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
 
 const runtimeModeConfig: Record<
   RuntimeMode,
@@ -532,6 +552,7 @@ export interface ChatComposerHandle {
   getSendContext: () => {
     prompt: string;
     images: ComposerImageAttachment[];
+    contextFiles: ComposerContextFile[];
     terminalContexts: TerminalContextDraft[];
     elementContexts: ElementContextDraft[];
     previewAnnotations: PreviewAnnotationPayload[];
@@ -557,6 +578,7 @@ export interface ChatComposerProps {
   environmentId: EnvironmentId;
   attachmentUploadsCapabilityKnown: boolean;
   supportsAttachmentUploads: boolean;
+  supportsContextFileUploads: boolean;
   routeKind: "server" | "draft";
   routeThreadRef: ScopedThreadRef;
   draftId: DraftId | null;
@@ -630,6 +652,7 @@ export interface ChatComposerProps {
   // Refs the parent needs kept in sync
   promptRef: React.RefObject<string>;
   composerImagesRef: React.RefObject<ComposerImageAttachment[]>;
+  composerContextFilesRef: React.RefObject<ComposerContextFile[]>;
   composerTerminalContextsRef: React.RefObject<TerminalContextDraft[]>;
   composerElementContextsRef: React.RefObject<ElementContextDraft[]>;
   composerRef: React.RefObject<ChatComposerHandle | null>;
@@ -675,6 +698,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
+    supportsContextFileUploads,
     routeKind,
     routeThreadRef,
     draftId,
@@ -721,6 +745,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     promptRef,
     composerRef,
     composerImagesRef,
+    composerContextFilesRef,
     composerTerminalContextsRef,
     composerElementContextsRef,
     onSend,
@@ -747,27 +772,43 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerDraft = useComposerThreadDraft(composerDraftTarget);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
+  const composerContextFiles = composerDraft.contextFiles;
   const composerTerminalContexts = composerDraft.terminalContexts;
   const composerElementContexts = composerDraft.elementContexts;
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
   const composerReviewComments = composerDraft.reviewComments;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
-  const attachmentBlockReason = supportsAttachmentUploads
-    ? attachmentUploadBlockReason({
-        imageIds: composerImages.map((image) => image.id),
-        uploadsByImageId,
-        environmentId,
-      })
-    : null;
+  const attachmentIdsRequiringUpload = [
+    ...(supportsAttachmentUploads ? composerImages.map((image) => image.id) : []),
+    ...(supportsContextFileUploads ? composerContextFiles.map((file) => file.id) : []),
+  ];
+  const attachmentBlockReason =
+    attachmentIdsRequiringUpload.length > 0
+      ? attachmentUploadBlockReason({
+          imageIds: attachmentIdsRequiringUpload,
+          uploadsByImageId,
+          environmentId,
+          noun: "attachment",
+        })
+      : null;
   const sendDisabledReason =
-    externalSendDisabledReason ?? (activePendingProgress ? null : attachmentBlockReason);
+    externalSendDisabledReason ??
+    (activePendingProgress
+      ? null
+      : composerContextFiles.length > 0 &&
+          attachmentUploadsCapabilityKnown &&
+          !supportsContextFileUploads
+        ? "This environment does not support file attachments"
+        : attachmentBlockReason);
   const isSendDisabled = sendDisabledReason !== null;
 
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
+  const addComposerDraftContextFiles = useComposerDraftStore((store) => store.addContextFiles);
+  const removeComposerDraftContextFile = useComposerDraftStore((store) => store.removeContextFile);
   const insertComposerDraftTerminalContext = useComposerDraftStore(
     (store) => store.insertTerminalContext,
   );
@@ -811,6 +852,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       startAttachmentUpload({ environmentId, image });
     }
   }, [attachmentUploadsCapabilityKnown, composerImages, environmentId, supportsAttachmentUploads]);
+
+  useEffect(() => {
+    if (!attachmentUploadsCapabilityKnown) {
+      return;
+    }
+    if (!supportsContextFileUploads) {
+      for (const file of composerContextFiles) {
+        releaseAttachmentUpload(file.id);
+      }
+      return;
+    }
+    for (const file of composerContextFiles) {
+      startContextFileUpload({ environmentId, file });
+    }
+  }, [
+    attachmentUploadsCapabilityKnown,
+    composerContextFiles,
+    environmentId,
+    supportsContextFileUploads,
+  ]);
 
   // ------------------------------------------------------------------
   // Model state
@@ -1060,6 +1121,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Refs
   // ------------------------------------------------------------------
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const contextFileInputRef = useRef<HTMLInputElement>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerSurfaceRef = useRef<HTMLDivElement>(null);
   const providerInputRejectedRef = useRef(false);
@@ -1095,6 +1157,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       deriveComposerSendState({
         prompt,
         imageCount: composerImages.length,
+        contextFileCount: composerContextFiles.length,
         terminalContexts: composerTerminalContexts,
         elementContextCount:
           composerElementContexts.length +
@@ -1103,6 +1166,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }),
     [
       composerElementContexts.length,
+      composerContextFiles.length,
       composerImages.length,
       composerPreviewAnnotations.length,
       composerReviewComments.length,
@@ -1395,6 +1459,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, removeComposerDraftImage],
   );
 
+  const removeComposerContextFileFromDraft = useCallback(
+    (fileId: string) => {
+      releaseAttachmentUpload(fileId);
+      removeComposerDraftContextFile(composerDraftTarget, fileId);
+    },
+    [composerDraftTarget, removeComposerDraftContextFile],
+  );
+
   const removeComposerTerminalContextFromDraft = useCallback(
     (contextId: string) => {
       const contextIndex = composerTerminalContexts.findIndex(
@@ -1450,6 +1522,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     composerImagesRef.current = composerImages;
   }, [composerImages, composerImagesRef]);
+
+  useEffect(() => {
+    composerContextFilesRef.current = composerContextFiles;
+  }, [composerContextFiles, composerContextFilesRef]);
 
   useEffect(() => {
     composerTerminalContextsRef.current = composerTerminalContexts;
@@ -2625,6 +2701,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     try {
       const nextImages: ComposerImageAttachment[] = [];
       let compressionError: string | null = null;
+      const currentDraft = getComposerDraft(composerDraftTarget);
+      let combinedAttachmentBytes = [
+        ...(currentDraft?.images ?? []),
+        ...(currentDraft?.contextFiles ?? []),
+      ].reduce((total, attachment) => total + attachment.sizeBytes, 0);
       for (const file of acceptedFiles) {
         // Images over the wire cap are downscaled to fit rather than
         // refused; files already within it pass through byte-for-byte.
@@ -2640,6 +2721,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           continue;
         }
         const attachmentFile = compressed.file;
+        if (
+          exceedsContextFileTurnByteLimit({
+            currentBytes: combinedAttachmentBytes,
+            candidateBytes: attachmentFile.size,
+            contextFileCountAfterAdd: currentDraft?.contextFiles.length ?? 0,
+            maxBytes: PROVIDER_SEND_TURN_MAX_COMBINED_ATTACHMENT_BYTES,
+          })
+        ) {
+          compressionError = `Attachments can total at most ${formatFileSize(PROVIDER_SEND_TURN_MAX_COMBINED_ATTACHMENT_BYTES)} per message.`;
+          continue;
+        }
+        combinedAttachmentBytes += attachmentFile.size;
         const previewUrl = URL.createObjectURL(attachmentFile);
         nextImages.push({
           type: "image",
@@ -2678,18 +2771,126 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     removeComposerImageFromDraft(imageId);
   };
 
+  const addComposerContextFiles = useCallback(
+    (files: File[]) => {
+      if (!activeThreadId || files.length === 0) return;
+      if (pendingUserInputs.length > 0) {
+        toastManager.add({
+          type: "error",
+          title: "Attach files after answering plan questions.",
+        });
+        return;
+      }
+      if (!attachmentUploadsCapabilityKnown) {
+        setThreadError(
+          activeThreadId,
+          "Wait for the environment connection before attaching files.",
+        );
+        return;
+      }
+      if (!supportsContextFileUploads) {
+        setThreadError(activeThreadId, "This environment does not support general file uploads.");
+        return;
+      }
+
+      const currentDraft = getComposerDraft(composerDraftTarget);
+      let reservedCount = currentDraft?.contextFiles.length ?? 0;
+      let combinedAttachmentBytes = [
+        ...(currentDraft?.images ?? []),
+        ...(currentDraft?.contextFiles ?? []),
+      ].reduce((total, attachment) => total + attachment.sizeBytes, 0);
+      const accepted: ComposerContextFile[] = [];
+      let error: string | null = null;
+
+      for (const file of files) {
+        if (!SAFE_CONTEXT_FILE_NAME_PATTERN.test(file.name) || file.name.length > 255) {
+          error = `'${file.name || "Unnamed file"}' has a filename that cannot be attached safely.`;
+          continue;
+        }
+        if (file.size <= 0) {
+          error = `'${file.name}' is empty.`;
+          continue;
+        }
+        if (file.size > PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES) {
+          error = `'${file.name}' exceeds the ${formatFileSize(PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES)} file limit.`;
+          continue;
+        }
+        if (reservedCount >= PROVIDER_SEND_TURN_MAX_CONTEXT_FILES) {
+          error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_CONTEXT_FILES} general files per message.`;
+          break;
+        }
+        if (
+          exceedsContextFileTurnByteLimit({
+            currentBytes: combinedAttachmentBytes,
+            candidateBytes: file.size,
+            contextFileCountAfterAdd: reservedCount + 1,
+            maxBytes: PROVIDER_SEND_TURN_MAX_COMBINED_ATTACHMENT_BYTES,
+          })
+        ) {
+          error = `Attachments can total at most ${formatFileSize(PROVIDER_SEND_TURN_MAX_COMBINED_ATTACHMENT_BYTES)} per message.`;
+          break;
+        }
+        accepted.push({
+          type: "file",
+          id: randomUUID(),
+          name: file.name,
+          mimeType: file.type.trim().toLowerCase() || "application/octet-stream",
+          sizeBytes: file.size,
+          file,
+        });
+        reservedCount += 1;
+        combinedAttachmentBytes += file.size;
+      }
+
+      setThreadError(activeThreadId, error);
+      if (accepted.length > 0) {
+        addComposerDraftContextFiles(composerDraftTarget, accepted);
+      }
+    },
+    [
+      activeThreadId,
+      addComposerDraftContextFiles,
+      attachmentUploadsCapabilityKnown,
+      composerDraftTarget,
+      getComposerDraft,
+      pendingUserInputs.length,
+      setThreadError,
+      supportsContextFileUploads,
+    ],
+  );
+
+  const addComposerFiles = useCallback(
+    (files: File[]) => {
+      const images: File[] = [];
+      const contextFiles: File[] = [];
+      for (const file of files) {
+        if (
+          isHeicImageFile(file) ||
+          (file.type.startsWith("image/") && isProviderSendTurnSupportedImageMimeType(file.type))
+        ) {
+          images.push(file);
+        } else {
+          contextFiles.push(file);
+        }
+      }
+      if (contextFiles.length > 0) {
+        addComposerContextFiles(contextFiles);
+      }
+      if (images.length > 0) {
+        void addComposerImages(images);
+      }
+    },
+    [addComposerContextFiles, addComposerImages],
+  );
+
   // ------------------------------------------------------------------
   // Callbacks: paste / drag
   // ------------------------------------------------------------------
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
-    const imageFiles = files.filter(
-      (file) => file.type.startsWith("image/") || isHeicImageFile(file),
-    );
-    if (imageFiles.length === 0) return;
     event.preventDefault();
-    void addComposerImages(imageFiles);
+    addComposerFiles(files);
   };
 
   const insertComposerTextAtEnd = (
@@ -2815,7 +3016,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         composerEditorRef.current?.focusAt(cursor);
       },
       addDroppedFiles: (files: File[]) => {
-        void addComposerImages(files);
+        addComposerFiles(files);
         focusComposer();
       },
       insertTextAtEnd: insertComposerTextAtEnd,
@@ -2886,6 +3087,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getSendContext: () => ({
         prompt: promptRef.current,
         images: composerImagesRef.current,
+        contextFiles: composerContextFilesRef.current,
         terminalContexts: composerTerminalContextsRef.current,
         elementContexts: composerElementContextsRef.current,
         previewAnnotations: composerPreviewAnnotations,
@@ -2911,13 +3113,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }),
     [
       activeThread,
-      addComposerImages,
+      addComposerFiles,
       composerDraftTarget,
       composerCursor,
       composerTerminalContexts,
       insertComposerDraftTerminalContext,
       promptRef,
       composerImagesRef,
+      composerContextFilesRef,
       composerTerminalContextsRef,
       composerElementContextsRef,
       composerPreviewAnnotations,
@@ -2972,6 +3175,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       className={cn("mx-auto w-full min-w-0 max-w-3xl", hasShoulderTab && "pt-7")}
       data-chat-composer-form="true"
     >
+      <input
+        ref={contextFileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-label="Attach files"
+        onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          addComposerFiles(files);
+        }}
+      />
       {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
         <div
           className="chat-composer-top-drawer"
@@ -3270,6 +3485,57 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               {!isComposerCollapsedMobile &&
                 !isComposerApprovalState &&
                 pendingUserInputs.length === 0 &&
+                composerContextFiles.length > 0 && (
+                  <div className="mb-3 flex flex-col gap-2" data-composer-context-files="true">
+                    {composerContextFiles.map((file) => {
+                      const upload = uploadsByImageId[file.id];
+                      return (
+                        <div
+                          key={file.id}
+                          className="flex min-w-0 items-center gap-2 rounded-lg border border-border/80 bg-background px-2.5 py-2"
+                        >
+                          <FileIcon className="size-4 shrink-0 text-secondary-label" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-medium text-foreground">
+                              {file.name}
+                            </div>
+                            <div className="text-[11px] text-secondary-label">
+                              {upload?.status === "uploading"
+                                ? `Uploading ${formatAttachmentUploadProgress(upload.progress)}`
+                                : upload?.status === "failed"
+                                  ? upload.reason
+                                  : formatFileSize(file.sizeBytes)}
+                            </div>
+                          </div>
+                          {upload?.status === "failed" ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => retryContextFileUpload({ environmentId, file })}
+                              aria-label={`Retry upload for ${file.name}`}
+                            >
+                              <RotateCcwIcon />
+                            </Button>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => removeComposerContextFileFromDraft(file.id)}
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <XIcon />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              {!isComposerCollapsedMobile &&
+                !isComposerApprovalState &&
+                pendingUserInputs.length === 0 &&
                 composerImages.some(
                   (image) =>
                     !composerPreviewAnnotations.some((annotation) => annotation.id === image.id),
@@ -3473,6 +3739,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
               >
                 <div className="-m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    className="shrink-0"
+                    disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
+                    aria-label="Attach images or files"
+                    title="Attach images or files"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => contextFileInputRef.current?.click()}
+                  >
+                    <PaperclipIcon className="size-4" />
+                  </Button>
                   {noProviderAvailable ? (
                     <Button
                       type="button"

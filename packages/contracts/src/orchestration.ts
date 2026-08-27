@@ -156,6 +156,9 @@ export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const PROVIDER_SEND_TURN_MAX_CONTEXT_FILES = 8;
+export const PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES = 25 * 1024 * 1024;
+export const PROVIDER_SEND_TURN_MAX_COMBINED_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 export const PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES = [
   "image/gif",
   "image/jpeg",
@@ -206,6 +209,25 @@ export const ChatAttachment = Schema.Union([ChatImageAttachment]);
 export type ChatAttachment = typeof ChatAttachment.Type;
 const UploadChatAttachment = Schema.Union([UploadChatImageAttachment]);
 export type UploadChatAttachment = typeof UploadChatAttachment.Type;
+
+/**
+ * A non-image file made available to a provider as turn context.
+ *
+ * This deliberately lives beside, rather than inside, ChatAttachment. Older
+ * image-only clients can ignore the optional contextFiles field without ever
+ * decoding an unknown attachment union member.
+ */
+export const ContextFile = Schema.Struct({
+  type: Schema.Literal("file"),
+  id: ChatAttachmentId,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255), Schema.isPattern(/^[^/\\\p{Cc}]+$/u)),
+  mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  sizeBytes: NonNegativeInt.check(
+    Schema.isGreaterThanOrEqualTo(1),
+    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_CONTEXT_FILE_BYTES),
+  ),
+});
+export type ContextFile = typeof ContextFile.Type;
 
 export const ProjectScriptIcon = Schema.Literals([
   "play",
@@ -269,6 +291,9 @@ export const OrchestrationMessage = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  contextFiles: Schema.optional(
+    Schema.Array(ContextFile).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_CONTEXT_FILES)),
+  ),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -861,6 +886,9 @@ export const ThreadTurnStartCommand = Schema.Struct({
     role: Schema.Literal("user"),
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
+    contextFiles: Schema.optional(
+      Schema.Array(ContextFile).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_CONTEXT_FILES)),
+    ),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -882,6 +910,9 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     role: Schema.Literal("user"),
     text: Schema.String,
     attachments: Schema.Array(Schema.Union([UploadChatAttachment, ChatAttachment])),
+    contextFiles: Schema.optional(
+      Schema.Array(ContextFile).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_CONTEXT_FILES)),
+    ),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -1269,6 +1300,9 @@ export const ThreadMessageSentPayload = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  contextFiles: Schema.optional(
+    Schema.Array(ContextFile).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_CONTEXT_FILES)),
+  ),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,

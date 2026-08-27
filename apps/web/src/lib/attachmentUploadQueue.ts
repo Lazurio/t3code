@@ -1,13 +1,14 @@
 import {
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   type ChatAttachment,
+  type ContextFile,
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { create } from "zustand";
 
-import type { ComposerImageAttachment } from "../composerDraftStore";
+import type { ComposerContextFile, ComposerImageAttachment } from "../composerDraftStore";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { attachmentEnvironment } from "../state/attachments";
 import { readPreparedConnection } from "../state/session";
@@ -25,7 +26,7 @@ export const useAttachmentUploadStore = create<AttachmentUploadStore>(() => ({
 }));
 
 interface UploadJob {
-  readonly image: ComposerImageAttachment;
+  readonly image: ComposerImageAttachment | ComposerContextFile;
   readonly environmentId: EnvironmentId;
   readonly previous?: ReadyAttachmentUpload;
   readonly settled: Promise<void>;
@@ -101,10 +102,13 @@ function uploadBytes(input: {
 }
 
 async function runUpload(job: UploadJob): Promise<void> {
-  const mimeType = PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.find(
-    (supportedMimeType) => supportedMimeType === job.image.mimeType.toLowerCase(),
-  );
-  if (!mimeType) {
+  const mimeType = job.image.mimeType.toLowerCase() || "application/octet-stream";
+  if (
+    job.image.type === "image" &&
+    !PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.includes(
+      mimeType as (typeof PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES)[number],
+    )
+  ) {
     setUploadState(job.image.id, {
       status: "failed",
       environmentId: job.environmentId,
@@ -120,8 +124,12 @@ async function runUpload(job: UploadJob): Promise<void> {
     {
       environmentId: job.environmentId,
       input: {
+        ...(job.image.type === "file" ? { type: "file" as const } : {}),
         name: job.image.name,
-        mimeType,
+        mimeType:
+          job.image.type === "image"
+            ? (mimeType as (typeof PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES)[number])
+            : mimeType,
         sizeBytes: job.image.file.size,
       },
     },
@@ -249,7 +257,7 @@ function pumpUploads(): void {
 
 export function startAttachmentUpload(input: {
   readonly environmentId: EnvironmentId;
-  readonly image: ComposerImageAttachment;
+  readonly image: ComposerImageAttachment | ComposerContextFile;
 }): void {
   const existingJob = jobsByImageId.get(input.image.id);
   if (existingJob?.environmentId === input.environmentId) {
@@ -306,6 +314,13 @@ export function startAttachmentUpload(input: {
   pumpUploads();
 }
 
+export function startContextFileUpload(input: {
+  readonly environmentId: EnvironmentId;
+  readonly file: ComposerContextFile;
+}): void {
+  startAttachmentUpload({ environmentId: input.environmentId, image: input.file });
+}
+
 export function cancelAttachmentUpload(imageId: string): void {
   const job = jobsByImageId.get(imageId);
   if (!job) {
@@ -342,7 +357,7 @@ export function releaseAttachmentUpload(imageId: string): void {
 
 export function retryAttachmentUpload(input: {
   readonly environmentId: EnvironmentId;
-  readonly image: ComposerImageAttachment;
+  readonly image: ComposerImageAttachment | ComposerContextFile;
 }): void {
   const previous = readAttachmentUpload(input.image.id);
   cancelAttachmentUpload(input.image.id);
@@ -355,6 +370,13 @@ export function retryAttachmentUpload(input: {
     clearUploadState(input.image.id);
   }
   startAttachmentUpload(input);
+}
+
+export function retryContextFileUpload(input: {
+  readonly environmentId: EnvironmentId;
+  readonly file: ComposerContextFile;
+}): void {
+  retryAttachmentUpload({ environmentId: input.environmentId, image: input.file });
 }
 
 export async function awaitAttachmentUploads(imageIds: ReadonlyArray<string>): Promise<void> {
@@ -382,8 +404,35 @@ export function getUploadedAttachments(input: {
   return attachments;
 }
 
+export function getUploadedContextFiles(input: {
+  readonly environmentId: EnvironmentId;
+  readonly files: ReadonlyArray<ComposerContextFile>;
+}): ContextFile[] | null {
+  const files: ContextFile[] = [];
+  for (const file of input.files) {
+    const upload = readAttachmentUpload(file.id);
+    if (upload?.status !== "ready" || upload.environmentId !== input.environmentId) {
+      return null;
+    }
+    files.push({
+      type: "file",
+      id: upload.attachmentId,
+      name: file.name,
+      mimeType: file.mimeType || "application/octet-stream",
+      sizeBytes: file.sizeBytes,
+    });
+  }
+  return files;
+}
+
 export function releaseAttachmentUploads(images: ReadonlyArray<ComposerImageAttachment>): void {
   for (const image of images) {
     releaseAttachmentUpload(image.id);
+  }
+}
+
+export function releaseContextFileUploads(files: ReadonlyArray<ComposerContextFile>): void {
+  for (const file of files) {
+    releaseAttachmentUpload(file.id);
   }
 }

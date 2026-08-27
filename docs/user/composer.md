@@ -7,6 +7,20 @@ multiple messages, then send again in the same thread.
 On servers that support direct uploads, images upload as soon as you add them. The send button
 becomes available after every upload finishes. Failed uploads can be retried or removed.
 
+The hosted browser application can also attach arbitrary files when its environment advertises
+general file uploads. Use the paperclip, paste, or drag and drop. A message can contain up to eight
+general files, each at most 25 MiB, and messages that contain general files can carry at most 50 MiB
+of images and files combined. Empty files are rejected. Files without a recognized MIME type are
+sent as `application/octet-stream`; preview support is not required.
+
+General-file drafts live only in the current browser tab. Reloading the page removes unsent files so
+their bytes never enter browser storage. After sending, the file chip can download the original. If
+an agent creates a file in the workspace and links it in Markdown, the adjacent download action
+saves that exact file to your computer. Downloads are attachments rather than inline previews.
+
+Official Desktop and Mobile clients remain image-only. They can open and continue a thread that
+contains general files, but they show the plain-text file summary instead of the browser file chip.
+
 On web and desktop, HEIC and HEIF photos are automatically converted to JPEG when you drag them into
 the composer or paste them into a message.
 

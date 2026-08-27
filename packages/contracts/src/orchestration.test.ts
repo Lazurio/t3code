@@ -284,6 +284,70 @@ it.effect("accepts both inline and uploaded image attachments from clients", () 
   }),
 );
 
+it.effect("accepts context files without widening the image attachment union", () =>
+  Effect.gen(function* () {
+    const command = yield* decodeClientOrchestrationCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-context-files",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-context-files",
+        role: "user",
+        text: "Review this document",
+        attachments: [],
+        contextFiles: [
+          {
+            type: "file",
+            id: "pending-00000000-0000-4000-8000-000000000001",
+            name: "requirements.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 42,
+          },
+        ],
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    if (command.type !== "thread.turn.start") {
+      assert.fail(`Expected thread.turn.start, received ${command.type}.`);
+    }
+    assert.strictEqual(command.message.attachments.length, 0);
+    assert.strictEqual(command.message.contextFiles?.[0]?.name, "requirements.pdf");
+  }),
+);
+
+it.effect("rejects more than eight context files at the command boundary", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.exit(
+      decodeClientOrchestrationCommand({
+        type: "thread.turn.start",
+        commandId: "cmd-turn-too-many-context-files",
+        threadId: "thread-1",
+        message: {
+          messageId: "msg-too-many-context-files",
+          role: "user",
+          text: "Review these documents",
+          attachments: [],
+          contextFiles: Array.from({ length: 9 }, (_, index) => ({
+            type: "file",
+            id: `pending-00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+            name: `requirements-${index + 1}.pdf`,
+            mimeType: "application/pdf",
+            sizeBytes: 42,
+          })),
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
 it.effect("preserves explicit provider and runtime mode in thread.turn.start", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadTurnStartCommand({
