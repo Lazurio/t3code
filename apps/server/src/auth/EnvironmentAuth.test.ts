@@ -40,12 +40,19 @@ const makeEnvironmentAuthLayer = (overrides?: Partial<ServerConfig.ServerConfig[
 const makeCookieRequest = (
   cookieName: string,
   sessionToken: string,
+  options?: {
+    readonly method?: string;
+    readonly origin?: string;
+    readonly originalUrl?: string;
+  },
 ): Parameters<EnvironmentAuth.EnvironmentAuth["Service"]["authenticateHttpRequest"]>[0] =>
   ({
     cookies: {
       [cookieName]: sessionToken,
     },
-    headers: {},
+    method: options?.method ?? "GET",
+    originalUrl: options?.originalUrl ?? "/api/auth/session",
+    headers: options?.origin ? { origin: options.origin } : {},
   }) as unknown as Parameters<
     EnvironmentAuth.EnvironmentAuth["Service"]["authenticateHttpRequest"]
   >[0];
@@ -107,6 +114,69 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       ]);
       expect(verified.subject).toBe("one-time-token");
     }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
+  );
+
+  it.effect("requires the configured origin for hosted cookie mutations and WebSockets", () =>
+    Effect.gen(function* () {
+      const externalOrigin = "https://t3code.management.example.test";
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairingCredential = yield* serverAuth.issuePairingCredential();
+      const exchanged = yield* serverAuth.createBrowserSession(
+        pairingCredential.credential,
+        requestMetadata,
+      );
+
+      const matchingMutation = yield* serverAuth.authenticateHttpRequest(
+        makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+          method: "POST",
+          origin: externalOrigin,
+          originalUrl: "/api/auth/pairing-token",
+        }),
+      );
+      expect(matchingMutation.sessionId).toBeTruthy();
+
+      for (const origin of [undefined, "https://sibling.management.example.test"]) {
+        const error = yield* serverAuth
+          .authenticateHttpRequest(
+            makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+              method: "POST",
+              ...(origin ? { origin } : {}),
+              originalUrl: "/api/auth/pairing-token",
+            }),
+          )
+          .pipe(Effect.flip);
+        expect(error._tag).toBe("ServerAuthInvalidCredentialError");
+      }
+
+      const matchingWebSocket = yield* serverAuth.authenticateWebSocketUpgrade(
+        makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+          method: "GET",
+          origin: externalOrigin,
+          originalUrl: "/ws",
+        }),
+      );
+      expect(matchingWebSocket.sessionId).toBeTruthy();
+
+      const websocketError = yield* serverAuth
+        .authenticateWebSocketUpgrade(
+          makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+            method: "GET",
+            origin: "https://sibling.management.example.test",
+            originalUrl: "/ws",
+          }),
+        )
+        .pipe(Effect.flip);
+      expect(websocketError._tag).toBe("ServerAuthInvalidCredentialError");
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthLayer({
+          mode: "web",
+          host: "127.0.0.1",
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        }),
+      ),
+    ),
   );
 
   it.effect("does not exchange ordinary pairing grants for administrative access tokens", () =>

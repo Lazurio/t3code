@@ -1,0 +1,13 @@
+.git
+.github
+.repos
+.vite-plus
+.worktrees
+**/node_modules
+**/dist
+**/dist-electron
+apps/desktop
+apps/marketing
+apps/mobile
+docs
+native
