@@ -5652,7 +5652,16 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    const resolvedSubmissionIntent =
+      submissionIntent === "background" && isLocalDraftThread ? "background" : "foreground";
     sendInFlightRef.current = true;
+    // Lock the composer before the first upload await. The ref prevents a
+    // duplicate synchronous submit, while local dispatch drives the rendered
+    // busy state so retry/remove cannot release a snapshotted pending file.
+    beginLocalDispatch({
+      preparingWorktree: Boolean(baseBranchForWorktree),
+      submissionIntent: resolvedSubmissionIntent,
+    });
     if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
       for (const image of composerImagesSnapshot) {
         startAttachmentUpload({ environmentId, image });
@@ -5660,6 +5669,7 @@ function ChatViewContent(props: ChatViewProps) {
       await awaitAttachmentUploads(composerImagesSnapshot.map((image) => image.id));
       if (getUploadedAttachments({ environmentId, images: composerImagesSnapshot }) === null) {
         sendInFlightRef.current = false;
+        resetLocalDispatch();
         setThreadError(threadIdForSend, "Retry or remove failed image uploads before sending.");
         return;
       }
@@ -5667,6 +5677,7 @@ function ChatViewContent(props: ChatViewProps) {
     if (composerContextFilesSnapshot.length > 0) {
       if (!supportsContextFileUploads) {
         sendInFlightRef.current = false;
+        resetLocalDispatch();
         setThreadError(threadIdForSend, "This environment does not support general file uploads.");
         return;
       }
@@ -5678,13 +5689,11 @@ function ChatViewContent(props: ChatViewProps) {
         getUploadedContextFiles({ environmentId, files: composerContextFilesSnapshot }) === null
       ) {
         sendInFlightRef.current = false;
+        resetLocalDispatch();
         setThreadError(threadIdForSend, "Retry or remove failed file uploads before sending.");
         return;
       }
     }
-
-    const resolvedSubmissionIntent =
-      submissionIntent === "background" && isLocalDraftThread ? "background" : "foreground";
     if (
       shouldDockDraftHeroForSubmission({
         isDraftHeroState,
@@ -5707,11 +5716,6 @@ function ChatViewContent(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
-    beginLocalDispatch({
-      preparingWorktree: Boolean(baseBranchForWorktree),
-      submissionIntent: resolvedSubmissionIntent,
-    });
-
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const turnAttachmentsPromise = Promise.all(

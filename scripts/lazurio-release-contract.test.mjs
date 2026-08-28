@@ -11,6 +11,11 @@ const vanillaCompatibility = await NodeFSP.readFile(
 );
 const workspaceConfig = await NodeFSP.readFile("pnpm-workspace.yaml", "utf8");
 const versionStamp = await NodeFSP.readFile("scripts/lazurio-stamp-package-version.mjs", "utf8");
+const chatView = await NodeFSP.readFile("apps/web/src/components/ChatView.tsx", "utf8");
+const chatComposer = await NodeFSP.readFile(
+  "apps/web/src/components/chat/ChatComposer.tsx",
+  "utf8",
+);
 
 NodeTest.test("release workflow is manual and keeps repository CI read-only", () => {
   const triggerBlock = workflow.slice(workflow.indexOf("on:"), workflow.indexOf("\npermissions:"));
@@ -109,4 +114,38 @@ NodeTest.test("fork CI proves the exact upstream base and protected client bound
   NodeAssert.match(forkCi, /pnpm exec vp test run src\/server\.test\.ts/);
   NodeAssert.match(forkCi, /--build-arg PACKAGE_VERSION=0\.0\.35/);
   NodeAssert.match(forkCi, /--build-arg "VITE_HOSTED_APP_NAME=Lazurio T3 Code"/);
+});
+
+NodeTest.test("generic-file submission locks rendered controls before awaiting uploads", () => {
+  const sendSnapshotIndex = chatView.indexOf(
+    "const composerContextFilesSnapshot = [...composerContextFiles];",
+  );
+  const renderedLockIndex = chatView.indexOf("beginLocalDispatch({", sendSnapshotIndex);
+  const firstUploadAwaitIndex = chatView.indexOf(
+    "await awaitAttachmentUploads(",
+    sendSnapshotIndex,
+  );
+  const messageIdIndex = chatView.indexOf(
+    "const messageIdForSend = newMessageId();",
+    sendSnapshotIndex,
+  );
+  const preMessageSend = chatView.slice(sendSnapshotIndex, messageIdIndex);
+  const preflightUnlocks = [
+    ...preMessageSend.matchAll(
+      /sendInFlightRef\.current = false;\n\s+resetLocalDispatch\(\);\n\s+setThreadError/g,
+    ),
+  ];
+
+  NodeAssert.ok(sendSnapshotIndex >= 0);
+  NodeAssert.ok(renderedLockIndex > sendSnapshotIndex);
+  NodeAssert.ok(firstUploadAwaitIndex > renderedLockIndex);
+  NodeAssert.equal(preflightUnlocks.length, 3);
+  NodeAssert.match(
+    chatComposer,
+    /disabled=\{isSendBusy\}\n\s+onClick=\{\(\) => retryContextFileUpload/,
+  );
+  NodeAssert.match(
+    chatComposer,
+    /disabled=\{isSendBusy\}\n\s+onClick=\{\(\) => removeComposerContextFileFromDraft/,
+  );
 });

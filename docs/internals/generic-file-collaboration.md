@@ -24,7 +24,9 @@ ownership boundary.
 The browser retains the source `File` object only in the in-memory composer draft. The persisted
 draft serializer enumerates allowed fields and cannot write generic-file metadata or bytes to
 localStorage. Failed sends restore the in-memory snapshot for retry; a page reload intentionally
-drops unsent generic files.
+drops unsent generic files. Submission locks the rendered composer before its first asynchronous
+upload wait, so retry and removal cannot release a file already included in the send snapshot; the
+lock is cleared if upload preflight fails before the turn starts.
 
 ## Provider delivery
 
