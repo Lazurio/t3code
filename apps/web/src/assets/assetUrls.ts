@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
-import type { AssetResource, EnvironmentId } from "@t3tools/contracts";
+import type { AssetPurpose, AssetResource, EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 
@@ -17,12 +17,13 @@ export type AssetUrlState =
 export function useAssetUrlState(
   environmentId: EnvironmentId,
   resource: AssetResource,
+  purpose?: AssetPurpose,
 ): AssetUrlState {
   const preparedConnection = usePreparedConnection(environmentId);
   const result = useAtomValue(
     assetEnvironment.createUrl({
       environmentId,
-      input: { resource },
+      input: { resource, ...(purpose !== undefined ? { purpose } : {}) },
     }),
   );
   if (result._tag === "Failure") {
@@ -41,8 +42,12 @@ export function useAssetUrlState(
       };
 }
 
-export function useAssetUrl(environmentId: EnvironmentId, resource: AssetResource): string | null {
-  const result = useAssetUrlState(environmentId, resource);
+export function useAssetUrl(
+  environmentId: EnvironmentId,
+  resource: AssetResource,
+  purpose?: AssetPurpose,
+): string | null {
+  const result = useAssetUrlState(environmentId, resource, purpose);
   if (result._tag !== "Success") {
     return null;
   }

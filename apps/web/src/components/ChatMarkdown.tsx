@@ -3,6 +3,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CopyIcon,
+  DownloadIcon,
   GlobeIcon,
   InfoIcon,
   LightbulbIcon,
@@ -99,7 +100,7 @@ import {
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
-import { useAssetUrlState } from "../assets/assetUrls";
+import { useAssetUrl, useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
 import { useRemoteOpenResolution, type RemoteOpenMode } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -927,6 +928,8 @@ interface MarkdownFileLinkProps {
   /** Platform-specific menu label ("Reveal in Finder", ...); required for the
       reveal item to show. */
   revealLabel?: string | undefined;
+  downloadUrl?: string | null | undefined;
+  downloadName?: string | undefined;
   className?: string | undefined;
 }
 
@@ -1282,6 +1285,8 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpenInBrowser,
   onReveal,
   revealLabel,
+  downloadUrl,
+  downloadName,
   className,
 }: MarkdownFileLinkProps) {
   const handleOpenInEditor = useCallback(() => {
@@ -1537,68 +1542,104 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   });
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          hasPrimaryAction ? (
-            <a
-              href={href}
-              className={cn(
-                CHAT_FILE_TAG_CHIP_CLASS_NAME,
-                MARKDOWN_FILE_LINK_CLASS_NAME,
-                className,
-              )}
-              data-markdown-copy={copyMarkdown}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
-                  handleOpenInEditor();
-                  return;
-                }
-                if (useBrowserPrimaryAction) {
-                  handleOpenInBrowser();
-                  return;
-                }
-                handleOpenInFilePreview();
-              }}
-              onContextMenu={handleContextMenu}
-            >
-              <FileTagChipContent path={iconPath} label={label} theme={theme} selectable />
-            </a>
-          ) : (
-            <button
-              type="button"
-              aria-label={`File options for ${label}`}
-              aria-haspopup="menu"
-              className={cn(
-                CHAT_FILE_TAG_CHIP_CLASS_NAME,
-                MARKDOWN_FILE_LINK_CLASS_NAME,
-                "select-text",
-                className,
-              )}
-              data-markdown-copy={copyMarkdown}
-              onClick={handleContextMenu}
-              onContextMenu={handleContextMenu}
-            >
-              <FileTagChipContent path={iconPath} label={label} theme={theme} selectable />
-            </button>
-          )
-        }
-      />
-      <TooltipPopup
-        side="top"
-        className="max-w-[min(40rem,calc(100vw-2rem))] font-mono text-[11px] leading-tight"
-      >
-        {/* The full path: the chip already shows the shortened form, and a link
-            to the workspace root collapses to a bare label that repeats it. */}
-        <div className="overflow-x-auto whitespace-nowrap [scrollbar-color:color-mix(in_srgb,var(--contrast-border)_78%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[color-mix(in_srgb,var(--contrast-border)_78%,transparent)] [&::-webkit-scrollbar-track]:bg-transparent">
-          {targetPath}
-        </div>
-      </TooltipPopup>
-    </Tooltip>
+    <span className="inline-flex items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            hasPrimaryAction ? (
+              <a
+                href={href}
+                className={cn(
+                  CHAT_FILE_TAG_CHIP_CLASS_NAME,
+                  MARKDOWN_FILE_LINK_CLASS_NAME,
+                  className,
+                )}
+                data-markdown-copy={copyMarkdown}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
+                    handleOpenInEditor();
+                    return;
+                  }
+                  if (useBrowserPrimaryAction) {
+                    handleOpenInBrowser();
+                    return;
+                  }
+                  handleOpenInFilePreview();
+                }}
+                onContextMenu={handleContextMenu}
+              >
+                <FileTagChipContent path={iconPath} label={label} theme={theme} selectable />
+              </a>
+            ) : (
+              <button
+                type="button"
+                aria-label={`File options for ${label}`}
+                aria-haspopup="menu"
+                className={cn(
+                  CHAT_FILE_TAG_CHIP_CLASS_NAME,
+                  MARKDOWN_FILE_LINK_CLASS_NAME,
+                  "select-text",
+                  className,
+                )}
+                data-markdown-copy={copyMarkdown}
+                onClick={handleContextMenu}
+                onContextMenu={handleContextMenu}
+              >
+                <FileTagChipContent path={iconPath} label={label} theme={theme} selectable />
+              </button>
+            )
+          }
+        />
+        <TooltipPopup
+          side="top"
+          className="max-w-[min(40rem,calc(100vw-2rem))] font-mono text-[11px] leading-tight"
+        >
+          <div className="overflow-x-auto whitespace-nowrap [scrollbar-color:color-mix(in_srgb,var(--contrast-border)_78%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[color-mix(in_srgb,var(--contrast-border)_78%,transparent)] [&::-webkit-scrollbar-track]:bg-transparent">
+            {targetPath}
+          </div>
+        </TooltipPopup>
+      </Tooltip>
+      {downloadUrl ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <a
+                href={downloadUrl}
+                download={downloadName}
+                className="inline-flex size-6 items-center justify-center rounded-md text-secondary-label hover:bg-accent/70 hover:text-foreground"
+                aria-label={`Download ${downloadName ?? label}`}
+              />
+            }
+          >
+            <DownloadIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Download</TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </span>
   );
 }, areMarkdownFileLinkPropsEqual);
+
+const MarkdownWorkspaceFileLink = memo(function MarkdownWorkspaceFileLink(
+  props: MarkdownFileLinkProps & {
+    readonly threadRef: ScopedThreadRef;
+    readonly downloadPath: string;
+    readonly downloadName: string;
+  },
+) {
+  const downloadUrl = useAssetUrl(
+    props.threadRef.environmentId,
+    {
+      _tag: "workspace-file",
+      threadId: props.threadRef.threadId,
+      path: props.downloadPath,
+    },
+    "download",
+  );
+  return <MarkdownFileLink {...props} downloadUrl={downloadUrl} />;
+});
 
 function areMarkdownFileLinkPropsEqual(
   previous: Readonly<MarkdownFileLinkProps>,
@@ -1621,6 +1662,8 @@ function areMarkdownFileLinkPropsEqual(
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.onReveal === next.onReveal &&
     previous.revealLabel === next.revealLabel &&
+    previous.downloadUrl === next.downloadUrl &&
+    previous.downloadName === next.downloadName &&
     previous.className === next.className
   );
 }
@@ -1909,36 +1952,43 @@ function ChatMarkdown({
         );
       }
 
-      return (
-        <MarkdownFileLink
-          href={fileLinkMeta.targetPath}
-          targetPath={fileLinkMeta.targetPath}
-          iconPath={fileLinkMeta.filePath}
-          displayPath={fileLinkMeta.displayPath}
-          workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
-          line={fileLinkMeta.line}
-          label={labelParts.join(" · ")}
-          copyMarkdown={copyMarkdown}
-          theme={resolvedTheme}
+      const fileLinkProps = {
+        href: fileLinkMeta.targetPath,
+        targetPath: fileLinkMeta.targetPath,
+        iconPath: fileLinkMeta.filePath,
+        displayPath: fileLinkMeta.displayPath,
+        workspaceRelativePath: fileLinkMeta.workspaceRelativePath,
+        ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
+        label: labelParts.join(" · "),
+        copyMarkdown,
+        theme: resolvedTheme,
+        ...(threadRef !== undefined ? { threadRef } : {}),
+        ...(canUseShellActions ? { onOpen: openInPreferredEditor } : {}),
+        onOpenInPanel: openFileInPanel,
+        openInEditorMenuLabel: preferredEditorMenuLabel,
+        ...(canUseShellActions && revealInFileManagerLabel !== undefined
+          ? { onReveal: () => revealMarkdownFileInFileManager(fileLinkMeta) }
+          : {}),
+        ...(revealInFileManagerLabel !== undefined
+          ? { revealLabel: revealInFileManagerLabel }
+          : {}),
+        ...(threadRef &&
+        isPreviewSupportedInRuntime() &&
+        isBrowserPreviewFile(fileLinkMeta.filePath)
+          ? { onOpenInBrowser: () => openMarkdownFileInPreview(fileLinkMeta.filePath) }
+          : {}),
+        ...(className !== undefined ? { className } : {}),
+      } satisfies MarkdownFileLinkProps;
+
+      return threadRef && fileLinkMeta.workspaceRelativePath ? (
+        <MarkdownWorkspaceFileLink
+          {...fileLinkProps}
           threadRef={threadRef}
-          {...(canUseShellActions ? { onOpen: openInPreferredEditor } : {})}
-          onOpenInPanel={openFileInPanel}
-          openInEditorMenuLabel={preferredEditorMenuLabel}
-          onReveal={
-            canUseShellActions && revealInFileManagerLabel !== undefined
-              ? () => revealMarkdownFileInFileManager(fileLinkMeta)
-              : undefined
-          }
-          revealLabel={revealInFileManagerLabel}
-          onOpenInBrowser={
-            threadRef &&
-            isPreviewSupportedInRuntime() &&
-            isBrowserPreviewFile(fileLinkMeta.filePath)
-              ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
-              : undefined
-          }
-          className={className}
+          downloadPath={fileLinkMeta.targetPath}
+          downloadName={fileLinkMeta.basename}
         />
+      ) : (
+        <MarkdownFileLink {...fileLinkProps} />
       );
     };
 

@@ -3,7 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { ChatAttachment } from "@t3tools/contracts";
+import type { ChatAttachment, ContextFile } from "@t3tools/contracts";
 
 import {
   normalizeAttachmentRelativePath,
@@ -71,7 +71,7 @@ export function parseThreadSegmentFromAttachmentId(attachmentId: string): string
   return match[1]?.toLowerCase() ?? null;
 }
 
-export function attachmentRelativePath(attachment: ChatAttachment): string {
+export function attachmentRelativePath(attachment: ChatAttachment | ContextFile): string {
   switch (attachment.type) {
     case "image": {
       const extension = inferImageExtension({
@@ -80,12 +80,14 @@ export function attachmentRelativePath(attachment: ChatAttachment): string {
       });
       return `${attachment.id}${extension}`;
     }
+    case "file":
+      return `${attachment.id}.bin`;
   }
 }
 
 export function resolveAttachmentPath(input: {
   readonly attachmentsDir: string;
-  readonly attachment: ChatAttachment;
+  readonly attachment: ChatAttachment | ContextFile;
 }): string | null {
   return resolveAttachmentRelativePath({
     attachmentsDir: input.attachmentsDir,

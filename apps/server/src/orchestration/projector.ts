@@ -523,6 +523,7 @@ export function projectEvent(
             role: payload.role,
             text: payload.text,
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
+            ...(payload.contextFiles !== undefined ? { contextFiles: payload.contextFiles } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,
@@ -548,6 +549,9 @@ export function projectEvent(
                     turnId: message.turnId,
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
+                      : {}),
+                    ...(message.contextFiles !== undefined
+                      ? { contextFiles: message.contextFiles }
                       : {}),
                   }
                 : entry,

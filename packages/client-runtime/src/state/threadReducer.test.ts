@@ -366,6 +366,15 @@ describe("applyThreadDetailEvent", () => {
           messageId: MessageId.make("msg-1"),
           role: "user",
           text: "Hello, world!",
+          contextFiles: [
+            {
+              type: "file",
+              id: "thread-1-00000000-0000-4000-8000-0000000000aa",
+              name: "brief.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1024,
+            },
+          ],
           turnId: null,
           streaming: false,
           createdAt: "2026-04-01T06:00:00.000Z",
@@ -377,6 +386,7 @@ describe("applyThreadDetailEvent", () => {
       if (result.kind === "updated") {
         expect(result.thread.messages).toHaveLength(1);
         expect(result.thread.messages[0]?.text).toBe("Hello, world!");
+        expect(result.thread.messages[0]?.contextFiles?.[0]?.name).toBe("brief.pdf");
       }
     });
 

@@ -13,6 +13,7 @@ import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   branchMismatchKey,
+  appendContextFilesToPrompt,
   buildExpiredTerminalContextToastCopy,
   buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
@@ -20,6 +21,7 @@ import {
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
+  exceedsContextFileTurnByteLimit,
   getStartedThreadModelChangeBlockReason,
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
@@ -37,12 +39,37 @@ import {
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
+  stripContextFilesFromPrompt,
 } from "./ChatView.logic";
 
 const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+
+describe("context-file combined byte limit", () => {
+  it("does not cap an image-only vanilla turn", () => {
+    expect(
+      exceedsContextFileTurnByteLimit({
+        currentBytes: 50,
+        candidateBytes: 30,
+        contextFileCountAfterAdd: 0,
+        maxBytes: 50,
+      }),
+    ).toBe(false);
+  });
+
+  it("caps the same turn once it contains a generic context file", () => {
+    expect(
+      exceedsContextFileTurnByteLimit({
+        currentBytes: 50,
+        candidateBytes: 30,
+        contextFileCountAfterAdd: 1,
+        maxBytes: 50,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("draft hero submission transition", () => {
   it("does not dock the composer before a background submission", () => {
@@ -370,6 +397,17 @@ describe("buildThreadTurnInterruptInput", () => {
 });
 
 describe("deriveComposerSendState", () => {
+  it("treats a context-file-only draft as sendable", () => {
+    expect(
+      deriveComposerSendState({
+        prompt: "",
+        imageCount: 0,
+        contextFileCount: 1,
+        terminalContexts: [],
+      }).hasSendableContent,
+    ).toBe(true);
+  });
+
   it("treats expired terminal pills as non-sendable content", () => {
     const state = deriveComposerSendState({
       prompt: "\uFFFC",
@@ -439,6 +477,25 @@ describe("deriveComposerSendState", () => {
         elementContextCount: 0,
       }).hasSendableContent,
     ).toBe(false);
+  });
+});
+
+describe("context file prompt summary", () => {
+  const files = [
+    {
+      name: "requirements.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 12_345,
+    },
+  ];
+
+  it("adds portable metadata for image-only clients and strips only the exact generated suffix", () => {
+    const prompt = appendContextFilesToPrompt("Please summarize this.", files);
+    expect(prompt).toBe(
+      'Please summarize this.\n\nAttached files available to the agent:\n- "requirements.pdf" (application/pdf, 12345 bytes)',
+    );
+    expect(stripContextFilesFromPrompt(prompt, files)).toBe("Please summarize this.");
+    expect(stripContextFilesFromPrompt(`${prompt}\nextra`, files)).toBe(`${prompt}\nextra`);
   });
 });
 

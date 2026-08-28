@@ -111,4 +111,53 @@ layer("ProjectionThreadMessageRepository", (it) => {
       assert.deepEqual(rows[0]?.attachments, []);
     }),
   );
+
+  it.effect(
+    "round-trips context files and preserves them when a later upsert omits the field",
+    () =>
+      Effect.gen(function* () {
+        const repository = yield* ProjectionThreadMessageRepository;
+        const threadId = ThreadId.make("thread-context-files");
+        const messageId = MessageId.make("message-context-files");
+        const createdAt = "2026-08-27T00:00:00.000Z";
+        const contextFiles = [
+          {
+            type: "file" as const,
+            id: "thread-context-files-00000000-0000-4000-8000-000000000001",
+            name: "requirements.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 42,
+          },
+        ];
+
+        yield* repository.upsert({
+          messageId,
+          threadId,
+          turnId: null,
+          role: "user",
+          text: "Read this",
+          contextFiles,
+          isStreaming: false,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        yield* repository.upsert({
+          messageId,
+          threadId,
+          turnId: null,
+          role: "user",
+          text: "Read this carefully",
+          isStreaming: false,
+          createdAt,
+          updatedAt: "2026-08-27T00:00:01.000Z",
+        });
+
+        const row = yield* repository.getByMessageId({ messageId });
+        assert.equal(row._tag, "Some");
+        if (row._tag === "Some") {
+          assert.equal(row.value.text, "Read this carefully");
+          assert.deepEqual(row.value.contextFiles, contextFiles);
+        }
+      }),
+  );
 });

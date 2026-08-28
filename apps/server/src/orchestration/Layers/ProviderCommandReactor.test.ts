@@ -568,6 +568,52 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  it("verifies persisted context files before passing their local path to the provider", async () => {
+    const harness = await createHarness();
+    const attachmentId = "thread-1-00000000-0000-4000-8000-000000000001";
+    const attachmentPath = NodePath.join(harness.stateDir, "attachments", `${attachmentId}.bin`);
+    NodeFS.mkdirSync(NodePath.dirname(attachmentPath), { recursive: true });
+    NodeFS.writeFileSync(attachmentPath, Buffer.from("pdf"));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-context-file"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-context-file"),
+          role: "user",
+          text: "read this",
+          attachments: [],
+          contextFiles: [
+            {
+              type: "file",
+              id: attachmentId,
+              name: "requirements.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 3,
+            },
+          ],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      contextFiles: [
+        {
+          id: attachmentId,
+          name: "requirements.pdf",
+          path: attachmentPath,
+          sizeBytes: 3,
+        },
+      ],
+    });
+  });
+
   effectIt.effect("projects starting before a slow provider session finishes", () =>
     Effect.gen(function* () {
       const releaseStart = yield* Deferred.make<void>();
@@ -2266,7 +2312,7 @@ describe("ProviderCommandReactor", () => {
     });
     const now = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-runtime-mode-claude"),
@@ -3001,7 +3047,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.activity.append",
         commandId: CommandId.make("cmd-approval-requested"),
@@ -3129,7 +3175,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.user-input.respond",
         commandId: CommandId.make("cmd-user-input-respond-stale"),

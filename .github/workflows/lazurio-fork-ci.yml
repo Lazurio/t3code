@@ -40,9 +40,16 @@ jobs:
             f925d639421844f02b3166d29281905dbba6d529
           git merge-base --is-ancestor refs/tags/upstream-v0.0.35 HEAD
 
-          if git diff --name-only refs/tags/upstream-v0.0.35..HEAD | \
-            grep -Eq '^(packages/contracts|packages/client-runtime|apps/mobile|apps/desktop)(/|$)'; then
-            echo "Fork overlay changed a vanilla client/protocol compatibility boundary." >&2
+          changed_files="$(mktemp)"
+          git diff --name-only refs/tags/upstream-v0.0.35..HEAD > "$changed_files"
+          if grep -Eq '^apps/(mobile|desktop)(/|$)' "$changed_files"; then
+            echo "Fork overlay changed an official vanilla client." >&2
+            exit 1
+          fi
+          if grep -E '^(packages/contracts|packages/client-runtime)(/|$)' "$changed_files" | \
+            grep -Ev '^packages/contracts/src/(assets|environment|orchestration|provider)(\.test)?\.ts$|^packages/contracts/src/vanilla-v0\.0\.35-compat\.test\.ts$|^packages/client-runtime/src/state/threadReducer(\.test)?\.ts$' | \
+            grep -q .; then
+            echo "Fork overlay exceeded the reviewed generic-file compatibility surface." >&2
             exit 1
           fi
 
@@ -67,14 +74,19 @@ jobs:
       - name: Lint
         run: pnpm exec vp lint --report-unused-disable-directives
 
-      - name: Typecheck server and web
+      - name: Typecheck generic-file compatibility surface
         run: |
+          pnpm exec vp run --filter @t3tools/contracts typecheck
+          pnpm exec vp run --filter @t3tools/client-runtime typecheck
           pnpm exec vp run --filter t3 typecheck
           pnpm exec vp run --filter @t3tools/web typecheck
 
       - name: Test hosted-origin and access compatibility
         run: |
           cd apps/server
+          # The router seam owns process-global HTTP fixtures. Keep it in its
+          # own Vitest process so sibling auth suites cannot answer its ports.
+          pnpm exec vp test run src/server.test.ts
           pnpm exec vp test run \
             src/cli/config.test.ts \
             src/cli/pair.test.ts \
@@ -82,16 +94,50 @@ jobs:
             src/auth/EnvironmentAuth.test.ts \
             src/auth/EnvironmentAuthPolicy.test.ts \
             src/auth/SessionStore.test.ts \
-            src/auth/utils.test.ts \
-            src/server.test.ts
+            src/auth/utils.test.ts
           cd ../web
           pnpm exec vp test run src/components/settings/ConnectionsSettings.logic.test.ts
+
+      - name: Test generic file collaboration and pinned vanilla decoding
+        run: |
+          cd packages/contracts
+          pnpm exec vp test run \
+            src/assets.test.ts \
+            src/environment.test.ts \
+            src/orchestration.test.ts \
+            src/provider.test.ts \
+            src/vanilla-v0.0.35-compat.test.ts
+          cd ../client-runtime
+          pnpm exec vp test run src/state/threadReducer.test.ts
+          cd ../../apps/server
+          pnpm exec vp test run \
+            src/assets/AssetAccess.test.ts \
+            src/assets/AttachmentUpload.test.ts \
+            src/assets/ContextFileAccess.test.ts \
+            src/environment/ServerEnvironment.test.ts \
+            src/http.test.ts \
+            src/orchestration/Layers/ProjectionPipeline.test.ts \
+            src/orchestration/Layers/ProjectionSnapshotQuery.test.ts \
+            src/orchestration/Layers/ProviderCommandReactor.test.ts \
+            src/orchestration/Normalizer.attachments.test.ts \
+            src/persistence/Layers/ProjectionThreadMessages.test.ts \
+            src/persistence/Migrations/044_ProjectionThreadMessagesContextFiles.test.ts \
+            src/provider/Layers/ProviderService.test.ts
+          cd ../web
+          pnpm exec vp test run \
+            src/components/ChatMarkdown.test.tsx \
+            src/components/ChatView.logic.test.ts \
+            src/components/chat/MessagesTimeline.test.tsx \
+            src/composerDraftStore.test.ts \
+            src/lib/attachmentUploadQueue.test.ts
 
       - name: Build vanilla web distribution
         run: pnpm exec vp run --filter @t3tools/web build
 
       - name: Validate Lazurio release contract
-        run: node --test scripts/lazurio-release-contract.test.mjs
+        run: |
+          node --test scripts/lazurio-release-contract.test.mjs
+          node --test scripts/lazurio-context-file-migration-contract.test.mjs
 
       - name: Build the release image without publishing
         run: |
@@ -132,3 +178,58 @@ jobs:
               console.log("pty-smoke=PASS");
             });
           '
+
+  windows-generic-files:
+    name: Windows generic-file compatibility
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact public revision without credentials
+        shell: pwsh
+        env:
+          SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/$env:GITHUB_REPOSITORY.git"
+          git fetch --filter=blob:none origin $env:SOURCE_REF
+          git checkout --detach FETCH_HEAD
+          $actualRef = git rev-parse HEAD
+          if ($actualRef -ne $env:SOURCE_REF) {
+            throw "Expected $env:SOURCE_REF, checked out $actualRef"
+          }
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck generic-file compatibility surface
+        run: |
+          pnpm exec vp run --filter @t3tools/contracts typecheck
+          pnpm exec vp run --filter @t3tools/client-runtime typecheck
+          pnpm exec vp run --filter t3 typecheck
+          pnpm exec vp run --filter @t3tools/web typecheck
+
+      - name: Test generic file collaboration and pinned vanilla decoding
+        run: |
+          cd packages/contracts
+          pnpm exec vp test run src/assets.test.ts src/environment.test.ts src/orchestration.test.ts src/provider.test.ts src/vanilla-v0.0.35-compat.test.ts
+          cd ../client-runtime
+          pnpm exec vp test run src/state/threadReducer.test.ts
+          cd ../../apps/server
+          # Keep this Windows gate on the new exact-file surface. Upstream's
+          # unrelated favicon cases currently report OS-native separators.
+          pnpm exec vp test run src/assets/AssetAccess.test.ts -t "download|context-file"
+          pnpm exec vp test run src/assets/AttachmentUpload.test.ts src/assets/ContextFileAccess.test.ts src/environment/ServerEnvironment.test.ts src/http.test.ts src/orchestration/Layers/ProjectionPipeline.test.ts src/orchestration/Layers/ProjectionSnapshotQuery.test.ts src/orchestration/Layers/ProviderCommandReactor.test.ts src/orchestration/Normalizer.attachments.test.ts src/persistence/Layers/ProjectionThreadMessages.test.ts src/persistence/Migrations/044_ProjectionThreadMessagesContextFiles.test.ts src/provider/Layers/ProviderService.test.ts
+          cd ../web
+          pnpm exec vp test run src/components/ChatMarkdown.test.tsx src/components/ChatView.logic.test.ts src/components/chat/MessagesTimeline.test.tsx src/composerDraftStore.test.ts src/lib/attachmentUploadQueue.test.ts

@@ -359,6 +359,15 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
                 sizeBytes: 5,
               },
             ],
+            contextFiles: [
+              {
+                type: "file",
+                id: "thread-attachments-file-1",
+                name: "requirements.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: 7,
+              },
+            ],
             turnId: null,
             streaming: false,
             createdAt: now,
@@ -370,9 +379,11 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
 
         const rows = yield* sql<{
           readonly attachmentsJson: string | null;
+          readonly contextFilesJson: string | null;
         }>`
             SELECT
-              attachments_json AS "attachmentsJson"
+              attachments_json AS "attachmentsJson",
+              context_files_json AS "contextFilesJson"
             FROM projection_thread_messages
             WHERE message_id = 'message-attachments'
           `;
@@ -385,6 +396,16 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
             name: "example.png",
             mimeType: "image/png",
             sizeBytes: 5,
+          },
+        ]);
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        assert.deepEqual(JSON.parse(rows[0]?.contextFilesJson ?? "null"), [
+          {
+            type: "file",
+            id: "thread-attachments-file-1",
+            name: "requirements.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 7,
           },
         ]);
       }),
@@ -883,6 +904,8 @@ it.layer(
       const threadId = ThreadId.make("Thread Revert.Files");
       const keepAttachmentId = "thread-revert-files-00000000-0000-4000-8000-000000000001";
       const removeAttachmentId = "thread-revert-files-00000000-0000-4000-8000-000000000002";
+      const keepContextFileId = "thread-revert-files-00000000-0000-4000-8000-000000000004";
+      const removeContextFileId = "thread-revert-files-00000000-0000-4000-8000-000000000005";
       const otherThreadAttachmentId =
         "thread-revert-files-extra-00000000-0000-4000-8000-000000000003";
 
@@ -984,6 +1007,15 @@ it.layer(
               sizeBytes: 5,
             },
           ],
+          contextFiles: [
+            {
+              type: "file",
+              id: keepContextFileId,
+              name: "keep.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 5,
+            },
+          ],
           turnId: TurnId.make("turn-keep"),
           streaming: false,
           createdAt: now,
@@ -1037,6 +1069,15 @@ it.layer(
               sizeBytes: 5,
             },
           ],
+          contextFiles: [
+            {
+              type: "file",
+              id: removeContextFileId,
+              name: "remove.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 6,
+            },
+          ],
           turnId: TurnId.make("turn-remove"),
           streaming: false,
           createdAt: now,
@@ -1046,13 +1087,19 @@ it.layer(
 
       const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.png`);
       const removePath = path.join(attachmentsDir, `${removeAttachmentId}.png`);
+      const keepContextFilePath = path.join(attachmentsDir, `${keepContextFileId}.bin`);
+      const removeContextFilePath = path.join(attachmentsDir, `${removeContextFileId}.bin`);
       yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
       yield* fileSystem.writeFileString(keepPath, "keep");
       yield* fileSystem.writeFileString(removePath, "remove");
+      yield* fileSystem.writeFileString(keepContextFilePath, "keep!");
+      yield* fileSystem.writeFileString(removeContextFilePath, "remove");
       const otherThreadPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
       yield* fileSystem.writeFileString(otherThreadPath, "other");
       assert.isTrue(yield* exists(keepPath));
       assert.isTrue(yield* exists(removePath));
+      assert.isTrue(yield* exists(keepContextFilePath));
+      assert.isTrue(yield* exists(removeContextFilePath));
       assert.isTrue(yield* exists(otherThreadPath));
 
       yield* appendAndProject({
@@ -1073,6 +1120,8 @@ it.layer(
 
       assert.isTrue(yield* exists(keepPath));
       assert.isFalse(yield* exists(removePath));
+      assert.isTrue(yield* exists(keepContextFilePath));
+      assert.isFalse(yield* exists(removeContextFilePath));
       assert.isTrue(yield* exists(otherThreadPath));
     }),
   );

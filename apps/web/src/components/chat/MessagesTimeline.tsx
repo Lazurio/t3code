@@ -3,6 +3,7 @@ import {
   type MessageId,
   type ScopedThreadRef,
   type ServerProviderSkill,
+  type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -50,9 +51,11 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  DownloadIcon,
   EyeIcon,
   GlobeIcon,
   HammerIcon,
+  FileIcon,
   MessageCircleIcon,
   MousePointerClickIcon,
   PaintbrushIcon,
@@ -109,6 +112,8 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { useAssetUrl } from "../../assets/assetUrls";
+import { stripContextFilesFromPrompt } from "../ChatView.logic";
 
 import {
   buildInlineTerminalContextText,
@@ -988,6 +993,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const userImages = row.message.attachments ?? [];
+  const contextFiles = row.message.contextFiles ?? [];
   const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
   const terminalContexts = displayedUserMessage.contexts;
   const previewAnnotations: ParsedPreviewAnnotation[] = [];
@@ -1003,6 +1009,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     ...displayedUserMessage.elementContexts,
     ...elementContextState.contexts,
   ];
+  const visiblePromptText = stripContextFilesFromPrompt(
+    elementContextState.promptText,
+    contextFiles,
+  );
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const regularImages = userImages.filter((image) => !image.name.startsWith("preview-annotation-"));
   const canRevertAgentWork = typeof row.revertTurnCount === "number";
@@ -1060,8 +1070,21 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
+        {contextFiles.length > 0 && ctx.threadRef ? (
+          <div className="mb-2 flex flex-col gap-1.5">
+            {contextFiles.map((file) => (
+              <UserContextFileChip
+                key={file.id}
+                environmentId={ctx.activeThreadEnvironmentId}
+                threadId={ctx.threadRef!.threadId}
+                messageId={row.message.id}
+                file={file}
+              />
+            ))}
+          </div>
+        ) : null}
         <CollapsibleUserMessageBody
-          text={elementContextState.promptText}
+          text={visiblePromptText}
           terminalContexts={terminalContexts}
           skills={ctx.skills}
           markdownCwd={ctx.markdownCwd}
@@ -1085,6 +1108,49 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function UserContextFileChip(props: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  messageId: MessageId;
+  file: NonNullable<TimelineMessage["contextFiles"]>[number];
+}) {
+  const downloadUrl = useAssetUrl(
+    props.environmentId,
+    {
+      _tag: "context-file",
+      threadId: props.threadId,
+      messageId: props.messageId,
+      attachmentId: props.file.id,
+    },
+    "download",
+  );
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2">
+      <FileIcon className="size-4 shrink-0 text-secondary-label" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xs font-medium">{props.file.name}</div>
+        <div className="text-[11px] text-secondary-label">
+          {props.file.mimeType} · {props.file.sizeBytes.toLocaleString()} bytes
+        </div>
+      </div>
+      <Button
+        render={
+          <a
+            href={downloadUrl ?? undefined}
+            download={props.file.name}
+            aria-label={`Download ${props.file.name}`}
+          />
+        }
+        variant="ghost"
+        size="icon-xs"
+        disabled={downloadUrl === null}
+      >
+        <DownloadIcon />
+      </Button>
     </div>
   );
 }

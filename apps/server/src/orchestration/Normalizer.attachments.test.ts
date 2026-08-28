@@ -8,9 +8,11 @@ import {
   type ClientOrchestrationCommand,
   CommandId,
   MessageId,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
@@ -30,6 +32,12 @@ function turnStartCommand(input: {
     | { readonly id: string; readonly sizeBytes: number }
     | { readonly dataUrl: string; readonly sizeBytes: number }
   >;
+  readonly contextFiles?: ReadonlyArray<{
+    readonly id: string;
+    readonly sizeBytes: number;
+    readonly name?: string;
+    readonly mimeType?: string;
+  }>;
 }): ClientOrchestrationCommand {
   return {
     type: "thread.turn.start",
@@ -45,6 +53,16 @@ function turnStartCommand(input: {
         mimeType: "image/png",
         ...attachment,
       })),
+      ...(input.contextFiles
+        ? {
+            contextFiles: input.contextFiles.map((file) => ({
+              type: "file" as const,
+              name: file.name ?? "source material.pdf",
+              mimeType: file.mimeType ?? "application/pdf",
+              ...file,
+            })),
+          }
+        : {}),
     },
     runtimeMode: "full-access",
     interactionMode: "default",
@@ -73,6 +91,27 @@ describe("normalizeDispatchCommand attachments", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("preserves the vanilla image-only aggregate ceiling", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachments = Array.from({ length: 8 }, (_, index) => {
+        const suffix = String(index + 1).padStart(12, "0");
+        const id = `pending-00000000-0000-4000-8000-${suffix}`;
+        const pendingPath = NodePath.join(config.attachmentsDir, `${id}.png`);
+        NodeFS.writeFileSync(pendingPath, "");
+        NodeFS.truncateSync(pendingPath, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
+        return { id, sizeBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES };
+      });
+
+      const normalized = yield* normalizeDispatchCommand(turnStartCommand({ attachments }));
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+
+      expect(normalized.message.attachments).toHaveLength(8);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("claims uploaded attachments while retaining a retryable pending copy", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
@@ -96,6 +135,80 @@ describe("normalizeDispatchCommand attachments", () => {
       expect(NodeFS.existsSync(NodePath.join(config.attachmentsDir, `${attachmentId}.png`))).toBe(
         true,
       );
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("claims opaque context files and cleans only the failed thread-owned copy", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const bytes = Buffer.from("%PDF-1.7");
+      const pendingPath = NodePath.join(config.attachmentsDir, `pending-${attachmentUuid}.bin`);
+      NodeFS.writeFileSync(pendingPath, bytes);
+      const command = turnStartCommand({
+        attachments: [],
+        contextFiles: [{ id: `pending-${attachmentUuid}`, sizeBytes: bytes.byteLength }],
+      });
+
+      const normalized = yield* normalizeDispatchCommand(command);
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+      const contextFile = normalized.message.contextFiles?.[0];
+      if (!contextFile) {
+        throw new Error("Expected a normalized context file.");
+      }
+      const claimedPath = NodePath.join(config.attachmentsDir, `${contextFile.id}.bin`);
+
+      expect(contextFile).toMatchObject({
+        type: "file",
+        name: "source material.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: bytes.byteLength,
+      });
+      expect(contextFile.id.startsWith("thread-1-")).toBe(true);
+      expect(NodeFS.readFileSync(claimedPath)).toEqual(bytes);
+      expect(NodeFS.existsSync(pendingPath)).toBe(true);
+
+      yield* cleanupFailedUploadedAttachments(command, normalized);
+      expect(NodeFS.existsSync(claimedPath)).toBe(false);
+      expect(NodeFS.existsSync(pendingPath)).toBe(true);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("keeps the claimed file when pending removal races turn normalization", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const bytes = Buffer.from("%PDF-1.7");
+      const pendingId = `pending-${attachmentUuid}`;
+      const pendingPath = NodePath.join(config.attachmentsDir, `${pendingId}.bin`);
+      NodeFS.writeFileSync(pendingPath, bytes);
+
+      const removeImmediatelyAfterClaimFileSystem = FileSystem.FileSystem.of({
+        ...fileSystem,
+        link: (currentPath, finalPath) =>
+          fileSystem
+            .link(currentPath, finalPath)
+            .pipe(Effect.andThen(fileSystem.remove(currentPath, { force: true }))),
+      });
+      const normalized = yield* normalizeDispatchCommand(
+        turnStartCommand({
+          attachments: [],
+          contextFiles: [{ id: pendingId, sizeBytes: bytes.byteLength }],
+        }),
+      ).pipe(Effect.provideService(FileSystem.FileSystem, removeImmediatelyAfterClaimFileSystem));
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+      const contextFile = normalized.message.contextFiles?.[0];
+      if (!contextFile) {
+        throw new Error("Expected a normalized context file.");
+      }
+
+      expect(NodeFS.existsSync(pendingPath)).toBe(false);
+      expect(
+        NodeFS.readFileSync(NodePath.join(config.attachmentsDir, `${contextFile.id}.bin`)),
+      ).toEqual(bytes);
     }).pipe(Effect.provide(testLayer)),
   );
 

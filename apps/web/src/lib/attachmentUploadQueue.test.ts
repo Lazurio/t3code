@@ -1,7 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { ComposerImageAttachment } from "../composerDraftStore";
+import type { ComposerContextFile, ComposerImageAttachment } from "../composerDraftStore";
 
 const mocks = vi.hoisted(() => ({
   createUploadUrl: Symbol("create-upload-url"),
@@ -30,11 +30,14 @@ vi.mock("../state/session", () => ({
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
+  getUploadedContextFiles,
   readAttachmentUpload,
   releaseAttachmentUpload,
   releaseAttachmentUploads,
+  releaseContextFileUploads,
   retryAttachmentUpload,
   startAttachmentUpload,
+  startContextFileUpload,
   useAttachmentUploadStore,
 } from "./attachmentUploadQueue";
 
@@ -106,6 +109,20 @@ function makeImage(id: string): ComposerImageAttachment {
     mimeType: file.type,
     sizeBytes: file.size,
     previewUrl: `blob:${id}`,
+    file,
+  };
+}
+
+function makeContextFile(id: string): ComposerContextFile {
+  const file = new File([new Uint8Array([1, 2, 3, 4])], `${id}.pdf`, {
+    type: "application/pdf",
+  });
+  return {
+    type: "file",
+    id,
+    name: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
     file,
   };
 }
@@ -187,6 +204,43 @@ describe("attachmentUploadQueue", () => {
       },
       expect.anything(),
     );
+  });
+
+  it("uploads arbitrary files through the same signed byte transport", async () => {
+    const file = makeContextFile("source-material");
+    startContextFileUpload({ environmentId: firstEnvironment, file });
+    await Promise.resolve();
+
+    expect(mocks.runAtomCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      mocks.createUploadUrl,
+      {
+        environmentId: firstEnvironment,
+        input: {
+          type: "file",
+          name: "source-material.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 4,
+        },
+      },
+      expect.anything(),
+    );
+    const settled = awaitAttachmentUploads([file.id]);
+    TestXmlHttpRequest.requests[0]!.complete();
+    await settled;
+
+    expect(getUploadedContextFiles({ environmentId: firstEnvironment, files: [file] })).toEqual([
+      {
+        type: "file",
+        id: "pending-environment-1-source-material.pdf",
+        name: "source-material.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 4,
+      },
+    ]);
+
+    releaseContextFileUploads([file]);
+    expect(readAttachmentUpload(file.id)).toBeUndefined();
   });
 
   it("retries rejected uploads", async () => {

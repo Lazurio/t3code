@@ -124,6 +124,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           turn_id,
           role,
           text,
+          context_files_json,
           is_streaming,
           created_at,
           updated_at
@@ -134,6 +135,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'turn-1',
           'assistant',
           'hello from projection',
+          '[{"type":"file","id":"thread-1-00000000-0000-4000-8000-000000000001","name":"requirements.pdf","mimeType":"application/pdf","sizeBytes":42}]',
           0,
           '2026-02-24T00:00:04.000Z',
           '2026-02-24T00:00:05.000Z'
@@ -341,6 +343,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               id: asMessageId("message-1"),
               role: "assistant",
               text: "hello from projection",
+              contextFiles: [
+                {
+                  type: "file",
+                  id: "thread-1-00000000-0000-4000-8000-000000000001",
+                  name: "requirements.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 42,
+                },
+              ],
               turnId: asTurnId("turn-1"),
               streaming: false,
               createdAt: "2026-02-24T00:00:04.000Z",

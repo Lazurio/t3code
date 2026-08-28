@@ -32,6 +32,17 @@ export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
+export function exceedsContextFileTurnByteLimit(input: {
+  currentBytes: number;
+  candidateBytes: number;
+  contextFileCountAfterAdd: number;
+  maxBytes: number;
+}): boolean {
+  return (
+    input.contextFileCountAfterAdd > 0 && input.currentBytes + input.candidateBytes > input.maxBytes
+  );
+}
+
 export function shouldDockDraftHeroForSubmission(input: {
   isDraftHeroState: boolean;
   activeThreadKey: string | null;
@@ -363,6 +374,7 @@ export function cloneComposerImageForRetry(
 export function deriveComposerSendState(options: {
   prompt: string;
   imageCount: number;
+  contextFileCount?: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   /**
    * Optional element-pick attachment count. Element contexts contribute to
@@ -381,6 +393,7 @@ export function deriveComposerSendState(options: {
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
   const elementContextCount = options.elementContextCount ?? 0;
+  const contextFileCount = options.contextFileCount ?? 0;
   return {
     trimmedPrompt,
     sendableTerminalContexts,
@@ -388,9 +401,46 @@ export function deriveComposerSendState(options: {
     hasSendableContent:
       trimmedPrompt.length > 0 ||
       options.imageCount > 0 ||
+      contextFileCount > 0 ||
       sendableTerminalContexts.length > 0 ||
       elementContextCount > 0,
   };
+}
+
+export function appendContextFilesToPrompt(
+  prompt: string,
+  files: ReadonlyArray<{
+    readonly name: string;
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+  }>,
+): string {
+  if (files.length === 0) {
+    return prompt;
+  }
+  const summary = [
+    "Attached files available to the agent:",
+    ...files.map(
+      (file) =>
+        `- ${JSON.stringify(file.name)} (${file.mimeType || "application/octet-stream"}, ${file.sizeBytes} bytes)`,
+    ),
+  ].join("\n");
+  return prompt.trim().length > 0 ? `${prompt}\n\n${summary}` : summary;
+}
+
+export function stripContextFilesFromPrompt(
+  prompt: string,
+  files: ReadonlyArray<{
+    readonly name: string;
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+  }>,
+): string {
+  if (files.length === 0) return prompt;
+  const summary = appendContextFilesToPrompt("", files);
+  if (prompt === summary) return "";
+  const suffix = `\n\n${summary}`;
+  return prompt.endsWith(suffix) ? prompt.slice(0, -suffix.length) : prompt;
 }
 
 export function buildExpiredTerminalContextToastCopy(

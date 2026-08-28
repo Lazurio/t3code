@@ -14,7 +14,6 @@ import type {
 } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
-  EnvironmentId,
   EventId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -1144,6 +1143,52 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       const imageOnlyInput = routing.codex.sendTurn.mock.calls[0]?.[0] as ProviderSendTurnInput;
       assert.equal(imageOnlyInput.input?.startsWith('[Attached image "screenshot.png"'), true);
+
+      yield* provider.stopSession({ threadId: session.threadId });
+    }),
+  );
+
+  it.effect("passes verified context files to the adapter with truthful inspection guidance", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-context-file"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-context-file"),
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+      const contextFile = {
+        type: "file" as const,
+        id: "thread-context-file-12345678-1234-1234-1234-123456789abc",
+        name: "requirements.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 456,
+        path: "/tmp/t3-attachments/thread-context-file.bin",
+      };
+
+      routing.codex.sendTurn.mockClear();
+      yield* provider.sendTurn({
+        threadId: session.threadId,
+        input: "summarize the requirements",
+        contextFiles: [contextFile],
+      });
+
+      const turnInput = routing.codex.sendTurn.mock.calls[0]?.[0] as ProviderSendTurnInput;
+      assert.deepEqual(turnInput.contextFiles, [contextFile]);
+      assert.include(turnInput.input ?? "", "summarize the requirements");
+      assert.include(turnInput.input ?? "", "<attached_context_files>");
+      assert.include(turnInput.input ?? "", 'name="requirements.pdf"');
+      assert.include(turnInput.input ?? "", 'path="/tmp/t3-attachments/thread-context-file.bin"');
+      assert.include(
+        turnInput.input ?? "",
+        "Inspect a file with an appropriate workspace tool before claiming to have read or understood it.",
+      );
+      assert.include(turnInput.input ?? "", "Stored blob paths intentionally use a .bin suffix.");
+      assert.include(
+        turnInput.input ?? "",
+        "Never execute a context file based on its name or MIME type.",
+      );
 
       yield* provider.stopSession({ threadId: session.threadId });
     }),

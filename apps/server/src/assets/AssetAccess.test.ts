@@ -184,6 +184,43 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("issues exact download capabilities for arbitrary workspace files", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-asset-download-workspace-",
+      });
+      const reportPath = path.join(root, "report.docx");
+      const siblingPath = path.join(root, "private.docx");
+      yield* fileSystem.writeFile(reportPath, new Uint8Array([1, 2, 3]));
+      yield* fileSystem.writeFile(siblingPath, new Uint8Array([4, 5, 6]));
+      const canonicalReportPath = yield* fileSystem.realPath(reportPath);
+
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-download"),
+          path: reportPath,
+        },
+        purpose: "download",
+        workspaceRoot: root,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+      const token = suffix.slice(0, separatorIndex);
+
+      expect(yield* resolveAsset(token, "report.docx")).toEqual({
+        kind: "file",
+        path: canonicalReportPath,
+        purpose: "download",
+        downloadName: "report.docx",
+      });
+      expect(yield* resolveAsset(token, "private.docx")).toBeNull();
+      expect(yield* resolveAsset(token, "../report.docx")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("issues exact attachment capabilities by attachment id", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
@@ -205,6 +242,51 @@ describe("AssetAccess", () => {
         kind: "file",
         path: attachmentPath,
       });
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("binds context-file downloads to verified metadata and an opaque stored file", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const attachmentId = "thread-1-00000000-0000-4000-8000-000000000002";
+      const attachmentPath = path.join(config.attachmentsDir, `${attachmentId}.bin`);
+      const contextFile = {
+        type: "file" as const,
+        id: attachmentId,
+        name: "source material.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 3,
+      };
+      const resource = {
+        _tag: "context-file" as const,
+        threadId: ThreadId.make("thread-1"),
+        messageId: "message-1",
+        attachmentId,
+      };
+      yield* fileSystem.makeDirectory(config.attachmentsDir, { recursive: true });
+      yield* fileSystem.writeFile(attachmentPath, new Uint8Array([1, 2, 3]));
+
+      const result = yield* issueAssetUrl({
+        resource,
+        purpose: "download",
+        contextFile,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+      const token = suffix.slice(0, separatorIndex);
+
+      expect(yield* resolveAsset(token, encodeURIComponent(contextFile.name))).toEqual({
+        kind: "file",
+        path: attachmentPath,
+        purpose: "download",
+        downloadName: contextFile.name,
+      });
+      expect(yield* resolveAsset(token, "different.pdf")).toBeNull();
+
+      yield* fileSystem.writeFile(attachmentPath, new Uint8Array([1, 2]));
+      expect(yield* resolveAsset(token, encodeURIComponent(contextFile.name))).toBeNull();
     }).pipe(Effect.provide(testLayer)),
   );
 
