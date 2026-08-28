@@ -12,6 +12,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
@@ -171,6 +172,43 @@ describe("normalizeDispatchCommand attachments", () => {
       yield* cleanupFailedUploadedAttachments(command, normalized);
       expect(NodeFS.existsSync(claimedPath)).toBe(false);
       expect(NodeFS.existsSync(pendingPath)).toBe(true);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("keeps the claimed file when pending removal races turn normalization", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const bytes = Buffer.from("%PDF-1.7");
+      const pendingId = `pending-${attachmentUuid}`;
+      const pendingPath = NodePath.join(config.attachmentsDir, `${pendingId}.bin`);
+      NodeFS.writeFileSync(pendingPath, bytes);
+
+      const removeImmediatelyAfterClaimFileSystem = FileSystem.FileSystem.of({
+        ...fileSystem,
+        link: (currentPath, finalPath) =>
+          fileSystem
+            .link(currentPath, finalPath)
+            .pipe(Effect.andThen(fileSystem.remove(currentPath, { force: true }))),
+      });
+      const normalized = yield* normalizeDispatchCommand(
+        turnStartCommand({
+          attachments: [],
+          contextFiles: [{ id: pendingId, sizeBytes: bytes.byteLength }],
+        }),
+      ).pipe(Effect.provideService(FileSystem.FileSystem, removeImmediatelyAfterClaimFileSystem));
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+      const contextFile = normalized.message.contextFiles?.[0];
+      if (!contextFile) {
+        throw new Error("Expected a normalized context file.");
+      }
+
+      expect(NodeFS.existsSync(pendingPath)).toBe(false);
+      expect(
+        NodeFS.readFileSync(NodePath.join(config.attachmentsDir, `${contextFile.id}.bin`)),
+      ).toEqual(bytes);
     }).pipe(Effect.provide(testLayer)),
   );
 

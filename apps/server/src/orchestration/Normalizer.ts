@@ -182,9 +182,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           });
         }
 
-        // Keep the pending copy until the turn succeeds. A failed thread
-        // bootstrap can then retry with a fresh thread id.
-        yield* fileSystem.copyFile(claim.currentPath, claim.finalPath).pipe(
+        // Atomically add the thread-owned name before the pending name can be
+        // released. If removal wins first, link fails; if the claim wins,
+        // unlinking the pending name cannot invalidate the claimed file. The
+        // pending name remains available for a failed bootstrap retry.
+        yield* fileSystem.link(claim.currentPath, claim.finalPath).pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationDispatchCommandError({

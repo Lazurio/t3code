@@ -3512,6 +3512,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                               type="button"
                               variant="ghost"
                               size="icon-xs"
+                              disabled={isSendBusy}
                               onClick={() => retryContextFileUpload({ environmentId, file })}
                               aria-label={`Retry upload for ${file.name}`}
                             >
@@ -3522,6 +3523,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             type="button"
                             variant="ghost"
                             size="icon-xs"
+                            disabled={isSendBusy}
                             onClick={() => removeComposerContextFileFromDraft(file.id)}
                             aria-label={`Remove ${file.name}`}
                           >
