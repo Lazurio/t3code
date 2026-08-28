@@ -19,3 +19,10 @@ Every upstream sync must treat new or restored files under `.github/workflows/` 
 review item. Do not merge a sync that reintroduces an upstream workflow alongside the fork CI.
 Publication of a fork tag, artifact, infrastructure pin, or live rollout remains a separate explicit
 operator action; CI never performs promotion.
+
+Stable refreshes follow the canonical
+[compatibility-fork release contract](../docs/operations/lazurio-fork-release.md#stable-refresh-procedure).
+The candidate starts from the exact upstream stable, classifies every semantic overlay as
+`remove`, `retain`, or `migrate`, and joins current fork history only through a tree-neutral bridge.
+`main` is published by a checked merge-commit pull request and must not be force-pushed or deleted.
+The historical v0.0.34 and v0.0.35 controlled resets are not precedent for future updates.

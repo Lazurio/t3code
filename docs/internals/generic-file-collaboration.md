@@ -14,10 +14,12 @@ and atomically renames a successful upload to opaque `.bin` storage. A generic f
 25 MiB, a turn to eight generic files, and a turn containing generic files to 50 MiB across files
 and images. Image-only turns retain the vanilla per-image limits without the new aggregate ceiling.
 
-At turn start the normalizer claims the pending upload into the thread-owned attachment namespace.
-Metadata is stored in the ordered message projection's separate `context_files_json` column and in
-the event payload. Projection rebuild, snapshot reads, reducer updates, revert, and attachment GC all
-use the same message ownership boundary.
+At turn start the normalizer claims the pending upload into the thread-owned attachment namespace
+with an atomic same-directory hard link. If removal wins first, the claim fails; if the claim wins,
+removing the pending name cannot invalidate the thread-owned file. Metadata is stored in the ordered
+message projection's separate `context_files_json` column and in the event payload. Projection
+rebuild, snapshot reads, reducer updates, revert, and attachment GC all use the same message
+ownership boundary.
 
 The browser retains the source `File` object only in the in-memory composer draft. The persisted
 draft serializer enumerates allowed fields and cannot write generic-file metadata or bytes to
