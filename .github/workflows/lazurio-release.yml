@@ -162,6 +162,20 @@ jobs:
             org.opencontainers.image.source=https://github.com/Lazurio/t3code
             org.opencontainers.image.version=${{ env.RELEASE_TAG }}
 
+      - name: Verify hosted authentication lifetime defaults
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE@$IMAGE_DIGEST"
+          docker image inspect "$IMAGE@$IMAGE_DIGEST" \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_PAIRING_TOKEN_TTL=15m'
+          docker image inspect "$IMAGE@$IMAGE_DIGEST" \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
+
       - id: attest
         name: Attest the published OCI digest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
@@ -228,7 +242,9 @@ jobs:
                 hosted_app_name: "Lazurio T3 Code",
                 distribution_release: $tag,
                 workspace_label: "injected by T3CODE_ENVIRONMENT_LABEL at runtime",
-                external_origin: "injected per Team at runtime"
+                external_origin: "injected per Team at runtime",
+                pairing_token_ttl: "15m",
+                client_session_ttl: "365d"
               },
               validation: {
                 workflow_run: $run,

@@ -9,6 +9,11 @@ keeps the image attachment union and official client sources unchanged, and CI r
 and client-runtime edits to an explicit file allowlist plus a decoder frozen to the exact upstream
 stable. Equivalent future upstream support supersedes this overlay after migration reconciliation.
 
+Generic server configuration seams may support the hosted distribution without changing vanilla
+protocol behavior. They retain upstream defaults in source; Lazurio-only defaults such as pairing
+and client-session lifetimes belong to the immutable OCI image and its release evidence, never to
+Desktop, Mobile, per-Organization client forks, or a second authentication system.
+
 The only active workflows in this fork are read-only `lazurio-fork-ci.yml` and the separately
 protected, manually dispatched `lazurio-release.yml`. CI receives no Lazurio runtime or deployment
 secrets, uses GitHub-hosted Ubuntu, and tests only the server/web compatibility and OCI packaging

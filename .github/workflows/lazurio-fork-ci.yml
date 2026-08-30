@@ -93,6 +93,7 @@ jobs:
             src/serverRuntimeState.test.ts \
             src/auth/EnvironmentAuth.test.ts \
             src/auth/EnvironmentAuthPolicy.test.ts \
+            src/auth/PairingGrantStore.test.ts \
             src/auth/SessionStore.test.ts \
             src/auth/utils.test.ts
           cd ../web
@@ -159,6 +160,12 @@ jobs:
             --tag lazurio/t3code:ci \
             .
           docker run --rm --network none lazurio/t3code:ci --version
+          docker image inspect lazurio/t3code:ci \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_PAIRING_TOKEN_TTL=15m'
+          docker image inspect lazurio/t3code:ci \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
           docker run --rm --network none --entrypoint node lazurio/t3code:ci -e '
             const pty = require("/opt/lazurio-t3/node_modules/node-pty");
             const child = pty.spawn("/bin/sh", ["-lc", "printf lazurio-pty-smoke"], {

@@ -238,7 +238,6 @@ type ConsumeResult =
       readonly grant: BootstrapGrant;
     };
 
-const DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES = Duration.minutes(5);
 // The desktop-bootstrap grant rides on a trusted IPC channel (fd3 or
 // stdin) at backend launch, so it doesn't have to be short-lived the
 // way a user-facing pairing link does. Letting it live for the
@@ -386,9 +385,7 @@ export const make = Effect.gen(function* () {
     );
     const credential = yield* generatePairingToken;
     const isDevStartupToken = config.devUrl !== undefined && input?.purpose === "startup";
-    const ttl =
-      input?.ttl ??
-      (isDevStartupToken ? DEV_STARTUP_TTL_HOURS : DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES);
+    const ttl = input?.ttl ?? (isDevStartupToken ? DEV_STARTUP_TTL_HOURS : config.pairingTokenTtl);
     const now = yield* DateTime.now;
     const expiresAt = DateTime.add(now, { milliseconds: Duration.toMillis(ttl) });
     const issued: IssuedBootstrapCredential = {

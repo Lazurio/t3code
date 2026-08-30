@@ -8,6 +8,7 @@
  */
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -18,6 +19,8 @@ import * as Schema from "effect/Schema";
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
 
 export const DEFAULT_PORT = 3773;
+export const DEFAULT_PAIRING_TOKEN_TTL = Duration.minutes(5);
+export const DEFAULT_CLIENT_SESSION_TTL = Duration.days(30);
 
 export const RuntimeMode = Schema.Literals(["web", "desktop"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
@@ -83,6 +86,8 @@ export class ServerConfig extends Context.Service<
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly resourceMonitorPath?: string | undefined;
+    readonly pairingTokenTtl: Duration.Duration;
+    readonly clientSessionTtl: Duration.Duration;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
@@ -204,6 +209,8 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     desktopTelemetryFd: undefined,
     desktopTelemetryControlFd: undefined,
     resourceMonitorPath: undefined,
+    pairingTokenTtl: DEFAULT_PAIRING_TOKEN_TTL,
+    clientSessionTtl: DEFAULT_CLIENT_SESSION_TTL,
     staticDir: undefined,
     devUrl,
     devAllowedOrigins: [],

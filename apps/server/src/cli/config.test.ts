@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -52,6 +53,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otlpExportIntervalMs: 10_000,
     otlpServiceName: "t3-server",
     devAllowedOrigins: [],
+    pairingTokenTtl: Duration.minutes(5),
+    clientSessionTtl: Duration.days(30),
   } as const;
 
   const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapValue) {
@@ -106,6 +109,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_NO_BROWSER: "true",
                   T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
                   T3CODE_LOG_WS_EVENTS: "true",
+                  T3CODE_PAIRING_TOKEN_TTL: "15m",
+                  T3CODE_CLIENT_SESSION_TTL: "365d",
                 },
               }),
             ),
@@ -117,6 +122,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved).toEqual({
         logLevel: "Warn",
         ...defaultObservabilityConfig,
+        pairingTokenTtl: Duration.minutes(15),
+        clientSessionTtl: Duration.days(365),
         mode: "desktop",
         port: 4001,
         cwd: process.cwd(),
@@ -135,6 +142,38 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServePort: 443,
       });
       assert.equal(resolved.stateDir, join(baseDir, "userdata"));
+    }),
+  );
+
+  it.effect("rejects invalid configured auth lifetimes", () =>
+    Effect.gen(function* () {
+      const flags = {
+        mode: Option.some("desktop" as const),
+        port: Option.some(4888),
+        host: Option.none<string>(),
+        baseDir: Option.none<string>(),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+      } as const;
+
+      for (const env of [
+        { T3CODE_PAIRING_TOKEN_TTL: "0m" },
+        { T3CODE_CLIENT_SESSION_TTL: "forever" },
+      ]) {
+        const result = yield* resolveServerConfig(flags, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+          Effect.result,
+        );
+        assert.isTrue(Result.isFailure(result), Object.keys(env)[0]);
+      }
     }),
   );
 

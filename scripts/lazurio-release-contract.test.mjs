@@ -90,11 +90,18 @@ NodeTest.test("browser image is reproducible, non-root, and protocol-neutral", (
   NodeAssert.match(forkCi, /pty-smoke=PASS/);
   NodeAssert.match(dockerfile, /ARG VITE_HOSTED_APP_NAME/);
   NodeAssert.match(dockerfile, /VITE_HOSTED_APP_NAME=\$VITE_HOSTED_APP_NAME/);
+  NodeAssert.match(dockerfile, /T3CODE_PAIRING_TOKEN_TTL=15m/);
+  NodeAssert.match(dockerfile, /T3CODE_CLIENT_SESSION_TTL=365d/);
   NodeAssert.doesNotMatch(dockerfile, /VITE_HOSTED_APP_CHANNEL/);
   NodeAssert.match(workflow, /VITE_HOSTED_APP_NAME=Lazurio T3 Code/);
   NodeAssert.match(workflow, /VITE_DISTRIBUTION_RELEASE=\$\{\{ env\.RELEASE_TAG \}\}/);
   NodeAssert.match(workflow, /hosted_app_name: "Lazurio T3 Code"/);
   NodeAssert.match(workflow, /workspace_label: "injected by T3CODE_ENVIRONMENT_LABEL at runtime"/);
+  NodeAssert.match(workflow, /name: Verify hosted authentication lifetime defaults/);
+  NodeAssert.match(workflow, /grep -Fx 'T3CODE_PAIRING_TOKEN_TTL=15m'/);
+  NodeAssert.match(workflow, /grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'/);
+  NodeAssert.match(workflow, /pairing_token_ttl: "15m"/);
+  NodeAssert.match(workflow, /client_session_ttl: "365d"/);
   NodeAssert.match(dockerfile, /USER 10001:10001/);
   NodeAssert.match(dockerfile, /CMD \["serve", "--host", "127\.0\.0\.1"\]/);
   NodeAssert.match(versionStamp, /apps\/server\/package\.json/);

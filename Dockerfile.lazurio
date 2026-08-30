@@ -50,6 +50,8 @@ ARG SOURCE_REVISION
 ARG UPSTREAM_BASE
 
 ENV NODE_ENV=production \
+    T3CODE_PAIRING_TOKEN_TTL=15m \
+    T3CODE_CLIENT_SESSION_TTL=365d \
     PATH=/opt/lazurio-t3/dist:$PATH
 
 LABEL org.opencontainers.image.source="https://github.com/Lazurio/t3code" \

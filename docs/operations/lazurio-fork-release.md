@@ -25,11 +25,19 @@ valid for `main`, release tags, OCI tags, or deployed digests.
 
 ## Patch budget
 
-The hosted-distribution overlay retains two generic server capabilities:
+The hosted-distribution overlay retains three generic server configuration capabilities:
 
 - `T3CODE_EXTERNAL_ORIGIN`: one explicit HTTPS browser origin for a web-mode server that remains
   bound to an explicit loopback host behind an operator-managed reverse proxy;
 - `T3CODE_ENVIRONMENT_LABEL`: an explicit human-readable environment label.
+- `T3CODE_PAIRING_TOKEN_TTL` and `T3CODE_CLIENT_SESSION_TTL`: independently configurable
+  lifetimes that preserve the vanilla `5m` and `30d` defaults. The Lazurio OCI distribution sets
+  `15m` and `365d`, respectively, for every Team Workspace that consumes the immutable image.
+  WebSocket tickets and explicitly scoped short-lived tokens retain their upstream lifetimes.
+
+Session expiry is embedded in each signed credential. Changing the distribution default therefore
+affects only newly issued sessions; already paired devices retain their original expiry and are
+never revoked or silently rewritten by a rollout.
 
 The collaboration overlay is additive and deliberately narrow: arbitrary browser files use a new
 optional `contextFiles` lane beside the unchanged image-only `ChatAttachment` union, opaque
@@ -69,13 +77,14 @@ capabilities and their removal conditions remain stable.
 Every stable refresh classifies each row as `remove`, `retain`, or `migrate`; `remove` is the
 default. A row may be retained only with current upstream evidence and the proof named here.
 
-| Overlay capability                         | Natural owner                                                                              | Retain only while                                                                                       | Required proof and removal rule                                                                                                                                 |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Explicit hosted origin and Workspace label | Server configuration, environment descriptor, and existing auth policy                     | Upstream lacks equivalent explicit reverse-proxy origin semantics or a human-readable environment label | Origin/auth/WS tests and vanilla pairing gate; adopt an equivalent upstream capability and delete the fork path                                                 |
-| Hosted browser distribution identity       | Web build-time presentation                                                                | The hosted browser needs a distribution label that upstream cannot inject generically                   | Vanilla web build plus branding tests; never alter Desktop/Mobile identity                                                                                      |
-| Generic-file collaboration                 | General contracts, server orchestration/storage, client runtime projection, and hosted web | Upstream lacks equivalent arbitrary input files and exact authenticated download                        | Frozen vanilla decoders, migration contract, security tests, browser round trip, and official client gates; upstream owns the contract as soon as parity exists |
-| Reproducible hosted OCI packaging          | `Dockerfile.lazurio`, version stamping, and immutable release evidence                     | Lazurio distributes the server-backed browser as its own non-root image                                 | Release-contract test, offline runtime smoke, SBOM, provenance, and immutable tag/digest                                                                        |
-| Fork-safe automation boundary              | `.github/FORK-SAFETY.md` and Lazurio-only CI/release workflows                             | This repository remains a distribution fork rather than an upstream release operator                    | Exact workflow inventory review; restored upstream publishing, relay, preview, or mobile/desktop workflows block release                                        |
+| Overlay capability                           | Natural owner                                                                              | Retain only while                                                                                       | Required proof and removal rule                                                                                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Explicit hosted origin and Workspace label   | Server configuration, environment descriptor, and existing auth policy                     | Upstream lacks equivalent explicit reverse-proxy origin semantics or a human-readable environment label | Origin/auth/WS tests and vanilla pairing gate; adopt an equivalent upstream capability and delete the fork path                                                 |
+| Configurable client authentication lifetimes | Server configuration and auth stores                                                       | Upstream lacks deploy-time pairing and client-session lifetime controls                                 | Config parsing and auth-store expiry tests plus immutable OCI environment evidence; adopt equivalent upstream configuration and remove the fork seam            |
+| Hosted browser distribution identity         | Web build-time presentation                                                                | The hosted browser needs a distribution label that upstream cannot inject generically                   | Vanilla web build plus branding tests; never alter Desktop/Mobile identity                                                                                      |
+| Generic-file collaboration                   | General contracts, server orchestration/storage, client runtime projection, and hosted web | Upstream lacks equivalent arbitrary input files and exact authenticated download                        | Frozen vanilla decoders, migration contract, security tests, browser round trip, and official client gates; upstream owns the contract as soon as parity exists |
+| Reproducible hosted OCI packaging            | `Dockerfile.lazurio`, version stamping, and immutable release evidence                     | Lazurio distributes the server-backed browser as its own non-root image                                 | Release-contract test, offline runtime smoke, SBOM, provenance, and immutable tag/digest                                                                        |
+| Fork-safe automation boundary                | `.github/FORK-SAFETY.md` and Lazurio-only CI/release workflows                             | This repository remains a distribution fork rather than an upstream release operator                    | Exact workflow inventory review; restored upstream publishing, relay, preview, or mobile/desktop workflows block release                                        |
 
 The following are explicitly outside the fork overlay:
 
