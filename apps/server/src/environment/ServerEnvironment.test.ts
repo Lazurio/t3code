@@ -62,6 +62,8 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
     port: 0,
     host: undefined,
     desktopBootstrapToken: undefined,
+    pairingTokenTtl: ServerConfig.DEFAULT_PAIRING_TOKEN_TTL,
+    clientSessionTtl: ServerConfig.DEFAULT_CLIENT_SESSION_TTL,
     staticDir: undefined,
     devUrl: undefined,
     devAllowedOrigins: [],

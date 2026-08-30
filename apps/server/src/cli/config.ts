@@ -111,6 +111,92 @@ export const externalOriginConfig = Config.nonEmptyString("T3CODE_EXTERNAL_ORIGI
   Config.mapOrFail(validateExternalOrigin),
 );
 
+const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
+
+const parseDurationInput = (value: string): Duration.Duration | null => {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+
+  const shorthand = DurationShorthandPattern.exec(trimmed);
+  const normalizedInput = shorthand?.groups
+    ? (() => {
+        const amountText = shorthand.groups.value;
+        const unitText = shorthand.groups.unit;
+        if (typeof amountText !== "string" || typeof unitText !== "string") {
+          return null;
+        }
+
+        const amount = Number.parseInt(amountText, 10);
+        if (!Number.isFinite(amount)) return null;
+
+        switch (unitText.toLowerCase()) {
+          case "ms":
+            return `${amount} millis`;
+          case "s":
+            return `${amount} seconds`;
+          case "m":
+            return `${amount} minutes`;
+          case "h":
+            return `${amount} hours`;
+          case "d":
+            return `${amount} days`;
+          case "w":
+            return `${amount} weeks`;
+          default:
+            return null;
+        }
+      })()
+    : (trimmed as Duration.Input);
+
+  if (normalizedInput === null) return null;
+
+  const decoded = Duration.fromInput(normalizedInput as Duration.Input);
+  return Option.isSome(decoded) ? decoded.value : null;
+};
+
+export const DurationFromString = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.Duration,
+    SchemaTransformation.transformOrFail({
+      decode: (value) => {
+        const duration = parseDurationInput(value);
+        if (duration !== null) {
+          return Effect.succeed(duration);
+        }
+        return Effect.fail(
+          new SchemaIssue.InvalidValue({
+            message: "Invalid duration. Use values like 5m, 1h, 30d, or 15 minutes.",
+          }),
+        );
+      },
+      encode: (duration) => Effect.succeed(Duration.format(duration)),
+    }),
+  ),
+);
+
+const positiveDurationConfig = (name: string) =>
+  Config.string(name).pipe(
+    Config.mapOrFail((value) => {
+      const duration = parseDurationInput(value);
+      const milliseconds = duration === null ? Number.NaN : Duration.toMillis(duration);
+      return duration !== null && Number.isFinite(milliseconds) && milliseconds > 0
+        ? Effect.succeed(duration)
+        : Effect.fail(
+            invalidConfigValue(
+              `${name} must be a positive finite duration such as 15m, 30d, or 365d.`,
+            ),
+          );
+    }),
+  );
+
+export const pairingTokenTtlConfig = positiveDurationConfig("T3CODE_PAIRING_TOKEN_TTL").pipe(
+  Config.withDefault(ServerConfig.DEFAULT_PAIRING_TOKEN_TTL),
+);
+
+export const clientSessionTtlConfig = positiveDurationConfig("T3CODE_CLIENT_SESSION_TTL").pipe(
+  Config.withDefault(ServerConfig.DEFAULT_CLIENT_SESSION_TTL),
+);
+
 const EnvServerConfig = Config.all({
   logLevel: Config.logLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
   traceMinLevel: Config.logLevel("T3CODE_TRACE_MIN_LEVEL").pipe(Config.withDefault("Info")),
@@ -141,6 +227,8 @@ const EnvServerConfig = Config.all({
   port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
   externalOrigin: externalOriginConfig.pipe(Config.option, Config.map(Option.getOrUndefined)),
+  pairingTokenTtl: pairingTokenTtlConfig,
+  clientSessionTtl: clientSessionTtlConfig,
   t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
@@ -430,6 +518,8 @@ export const resolveServerConfig = (
       desktopTelemetryFd,
       desktopTelemetryControlFd,
       resourceMonitorPath,
+      pairingTokenTtl: env.pairingTokenTtl,
+      clientSessionTtl: env.clientSessionTtl,
       autoBootstrapProjectFromCwd,
       logWebSocketEvents,
       tailscaleServeEnabled,
@@ -460,66 +550,3 @@ export const resolveCliAuthConfig = (
     },
     cliLogLevel,
   );
-
-const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
-
-const parseDurationInput = (value: string): Duration.Duration | null => {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-
-  const shorthand = DurationShorthandPattern.exec(trimmed);
-  const normalizedInput = shorthand?.groups
-    ? (() => {
-        const amountText = shorthand.groups.value;
-        const unitText = shorthand.groups.unit;
-        if (typeof amountText !== "string" || typeof unitText !== "string") {
-          return null;
-        }
-
-        const amount = Number.parseInt(amountText, 10);
-        if (!Number.isFinite(amount)) return null;
-
-        switch (unitText.toLowerCase()) {
-          case "ms":
-            return `${amount} millis`;
-          case "s":
-            return `${amount} seconds`;
-          case "m":
-            return `${amount} minutes`;
-          case "h":
-            return `${amount} hours`;
-          case "d":
-            return `${amount} days`;
-          case "w":
-            return `${amount} weeks`;
-          default:
-            return null;
-        }
-      })()
-    : (trimmed as Duration.Input);
-
-  if (normalizedInput === null) return null;
-
-  const decoded = Duration.fromInput(normalizedInput as Duration.Input);
-  return Option.isSome(decoded) ? decoded.value : null;
-};
-
-export const DurationFromString = Schema.String.pipe(
-  Schema.decodeTo(
-    Schema.Duration,
-    SchemaTransformation.transformOrFail({
-      decode: (value) => {
-        const duration = parseDurationInput(value);
-        if (duration !== null) {
-          return Effect.succeed(duration);
-        }
-        return Effect.fail(
-          new SchemaIssue.InvalidValue({
-            message: "Invalid duration. Use values like 5m, 1h, 30d, or 15 minutes.",
-          }),
-        );
-      },
-      encode: (duration) => Effect.succeed(Duration.format(duration)),
-    }),
-  ),
-);

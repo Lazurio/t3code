@@ -460,6 +460,8 @@ const buildAppUnderTest = (options?: {
       noBrowser: true,
       startupPresentation: "browser",
       desktopBootstrapToken: defaultDesktopBootstrapToken,
+      pairingTokenTtl: ServerConfig.DEFAULT_PAIRING_TOKEN_TTL,
+      clientSessionTtl: ServerConfig.DEFAULT_CLIENT_SESSION_TTL,
       autoBootstrapProjectFromCwd: false,
       logWebSocketEvents: false,
       tailscaleServeEnabled: false,
