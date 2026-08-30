@@ -53,7 +53,7 @@ import {
   renderTerminalQrCode,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
-import { baseDirFlag, DurationFromString, pairingTokenTtlConfig } from "./config.ts";
+import { baseDirFlag, DurationFromString } from "./config.ts";
 
 const WELL_KNOWN_ENVIRONMENT_PATH = "/.well-known/t3/environment";
 const PAIR_PROBE_TIMEOUT = Duration.millis(2_500);
@@ -310,7 +310,6 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
 const makePairServerConfig = Effect.fn(function* (input: {
   readonly target: DiscoveredPairTarget;
   readonly logLevel: ServerConfig.ServerConfig["Service"]["logLevel"];
-  readonly pairingTokenTtl: Duration.Duration;
 }) {
   const { baseDir, variant, state } = input.target;
   // The state-dir variant does not imply dev-ness: a worktree dev server uses
@@ -349,7 +348,9 @@ const makePairServerConfig = Effect.fn(function* (input: {
     desktopTelemetryFd: undefined,
     desktopTelemetryControlFd: undefined,
     resourceMonitorPath: undefined,
-    pairingTokenTtl: input.pairingTokenTtl,
+    pairingTokenTtl: Duration.millis(
+      state.pairingTokenTtlMs ?? Duration.toMillis(ServerConfig.DEFAULT_PAIRING_TOKEN_TTL),
+    ),
     clientSessionTtl: ServerConfig.DEFAULT_CLIENT_SESSION_TTL,
     autoBootstrapProjectFromCwd: false,
     logWebSocketEvents: false,
@@ -462,7 +463,7 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
 const ttlFlag = Flag.string("ttl").pipe(
   Flag.withSchema(DurationFromString),
   Flag.withDescription(
-    "Token TTL, for example `5m`, `1h`, or `15 minutes`. Defaults to T3CODE_PAIRING_TOKEN_TTL (5 minutes when unset).",
+    "Token TTL, for example `5m`, `1h`, or `15 minutes`. Defaults to the running server's configured lifetime (5 minutes for legacy state).",
   ),
   Flag.optional,
 );
@@ -501,8 +502,6 @@ export const pairCommand = Command.make("pair", {
       // Default to Warn so storage/migration chatter cannot bury the QR code;
       // an explicit --log-level still wins.
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
-      const pairingTokenTtl = yield* pairingTokenTtlConfig;
-
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
       const notes: Array<string> = [];
@@ -528,7 +527,7 @@ export const pairCommand = Command.make("pair", {
         }
       }
 
-      const config = yield* makePairServerConfig({ target, logLevel, pairingTokenTtl });
+      const config = yield* makePairServerConfig({ target, logLevel });
       const issued = yield* mintPairingLink({ config, ttl: flags.ttl, label: flags.label });
       const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
 

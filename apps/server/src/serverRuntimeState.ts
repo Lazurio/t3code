@@ -1,11 +1,12 @@
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { writeFileStringAtomically } from "./atomicWrite.ts";
-import type * as ServerConfig from "./config.ts";
+import * as ServerConfig from "./config.ts";
 import { formatHostForUrl, isWildcardHost } from "./startupAccess.ts";
 
 export const PersistedServerRuntimeState = Schema.Struct({
@@ -15,6 +16,11 @@ export const PersistedServerRuntimeState = Schema.Struct({
   port: Schema.Int,
   origin: Schema.String,
   externalOrigin: Schema.optional(Schema.String),
+  // Optional for backward-compatible reads of state written before auth
+  // lifetimes became runtime-configurable.
+  pairingTokenTtlMs: Schema.optional(
+    Schema.Number.check(Schema.isFinite(), Schema.isGreaterThan(0)),
+  ),
   // Present when the server fronts a dev web server (VITE_DEV_SERVER_URL).
   // Dev is single-origin: browsers must pair through this URL, not `origin`.
   devUrl: Schema.optional(Schema.String),
@@ -49,7 +55,11 @@ const runtimeOriginForConfig = (
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl" | "externalOrigin">;
+  readonly config: Pick<
+    ServerConfig.ServerConfig["Service"],
+    "host" | "devUrl" | "externalOrigin"
+  > &
+    Partial<Pick<ServerConfig.ServerConfig["Service"], "pairingTokenTtl">>;
   readonly port: number;
 }): Effect.Effect<PersistedServerRuntimeState> =>
   Effect.map(DateTime.now, (now) => ({
@@ -61,6 +71,9 @@ export const makePersistedServerRuntimeState = (input: {
     ...(input.config.externalOrigin
       ? { externalOrigin: input.config.externalOrigin.toString() }
       : {}),
+    pairingTokenTtlMs: Duration.toMillis(
+      input.config.pairingTokenTtl ?? ServerConfig.DEFAULT_PAIRING_TOKEN_TTL,
+    ),
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
     startedAt: DateTime.formatIso(now),
   }));
