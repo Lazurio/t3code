@@ -41,7 +41,15 @@ import { createModelSelection } from "@t3tools/shared/model";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
-import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
+import {
+  APP_VERSION,
+  DISTRIBUTION_RELEASE,
+  DISTRIBUTION_UPSTREAM_BASE,
+  DISTRIBUTION_UPSTREAM_TAG,
+  HOSTED_APP_CHANNEL,
+  HOSTED_APP_CHANNEL_LABEL,
+  HOSTED_APP_NAME,
+} from "../../branding";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -68,6 +76,7 @@ import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
+import { usePrimaryEnvironment } from "../../state/environments";
 import {
   getCustomModelOptionsByInstance,
   resolveAppModelSelectionState,
@@ -229,6 +238,15 @@ function AboutVersionTitle() {
     <span className="inline-flex items-baseline gap-2">
       <span>Version</span>
       <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+    </span>
+  );
+}
+
+function AboutMetadataTitle({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-2">
+      <span>{label}</span>
+      <code className="text-[11px] font-medium text-muted-foreground">{value}</code>
     </span>
   );
 }
@@ -1874,6 +1892,7 @@ function LegacyFeaturesSection() {
 export function GeneralSettingsPanel() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
+  const primaryEnvironmentLabel = usePrimaryEnvironment()?.label ?? null;
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
@@ -2547,6 +2566,35 @@ export function GeneralSettingsPanel() {
             description="Current version of the application."
           />
         )}
+        {HOSTED_APP_NAME ? (
+          <SettingsRow
+            title={
+              <AboutMetadataTitle
+                label="Distribution"
+                value={DISTRIBUTION_RELEASE ?? HOSTED_APP_NAME}
+              />
+            }
+            description={`${HOSTED_APP_NAME} browser distribution.`}
+          />
+        ) : null}
+        {HOSTED_APP_NAME && primaryEnvironmentLabel ? (
+          <SettingsRow
+            title={<AboutMetadataTitle label="Workspace" value={primaryEnvironmentLabel} />}
+            description="Runtime Team Workspace reported by this T3 Code server."
+          />
+        ) : null}
+        {HOSTED_APP_NAME && (DISTRIBUTION_UPSTREAM_TAG || DISTRIBUTION_UPSTREAM_BASE) ? (
+          <SettingsRow
+            title={
+              <AboutMetadataTitle label="Upstream" value={DISTRIBUTION_UPSTREAM_TAG ?? "T3 Code"} />
+            }
+            description={
+              DISTRIBUTION_UPSTREAM_BASE
+                ? `Exact upstream source ${DISTRIBUTION_UPSTREAM_BASE}.`
+                : "Exact upstream release used by this browser distribution."
+            }
+          />
+        ) : null}
         <SettingsRow
           {...searchableSetting("diagnostics")}
           description={diagnosticsDescription}

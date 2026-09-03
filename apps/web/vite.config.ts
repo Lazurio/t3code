@@ -39,6 +39,11 @@ const configuredRelayTracingUrl = repoEnv.VITE_RELAY_OTLP_TRACES_URL?.trim() || 
 const configuredRelayTracingDataset = repoEnv.VITE_RELAY_OTLP_TRACES_DATASET?.trim() || "";
 const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim() || "";
 const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
+const configuredHostedAppName = process.env.VITE_HOSTED_APP_NAME?.trim() || "";
+const configuredDistributionRelease = process.env.VITE_DISTRIBUTION_RELEASE?.trim() || "";
+const configuredDistributionUpstreamTag = process.env.VITE_DISTRIBUTION_UPSTREAM_TAG?.trim() || "";
+const configuredDistributionUpstreamBase =
+  process.env.VITE_DISTRIBUTION_UPSTREAM_BASE?.trim() || "";
 const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
@@ -69,6 +74,39 @@ const buildSourcemap: boolean | "hidden" =
     : sourcemapEnv === "hidden"
       ? "hidden"
       : true;
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function hostedAppIdentityPlugin(input: {
+  readonly appName: string;
+  readonly channel: string;
+}): Plugin {
+  return {
+    name: "t3code:hosted-app-identity",
+    transformIndexHtml(html) {
+      if (!input.appName) return html;
+
+      const displayName =
+        input.channel.toLowerCase() === "nightly" ? `${input.appName} (Nightly)` : input.appName;
+      const escapedAppName = escapeHtmlAttribute(input.appName);
+      const escapedDisplayName = escapeHtmlAttribute(displayName);
+
+      return html
+        .replace("<title>T3 Code (Alpha)</title>", `<title>${escapedDisplayName}</title>`)
+        .replace(
+          'aria-label="T3 Code splash screen"',
+          `aria-label="${escapedDisplayName} splash screen"`,
+        )
+        .replace('alt="T3 Code"', `alt="${escapedAppName}"`);
+    },
+  };
+}
 
 const unitTestProject = {
   extends: true,
@@ -155,6 +193,10 @@ export default defineConfig(() => {
   return {
     assetsInclude: ["**/*.wasm"],
     plugins: [
+      hostedAppIdentityPlugin({
+        appName: configuredHostedAppName,
+        channel: configuredHostedAppChannel,
+      }),
       devCompressionPlugin(),
       tanstackRouter(),
       react(),
@@ -201,6 +243,14 @@ export default defineConfig(() => {
       "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(configuredRelayTracingToken),
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
+      "import.meta.env.VITE_HOSTED_APP_NAME": JSON.stringify(configuredHostedAppName),
+      "import.meta.env.VITE_DISTRIBUTION_RELEASE": JSON.stringify(configuredDistributionRelease),
+      "import.meta.env.VITE_DISTRIBUTION_UPSTREAM_TAG": JSON.stringify(
+        configuredDistributionUpstreamTag,
+      ),
+      "import.meta.env.VITE_DISTRIBUTION_UPSTREAM_BASE": JSON.stringify(
+        configuredDistributionUpstreamBase,
+      ),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
     },
     resolve: {
