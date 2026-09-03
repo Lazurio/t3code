@@ -109,6 +109,14 @@ export const make = (config: ServerConfig["Service"]) => ServerConfig.of(config)
 
 export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerConfig, make(config));
 
+export const resolveConfiguredBrowserUrl = (
+  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin">,
+): URL | undefined => config.devUrl ?? config.externalOrigin;
+
+export const isConfiguredBrowserUrlSecure = (
+  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin">,
+): boolean => resolveConfiguredBrowserUrl(config)?.protocol === "https:";
+
 export const deriveServerPaths = Effect.fn(function* (
   baseDir: ServerConfig["Service"]["baseDir"],
   devUrl: ServerConfig["Service"]["devUrl"],

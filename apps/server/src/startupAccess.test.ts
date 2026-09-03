@@ -4,10 +4,12 @@ import {
   buildPairingUrl,
   formatHeadlessServeOutput,
   renderTerminalQrCode,
+  resolveHeadlessBrowserConnectionString,
   resolveHeadlessConnectionHost,
   resolveHeadlessConnectionString,
   resolveListeningPort,
 } from "./startupAccess.ts";
+import { isConfiguredBrowserUrlSecure } from "./config.ts";
 
 it("prefers localhost when no explicit host is configured", () => {
   expect(resolveHeadlessConnectionHost(undefined)).toBe("localhost");
@@ -44,6 +46,51 @@ it("resolves wildcard hosts to a concrete external interface when one is availab
   });
 
   expect(connectionString).toBe("http://192.168.1.42:3773");
+});
+
+it("uses the effective browser URL for headless pairing", () => {
+  expect(
+    resolveHeadlessBrowserConnectionString(
+      {
+        devUrl: new URL("http://127.0.0.1:5173"),
+        externalOrigin: new URL("https://hosted.example.test"),
+        host: "0.0.0.0",
+      },
+      3773,
+    ),
+  ).toBe("http://127.0.0.1:5173/");
+
+  expect(
+    resolveHeadlessBrowserConnectionString(
+      {
+        devUrl: undefined,
+        externalOrigin: new URL("https://hosted.example.test"),
+        host: "0.0.0.0",
+      },
+      3773,
+    ),
+  ).toBe("https://hosted.example.test/");
+});
+
+it("derives secure browser cookies from the effective browser URL", () => {
+  expect(
+    isConfiguredBrowserUrlSecure({
+      devUrl: new URL("http://127.0.0.1:5173"),
+      externalOrigin: new URL("https://hosted.example.test"),
+    }),
+  ).toBe(false);
+  expect(
+    isConfiguredBrowserUrlSecure({
+      devUrl: undefined,
+      externalOrigin: new URL("https://hosted.example.test"),
+    }),
+  ).toBe(true);
+  expect(
+    isConfiguredBrowserUrlSecure({
+      devUrl: undefined,
+      externalOrigin: new URL("http://hosted.example.test"),
+    }),
+  ).toBe(false);
 });
 
 it("prefers the actual bound port when an http server address is available", () => {

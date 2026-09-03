@@ -27,6 +27,7 @@ import {
   type PersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
 import {
+  ConfiguredBrowserUrlRejectsTailscalePairingError,
   DevServerNotProxiableError,
   resolveDirectPairingBaseUrl,
   resolveTailscaleLocalTarget,
@@ -101,6 +102,37 @@ describe("pair tailscale local target", () => {
       localHost: "192.168.1.42",
     });
   });
+});
+
+describe("pair tailscale browser authority", () => {
+  it.effect("rejects a second browser authority when an external origin is recorded", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(
+          NodePath.join(NodeOS.tmpdir(), "t3-pair-external-origin-test-"),
+        );
+        const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
+        yield* persistServerRuntimeState({
+          path: statePath,
+          state: yield* makePersistedServerRuntimeState({
+            config: {
+              host: "127.0.0.1",
+              devUrl: undefined,
+              externalOrigin: new URL("https://hosted.example.test"),
+            },
+            port: Number(new URL(origin).port),
+          }),
+        });
+
+        const error = yield* provideCliTestLayers(
+          runCli(["pair", "--base-dir", baseDir, "--tailscale"]).pipe(Effect.flip),
+        );
+
+        assert.instanceOf(error, ConfiguredBrowserUrlRejectsTailscalePairingError);
+        assert.equal(error.browserUrl, "https://hosted.example.test/");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
 });
 
 const runCli = (args: ReadonlyArray<string>) => Command.runWith(cli, { version: "0.0.0" })(args);

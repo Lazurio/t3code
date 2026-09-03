@@ -600,13 +600,14 @@ export const make = Effect.gen(function* () {
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const crypto = yield* Crypto.Crypto;
   const descriptor = yield* policy.getDescriptor();
+  const configuredBrowserOrigin = ServerConfig.resolveConfiguredBrowserUrl(serverConfig)?.origin;
 
   const enforceBrowserSessionOrigin = (
     request: HttpServerRequest.HttpServerRequest,
     options?: { readonly webSocket?: boolean },
   ): Effect.Effect<void, ServerAuthInvalidCredentialError> => {
     if (
-      serverConfig.externalOrigin === undefined ||
+      configuredBrowserOrigin === undefined ||
       request.cookies[sessions.cookieName] === undefined
     ) {
       return Effect.void;
@@ -618,11 +619,11 @@ export const make = Effect.gen(function* () {
       return Effect.void;
     }
 
-    return request.headers.origin === serverConfig.externalOrigin.origin
+    return request.headers.origin === configuredBrowserOrigin
       ? Effect.void
       : Effect.fail(
           new ServerAuthInvalidCredentialError({
-            diagnostic: "Browser session origin does not match configured external origin.",
+            diagnostic: "Browser session origin does not match configured browser origin.",
           }),
         );
   };

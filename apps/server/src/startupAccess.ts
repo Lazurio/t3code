@@ -4,7 +4,7 @@ import { QrCode } from "@t3tools/shared/qrCode";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/unstable/http";
 
-import { ServerConfig } from "./config.ts";
+import { resolveConfiguredBrowserUrl, ServerConfig } from "./config.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 
 export interface HeadlessServeAccessInfo {
@@ -77,6 +77,14 @@ export const resolveHeadlessConnectionString = (
   return `http://${formatHostForUrl(connectionHost)}:${port}`;
 };
 
+export const resolveHeadlessBrowserConnectionString = (
+  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin" | "host">,
+  port: number,
+  interfaces: NetworkInterfacesMap = NodeOS.networkInterfaces(),
+): string =>
+  resolveConfiguredBrowserUrl(config)?.toString() ??
+  resolveHeadlessConnectionString(config.host, port, interfaces);
+
 export const resolveListeningPort = (address: unknown, fallbackPort: number): number => {
   if (
     typeof address === "object" &&
@@ -134,12 +142,10 @@ export const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessI
   const serverConfig = yield* ServerConfig;
   const httpServer = yield* HttpServer.HttpServer;
   const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-  const connectionString =
-    serverConfig.externalOrigin?.toString() ??
-    resolveHeadlessConnectionString(
-      serverConfig.host,
-      resolveListeningPort(httpServer.address, serverConfig.port),
-    );
+  const connectionString = resolveHeadlessBrowserConnectionString(
+    serverConfig,
+    resolveListeningPort(httpServer.address, serverConfig.port),
+  );
   const issued = yield* serverAuth.issueStartupPairingCredential();
 
   return {

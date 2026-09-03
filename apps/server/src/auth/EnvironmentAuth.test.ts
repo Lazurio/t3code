@@ -195,6 +195,47 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     ),
   );
 
+  it.effect("uses the dev server origin when it owns the hosted browser", () =>
+    Effect.gen(function* () {
+      const devOrigin = "http://127.0.0.1:5173";
+      const externalOrigin = "https://t3code.management.example.test";
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairingCredential = yield* serverAuth.issuePairingCredential();
+      const exchanged = yield* serverAuth.createBrowserSession(
+        pairingCredential.credential,
+        requestMetadata,
+      );
+
+      const matchingWebSocket = yield* serverAuth.authenticateWebSocketUpgrade(
+        makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+          origin: devOrigin,
+          originalUrl: "/ws",
+        }),
+      );
+      expect(matchingWebSocket.sessionId).toBeTruthy();
+
+      const externalOriginError = yield* serverAuth
+        .authenticateWebSocketUpgrade(
+          makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+            origin: externalOrigin,
+            originalUrl: "/ws",
+          }),
+        )
+        .pipe(Effect.flip);
+      expect(externalOriginError._tag).toBe("ServerAuthInvalidCredentialError");
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthLayer({
+          mode: "web",
+          host: "127.0.0.1",
+          devUrl: new URL("http://127.0.0.1:5173/"),
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        }),
+      ),
+    ),
+  );
+
   it.effect("does not exchange ordinary pairing grants for administrative access tokens", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;

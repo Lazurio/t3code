@@ -130,6 +130,15 @@ export class ServePortOccupiedError extends Schema.TaggedErrorClass<ServePortOcc
   }
 }
 
+export class ConfiguredBrowserUrlRejectsTailscalePairingError extends Schema.TaggedErrorClass<ConfiguredBrowserUrlRejectsTailscalePairingError>()(
+  "ConfiguredBrowserUrlRejectsTailscalePairingError",
+  { browserUrl: Schema.String },
+) {
+  override get message(): string {
+    return `This server already has the canonical browser URL ${this.browserUrl}. Pair through it without --tailscale; Tailscale transport must not create a second browser authority.`;
+  }
+}
+
 /** The URL a browser or phone should pair through, absent Tailscale. */
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? state.externalOrigin ?? resolveHeadlessConnectionString(state.host, state.port);
@@ -507,6 +516,12 @@ export const pairCommand = Command.make("pair", {
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
       if (flags.tailscale) {
+        const configuredBrowserUrl = target.state.devUrl ?? target.state.externalOrigin;
+        if (configuredBrowserUrl !== undefined) {
+          return yield* new ConfiguredBrowserUrlRejectsTailscalePairingError({
+            browserUrl: configuredBrowserUrl,
+          });
+        }
         const resolved = yield* resolveTailscalePairingBase({
           target,
           servePort: flags.tailscaleServePort,

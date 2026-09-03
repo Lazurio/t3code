@@ -285,7 +285,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
               sessions.cookieName,
               result.sessionToken,
               result.response.expiresAt,
-              serverConfig.externalOrigin !== undefined,
+              ServerConfig.isConfiguredBrowserUrlSecure(serverConfig),
             );
             yield* appendCredentialResponseHeaders;
             return result.response;
