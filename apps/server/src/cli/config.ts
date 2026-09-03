@@ -338,6 +338,7 @@ export const resolveServerConfig = (
   options?: {
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
+    readonly validateExternalOriginBind?: boolean;
   },
 ) =>
   Effect.gen(function* () {
@@ -473,6 +474,7 @@ export const resolveServerConfig = (
       () => (mode === "desktop" ? "127.0.0.1" : undefined),
     );
     if (
+      (options?.validateExternalOriginBind ?? true) &&
       env.externalOrigin !== undefined &&
       (mode !== "web" || host === undefined || host.trim().length === 0 || !isLoopbackHost(host))
     ) {
@@ -549,4 +551,5 @@ export const resolveCliAuthConfig = (
       tailscaleServePort: Option.none(),
     },
     cliLogLevel,
+    { validateExternalOriginBind: false },
   );

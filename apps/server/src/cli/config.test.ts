@@ -20,7 +20,7 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { externalOriginConfig, resolveServerConfig } from "./config.ts";
+import { externalOriginConfig, resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -260,6 +260,32 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         );
         assert.isTrue(Result.isFailure(result), `${env.T3CODE_MODE}/${env.T3CODE_HOST ?? "unset"}`);
       }
+    }),
+  );
+
+  it.effect("keeps ambient hosted origin from blocking location-only CLI commands", () =>
+    Effect.gen(function* () {
+      const { join } = yield* Path.Path;
+      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-location-only-base");
+      const externalOrigin = "https://t3code.management.example.test/";
+      const resolved = yield* resolveCliAuthConfig(
+        {
+          baseDir: Option.some(baseDir),
+          devUrl: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_EXTERNAL_ORIGIN: externalOrigin } }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.externalOrigin?.toString()).toBe(externalOrigin);
     }),
   );
 
