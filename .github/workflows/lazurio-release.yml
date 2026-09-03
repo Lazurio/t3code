@@ -110,7 +110,7 @@ jobs:
             echo "Release source changed upstream-owned attachment, provider, or migration code." >&2
             exit 1
           fi
-          if grep -Eq '^apps/web/src/(composerDraftStore|lib/attachment|state/attachments|components/(ChatMarkdown|ChatView|chat))(/|\.|$)' "$changed_files"; then
+          if grep -Eq '^apps/web/src/(composerDraftStore|lib/attachment[^/]*|state/attachments|components/(ChatMarkdown|ChatView|chat))(/|\.|$)' "$changed_files"; then
             echo "Release source changed upstream-owned browser file attachments." >&2
             exit 1
           fi

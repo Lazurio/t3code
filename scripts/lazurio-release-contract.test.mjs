@@ -160,6 +160,8 @@ NodeTest.test("release workflow publishes one immutable GHCR tag with standard e
     /Release source changed upstream-owned attachment, provider, or migration code/,
   );
   NodeAssert.match(workflow, /Release source changed upstream-owned browser file attachments/);
+  NodeAssert.match(workflow, /lib\/attachment\[\^\/\]\*/);
+  NodeAssert.match(forkCi, /lib\/attachment\[\^\/\]\*/);
   NodeAssert.match(workflow, /provenance: mode=max/);
   NodeAssert.match(workflow, /sbom: true/);
   NodeAssert.match(workflow, /actions\/attest-build-provenance@[0-9a-f]{40}/);
