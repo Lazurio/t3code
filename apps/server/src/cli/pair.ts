@@ -132,7 +132,7 @@ export class ServePortOccupiedError extends Schema.TaggedErrorClass<ServePortOcc
 
 /** The URL a browser or phone should pair through, absent Tailscale. */
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
-  state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+  state.devUrl ?? state.externalOrigin ?? resolveHeadlessConnectionString(state.host, state.port);
 
 export class DevServerNotProxiableError extends Schema.TaggedErrorClass<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -335,6 +335,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
     mode: "web",
     port: state.port,
     host: state.host,
+    externalOrigin: state.externalOrigin ? new URL(state.externalOrigin) : undefined,
     cwd: process.cwd(),
     baseDir,
     ...derivedPaths,
@@ -347,6 +348,10 @@ const makePairServerConfig = Effect.fn(function* (input: {
     desktopTelemetryFd: undefined,
     desktopTelemetryControlFd: undefined,
     resourceMonitorPath: undefined,
+    pairingTokenTtl: Duration.millis(
+      state.pairingTokenTtlMs ?? Duration.toMillis(ServerConfig.DEFAULT_PAIRING_TOKEN_TTL),
+    ),
+    clientSessionTtl: ServerConfig.DEFAULT_CLIENT_SESSION_TTL,
     autoBootstrapProjectFromCwd: false,
     logWebSocketEvents: false,
     tailscaleServeEnabled: false,
@@ -458,7 +463,7 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
 const ttlFlag = Flag.string("ttl").pipe(
   Flag.withSchema(DurationFromString),
   Flag.withDescription(
-    "Token TTL, for example `5m`, `1h`, or `15 minutes`. Defaults to 5 minutes.",
+    "Token TTL, for example `5m`, `1h`, or `15 minutes`. Defaults to the running server's configured lifetime (5 minutes for legacy state).",
   ),
   Flag.optional,
 );
@@ -497,7 +502,6 @@ export const pairCommand = Command.make("pair", {
       // Default to Warn so storage/migration chatter cannot bury the QR code;
       // an explicit --log-level still wins.
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
-
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
       const notes: Array<string> = [];

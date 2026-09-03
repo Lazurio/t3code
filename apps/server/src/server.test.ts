@@ -1764,6 +1764,25 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("marks browser session cookies Secure for an explicit external HTTPS origin", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          mode: "web",
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        },
+      });
+
+      const { response, cookie } = yield* bootstrapBrowserSession();
+
+      assert.equal(response.status, 200);
+      assert.match(cookie ?? "", /^__Host-t3_session=/u);
+      assert.include(cookie ?? "", "Secure");
+      assert.include(cookie ?? "", "HttpOnly");
+      assert.include(cookie ?? "", "SameSite=Lax");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("exchanges a bootstrap grant for a scoped bearer access token", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();

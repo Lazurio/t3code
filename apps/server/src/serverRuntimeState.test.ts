@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Duration from "effect/Duration";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
@@ -47,18 +48,40 @@ describe("serverRuntimeState", () => {
   it.effect("records the dev web URL when the server fronts a dev server", () =>
     Effect.gen(function* () {
       const state = yield* ServerRuntimeState.makePersistedServerRuntimeState({
-        config: { host: undefined, devUrl: new URL("http://localhost:5733") },
+        config: {
+          host: undefined,
+          devUrl: new URL("http://localhost:5733"),
+          pairingTokenTtl: Duration.minutes(15),
+        },
         port: 13_773,
       });
 
       assert.equal(state.devUrl, "http://localhost:5733/");
       assert.equal(state.origin, "http://127.0.0.1:13773");
+      assert.equal(state.pairingTokenTtlMs, 900_000);
 
       const withoutDev = yield* ServerRuntimeState.makePersistedServerRuntimeState({
         config: { host: undefined, devUrl: undefined },
         port: 13_773,
       });
       assert.isFalse("devUrl" in withoutDev);
+    }),
+  );
+
+  it.effect("records the trusted external origin without changing the bind origin", () =>
+    Effect.gen(function* () {
+      const state = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: {
+          host: "127.0.0.1",
+          devUrl: undefined,
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        },
+        port: 13_773,
+      });
+
+      assert.equal(state.host, "127.0.0.1");
+      assert.equal(state.origin, "http://127.0.0.1:13773");
+      assert.equal(state.externalOrigin, "https://t3code.management.example.test/");
     }),
   );
 

@@ -36,6 +36,7 @@ import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
+import * as ServerConfig from "../config.ts";
 import { layerConfig as SqlitePersistenceLayer } from "../persistence/Layers/Sqlite.ts";
 
 export const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
@@ -592,12 +593,39 @@ export function selectRequestCredential(
 }
 
 export const make = Effect.gen(function* () {
+  const serverConfig = yield* ServerConfig.ServerConfig;
   const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
   const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
   const sessions = yield* SessionStore.SessionStore;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const crypto = yield* Crypto.Crypto;
   const descriptor = yield* policy.getDescriptor();
+
+  const enforceBrowserSessionOrigin = (
+    request: HttpServerRequest.HttpServerRequest,
+    options?: { readonly webSocket?: boolean },
+  ): Effect.Effect<void, ServerAuthInvalidCredentialError> => {
+    if (
+      serverConfig.externalOrigin === undefined ||
+      request.cookies[sessions.cookieName] === undefined
+    ) {
+      return Effect.void;
+    }
+
+    const method = request.method.toUpperCase();
+    const isStateChanging = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+    if (!options?.webSocket && !isStateChanging) {
+      return Effect.void;
+    }
+
+    return request.headers.origin === serverConfig.externalOrigin.origin
+      ? Effect.void
+      : Effect.fail(
+          new ServerAuthInvalidCredentialError({
+            diagnostic: "Browser session origin does not match configured external origin.",
+          }),
+        );
+  };
 
   const authenticateToken = (
     token: string,
@@ -628,49 +656,51 @@ export const make = Effect.gen(function* () {
 
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
-  ): Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError> => {
-    const credential = selectRequestCredential(
-      request,
-      sessions.cookieName,
-      sessions.legacyCookieName,
-    );
-    if (!credential?.token) {
-      return Effect.fail(new ServerAuthMissingCredentialError({}));
-    }
-    const dpopToken = parseDpopToken(request);
-    return authenticateToken(credential.token).pipe(
-      Effect.flatMap((session) => {
-        if (session.proofKeyThumbprint) {
-          if (!dpopToken || dpopToken !== credential.token) {
+  ): Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError> =>
+    Effect.gen(function* () {
+      yield* enforceBrowserSessionOrigin(request);
+      const credential = selectRequestCredential(
+        request,
+        sessions.cookieName,
+        sessions.legacyCookieName,
+      );
+      if (!credential?.token) {
+        return yield* new ServerAuthMissingCredentialError({});
+      }
+      const dpopToken = parseDpopToken(request);
+      return yield* authenticateToken(credential.token).pipe(
+        Effect.flatMap((session) => {
+          if (session.proofKeyThumbprint) {
+            if (!dpopToken || dpopToken !== credential.token) {
+              return Effect.fail(
+                new ServerAuthInvalidCredentialError({
+                  diagnostic: "DPoP-bound access token requires DPoP authorization.",
+                  dpopFailureReason: "invalid_proof",
+                }),
+              );
+            }
+            return verifyRequestDpopProof({
+              request,
+              expectedThumbprint: session.proofKeyThumbprint,
+              expectedAccessToken: dpopToken,
+            }).pipe(
+              Effect.provideService(ServerSecretStore.ServerSecretStore, secretStore),
+              Effect.provideService(Crypto.Crypto, crypto),
+              Effect.as(session),
+            );
+          }
+          if (dpopToken) {
             return Effect.fail(
               new ServerAuthInvalidCredentialError({
-                diagnostic: "DPoP-bound access token requires DPoP authorization.",
+                diagnostic: "DPoP authorization requires a proof-bound access token.",
                 dpopFailureReason: "invalid_proof",
               }),
             );
           }
-          return verifyRequestDpopProof({
-            request,
-            expectedThumbprint: session.proofKeyThumbprint,
-            expectedAccessToken: dpopToken,
-          }).pipe(
-            Effect.provideService(ServerSecretStore.ServerSecretStore, secretStore),
-            Effect.provideService(Crypto.Crypto, crypto),
-            Effect.as(session),
-          );
-        }
-        if (dpopToken) {
-          return Effect.fail(
-            new ServerAuthInvalidCredentialError({
-              diagnostic: "DPoP authorization requires a proof-bound access token.",
-              dpopFailureReason: "invalid_proof",
-            }),
-          );
-        }
-        return Effect.succeed(session);
-      }),
-    );
-  };
+          return Effect.succeed(session);
+        }),
+      );
+    });
 
   const getSessionState: EnvironmentAuth["Service"]["getSessionState"] = (request) =>
     authenticateRequest(request).pipe(
@@ -981,6 +1011,7 @@ export const make = Effect.gen(function* () {
 
   const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
     Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request) {
+      yield* enforceBrowserSessionOrigin(request, { webSocket: true });
       const requestUrl = HttpServerRequest.toURL(request);
       if (Option.isSome(requestUrl)) {
         const websocketTicket = requestUrl.value.searchParams.get(WEBSOCKET_TICKET_QUERY_PARAM);

@@ -13,7 +13,9 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 
 const makeServerConfigLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "pairingTokenTtl">
+  >,
 ) =>
   Layer.effect(
     ServerConfig.ServerConfig,
@@ -29,7 +31,9 @@ const makeServerConfigLayer = (
   );
 
 const makePairingGrantStoreLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "pairingTokenTtl">
+  >,
 ) =>
   PairingGrantStore.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
@@ -64,6 +68,26 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
 
       expect(issued.credential).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/);
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
+  );
+
+  it.effect("uses the configured pairing lifetime for one-time tokens", () =>
+    Effect.gen(function* () {
+      const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
+      const issued = yield* bootstrapCredentials.issueOneTimeToken();
+
+      yield* TestClock.adjust(Duration.minutes(16));
+      const expired = yield* Effect.flip(bootstrapCredentials.consume(issued.credential));
+
+      expect(expired._tag).toBe("ExpiredBootstrapCredentialError");
+      expect(expired.message).toContain("expired");
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          makePairingGrantStoreLayer({ pairingTokenTtl: Duration.minutes(15) }),
+          TestClock.layer(),
+        ),
+      ),
+    ),
   );
 
   it.effect("issues one-time bootstrap tokens that can only be consumed once", () =>

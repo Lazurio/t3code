@@ -4,11 +4,13 @@ import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -18,7 +20,7 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { externalOriginConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -51,6 +53,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otlpExportIntervalMs: 10_000,
     otlpServiceName: "t3-server",
     devAllowedOrigins: [],
+    pairingTokenTtl: Duration.minutes(5),
+    clientSessionTtl: Duration.days(30),
   } as const;
 
   const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapValue) {
@@ -105,6 +109,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_NO_BROWSER: "true",
                   T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
                   T3CODE_LOG_WS_EVENTS: "true",
+                  T3CODE_PAIRING_TOKEN_TTL: "15m",
+                  T3CODE_CLIENT_SESSION_TTL: "365d",
                 },
               }),
             ),
@@ -116,6 +122,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved).toEqual({
         logLevel: "Warn",
         ...defaultObservabilityConfig,
+        pairingTokenTtl: Duration.minutes(15),
+        clientSessionTtl: Duration.days(365),
         mode: "desktop",
         port: 4001,
         cwd: process.cwd(),
@@ -134,6 +142,124 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServePort: 443,
       });
       assert.equal(resolved.stateDir, join(baseDir, "userdata"));
+    }),
+  );
+
+  it.effect("rejects invalid configured auth lifetimes", () =>
+    Effect.gen(function* () {
+      const flags = {
+        mode: Option.some("desktop" as const),
+        port: Option.some(4888),
+        host: Option.none<string>(),
+        baseDir: Option.none<string>(),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+      } as const;
+
+      for (const env of [
+        { T3CODE_PAIRING_TOKEN_TTL: "0m" },
+        { T3CODE_CLIENT_SESSION_TTL: "forever" },
+      ]) {
+        const result = yield* resolveServerConfig(flags, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+          Effect.result,
+        );
+        assert.isTrue(Result.isFailure(result), Object.keys(env)[0]);
+      }
+    }),
+  );
+
+  it.effect("rejects unsafe external origins", () =>
+    Effect.gen(function* () {
+      for (const value of [
+        "t3code.management.example.test",
+        "http://t3code.management.example.test",
+        "https://user@example.test",
+        "https://example.test/nested",
+        "https://example.test?workspace=management",
+        "https://example.test#pairing-token",
+      ]) {
+        const result = yield* externalOriginConfig.pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_EXTERNAL_ORIGIN: value } }),
+            ),
+          ),
+          Effect.result,
+        );
+        assert.isTrue(Result.isFailure(result), value);
+      }
+    }),
+  );
+
+  it.effect("accepts an external origin only for a loopback-bound web server", () =>
+    Effect.gen(function* () {
+      const baseFlags = {
+        mode: Option.none(),
+        port: Option.none(),
+        host: Option.none(),
+        baseDir: Option.none(),
+        cwd: Option.none(),
+        devUrl: Option.none(),
+        noBrowser: Option.none(),
+        bootstrapFd: Option.none(),
+        autoBootstrapProjectFromCwd: Option.none(),
+        logWebSocketEvents: Option.none(),
+        tailscaleServeEnabled: Option.none(),
+        tailscaleServePort: Option.none(),
+      } as const;
+      const externalOrigin = "https://t3code.management.example.test/";
+
+      const resolved = yield* resolveServerConfig(baseFlags, Option.none()).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_MODE: "web",
+                  T3CODE_HOST: "127.0.0.1",
+                  T3CODE_EXTERNAL_ORIGIN: externalOrigin,
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+      expect(resolved.externalOrigin?.toString()).toBe(externalOrigin);
+
+      for (const env of [
+        {
+          T3CODE_MODE: "desktop",
+          T3CODE_HOST: "127.0.0.1",
+          T3CODE_EXTERNAL_ORIGIN: externalOrigin,
+        },
+        {
+          T3CODE_MODE: "web",
+          T3CODE_HOST: "0.0.0.0",
+          T3CODE_EXTERNAL_ORIGIN: externalOrigin,
+        },
+        {
+          T3CODE_MODE: "web",
+          T3CODE_EXTERNAL_ORIGIN: externalOrigin,
+        },
+      ]) {
+        const result = yield* resolveServerConfig(baseFlags, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+          Effect.result,
+        );
+        assert.isTrue(Result.isFailure(result), `${env.T3CODE_MODE}/${env.T3CODE_HOST ?? "unset"}`);
+      }
     }),
   );
 

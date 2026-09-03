@@ -26,12 +26,17 @@ export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
   readonly port: number;
   readonly host: string | undefined;
+  readonly externalOrigin?: URL | undefined;
   readonly instanceKey: string;
   readonly environmentId: string;
   readonly development: boolean;
 }): string {
   if (input.mode === "desktop") {
     return `${SESSION_COOKIE_NAME}_${input.port}`;
+  }
+
+  if (!input.development && input.externalOrigin !== undefined) {
+    return `__Host-${SESSION_COOKIE_NAME}`;
   }
 
   const instanceHash = NodeCrypto.createHash("sha256")

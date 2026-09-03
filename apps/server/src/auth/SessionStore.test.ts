@@ -115,6 +115,30 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(verified.expiresAt?.toString()).toBe(issued.expiresAt.toString());
     }).pipe(Effect.provide(makeSessionStoreLayer())),
   );
+  it.effect("uses the configured default lifetime for client sessions", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        method: "bearer-access-token",
+        subject: "long-lived-client",
+      });
+
+      yield* TestClock.adjust(Duration.days(364));
+      const stillValid = yield* sessions.verify(issued.token);
+      expect(stillValid.sessionId).toBe(issued.sessionId);
+
+      yield* TestClock.adjust(Duration.days(2));
+      const expired = yield* Effect.flip(sessions.verify(issued.token));
+      expect(expired._tag).toBe("SessionTokenExpiredError");
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          makeSessionStoreLayer({ clientSessionTtl: Duration.days(365) }),
+          TestClock.layer(),
+        ),
+      ),
+    ),
+  );
   it.effect("rejects malformed session tokens", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;

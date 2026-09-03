@@ -411,7 +411,6 @@ export class SessionStore extends Context.Service<
 >()("t3/auth/SessionStore") {}
 
 const SIGNING_SECRET_NAME = "server-signing-key";
-const DEFAULT_SESSION_TTL = Duration.days(30);
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
 
 const SessionClaims = Schema.Struct({
@@ -483,6 +482,7 @@ export const make = Effect.gen(function* () {
     mode: serverConfig.mode,
     port: serverConfig.port,
     host: serverConfig.host,
+    externalOrigin: serverConfig.externalOrigin,
     instanceKey: serverConfig.stateDir,
     environmentId: yield* serverEnvironment.getEnvironmentId,
     development: serverConfig.devUrl !== undefined,
@@ -617,7 +617,9 @@ export const make = Effect.gen(function* () {
       );
       const issuedAt = yield* DateTime.now;
       const expiresAt = DateTime.add(issuedAt, {
-        milliseconds: Duration.toMillis(input?.ttl ?? DEFAULT_SESSION_TTL),
+        milliseconds: Duration.toMillis(
+          input?.ttl ?? serverConfig.clientSessionTtl ?? ServerConfig.DEFAULT_CLIENT_SESSION_TTL,
+        ),
       });
       const claims: SessionClaims = {
         v: 1,

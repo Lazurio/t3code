@@ -36,6 +36,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
+import * as ServerConfig from "../config.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
@@ -171,13 +172,19 @@ export function failEnvironmentInternal(reason: EnvironmentInternalErrorReason, 
   });
 }
 
-const appendSessionCookie = (cookieName: string, token: string, expiresAt: DateTime.DateTime) =>
+const appendSessionCookie = (
+  cookieName: string,
+  token: string,
+  expiresAt: DateTime.DateTime,
+  secure = false,
+) =>
   Effect.fromResult(
     Cookies.set(Cookies.empty, cookieName, token, {
       expires: DateTime.toDate(expiresAt),
       httpOnly: true,
       path: "/",
       sameSite: "lax",
+      secure,
     }),
   ).pipe(
     Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")),
@@ -233,6 +240,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
     const sessions = yield* SessionStore.SessionStore;
+    const serverConfig = yield* ServerConfig.ServerConfig;
 
     return handlers
       .handle(
@@ -277,6 +285,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
               sessions.cookieName,
               result.sessionToken,
               result.response.expiresAt,
+              serverConfig.externalOrigin !== undefined,
             );
             yield* appendCredentialResponseHeaders;
             return result.response;

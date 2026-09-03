@@ -8,6 +8,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -49,7 +51,17 @@ describe("pair base URL selection", () => {
     );
   });
 
-  it("pairs through the bound host when there is no dev server", () => {
+  it("pairs through the trusted browser origin when one is recorded", () => {
+    expect(
+      resolveDirectPairingBaseUrl({
+        ...baseState,
+        host: "127.0.0.1",
+        externalOrigin: "https://t3code.management.example.test/",
+      }),
+    ).toBe("https://t3code.management.example.test/");
+  });
+
+  it("pairs through the bound host when there is no browser origin", () => {
     expect(resolveDirectPairingBaseUrl({ ...baseState, host: "100.64.0.7" })).toBe(
       "http://100.64.0.7:3773",
     );
@@ -153,11 +165,16 @@ describe("t3 pair", () => {
         yield* persistServerRuntimeState({
           path: statePath,
           state: yield* makePersistedServerRuntimeState({
-            config: { host: "127.0.0.1", devUrl: undefined },
+            config: {
+              host: "127.0.0.1",
+              devUrl: undefined,
+              pairingTokenTtl: Duration.minutes(15),
+            },
             port,
           }),
         });
 
+        const issuedAfterMs = yield* Clock.currentTimeMillis;
         const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
 
         assert.include(output, `Pairing with pair-test (${origin})`);
@@ -174,9 +191,15 @@ describe("t3 pair", () => {
           runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
         );
         // @effect-diagnostics-next-line preferSchemaOverJson:off - CLI JSON output is decoded as a presentation DTO.
-        const credentials = JSON.parse(listed) as ReadonlyArray<{ readonly label?: string }>;
+        const credentials = JSON.parse(listed) as ReadonlyArray<{
+          readonly label?: string;
+          readonly expiresAt: string;
+        }>;
         assert.equal(credentials.length, 1);
         assert.equal(credentials[0]?.label, "t3 pair");
+        const configuredLifetimeMs = Date.parse(credentials[0]?.expiresAt ?? "") - issuedAfterMs;
+        assert.isAtLeast(configuredLifetimeMs, Duration.toMillis(Duration.minutes(14)));
+        assert.isAtMost(configuredLifetimeMs, Duration.toMillis(Duration.minutes(16)));
       }),
     ).pipe(
       Effect.provide(NodeServices.layer),
