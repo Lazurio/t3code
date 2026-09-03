@@ -1,0 +1,226 @@
+name: Lazurio Fork CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: none
+
+concurrency:
+  group: lazurio-fork-ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  server-and-web:
+    name: Server and web compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Fetch exact source and upstream base without credentials
+        env:
+          SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add source "https://github.com/${SOURCE_REPOSITORY}.git"
+          git fetch --filter=blob:none source "$SOURCE_REF"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_REF"
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --filter=blob:none upstream \
+            refs/tags/v0.0.38:refs/tags/upstream-v0.0.38
+          test "$(git rev-parse refs/tags/upstream-v0.0.38^{commit})" = \
+            c0995d2eaf8ec787b3318ed1169ae266ed1529f8
+          git merge-base --is-ancestor refs/tags/upstream-v0.0.38 HEAD
+
+          changed_files="$(mktemp)"
+          git diff --name-only refs/tags/upstream-v0.0.38..HEAD > "$changed_files"
+          if grep -Eq '^(apps/(mobile|desktop)|packages)(/|$)' "$changed_files"; then
+            echo "Fork overlay changed an upstream client or shared protocol package." >&2
+            exit 1
+          fi
+          if grep -Eq '^apps/server/src/(assets|attachmentPaths|attachmentStore|http|orchestration|persistence|provider)(/|\.|$)' "$changed_files"; then
+            echo "Fork overlay changed upstream-owned attachment, provider, or migration code." >&2
+            exit 1
+          fi
+          if grep -Eq '^apps/web/src/(composerDraftStore|lib/attachment|state/attachments|components/(ChatMarkdown|ChatView|chat))(/|\.|$)' "$changed_files"; then
+            echo "Fork overlay changed upstream-owned browser file attachments." >&2
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting and lint
+        run: |
+          pnpm exec vp fmt --check
+          pnpm exec vp lint --report-unused-disable-directives
+
+      - name: Typecheck hosted distribution surface
+        run: |
+          pnpm exec vp run --filter @t3tools/contracts typecheck
+          pnpm exec vp run --filter @t3tools/client-runtime typecheck
+          pnpm exec vp run --filter t3 typecheck
+          pnpm exec vp run --filter @t3tools/web typecheck
+
+      - name: Test hosted origin, identity, and authentication lifetimes
+        run: |
+          cd apps/server
+          pnpm exec vp test run src/server.test.ts
+          pnpm exec vp test run \
+            src/cli/config.test.ts \
+            src/cli/pair.test.ts \
+            src/serverRuntimeState.test.ts \
+            src/auth/EnvironmentAuth.test.ts \
+            src/auth/EnvironmentAuthPolicy.test.ts \
+            src/auth/PairingGrantStore.test.ts \
+            src/auth/SessionStore.test.ts \
+            src/auth/utils.test.ts
+          cd ../web
+          pnpm exec vp test run \
+            src/branding.test.ts \
+            src/components/settings/ConnectionsSettings.logic.test.ts
+
+      - name: Test upstream-owned file attachments
+        run: |
+          cd packages/contracts
+          pnpm exec vp test run src/assets.test.ts src/orchestration.test.ts
+          cd ../client-runtime
+          pnpm exec vp test run src/state/attachments.test.ts
+          cd ../../apps/server
+          pnpm exec vp test run src/assets/AssetAccess.test.ts src/assets/AttachmentUpload.test.ts
+          cd ../web
+          pnpm exec vp test run \
+            src/components/chat/composerAttachmentFiles.test.ts \
+            src/lib/attachmentUploadQueue.test.ts \
+            src/lib/attachmentUploadState.test.ts
+          cd ../mobile
+          pnpm exec vp test run \
+            src/lib/attachmentUpload.test.ts \
+            src/lib/composerAttachmentFiles.test.ts
+
+      - name: Build vanilla web distribution
+        run: pnpm exec vp run --filter @t3tools/web build
+
+      - name: Validate Lazurio release contract
+        run: node --test scripts/lazurio-release-contract.test.mjs
+
+      - name: Build the release image without publishing
+        run: |
+          docker build \
+            --file Dockerfile.lazurio \
+            --build-arg NODE_BASE_IMAGE=node:24.19.0-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584 \
+            --build-arg BUN_BASE_IMAGE=oven/bun:1.3.14@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834 \
+            --build-arg BUN_VERSION=1.3.14 \
+            --build-arg PACKAGE_VERSION=0.0.38 \
+            --build-arg PNPM_VERSION=11.10.0 \
+            --build-arg RELEASE_TAG=ci-prestable \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --build-arg SOURCE_REVISION="$GITHUB_SHA" \
+            --build-arg UPSTREAM_BASE=c0995d2eaf8ec787b3318ed1169ae266ed1529f8 \
+            --build-arg VITE_DISTRIBUTION_RELEASE=ci-prestable \
+            --build-arg VITE_DISTRIBUTION_UPSTREAM_BASE=c0995d2eaf8ec787b3318ed1169ae266ed1529f8 \
+            --build-arg VITE_DISTRIBUTION_UPSTREAM_TAG=v0.0.38 \
+            --build-arg "VITE_HOSTED_APP_NAME=Lazurio T3 Code" \
+            --tag lazurio/t3code:ci \
+            .
+          docker run --rm --network none lazurio/t3code:ci --version
+          docker image inspect lazurio/t3code:ci \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_PAIRING_TOKEN_TTL=15m'
+          docker image inspect lazurio/t3code:ci \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
+          docker run --rm --network none --entrypoint node lazurio/t3code:ci -e '
+            const pty = require("/opt/lazurio-t3/node_modules/node-pty");
+            const child = pty.spawn("/bin/sh", ["-lc", "printf lazurio-pty-smoke"], {
+              name: "xterm",
+              cols: 80,
+              rows: 24,
+              cwd: "/tmp",
+              env: process.env,
+            });
+            let output = "";
+            child.onData((data) => { output += data; });
+            child.onExit(({ exitCode }) => {
+              if (exitCode !== 0 || output !== "lazurio-pty-smoke") {
+                console.error({ exitCode, output });
+                process.exit(1);
+              }
+              console.log("pty-smoke=PASS");
+            });
+          '
+
+  windows-generic-files:
+    name: Windows generic-file compatibility
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact public revision without credentials
+        shell: pwsh
+        env:
+          SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          git init .
+          git remote add source "https://github.com/$env:SOURCE_REPOSITORY.git"
+          git fetch --filter=blob:none source $env:SOURCE_REF
+          git checkout --detach FETCH_HEAD
+          $actualRef = git rev-parse HEAD
+          if ($actualRef -ne $env:SOURCE_REF) {
+            throw "Expected $env:SOURCE_REF, checked out $actualRef"
+          }
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test cross-platform attachment contracts
+        working-directory: packages/contracts
+        run: pnpm exec vp test run src/assets.test.ts src/orchestration.test.ts
+
+      - name: Test cross-platform client attachment state
+        working-directory: packages/client-runtime
+        run: pnpm exec vp test run src/state/attachments.test.ts
+
+      - name: Test cross-platform attachment capabilities
+        working-directory: apps/server
+        run: pnpm exec vp test run src/assets/AssetAccess.test.ts --testNamePattern attachment
+
+      - name: Test cross-platform attachment uploads
+        working-directory: apps/server
+        run: pnpm exec vp test run src/assets/AttachmentUpload.test.ts
+
+      - name: Test cross-platform browser file attachments
+        working-directory: apps/web
+        run: pnpm exec vp test run src/components/chat/composerAttachmentFiles.test.ts src/lib/attachmentUploadQueue.test.ts
