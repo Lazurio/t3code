@@ -4200,6 +4200,106 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect(
+    "characterizes session revocation: an open socket still serves RPCs while new authentication fails",
+    () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest({ config: { host: "0.0.0.0" } });
+
+        const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+        const pairingResponse = yield* HttpClient.post("/api/auth/pairing-token", {
+          headers: { cookie: ownerCookie },
+          body: yield* HttpBody.json({ scopes: ["orchestration:read"] }),
+        });
+        assert.equal(pairingResponse.status, 200);
+        const pairingBody = (yield* pairingResponse.json) as { readonly credential: string };
+        const pairedClientLabel = "Revocation characterization";
+        const { response: tokenResponse, body: tokenBody } = yield* exchangeAccessToken(
+          pairingBody.credential,
+          {
+            scope: "orchestration:read",
+            clientMetadata: { label: pairedClientLabel },
+          },
+        );
+        assert.equal(tokenResponse.status, 200);
+        assert.isDefined(tokenBody.access_token);
+        const pairedHeaders = { authorization: `Bearer ${tokenBody.access_token}` };
+
+        const ticketResponse = yield* HttpClient.post("/api/auth/websocket-ticket", {
+          headers: pairedHeaders,
+        });
+        assert.equal(ticketResponse.status, 200);
+        const ticketBody = (yield* ticketResponse.json) as { readonly ticket: string };
+        const wsUrl = `${yield* getWsServerUrl("/ws", { authenticated: false })}?wsTicket=${encodeURIComponent(ticketBody.ticket)}`;
+
+        const clientsResponse = yield* HttpClient.get("/api/auth/clients", {
+          headers: { cookie: ownerCookie },
+        });
+        assert.equal(clientsResponse.status, 200);
+        const clients = (yield* clientsResponse.json) as ReadonlyArray<{
+          readonly sessionId: string;
+          readonly client: { readonly label?: string };
+        }>;
+        const pairedClients = clients.filter((entry) => entry.client.label === pairedClientLabel);
+        assert.lengthOf(pairedClients, 1);
+        const pairedSessionId = pairedClients[0]?.sessionId;
+        assert.isDefined(pairedSessionId);
+
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              const before = yield* client[WS_METHODS.serverGetConfig]({});
+              assert.equal(
+                before.environment.environmentId,
+                testEnvironmentDescriptor.environmentId,
+              );
+
+              // The ticket supports another handshake before revocation; a later
+              // denial must not be mistaken for one-time ticket consumption.
+              const secondConnection = yield* Effect.scoped(
+                withWsRpcClient(wsUrl, (otherClient) =>
+                  otherClient[WS_METHODS.serverGetConfig]({}),
+                ),
+              );
+              assert.equal(
+                secondConnection.environment.environmentId,
+                testEnvironmentDescriptor.environmentId,
+              );
+
+              const revokeResponse = yield* HttpClient.post("/api/auth/clients/revoke", {
+                headers: { cookie: ownerCookie },
+                body: yield* HttpBody.json({ sessionId: pairedSessionId }),
+              });
+              assert.equal(revokeResponse.status, 200);
+
+              const newTicketResponse = yield* HttpClient.post("/api/auth/websocket-ticket", {
+                headers: pairedHeaders,
+              });
+              assert.equal(newTicketResponse.status, 401);
+              const reconnectError = yield* Effect.flip(
+                Effect.scoped(
+                  withWsRpcClient(wsUrl, (otherClient) =>
+                    otherClient[WS_METHODS.serverGetConfig]({}),
+                  ),
+                ),
+              );
+              assert.equal(reconnectError._tag, "RpcClientError");
+              assertInclude(String(reconnectError), "SocketOpenError");
+
+              // Characterization, not a promise of permanent access: authorization
+              // is captured at connection time. Revisit this expectation if the
+              // runtime starts checking revocation for already-open sockets.
+              const after = yield* client[WS_METHODS.serverGetConfig]({});
+              assert.equal(
+                after.environment.environmentId,
+                testEnvironmentDescriptor.environmentId,
+              );
+            }),
+          ),
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("allows reusing the desktop bootstrap credential", () =>
     Effect.gen(function* () {
       // The desktop-bootstrap grant is delivered over trusted IPC at
