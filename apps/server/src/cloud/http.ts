@@ -427,9 +427,14 @@ const makeCloudLinkProof = Effect.fn("environment.cloud.makeLinkProof")(function
 const cloudLinkProofHandler = Effect.fn("environment.cloud.linkProof")(
   function* (dependencies: CloudHttpDependencies, request: RelayLinkProofRequest) {
     yield* requireEnvironmentScope(AuthRelayWriteScope);
+    const config = yield* ServerConfig.ServerConfig;
     const httpRequest = yield* HttpServerRequest.HttpServerRequest;
     const requestUrl = requestAbsoluteUrl(httpRequest);
-    if (requestUrl === null || hasForwardedAuthorityHeaders(httpRequest)) {
+    if (
+      config.externalOrigin !== undefined ||
+      requestUrl === null ||
+      hasForwardedAuthorityHeaders(httpRequest)
+    ) {
       return yield* new EnvironmentHttpBadRequestError({
         message: "Invalid managed endpoint origin.",
       });

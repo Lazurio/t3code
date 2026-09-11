@@ -66,6 +66,32 @@ it.effect("automatic pull only updates enabled, behind, clean default-branch che
   }),
 );
 
+it("uses the hosted external origin for browser startup pairing", () => {
+  const externalOrigin = new URL("https://t3code.management.example.test/");
+  assert.equal(
+    ServerRuntimeStartup.resolveStartupBrowserBaseTarget({
+      port: 3773,
+      host: "127.0.0.1",
+      devUrl: undefined,
+      externalOrigin,
+    }),
+    externalOrigin.toString(),
+  );
+});
+
+it("keeps the development server URL ahead of a hosted external origin", () => {
+  const devUrl = new URL("http://127.0.0.1:5173/");
+  assert.equal(
+    ServerRuntimeStartup.resolveStartupBrowserBaseTarget({
+      port: 3773,
+      host: "127.0.0.1",
+      devUrl,
+      externalOrigin: new URL("https://t3code.management.example.test/"),
+    }),
+    devUrl.toString(),
+  );
+});
+
 it.effect("enqueueCommand waits for readiness and then drains queued work", () =>
   Effect.scoped(
     Effect.gen(function* () {
