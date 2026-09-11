@@ -168,14 +168,14 @@ release not-found response and the authenticated GitHub Packages API successfull
 GHCR package version without finding the requested tag. Authentication, network, registry, query,
 and rate-limit failures stop the release.
 
-For v0.0.40, package stamping changes only server and web manifests to `0.0.38` during the image
+For v0.0.40, package stamping changes only server and web manifests to `0.0.40` during the image
 build, so discovery reports the release version while source package manifests remain upstream.
 
 ## Legacy migration 44 reconciliation
 
 The old Lazurio v0.0.35 file lane recorded migration id `44` as
-`LazurioProjectionThreadMessagesContextFiles`. Upstream v0.0.40 ends at migration 43 and no longer
-needs that source migration, but a live database may still contain the historical ledger row and
+`LazurioProjectionThreadMessagesContextFiles`. Upstream v0.0.40 includes migrations through 49 and owns a different migration 44. It does not
+use the historical Lazurio source migration, but a live database may still contain the historical ledger row and
 extra nullable column. The candidate must never delete or rewrite them automatically.
 
 Before canary promotion, stop the selected Workspace, take and verify a database backup, and read
@@ -189,11 +189,11 @@ WHERE migration_id = 44
 ```
 
 Require exactly one affected row. Keep the now-unused nullable column; dropping it provides no
-runtime benefit and increases recovery risk. Start v0.0.40, verify the ledger maximum is 43, then
+runtime benefit and increases recovery risk. Start v0.0.40, verify upstream migrations 44–49 were applied and the ledger maximum is 49, then
 exercise old and new threads plus file upload/download. If any precondition or affected-row count
 differs, roll back and investigate. Never delete by id alone.
 
-This reconciliation prevents a future upstream migration 44 from being skipped. It is an
+This reconciliation prevents upstream migration 44 from being skipped during this upgrade. It is an
 operational data migration and therefore requires a separate destructive-action authorization; it
 is not hidden inside source publication or image startup.
 
