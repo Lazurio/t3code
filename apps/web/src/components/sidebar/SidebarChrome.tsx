@@ -99,8 +99,8 @@ function SidebarBrand({
         environmentLabel ? `Go to threads in ${environmentLabel}` : `Go to ${APP_BASE_NAME} threads`
       }
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-        HOSTED_APP_NAME ? "h-9" : "h-7",
+        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden min-w-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        HOSTED_APP_NAME ? "h-9 flex-1" : "h-7 w-fit shrink-0",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
