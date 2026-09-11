@@ -36,3 +36,14 @@ export function resolveServerBackedAppDisplayName(input: {
     ? input.fallbackDisplayName
     : formatAppDisplayName({ baseName: input.baseName, stageLabel });
 }
+
+export function formatHostedDocumentTitle(input: {
+  readonly appDisplayName: string;
+  readonly hostedAppName: string | null;
+  readonly environmentLabel: string | null | undefined;
+}): string {
+  const environmentLabel = input.environmentLabel?.trim();
+  return input.hostedAppName && environmentLabel
+    ? `${input.appDisplayName} — ${environmentLabel}`
+    : input.appDisplayName;
+}
