@@ -2,8 +2,9 @@ import { buildHostedPairingUrl } from "../../hostedPairing";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 
 export function resolveDesktopPairingUrl(endpointUrl: string, credential: string): string {
-  const url = new URL(endpointUrl);
-  url.pathname = "/pair";
+  const base = new URL(endpointUrl);
+  base.pathname = `${base.pathname.replace(/\/$/u, "")}/`;
+  const url = new URL("pair", base);
   return setPairingTokenOnUrl(url, credential).toString();
 }
 

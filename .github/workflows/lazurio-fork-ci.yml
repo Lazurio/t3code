@@ -109,7 +109,8 @@ jobs:
           cd ../web
           pnpm exec vp test run \
             src/branding.test.ts \
-            src/components/settings/ConnectionsSettings.logic.test.ts
+            src/components/settings/ConnectionsSettings.logic.test.ts \
+            src/components/settings/pairingUrls.test.ts
 
       - name: Test shared application base paths
         run: |

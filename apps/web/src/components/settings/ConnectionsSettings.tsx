@@ -105,7 +105,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { AnimatedHeight } from "../AnimatedHeight";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Textarea } from "../ui/textarea";
-import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "../../pairingUrl";
+import { getPairingTokenFromUrl } from "../../pairingUrl";
 import { readHostedPairingRequest } from "../../hostedPairing";
 import {
   createServerPairingCredential,
@@ -515,8 +515,10 @@ function resolveAdvertisedEndpointPairingUrl(
 }
 
 function resolveCurrentOriginPairingUrl(credential: string): string {
-  const url = new URL("/pair", window.location.href);
-  return setPairingTokenOnUrl(url, credential).toString();
+  return resolveDesktopPairingUrl(
+    new URL(import.meta.env.BASE_URL, window.location.origin).toString(),
+    credential,
+  );
 }
 
 function isHostedAppPairingUrl(value: string): boolean {

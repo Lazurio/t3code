@@ -14,6 +14,15 @@ describe("settings pairing URL helpers", () => {
     );
   });
 
+  it.each(["/t3code", "/t3code/"])(
+    "keeps the backend mount %s when sharing a direct pairing link",
+    (path) => {
+      expect(
+        resolveDesktopPairingUrl(`https://machine.example.test${path}?old=value#old`, "PAIRCODE"),
+      ).toBe("https://machine.example.test/t3code/pair#token=PAIRCODE");
+    },
+  );
+
   it("uses hosted pairing URLs for HTTPS endpoints", () => {
     vi.stubEnv("VITE_HOSTED_APP_URL", "https://preview.t3.codes");
 
