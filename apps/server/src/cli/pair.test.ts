@@ -163,11 +163,14 @@ const testDescriptor = {
   capabilities: { repositoryIdentity: true },
 };
 
-const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A, E, R>) =>
+const withDescriptorServer = <A, E, R>(
+  run: (origin: string) => Effect.Effect<A, E, R>,
+  basePath = "",
+) =>
   Effect.acquireUseRelease(
     Effect.callback<NodeHttp.Server>((resume) => {
       const server = NodeHttp.createServer((request, response) => {
-        if (request.url === "/.well-known/t3/environment") {
+        if (request.url === `${basePath}/.well-known/t3/environment`) {
           response.writeHead(200, { "content-type": "application/json" });
           response.end(JSON.stringify(testDescriptor));
           return;
@@ -188,68 +191,76 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
   );
 
 describe("t3 pair", () => {
-  it.effect("mints a token and prints a QR pairing URL for a live server", () =>
-    withDescriptorServer((origin) =>
-      Effect.gen(function* () {
-        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-test-"));
-        const port = Number(new URL(origin).port);
-        const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
-        yield* persistServerRuntimeState({
-          path: statePath,
-          state: yield* makePersistedServerRuntimeState({
-            config: {
-              host: "127.0.0.1",
-              devUrl: undefined,
-              pairingTokenTtl: Duration.minutes(15),
-            },
-            port,
+  for (const basePath of ["", "/t3code"]) {
+    it.effect(`mints a token for a live server mounted at ${basePath || "/"}`, () =>
+      withDescriptorServer(
+        (origin) =>
+          Effect.gen(function* () {
+            const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-test-"));
+            const port = Number(new URL(origin).port);
+            const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
+            yield* persistServerRuntimeState({
+              path: statePath,
+              state: yield* makePersistedServerRuntimeState({
+                config: {
+                  host: "127.0.0.1",
+                  devUrl: undefined,
+                  basePath,
+                  externalOrigin: basePath ? new URL("https://machine.example.test") : undefined,
+                  pairingTokenTtl: Duration.minutes(15),
+                },
+                port,
+              }),
+            });
+
+            const issuedAfterMs = yield* Clock.currentTimeMillis;
+            const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
+
+            const browserBase = basePath ? `https://machine.example.test${basePath}` : origin;
+            assert.include(output, `Pairing with pair-test (${origin})`);
+            assert.include(output, `Pairing URL: ${browserBase}/pair#token=`);
+            assert.isTrue(output.includes("█") || output.includes("▀") || output.includes("▄"));
+            // Loopback origins are not reachable from a phone; the output must say so.
+            if (!basePath) assert.include(output, "only reachable from this machine");
+
+            const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
+            assert.isString(token);
+
+            // The token must be in the same store the running server reads.
+            const listed = yield* captureStdout(
+              runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
+            );
+            // @effect-diagnostics-next-line preferSchemaOverJson:off - CLI JSON output is decoded as a presentation DTO.
+            const credentials = JSON.parse(listed) as ReadonlyArray<{
+              readonly label?: string;
+              readonly expiresAt: string;
+            }>;
+            assert.equal(credentials.length, 1);
+            assert.equal(credentials[0]?.label, "t3 pair");
+            const configuredLifetimeMs =
+              Date.parse(credentials[0]?.expiresAt ?? "") - issuedAfterMs;
+            assert.isAtLeast(configuredLifetimeMs, Duration.toMillis(Duration.minutes(14)));
+            assert.isAtMost(configuredLifetimeMs, Duration.toMillis(Duration.minutes(16)));
           }),
-        });
-
-        const issuedAfterMs = yield* Clock.currentTimeMillis;
-        const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
-
-        assert.include(output, `Pairing with pair-test (${origin})`);
-        assert.include(output, `Pairing URL: ${origin}/pair#token=`);
-        assert.isTrue(output.includes("█") || output.includes("▀") || output.includes("▄"));
-        // Loopback origins are not reachable from a phone; the output must say so.
-        assert.include(output, "only reachable from this machine");
-
-        const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
-        assert.isString(token);
-
-        // The token must be in the same store the running server reads.
-        const listed = yield* captureStdout(
-          runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
-        );
-        // @effect-diagnostics-next-line preferSchemaOverJson:off - CLI JSON output is decoded as a presentation DTO.
-        const credentials = JSON.parse(listed) as ReadonlyArray<{
-          readonly label?: string;
-          readonly expiresAt: string;
-        }>;
-        assert.equal(credentials.length, 1);
-        assert.equal(credentials[0]?.label, "t3 pair");
-        const configuredLifetimeMs = Date.parse(credentials[0]?.expiresAt ?? "") - issuedAfterMs;
-        assert.isAtLeast(configuredLifetimeMs, Duration.toMillis(Duration.minutes(14)));
-        assert.isAtMost(configuredLifetimeMs, Duration.toMillis(Duration.minutes(16)));
-      }),
-    ).pipe(
-      Effect.provide(NodeServices.layer),
-      Effect.provideService(HostProcessEnvironment, {
-        ...process.env,
-        [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify({
-          protocol: SERVICE_LAUNCHER_PROTOCOL,
-          childVersion: packageJson.version,
+        basePath,
+      ).pipe(
+        Effect.provide(NodeServices.layer),
+        Effect.provideService(HostProcessEnvironment, {
+          ...process.env,
+          [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify({
+            protocol: SERVICE_LAUNCHER_PROTOCOL,
+            childVersion: packageJson.version,
+          }),
         }),
-      }),
-      Effect.provideService(ServiceLauncherClient.ServiceLauncherHostProcess, {
-        connected: false,
-        send: () => false,
-        on: () => undefined,
-        off: () => undefined,
-      }),
-    ),
-  );
+        Effect.provideService(ServiceLauncherClient.ServiceLauncherHostProcess, {
+          connected: false,
+          send: () => false,
+          on: () => undefined,
+          off: () => undefined,
+        }),
+      ),
+    );
+  }
 
   it.effect("pairs through the recorded dev web URL for dev servers", () =>
     withDescriptorServer((origin) =>
