@@ -297,7 +297,11 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       if (!isProcessAlive(state.value.pid)) {
         continue;
       }
-      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+      // Discover over the local listener, including its mounted application path.
+      // The external browser origin may require login and is not a local probe.
+      const probeUrl = new URL(state.value.origin);
+      probeUrl.pathname = `${normalizeApplicationPath(state.value.basePath ?? "")}/`;
+      const probed = yield* probeEnvironmentDescriptor(probeUrl.toString());
       if (probed._tag !== "descriptor") {
         continue;
       }
