@@ -261,16 +261,18 @@ NodeTest.test("the retired Lazurio contextFiles implementation is absent", async
   NodeAssert.doesNotMatch(migrations, /LazurioProjectionThreadMessagesContextFiles/);
 });
 
-NodeTest.test(
-  "fork CI admits mounted URL clients but rejects unrelated source changes",
-  async () => {
-    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-overlay-guard-"));
-    try {
-      const file = NodePath.join(directory, "changed-files");
-      const start = forkCi.indexOf("          if grep -Eq");
-      const end = forkCi.indexOf("\n      - name: Install pnpm", start);
+NodeTest.test("CI and release both admit URL clients and reject unrelated overlays", async () => {
+  const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-overlay-guard-"));
+  try {
+    const file = NodePath.join(directory, "changed-files");
+    for (const [label, source, stop] of [
+      ["CI", forkCi, "\n      - name: Install pnpm"],
+      ["release", workflow, "          source_date_epoch="],
+    ]) {
+      const start = source.indexOf("          if grep -Eq");
+      const end = source.indexOf(stop, start);
       NodeAssert.ok(start >= 0 && end > start);
-      const guard = forkCi
+      const guard = source
         .slice(start, end)
         .split("\n")
         .map((line) => line.slice(10))
@@ -291,10 +293,10 @@ NodeTest.test(
           ["-c", `set -euo pipefail\nchanged_files="$1"\n${guard}`, "guard", file],
           { encoding: "utf8" },
         );
-        NodeAssert.equal(result.status, expected, `${path}: ${result.stderr}`);
+        NodeAssert.equal(result.status, expected, `${label} ${path}: ${result.stderr}`);
       }
-    } finally {
-      await NodeFSP.rm(directory, { recursive: true, force: true });
     }
-  },
-);
+  } finally {
+    await NodeFSP.rm(directory, { recursive: true, force: true });
+  }
+});
