@@ -1,3 +1,5 @@
+import { normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
+import { normalizeApplicationPath } from "@t3tools/shared/applicationPath";
 /**
  * `t3 pair` - mint a pairing token for an already-running server and print it
  * as a QR code, without restarting anything.
@@ -141,8 +143,14 @@ export class ConfiguredBrowserUrlRejectsTailscalePairingError extends Schema.Tag
 }
 
 /** The URL a browser or phone should pair through, absent Tailscale. */
-export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
-  state.devUrl ?? state.externalOrigin ?? resolveHeadlessConnectionString(state.host, state.port);
+export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string => {
+  if (state.devUrl) return state.devUrl;
+  const base = state.externalOrigin ?? resolveHeadlessConnectionString(state.host, state.port);
+  if (!state.basePath) return base;
+  const url = new URL(base);
+  url.pathname = `${normalizeApplicationPath(state.basePath)}/`;
+  return url.toString();
+};
 
 export class DevServerNotProxiableError extends Schema.TaggedErrorClass<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -217,7 +225,12 @@ const probeEnvironmentDescriptor = (
 ): Effect.Effect<EnvironmentProbeResult, never, HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
-    const request = HttpClientRequest.get(new URL(WELL_KNOWN_ENVIRONMENT_PATH, baseUrl).toString());
+    const request = HttpClientRequest.get(
+      new URL(
+        WELL_KNOWN_ENVIRONMENT_PATH.replace(/^\//, ""),
+        normalizeHttpBaseUrl(baseUrl),
+      ).toString(),
+    );
     const response = yield* client.execute(request).pipe(
       Effect.timeout(PAIR_PROBE_TIMEOUT),
       // Transport failure or timeout: nothing (reachable) is listening there.
@@ -334,6 +347,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
     mode: "web",
     port: state.port,
     host: state.host,
+    basePath: state.basePath,
     externalOrigin: state.externalOrigin ? new URL(state.externalOrigin) : undefined,
     cwd: process.cwd(),
     baseDir,

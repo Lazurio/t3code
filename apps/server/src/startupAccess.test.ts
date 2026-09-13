@@ -124,3 +124,19 @@ it("formats headless serve output with the connection string, token, pairing url
   expect(output).toContain("Pairing URL: http://192.168.1.42:3773/pair#token=PAIRCODE");
   assert.isTrue(output.includes("█") || output.includes("▀") || output.includes("▄"));
 });
+
+it("keeps the mount path in the browser address and pairing URL", () => {
+  const base = resolveHeadlessBrowserConnectionString(
+    {
+      host: "127.0.0.1",
+      devUrl: undefined,
+      externalOrigin: new URL("https://machine.example.test"),
+      basePath: "/t3code",
+    },
+    3773,
+  );
+  expect(base).toBe("https://machine.example.test/t3code/");
+  expect(buildPairingUrl(base, "PAIRCODE")).toBe(
+    "https://machine.example.test/t3code/pair#token=PAIRCODE",
+  );
+});

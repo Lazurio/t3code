@@ -42,10 +42,21 @@ jobs:
 
           changed_files="$(mktemp)"
           git diff --name-only refs/tags/upstream-v0.0.40..HEAD > "$changed_files"
-          if grep -Eq '^(apps/(mobile|desktop)|packages)(/|$)' "$changed_files"; then
+          if grep -Eq '^apps/(mobile|desktop)(/|$)' "$changed_files"; then
             echo "Fork overlay changed an upstream client or shared protocol package." >&2
             exit 1
           fi
+          # Base-path support belongs in the shared URL clients. Keep wire
+          # contracts and every unrelated package outside the fork overlay.
+          while IFS= read -r path; do
+            case "$path" in
+              packages/shared/package.json|packages/shared/src/advertisedEndpoint.ts|packages/shared/src/applicationPath.ts) ;;
+              packages/client-runtime/src/authorization/remote.ts|packages/client-runtime/src/authorization/remote.test.ts) ;;
+              packages/client-runtime/src/connection/resolver.ts|packages/client-runtime/src/environment/endpoint.ts|packages/client-runtime/src/environment/endpoint.test.ts) ;;
+              packages/client-runtime/src/rpc/http.ts|packages/client-runtime/src/state/pullRequestDiffHttp.test.ts) ;;
+              packages/*) echo "Fork overlay changed an unrelated shared package: $path" >&2; exit 1 ;;
+            esac
+          done < "$changed_files"
           if grep -Eq '^apps/server/src/(assets|attachmentPaths|attachmentStore|http|orchestration|persistence|provider)(/|\.|$)' "$changed_files"; then
             echo "Fork overlay changed upstream-owned attachment, provider, or migration code." >&2
             exit 1
@@ -98,7 +109,18 @@ jobs:
           cd ../web
           pnpm exec vp test run \
             src/branding.test.ts \
-            src/components/settings/ConnectionsSettings.logic.test.ts
+            src/components/settings/ConnectionsSettings.logic.test.ts \
+            src/components/settings/pairingUrls.test.ts
+
+      - name: Test shared application base paths
+        run: |
+          cd packages/client-runtime
+          pnpm exec vp test run \
+            src/environment/endpoint.test.ts \
+            src/authorization/remote.test.ts \
+            src/state/pullRequestDiffHttp.test.ts
+          cd ../../apps/server
+          pnpm exec vp test run src/auth/dpop.test.ts src/startupAccess.test.ts
 
       - name: Test upstream-owned file attachments
         run: |
@@ -119,6 +141,11 @@ jobs:
             src/lib/composerAttachmentFiles.test.ts
 
       - name: Build vanilla web distribution
+        run: pnpm exec vp run --filter @t3tools/web build
+
+      - name: Build web distribution mounted under workspace path
+        env:
+          T3CODE_BASE_PATH: /t3code/
         run: pnpm exec vp run --filter @t3tools/web build
 
       - name: Validate Lazurio release contract

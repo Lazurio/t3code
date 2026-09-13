@@ -102,10 +102,21 @@ jobs:
 
           changed_files="$(mktemp)"
           git diff --name-only "$UPSTREAM_SHA..$SOURCE_SHA" > "$changed_files"
-          if grep -Eq '^(apps/(mobile|desktop)|packages)(/|$)' "$changed_files"; then
+          if grep -Eq '^apps/(mobile|desktop)(/|$)' "$changed_files"; then
             echo "Release source changed an upstream client or shared protocol package." >&2
             exit 1
           fi
+          # Base-path support belongs in the shared URL clients. Keep wire
+          # contracts and every unrelated package outside the fork overlay.
+          while IFS= read -r path; do
+            case "$path" in
+              packages/shared/package.json|packages/shared/src/advertisedEndpoint.ts|packages/shared/src/applicationPath.ts) ;;
+              packages/client-runtime/src/authorization/remote.ts|packages/client-runtime/src/authorization/remote.test.ts) ;;
+              packages/client-runtime/src/connection/resolver.ts|packages/client-runtime/src/environment/endpoint.ts|packages/client-runtime/src/environment/endpoint.test.ts) ;;
+              packages/client-runtime/src/rpc/http.ts|packages/client-runtime/src/state/pullRequestDiffHttp.test.ts) ;;
+              packages/*) echo "Release source changed an unrelated shared package: $path" >&2; exit 1 ;;
+            esac
+          done < "$changed_files"
           if grep -Eq '^apps/server/src/(assets|attachmentPaths|attachmentStore|http|orchestration|persistence|provider)(/|\.|$)' "$changed_files"; then
             echo "Release source changed upstream-owned attachment, provider, or migration code." >&2
             exit 1
@@ -114,6 +125,7 @@ jobs:
             echo "Release source changed upstream-owned browser file attachments." >&2
             exit 1
           fi
+
 
           source_date_epoch="$(git show -s --format=%ct HEAD)"
           echo "source_date_epoch=$source_date_epoch" >> "$GITHUB_OUTPUT"

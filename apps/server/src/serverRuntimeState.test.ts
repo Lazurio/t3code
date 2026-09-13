@@ -75,10 +75,12 @@ describe("serverRuntimeState", () => {
           host: "127.0.0.1",
           devUrl: undefined,
           externalOrigin: new URL("https://t3code.management.example.test/"),
+          basePath: "/t3code",
         },
         port: 13_773,
       });
 
+      assert.equal(state.basePath, "/t3code");
       assert.equal(state.host, "127.0.0.1");
       assert.equal(state.origin, "http://127.0.0.1:13773");
       assert.equal(state.externalOrigin, "https://t3code.management.example.test/");

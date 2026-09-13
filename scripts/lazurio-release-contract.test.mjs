@@ -1,6 +1,9 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeTest from "node:test";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 const workflow = await NodeFSP.readFile(".github/workflows/lazurio-release.yml", "utf8");
 const dockerfile = await NodeFSP.readFile("Dockerfile.lazurio", "utf8");
@@ -214,7 +217,7 @@ NodeTest.test(
   () => {
     NodeAssert.match(forkCi, /refs\/tags\/v0\.0\.40:refs\/tags\/upstream-v0\.0\.40/);
     NodeAssert.match(forkCi, /09e8de9c655ae85410bf6b00446f272a01da81c7/);
-    NodeAssert.match(forkCi, /\^\(apps\/\(mobile\|desktop\)\|packages\)/);
+    NodeAssert.match(forkCi, /\^apps\/\(mobile\|desktop\)/);
     NodeAssert.match(forkCi, /upstream-owned attachment, provider, or migration code/);
     NodeAssert.match(forkCi, /upstream-owned browser file attachments/);
     NodeAssert.match(forkCi, /name: Windows generic-file compatibility/);
@@ -256,4 +259,44 @@ NodeTest.test("the retired Lazurio contextFiles implementation is absent", async
   ]);
   NodeAssert.match(migrations, /\[43, "ProjectionThreadsUnsettledAt", Migration0043\]/);
   NodeAssert.doesNotMatch(migrations, /LazurioProjectionThreadMessagesContextFiles/);
+});
+
+NodeTest.test("CI and release both admit URL clients and reject unrelated overlays", async () => {
+  const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-overlay-guard-"));
+  try {
+    const file = NodePath.join(directory, "changed-files");
+    for (const [label, source, stop] of [
+      ["CI", forkCi, "\n      - name: Install pnpm"],
+      ["release", workflow, "          source_date_epoch="],
+    ]) {
+      const start = source.indexOf("          if grep -Eq");
+      const end = source.indexOf(stop, start);
+      NodeAssert.ok(start >= 0 && end > start);
+      const guard = source
+        .slice(start, end)
+        .split("\n")
+        .map((line) => line.slice(10))
+        .join("\n");
+      for (const [path, expected] of [
+        ["packages/shared/src/applicationPath.ts", 0],
+        ["packages/client-runtime/src/environment/endpoint.ts", 0],
+        ["packages/contracts/src/assets.ts", 1],
+        ["packages/shared/src/unrelated.ts", 1],
+        ["apps/mobile/src/main.ts", 1],
+        ["apps/desktop/src/main.ts", 1],
+        ["apps/server/src/provider/unrelated.ts", 1],
+        ["apps/web/src/lib/attachmentUploadQueue.ts", 1],
+      ]) {
+        await NodeFSP.writeFile(file, `${path}\n`);
+        const result = NodeChildProcess.spawnSync(
+          "bash",
+          ["-c", `set -euo pipefail\nchanged_files="$1"\n${guard}`, "guard", file],
+          { encoding: "utf8" },
+        );
+        NodeAssert.equal(result.status, expected, `${label} ${path}: ${result.stderr}`);
+      }
+    }
+  } finally {
+    await NodeFSP.rm(directory, { recursive: true, force: true });
+  }
 });

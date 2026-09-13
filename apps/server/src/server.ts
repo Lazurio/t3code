@@ -1,3 +1,4 @@
+import { applicationPathRouterLayer } from "./applicationRoutes.ts";
 import { EnvironmentHttpApi, ProviderDriverKind } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
@@ -562,6 +563,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   Layer.provide(commandReadinessLayer),
   Layer.provide(browserApiCorsLayer),
   Layer.provide(httpCompressionLayer),
+  Layer.provide(applicationPathRouterLayer),
 );
 
 export const makeServerLayer = Layer.unwrap(

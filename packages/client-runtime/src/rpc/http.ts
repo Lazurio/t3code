@@ -94,14 +94,19 @@ const remoteApiBaseUrl = (httpBaseUrl: string): string => {
   return url.toString();
 };
 
+const environmentApi = (httpBaseUrl: string) => {
+  const prefix = new URL(httpBaseUrl).pathname.replace(/\/+$/, "");
+  return EnvironmentHttpApi.prefix(prefix as `/${string}`);
+};
+
 export const makeEnvironmentHttpApiClient = (httpBaseUrl: string) =>
-  HttpApiClient.make(EnvironmentHttpApi, {
+  HttpApiClient.make(environmentApi(httpBaseUrl), {
     baseUrl: remoteApiBaseUrl(httpBaseUrl),
   });
 
 /** Contract-derived request URLs for authentication proofs, tracing, and structured errors. */
 export const makeEnvironmentHttpApiUrlBuilder = (httpBaseUrl: string) =>
-  HttpApiClient.urlBuilder(EnvironmentHttpApi, {
+  HttpApiClient.urlBuilder(environmentApi(httpBaseUrl), {
     baseUrl: remoteApiBaseUrl(httpBaseUrl),
   });
 

@@ -1,3 +1,4 @@
+import { normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
 import {
   AuthAccessTokenType,
   AuthAccessWriteScope,
@@ -984,8 +985,7 @@ export const make = Effect.gen(function* () {
   const issueStartupPairingUrl: EnvironmentAuth["Service"]["issueStartupPairingUrl"] = (baseUrl) =>
     issueStartupPairingCredential().pipe(
       Effect.map((issued) => {
-        const url = new URL(baseUrl);
-        url.pathname = "/pair";
+        const url = new URL("pair", normalizeHttpBaseUrl(baseUrl));
         url.searchParams.delete("token");
         url.hash = new URLSearchParams([["token", issued.credential]]).toString();
         return url.toString();

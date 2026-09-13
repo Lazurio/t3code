@@ -140,10 +140,16 @@ A Team Workspace uses an explicit HTTPS browser origin while the server stays lo
 the operator-managed proxy:
 
 ```bash
-T3CODE_EXTERNAL_ORIGIN=https://t3code.matej.spectoda.lazurio.io
+T3CODE_EXTERNAL_ORIGIN=https://matej.spectoda.lazurio.io
+T3CODE_BASE_PATH=/t3code/
 T3CODE_ENVIRONMENT_LABEL="Spectoda / Matěj"
 t3 serve --host 127.0.0.1
 ```
+
+For a path-mounted distribution, set `T3CODE_BASE_PATH=/t3code/` when building the web
+artifact and when starting the server. Serve it at `/t3code/` without stripping the
+prefix in the reverse proxy. The root deployment leaves this setting empty. Pairing
+links and remote HTTP/WebSocket clients retain the application prefix.
 
 The external origin rejects credentials, paths, queries, fragments, and non-HTTPS values. It does
 not trust forwarded authority headers. Cookie-authenticated mutations and WebSocket upgrades must

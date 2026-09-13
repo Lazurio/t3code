@@ -275,4 +275,15 @@ describe("environmentBootstrap", () => {
       message: "The window-origin primary environment target uses unsupported protocol file:.",
     });
   });
+
+  it("uses the build base path for same-origin API and socket targets", () => {
+    vi.stubEnv("BASE_URL", "/t3code/");
+    const target = readPrimaryEnvironmentTarget();
+    expect(new URL(target.target.httpBaseUrl).pathname).toBe("/t3code/");
+    expect(new URL(target.target.wsBaseUrl).pathname).toBe("/t3code/");
+    expect(new URL(resolvePrimaryEnvironmentHttpUrl("/api/auth/session")).pathname).toBe(
+      "/t3code/api/auth/session",
+    );
+    vi.unstubAllEnvs();
+  });
 });

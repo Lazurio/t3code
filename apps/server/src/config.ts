@@ -76,6 +76,7 @@ export class ServerConfig extends Context.Service<
     readonly mode: RuntimeMode;
     readonly port: number;
     readonly host: string | undefined;
+    readonly basePath?: string | undefined;
     readonly externalOrigin?: URL | undefined;
     readonly cwd: string;
     readonly baseDir: string;
@@ -110,8 +111,14 @@ export const make = (config: ServerConfig["Service"]) => ServerConfig.of(config)
 export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerConfig, make(config));
 
 export const resolveConfiguredBrowserUrl = (
-  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin">,
-): URL | undefined => config.devUrl ?? config.externalOrigin;
+  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin" | "basePath">,
+): URL | undefined => {
+  if (config.devUrl) return config.devUrl;
+  if (!config.externalOrigin) return undefined;
+  const url = new URL(config.externalOrigin);
+  url.pathname = `${config.basePath ?? ""}/`;
+  return url;
+};
 
 export const isConfiguredBrowserUrlSecure = (
   config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin">,

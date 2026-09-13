@@ -5,6 +5,8 @@ import {
   createAdvertisedEndpoint,
   deriveWsBaseUrl,
   normalizeHttpBaseUrl,
+  environmentEndpointUrl,
+  environmentSocketUrl,
 } from "./endpoint.ts";
 
 const coreProvider = {
@@ -16,9 +18,11 @@ const coreProvider = {
 
 describe("advertised endpoint helpers", () => {
   it("normalizes HTTP and WebSocket base URLs", () => {
-    expect(normalizeHttpBaseUrl("https://example.com/path?x=1#hash")).toBe("https://example.com/");
-    expect(normalizeHttpBaseUrl("wss://example.com/socket")).toBe("https://example.com/");
-    expect(deriveWsBaseUrl("https://example.com/api")).toBe("wss://example.com/");
+    expect(normalizeHttpBaseUrl("https://example.com/path?x=1#hash")).toBe(
+      "https://example.com/path/",
+    );
+    expect(normalizeHttpBaseUrl("wss://example.com/socket")).toBe("https://example.com/socket/");
+    expect(deriveWsBaseUrl("https://example.com/api")).toBe("wss://example.com/api/");
     expect(deriveWsBaseUrl("http://127.0.0.1:3773")).toBe("ws://127.0.0.1:3773/");
   });
 
@@ -58,4 +62,15 @@ describe("advertised endpoint helpers", () => {
       isDefault: true,
     });
   });
+});
+
+it("keeps the application prefix for HTTP and WebSocket requests", () => {
+  expect(environmentEndpointUrl("https://example.com/t3code/?old=1#old", "/api/auth/session")).toBe(
+    "https://example.com/t3code/api/auth/session",
+  );
+  for (const base of ["/t3code", "/t3code/", "/t3code/ws"]) {
+    expect(environmentSocketUrl(`wss://example.com${base}?ticket=x`).toString()).toBe(
+      "wss://example.com/t3code/ws?ticket=x",
+    );
+  }
 });
