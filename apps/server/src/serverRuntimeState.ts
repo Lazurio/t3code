@@ -16,6 +16,7 @@ export const PersistedServerRuntimeState = Schema.Struct({
   port: Schema.Int,
   origin: Schema.String,
   externalOrigin: Schema.optional(Schema.String),
+  basePath: Schema.optional(Schema.String),
   // Optional for backward-compatible reads of state written before auth
   // lifetimes became runtime-configurable.
   pairingTokenTtlMs: Schema.optional(
@@ -57,7 +58,7 @@ const runtimeOriginForConfig = (
 export const makePersistedServerRuntimeState = (input: {
   readonly config: Pick<
     ServerConfig.ServerConfig["Service"],
-    "host" | "devUrl" | "externalOrigin"
+    "host" | "devUrl" | "externalOrigin" | "basePath"
   > &
     Partial<Pick<ServerConfig.ServerConfig["Service"], "pairingTokenTtl">>;
   readonly port: number;
@@ -67,6 +68,7 @@ export const makePersistedServerRuntimeState = (input: {
     pid: process.pid,
     ...(input.config.host ? { host: input.config.host } : {}),
     port: input.port,
+    ...(input.config.basePath ? { basePath: input.config.basePath } : {}),
     origin: runtimeOriginForConfig(input.config, input.port),
     ...(input.config.externalOrigin
       ? { externalOrigin: input.config.externalOrigin.toString() }

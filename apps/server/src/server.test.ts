@@ -1702,6 +1702,85 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect(
+    "serves a mounted application with static files, authenticated API and WebSocket RPC",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-mounted-" });
+        yield* fileSystem.writeFileString(path.join(staticDir, "index.html"), "mounted-index");
+        yield* fileSystem.writeFileString(path.join(staticDir, "app.js"), "mounted-asset");
+        yield* buildAppUnderTest({ config: { staticDir, basePath: "/t3code" } });
+        for (const route of ["/t3code/", "/t3code/pair", "/t3code/project/thread"]) {
+          const response = yield* HttpClient.get(route);
+          assert.equal(response.status, 200);
+          assert.equal(yield* response.text, "mounted-index");
+        }
+        assert.equal(yield* (yield* HttpClient.get("/t3code/app.js")).text, "mounted-asset");
+        assert.equal((yield* HttpClient.get("/api/auth/session")).status, 404);
+        assert.equal((yield* HttpClient.get("/another-app/")).status, 404);
+        const bootstrapUrl = yield* getHttpServerUrl("/t3code/api/auth/browser-session");
+        const bootstrap = yield* fetchEffect(bootstrapUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: jsonRequestBody({ credential: defaultDesktopBootstrapToken }),
+        });
+        assert.equal(bootstrap.status, 200);
+        const cookie = bootstrap.headers["set-cookie"]?.split(";")[0] ?? "";
+        assert.isNotEmpty(cookie);
+        const session = yield* fetchEffect(yield* getHttpServerUrl("/t3code/api/auth/session"), {
+          headers: { cookie },
+        });
+        assert.equal(session.status, 200);
+        assert.isTrue(
+          (yield* responseJsonEffect<{ authenticated: boolean }>(session)).authenticated,
+        );
+        const socket = appendSessionCookieToWsUrl(
+          yield* getWsServerUrl("/t3code/ws", { authenticated: false }),
+          cookie,
+        );
+        const result = yield* Effect.scoped(
+          withWsRpcClient(socket, (client) => client[WS_METHODS.serverGetConfig]({})),
+        );
+        assert.equal(result.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("verifies DPoP against the public mounted URL", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({ config: { basePath: "/t3code" } });
+      const tokenUrl = yield* getHttpServerUrl("/t3code/oauth/token");
+      const now = yield* DateTime.now;
+      for (const valid of [false, true]) {
+        const proof = makeDpopProof({
+          method: "POST",
+          url: valid ? tokenUrl : tokenUrl.replace("/t3code", ""),
+          iat: Math.floor(now.epochMilliseconds / 1000),
+          jti: `mounted-${valid}`,
+        });
+        const response = yield* fetchEffect(tokenUrl, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", dpop: proof.proof },
+          body: new URLSearchParams({
+            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+            subject_token: defaultDesktopBootstrapToken,
+            subject_token_type: "urn:t3:params:oauth:token-type:environment-bootstrap",
+            requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+            scope: "orchestration:read",
+          }).toString(),
+        });
+        assert.equal(response.status, valid ? 200 : 401);
+        if (valid)
+          assert.equal(
+            (yield* responseJsonEffect<{ token_type: string }>(response)).token_type,
+            "DPoP",
+          );
+        else assert.equal(response.headers["www-authenticate"], "DPoP");
+      }
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("revalidates static files without sending unchanged bodies", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

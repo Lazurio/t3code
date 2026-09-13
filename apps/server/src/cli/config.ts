@@ -1,3 +1,4 @@
+import { normalizeApplicationPath } from "@t3tools/shared/applicationPath";
 import * as NetService from "@t3tools/shared/Net";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
@@ -109,6 +110,17 @@ const validateExternalOrigin = (value: string) => {
 export const externalOriginConfig = Config.nonEmptyString("T3CODE_EXTERNAL_ORIGIN").pipe(
   Config.map((value) => value.trim()),
   Config.mapOrFail(validateExternalOrigin),
+);
+
+export const basePathConfig = Config.string("T3CODE_BASE_PATH").pipe(
+  Config.withDefault(""),
+  Config.mapOrFail((value) => {
+    try {
+      return Effect.succeed(normalizeApplicationPath(value));
+    } catch {
+      return Effect.fail(invalidConfigValue("T3CODE_BASE_PATH must be a path such as /t3code/."));
+    }
+  }),
 );
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
@@ -226,6 +238,7 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  basePath: basePathConfig,
   externalOrigin: externalOriginConfig.pipe(Config.option, Config.map(Option.getOrUndefined)),
   pairingTokenTtl: pairingTokenTtlConfig,
   clientSessionTtl: clientSessionTtlConfig,
@@ -508,6 +521,7 @@ export const resolveServerConfig = (
       ...derivedPaths,
       serverTracePath,
       host,
+      ...(env.basePath ? { basePath: env.basePath } : {}),
       ...(env.externalOrigin ? { externalOrigin: env.externalOrigin } : {}),
       staticDir,
       devUrl,

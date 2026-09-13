@@ -57,7 +57,7 @@ export const verifyRequestDpopProof = (input: {
 }) =>
   Effect.gen(function* () {
     const proof = input.request.headers.dpop;
-    const url = HttpServerRequest.toURL(input.request);
+    const url = HttpServerRequest.toURL(input.request.modify({ url: input.request.originalUrl }));
     if (Option.isNone(url)) {
       return yield* new ServerAuthInvalidCredentialError({
         diagnostic: "Invalid DPoP request URL.",

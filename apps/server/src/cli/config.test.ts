@@ -20,7 +20,12 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { externalOriginConfig, resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
+import {
+  basePathConfig,
+  externalOriginConfig,
+  resolveCliAuthConfig,
+  resolveServerConfig,
+} from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -783,3 +788,25 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 });
+
+it.effect("validates the application mount path", () =>
+  Effect.gen(function* () {
+    for (const value of ["", "/", "/t3code", "/t3code/"]) {
+      const result = yield* basePathConfig.pipe(
+        Effect.provide(
+          ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_BASE_PATH: value } })),
+        ),
+      );
+      expect(result).toBe(value.replace(/\/$/, ""));
+    }
+    for (const value of ["//evil", "/../app", "https://evil.test", "/app?x=1", "/a%2fb"]) {
+      const result = yield* basePathConfig.pipe(
+        Effect.provide(
+          ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_BASE_PATH: value } })),
+        ),
+        Effect.result,
+      );
+      expect(Result.isFailure(result)).toBe(true);
+    }
+  }),
+);

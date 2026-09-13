@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./applicationPath": {
+      "types": "./src/applicationPath.ts",
+      "import": "./src/applicationPath.ts"
+    },
     "./themePalettes": {
       "types": "./src/themePalettes.ts",
       "import": "./src/themePalettes.ts"

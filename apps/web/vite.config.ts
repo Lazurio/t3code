@@ -1,3 +1,4 @@
+import { normalizeApplicationPath } from "@t3tools/shared/applicationPath";
 import * as NodeZlib from "node:zlib";
 
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
@@ -192,7 +193,7 @@ const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
 export default defineConfig(() => {
   return {
-    base: process.env.T3CODE_BASE_PATH || "/",
+    base: `${normalizeApplicationPath(process.env.T3CODE_BASE_PATH ?? "")}/`,
     assetsInclude: ["**/*.wasm"],
     plugins: [
       hostedAppIdentityPlugin({

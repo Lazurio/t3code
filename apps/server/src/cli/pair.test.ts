@@ -344,3 +344,16 @@ describe("t3 pair", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
+
+it("restores the mount path for pairing after a CLI restart", () => {
+  expect(
+    resolveDirectPairingBaseUrl({
+      ...baseState,
+      basePath: "/t3code",
+      externalOrigin: "https://machine.example.test/",
+    }),
+  ).toBe("https://machine.example.test/t3code/");
+  expect(resolveDirectPairingBaseUrl({ ...baseState, basePath: "/t3code" })).toBe(
+    "http://localhost:3773/t3code/",
+  );
+});

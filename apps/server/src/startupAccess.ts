@@ -1,3 +1,4 @@
+import { normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
 import * as NodeOS from "node:os";
 
 import { QrCode } from "@t3tools/shared/qrCode";
@@ -78,12 +79,12 @@ export const resolveHeadlessConnectionString = (
 };
 
 export const resolveHeadlessBrowserConnectionString = (
-  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin" | "host">,
+  config: Pick<ServerConfig["Service"], "devUrl" | "externalOrigin" | "host" | "basePath">,
   port: number,
   interfaces: NetworkInterfacesMap = NodeOS.networkInterfaces(),
 ): string =>
   resolveConfiguredBrowserUrl(config)?.toString() ??
-  resolveHeadlessConnectionString(config.host, port, interfaces);
+  `${resolveHeadlessConnectionString(config.host, port, interfaces)}${config.basePath ? `${config.basePath}/` : ""}`;
 
 export const resolveListeningPort = (address: unknown, fallbackPort: number): number => {
   if (
@@ -98,8 +99,7 @@ export const resolveListeningPort = (address: unknown, fallbackPort: number): nu
 };
 
 export const buildPairingUrl = (connectionString: string, token: string): string => {
-  const url = new URL(connectionString);
-  url.pathname = "/pair";
+  const url = new URL("pair", normalizeHttpBaseUrl(connectionString));
   url.searchParams.delete("token");
   url.hash = new URLSearchParams([["token", token]]).toString();
   return url.toString();
