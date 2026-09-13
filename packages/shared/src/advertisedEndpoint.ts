@@ -33,7 +33,7 @@ export function normalizeHttpBaseUrl(rawValue: string): string {
     throw new Error(`Endpoint must use HTTP or HTTPS. Received ${url.protocol}`);
   }
 
-  url.pathname = "/";
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/`;
   url.search = "";
   url.hash = "";
   return url.toString();

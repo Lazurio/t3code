@@ -192,6 +192,7 @@ const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
 export default defineConfig(() => {
   return {
+    base: process.env.T3CODE_BASE_PATH || "/",
     assetsInclude: ["**/*.wasm"],
     plugins: [
       hostedAppIdentityPlugin({

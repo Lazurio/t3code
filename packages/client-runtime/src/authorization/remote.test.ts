@@ -526,3 +526,22 @@ describe("remote environment authorization", () => {
     }),
   );
 });
+
+it.effect("keeps ticket requests and the resulting socket under the application prefix", () =>
+  Effect.gen(function* () {
+    const fetch = recordedFetch(
+      Response.json({ ticket: "ws-ticket", expiresAt: "2026-05-01T12:05:00.000Z" }),
+    );
+    const url = yield* resolveRemoteWebSocketConnectionUrl({
+      httpBaseUrl: "https://remote.example.com/t3code/",
+      wsBaseUrl: "wss://remote.example.com/t3code/",
+      bearerToken: "bearer-token",
+    }).pipe(provideRemoteHttp(fetch.fetchFn));
+    expectFetchCall(fetch.calls, 1, {
+      url: "https://remote.example.com/t3code/api/auth/websocket-ticket",
+      method: "POST",
+      headers: { authorization: "Bearer bearer-token" },
+    });
+    expect(url).toBe("wss://remote.example.com/t3code/ws?wsTicket=ws-ticket");
+  }),
+);

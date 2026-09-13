@@ -1,3 +1,4 @@
+import { normalizeHttpBaseUrl } from "@t3tools/shared/advertisedEndpoint";
 import type { AuthClientMetadata, AuthClientSession, AuthPairingLink } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
@@ -34,7 +35,7 @@ export function formatIssuedPairingCredential(
   const pairUrl =
     options?.baseUrl != null && options.baseUrl.length > 0
       ? (() => {
-          const url = new URL("/pair", options.baseUrl);
+          const url = new URL("pair", normalizeHttpBaseUrl(options.baseUrl));
           url.searchParams.delete("token");
           url.hash = new URLSearchParams([["token", credential.credential]]).toString();
           return url.toString();

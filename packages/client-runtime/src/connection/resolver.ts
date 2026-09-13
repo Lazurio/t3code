@@ -1,3 +1,4 @@
+import { environmentSocketUrl } from "../environment/endpoint.ts";
 import type { AuthClientPresentationMetadata } from "@t3tools/contracts";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Context from "effect/Context";
@@ -45,10 +46,7 @@ function primarySocketUrl(
   target: PrimaryConnectionTarget,
   clientMetadata: AuthClientPresentationMetadata | undefined,
 ): string {
-  const url = new URL(target.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
+  const url = environmentSocketUrl(target.wsBaseUrl);
   appendClientConnectionParams(url, clientMetadata, "direct");
   return url.toString();
 }

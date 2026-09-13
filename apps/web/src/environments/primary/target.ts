@@ -215,7 +215,7 @@ function resolveConfiguredPrimaryTarget(): PrimaryEnvironmentTarget | null {
 
 function resolveWindowOriginPrimaryTarget(): PrimaryEnvironmentTarget {
   const url = parseTargetUrl({
-    rawValue: window.location.origin,
+    rawValue: new URL(import.meta.env.BASE_URL, window.location.origin).toString(),
     source: "window-origin",
     urlKind: "http-base-url",
   });
@@ -282,7 +282,7 @@ export function resolvePrimaryEnvironmentHttpUrl(
     source: primaryTarget.source,
     urlKind: "http-base-url",
   });
-  url.pathname = pathname;
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/${pathname.replace(/^\/+/, "")}`;
   if (searchParams) {
     url.search = new URLSearchParams(searchParams).toString();
   }

@@ -8,7 +8,7 @@ import {
   formatSessionList,
 } from "./cliAuthFormat.ts";
 
-it("formats issued pairing credentials with the secret and optional pair URL", () => {
+it.each(["", "/t3code", "/t3code/"])("formats pairing credentials under base path %s", (prefix) => {
   const output = formatIssuedPairingCredential(
     {
       id: "pairing-1",
@@ -18,11 +18,13 @@ it("formats issued pairing credentials with the secret and optional pair URL", (
       createdAt: DateTime.makeUnsafe("2026-04-08T09:00:00.000Z"),
       expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
     },
-    { baseUrl: "https://example.com", json: false },
+    { baseUrl: `https://example.com${prefix}`, json: false },
   );
 
   expect(output).toContain("secret-pairing-token");
-  expect(output).toContain("https://example.com/pair#token=secret-pairing-token");
+  expect(output).toContain(
+    `https://example.com${prefix.replace(/\/$/, "")}/pair#token=secret-pairing-token`,
+  );
 });
 
 it("formats pairing listings without exposing the secret token", () => {
