@@ -1,9 +1,9 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeTest from "node:test";
-import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 const workflow = await NodeFSP.readFile(".github/workflows/lazurio-release.yml", "utf8");
 const dockerfile = await NodeFSP.readFile("Dockerfile.lazurio", "utf8");
@@ -264,9 +264,9 @@ NodeTest.test("the retired Lazurio contextFiles implementation is absent", async
 NodeTest.test(
   "fork CI admits mounted URL clients but rejects unrelated source changes",
   async () => {
-    const directory = await NodeFSP.mkdtemp(join(tmpdir(), "t3-overlay-guard-"));
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-overlay-guard-"));
     try {
-      const file = join(directory, "changed-files");
+      const file = NodePath.join(directory, "changed-files");
       const start = forkCi.indexOf("          if grep -Eq");
       const end = forkCi.indexOf("\n      - name: Install pnpm", start);
       NodeAssert.ok(start >= 0 && end > start);
@@ -286,7 +286,7 @@ NodeTest.test(
         ["apps/web/src/lib/attachmentUploadQueue.ts", 1],
       ]) {
         await NodeFSP.writeFile(file, `${path}\n`);
-        const result = spawnSync(
+        const result = NodeChildProcess.spawnSync(
           "bash",
           ["-c", `set -euo pipefail\nchanged_files="$1"\n${guard}`, "guard", file],
           { encoding: "utf8" },
