@@ -14,6 +14,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
+import { normalizeHttpBaseUrl } from "../environment/endpoint.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import type { ProjectFaviconCache, ProjectFaviconTarget } from "../projectFaviconCache.ts";
 import { createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
@@ -50,7 +51,12 @@ export function parseAssetCollectionKey(
 
 export function resolveAssetUrl(httpBaseUrl: string, relativeUrl: string): string | null {
   try {
-    return new URL(relativeUrl, httpBaseUrl).toString();
+    // RPC asset paths are relative to the T3 server, not the browser origin.
+    const path =
+      relativeUrl.startsWith("/") && !relativeUrl.startsWith("//")
+        ? relativeUrl.slice(1)
+        : relativeUrl;
+    return new URL(path, normalizeHttpBaseUrl(httpBaseUrl)).toString();
   } catch {
     return null;
   }
