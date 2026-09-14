@@ -12,6 +12,8 @@ import {
   createProjectFaviconUrlAtomFamily,
   InvalidAssetCollectionKeyError,
   parseAssetCollectionKey,
+  resolveAssetUrl,
+  assetUrlStateFromResult,
 } from "./assets.ts";
 
 describe("asset collection keys", () => {
@@ -277,5 +279,37 @@ describe("project favicon URL cache", () => {
       unmount();
       registry.dispose();
     }
+  });
+});
+
+describe("mounted attachment URLs", () => {
+  it.each(["https://environment.test/t3code", "https://environment.test/t3code/"])(
+    "keeps uploads and signed previews beneath %s",
+    (base) => {
+      expect(resolveAssetUrl(base, "/api/attachments/upload/payload.signature")).toBe(
+        "https://environment.test/t3code/api/attachments/upload/payload.signature",
+      );
+      expect(
+        assetUrlStateFromResult(
+          AsyncResult.success({
+            relativeUrl: "/api/assets/signed-token/photo%20one.png?download=true",
+            expiresAt: 1,
+          }),
+          base,
+        ),
+      ).toMatchObject({
+        _tag: "Success",
+        url: "https://environment.test/t3code/api/assets/signed-token/photo%20one.png?download=true",
+      });
+    },
+  );
+  it("preserves root hosting and absolute asset URLs", () => {
+    expect(resolveAssetUrl("http://localhost:3773/", "/api/assets/token/image.png")).toBe(
+      "http://localhost:3773/api/assets/token/image.png",
+    );
+    expect(
+      resolveAssetUrl("https://environment.test/t3code/", "https://assets.test/image.png"),
+    ).toBe("https://assets.test/image.png");
+    expect(resolveAssetUrl("invalid", "/api/assets/token/image.png")).toBeNull();
   });
 });

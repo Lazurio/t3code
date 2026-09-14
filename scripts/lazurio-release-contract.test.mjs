@@ -280,6 +280,8 @@ NodeTest.test("CI and release both admit URL clients and reject unrelated overla
       for (const [path, expected] of [
         ["packages/shared/src/applicationPath.ts", 0],
         ["packages/client-runtime/src/environment/endpoint.ts", 0],
+        ["packages/client-runtime/src/state/assets.ts", 0],
+        ["packages/client-runtime/src/state/assets.test.ts", 0],
         ["packages/contracts/src/assets.ts", 1],
         ["packages/shared/src/unrelated.ts", 1],
         ["apps/mobile/src/main.ts", 1],

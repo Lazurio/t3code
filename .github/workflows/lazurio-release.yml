@@ -114,6 +114,7 @@ jobs:
               packages/client-runtime/src/authorization/remote.ts|packages/client-runtime/src/authorization/remote.test.ts) ;;
               packages/client-runtime/src/connection/resolver.ts|packages/client-runtime/src/environment/endpoint.ts|packages/client-runtime/src/environment/endpoint.test.ts) ;;
               packages/client-runtime/src/rpc/http.ts|packages/client-runtime/src/state/pullRequestDiffHttp.test.ts) ;;
+              packages/client-runtime/src/state/assets.ts|packages/client-runtime/src/state/assets.test.ts) ;;
               packages/*) echo "Release source changed an unrelated shared package: $path" >&2; exit 1 ;;
             esac
           done < "$changed_files"
