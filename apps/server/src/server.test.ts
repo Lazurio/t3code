@@ -2280,6 +2280,25 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("sets a Secure host-only session cookie behind an external origin", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          mode: "web",
+          host: "127.0.0.1",
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        },
+      });
+
+      const { response, cookie } = yield* bootstrapBrowserSession();
+
+      assert.equal(response.status, 200);
+      assert.match(String(cookie), /^__Host-t3_session=/);
+      assert.match(String(cookie), /; Secure/);
+      assert.match(String(cookie), /; Path=\//);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("migrates a valid legacy remote-web session cookie", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({ config: { mode: "web", host: "192.168.1.50" } });

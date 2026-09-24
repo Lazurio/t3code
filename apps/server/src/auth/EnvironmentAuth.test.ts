@@ -48,12 +48,19 @@ const makeEnvironmentAuthLayer = (overrides?: Partial<ServerConfig.ServerConfig[
 const makeCookieRequest = (
   cookieName: string,
   sessionToken: string,
+  options?: {
+    readonly method?: string;
+    readonly origin?: string;
+    readonly originalUrl?: string;
+  },
 ): Parameters<EnvironmentAuth.EnvironmentAuth["Service"]["authenticateHttpRequest"]>[0] =>
   ({
     cookies: {
       [cookieName]: sessionToken,
     },
-    headers: {},
+    method: options?.method ?? "GET",
+    originalUrl: options?.originalUrl ?? "/api/auth/session",
+    headers: options?.origin ? { origin: options.origin } : {},
   }) as unknown as Parameters<
     EnvironmentAuth.EnvironmentAuth["Service"]["authenticateHttpRequest"]
   >[0];
@@ -145,6 +152,56 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
           mode: "web",
           devUrl: new URL("http://127.0.0.1:5173"),
           devAuthToken: Redacted.make("reusable-dev-auth-token-that-is-long-enough"),
+        }),
+      ),
+    ),
+  );
+
+  it.effect("requires the external origin for hosted cookie mutations and WebSockets", () =>
+    Effect.gen(function* () {
+      const externalOrigin = "https://t3code.management.example.test";
+      const siblingOrigin = "https://sibling.management.example.test";
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairing = yield* serverAuth.issuePairingCredential();
+      const exchanged = yield* serverAuth.createBrowserSession(pairing.credential, requestMetadata);
+      const request = (method: string, origin: string | undefined, originalUrl: string) =>
+        makeCookieRequest(sessions.cookieName, exchanged.sessionToken, {
+          method,
+          originalUrl,
+          ...(origin ? { origin } : {}),
+        });
+
+      expect(sessions.cookieName).toBe("__Host-t3_session");
+      const read = yield* serverAuth.authenticateHttpRequest(
+        request("GET", undefined, "/api/auth/session"),
+      );
+      expect(read.sessionId).toBeTruthy();
+      const mutation = yield* serverAuth.authenticateHttpRequest(
+        request("POST", externalOrigin, "/api/auth/pairing-token"),
+      );
+      expect(mutation.sessionId).toBeTruthy();
+      const webSocket = yield* serverAuth.authenticateWebSocketUpgrade(
+        request("GET", externalOrigin, "/ws"),
+      );
+      expect(webSocket.sessionId).toBeTruthy();
+
+      for (const origin of [undefined, siblingOrigin]) {
+        const mutationError = yield* Effect.flip(
+          serverAuth.authenticateHttpRequest(request("POST", origin, "/api/auth/pairing-token")),
+        );
+        expect(mutationError._tag).toBe("ServerAuthInvalidCredentialError");
+        const webSocketError = yield* Effect.flip(
+          serverAuth.authenticateWebSocketUpgrade(request("GET", origin, "/ws")),
+        );
+        expect(webSocketError._tag).toBe("ServerAuthInvalidCredentialError");
+      }
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthLayer({
+          mode: "web",
+          host: "127.0.0.1",
+          externalOrigin: new URL("https://t3code.management.example.test/"),
         }),
       ),
     ),

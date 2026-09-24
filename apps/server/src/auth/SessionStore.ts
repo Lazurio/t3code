@@ -491,6 +491,7 @@ export const make = Effect.gen(function* () {
     mode: serverConfig.mode,
     port: serverConfig.port,
     host: serverConfig.host,
+    externalOrigin: serverConfig.externalOrigin,
     instanceKey: serverConfig.stateDir,
     environmentId: yield* serverEnvironment.getEnvironmentId,
     development: serverConfig.devUrl !== undefined,

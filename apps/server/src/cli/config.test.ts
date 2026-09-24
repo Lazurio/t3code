@@ -883,4 +883,48 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       }
     }),
   );
+
+  it.effect("reads an HTTPS external origin from env and rejects anything else", () =>
+    Effect.gen(function* () {
+      const { join } = yield* Path.Path;
+      const flags = {
+        mode: Option.some("web" as const),
+        port: Option.some(3773),
+        host: Option.some("127.0.0.1"),
+        baseDir: Option.some(join(NodeOS.tmpdir(), "t3-cli-config-external-origin-base")),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+      };
+      const resolveWith = (env: Record<string, string>) =>
+        resolveServerConfig(flags, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+        );
+
+      expect((yield* resolveWith({})).externalOrigin).toBeUndefined();
+      const configured = yield* resolveWith({
+        T3CODE_EXTERNAL_ORIGIN: " https://t3code.management.example.test ",
+      });
+      expect(configured.externalOrigin?.origin).toBe("https://t3code.management.example.test");
+
+      for (const value of [
+        "t3code.management.example.test",
+        "http://t3code.management.example.test",
+        "https://user@t3code.management.example.test",
+        "https://t3code.management.example.test/t3code/",
+        "https://t3code.management.example.test/?workspace=management",
+        "https://t3code.management.example.test/#pairing-token",
+      ]) {
+        const error = yield* resolveWith({ T3CODE_EXTERNAL_ORIGIN: value }).pipe(Effect.flip);
+        expect(String(error), value).toContain("T3CODE_EXTERNAL_ORIGIN");
+      }
+    }),
+  );
 });
