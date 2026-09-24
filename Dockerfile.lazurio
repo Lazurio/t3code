@@ -1,0 +1,60 @@
+# Lazurio hosted T3 Code image: the vanilla server and web client, served at the
+# root of its own hostname behind a TLS reverse proxy. See
+# docs/operations/lazurio-fork-release.md.
+ARG NODE_BASE_IMAGE
+
+FROM $NODE_BASE_IMAGE AS build
+
+ARG PACKAGE_VERSION
+ARG PNPM_VERSION
+ARG SOURCE_DATE_EPOCH
+
+ENV SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
+
+WORKDIR /source
+COPY . .
+RUN npm install --global "pnpm@$PNPM_VERSION" --no-audit --no-fund \
+    && pnpm config set allowUnusedPatches true --location=project \
+    && pnpm install --frozen-lockfile \
+    && node scripts/lazurio-stamp-package-version.mjs "$PACKAGE_VERSION" \
+    && pnpm exec vp run --filter @t3tools/web build \
+    && pnpm exec vp run --filter t3 build \
+    && test -s /source/apps/server/dist/client/index.html \
+    && pnpm --filter t3 deploy --prod --legacy --ignore-scripts /opt/lazurio-t3 \
+    && node_pty_source="$(node -p "require.resolve('node-pty/package.json', { paths: ['/source/apps/server'] })")" \
+    && node_pty_source="${node_pty_source%/package.json}" \
+    && if [ -d "$node_pty_source/build" ]; then cp -a "$node_pty_source/build" /opt/lazurio-t3/node_modules/node-pty/; fi \
+    && node -e ' \
+      const pty = require("/opt/lazurio-t3/node_modules/node-pty"); \
+      const child = pty.spawn("/bin/sh", ["-c", "printf lazurio-pty-ok"], { cwd: "/tmp" }); \
+      let output = ""; \
+      child.onData((data) => { output += data; }); \
+      child.onExit(({ exitCode }) => { \
+        if (exitCode !== 0 || !output.includes("lazurio-pty-ok")) process.exit(1); \
+      });'
+
+FROM $NODE_BASE_IMAGE
+
+ARG RELEASE_TAG
+ARG SOURCE_REVISION
+ARG UPSTREAM_BASE
+
+# Hosted browsers stay paired for a year; the rest is configured per Workspace
+# at runtime (T3CODE_EXTERNAL_ORIGIN, T3CODE_ENVIRONMENT_LABEL).
+ENV NODE_ENV=production \
+    T3CODE_CLIENT_SESSION_TTL=365d \
+    PATH=/opt/lazurio-t3/dist:$PATH
+
+LABEL org.opencontainers.image.source="https://github.com/Lazurio/t3code" \
+      org.opencontainers.image.revision="$SOURCE_REVISION" \
+      org.opencontainers.image.version="$RELEASE_TAG" \
+      io.lazurio.t3code.upstream-base="$UPSTREAM_BASE"
+
+COPY --from=build /opt/lazurio-t3 /opt/lazurio-t3
+
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin t3code
+
+USER 10001:10001
+WORKDIR /home/t3code
+ENTRYPOINT ["node", "/opt/lazurio-t3/dist/bin.mjs"]
+CMD ["serve", "--host", "127.0.0.1"]

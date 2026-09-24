@@ -1,0 +1,110 @@
+name: Lazurio Fork CI
+
+# Read-only CI for the Lazurio overlay on upstream T3 Code. Upstream workflows
+# need Blacksmith runners and upstream secrets and are disabled in this
+# repository's Actions settings; see docs/operations/lazurio-fork-release.md.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: none
+
+concurrency:
+  group: lazurio-fork-ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UPSTREAM_TAG: v0.0.42
+  UPSTREAM_SHA: 719a76ca1dbf5490f1aa33ffb9966301e02be9a9
+
+jobs:
+  server-and-web:
+    name: Server and web compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Fetch exact source and upstream base without credentials
+        env:
+          SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add source "https://github.com/${SOURCE_REPOSITORY}.git"
+          git fetch --filter=blob:none source "$SOURCE_REF"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_REF"
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --filter=blob:none upstream \
+            "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-$UPSTREAM_TAG"
+          test "$(git rev-parse "refs/tags/upstream-$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_SHA"
+          git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD
+          test "$(git rev-list --merges "$UPSTREAM_SHA..HEAD" --count)" = 0
+
+          # The overlay is server configuration plus Lazurio release files.
+          # Clients, shared packages and wire contracts stay upstream.
+          if git diff --name-only "$UPSTREAM_SHA..HEAD" | grep -Eq '^(apps/(web|mobile|desktop)|packages)/'; then
+            echo "Fork overlay changed an upstream client or shared package." >&2
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm exec vp fmt --check
+
+      - name: Typecheck server and web
+        run: |
+          pnpm exec vp run --filter t3 typecheck
+          pnpm exec vp run --filter @t3tools/web typecheck
+
+      - name: Test hosted server configuration
+        working-directory: apps/server
+        run: |
+          pnpm exec vp test run \
+            src/cli/config.test.ts \
+            src/auth \
+            src/environment/ServerEnvironmentLabel.test.ts
+          pnpm exec vp test run src/server.test.ts
+
+      - name: Validate Lazurio release contract
+        run: node --test scripts/lazurio-release-contract.test.mjs
+
+      - name: Build the release image without publishing
+        run: |
+          set -euo pipefail
+          docker build \
+            --file Dockerfile.lazurio \
+            --build-arg NODE_BASE_IMAGE=node:24.19.0-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584 \
+            --build-arg PACKAGE_VERSION="${UPSTREAM_TAG#v}" \
+            --build-arg PNPM_VERSION=11.10.0 \
+            --build-arg RELEASE_TAG=ci \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+            --build-arg UPSTREAM_BASE="$UPSTREAM_SHA" \
+            --tag lazurio/t3code:ci \
+            .
+          docker run --rm --network none lazurio/t3code:ci --version | grep -Fx "t3 ${UPSTREAM_TAG}"
+          docker image inspect lazurio/t3code:ci \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
