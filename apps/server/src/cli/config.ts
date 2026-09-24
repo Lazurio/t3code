@@ -127,6 +127,30 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  externalOrigin: Config.String("T3CODE_EXTERNAL_ORIGIN").pipe(
+    Config.mapEffect((value) => {
+      const url = URL.parse(value.trim());
+      return url !== null &&
+        url.protocol === "https:" &&
+        url.username === "" &&
+        url.password === "" &&
+        url.pathname === "/" &&
+        url.search === "" &&
+        url.hash === ""
+        ? Effect.succeed(new URL(url.origin))
+        : Effect.fail(
+            new Config.ConfigError(
+              new Schema.SchemaError(
+                new SchemaIssue.InvalidValue({
+                  message: "T3CODE_EXTERNAL_ORIGIN must be an absolute HTTPS origin.",
+                }),
+              ),
+            ),
+          );
+    }),
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   clientSessionTtl: Config.String("T3CODE_CLIENT_SESSION_TTL").pipe(
     Config.mapEffect((value) => {
       const duration = parseDurationInput(value);
@@ -464,6 +488,7 @@ export const resolveServerConfig = (
       ...derivedPaths,
       serverTracePath,
       host,
+      externalOrigin: env.externalOrigin,
       staticDir,
       devUrl,
       ...(devAuthToken === undefined ? {} : { devAuthToken }),
