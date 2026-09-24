@@ -344,6 +344,28 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
   );
 
+  it.effect("uses the configured default lifetime for client sessions", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({ subject: "long-lived-browser" });
+
+      yield* TestClock.adjust(Duration.days(364));
+      const stillValid = yield* sessions.verify(issued.token);
+      expect(stillValid.sessionId).toBe(issued.sessionId);
+
+      yield* TestClock.adjust(Duration.days(2));
+      const expired = yield* Effect.flip(sessions.verify(issued.token));
+      expect(expired._tag).toBe("SessionTokenExpiredError");
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          makeSessionStoreLayer({ clientSessionTtl: Duration.days(365) }),
+          TestClock.layer(),
+        ),
+      ),
+    ),
+  );
+
   it.effect("atomically replaces active sessions with the same subject and method", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;
