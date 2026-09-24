@@ -18,7 +18,9 @@ export class EnvironmentAuthPolicy extends Context.Service<
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
-  const isRemoteReachable = isRemoteReachableHost(config.host);
+  // A loopback bind behind an external origin is still reached remotely.
+  const isRemoteReachable =
+    config.externalOrigin !== undefined || isRemoteReachableHost(config.host);
 
   const policy =
     config.mode === "desktop"
@@ -44,6 +46,7 @@ export const make = Effect.gen(function* () {
       mode: config.mode,
       port: config.port,
       host: config.host,
+      externalOrigin: config.externalOrigin,
       instanceKey: config.stateDir,
       environmentId: yield* serverEnvironment.getEnvironmentId,
       development: config.devUrl !== undefined,

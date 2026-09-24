@@ -607,6 +607,30 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const devAuth = resolveReusableDevAuth(config);
+  const externalOrigin = config.externalOrigin?.origin;
+
+  // Sibling subdomains are same-site, so SameSite=Lax alone does not stop them
+  // from riding a hosted session cookie. Cookie-authenticated mutations and
+  // WebSocket upgrades must come from the configured external origin.
+  const requireExternalOriginForCookie = (
+    request: HttpServerRequest.HttpServerRequest,
+    webSocket: boolean,
+  ): Effect.Effect<void, ServerAuthInvalidCredentialError> => {
+    if (externalOrigin === undefined || request.cookies[sessions.cookieName] === undefined) {
+      return Effect.void;
+    }
+    const method = request.method.toUpperCase();
+    if (!webSocket && (method === "GET" || method === "HEAD" || method === "OPTIONS")) {
+      return Effect.void;
+    }
+    return request.headers.origin === externalOrigin
+      ? Effect.void
+      : Effect.fail(
+          new ServerAuthInvalidCredentialError({
+            diagnostic: "Browser session origin does not match the configured external origin.",
+          }),
+        );
+  };
 
   const authenticateToken = (
     token: string,
@@ -654,7 +678,8 @@ export const make = Effect.gen(function* () {
     if (!credential?.token) {
       return Effect.fail(new ServerAuthMissingCredentialError({}));
     }
-    return authenticateToken(credential.token).pipe(
+    return requireExternalOriginForCookie(request, false).pipe(
+      Effect.andThen(authenticateToken(credential.token)),
       Effect.flatMap((session) => {
         if (session.proofKeyThumbprint) {
           if (!dpopToken || dpopToken !== credential.token) {
@@ -1074,6 +1099,7 @@ export const make = Effect.gen(function* () {
 
   const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
     Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request) {
+      yield* requireExternalOriginForCookie(request, true);
       const requestUrl = HttpServerRequest.toURL(request);
       if (Option.isSome(requestUrl)) {
         const websocketTicket = requestUrl.value.searchParams.get(WEBSOCKET_TICKET_QUERY_PARAM);
