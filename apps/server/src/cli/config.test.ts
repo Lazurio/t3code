@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -843,6 +844,43 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved.otlpProtocol).toBe("http/protobuf");
+    }),
+  );
+
+  it.effect("reads the client session lifetime from env and rejects invalid values", () =>
+    Effect.gen(function* () {
+      const { join } = yield* Path.Path;
+      const flags = {
+        mode: Option.some("web" as const),
+        port: Option.some(3773),
+        host: Option.none<string>(),
+        baseDir: Option.some(join(NodeOS.tmpdir(), "t3-cli-config-session-ttl-base")),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+      };
+      const resolveWith = (env: Record<string, string>) =>
+        resolveServerConfig(flags, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+        );
+
+      const unset = yield* resolveWith({});
+      expect(unset.clientSessionTtl).toBeUndefined();
+
+      const configured = yield* resolveWith({ T3CODE_CLIENT_SESSION_TTL: "365d" });
+      expect(configured.clientSessionTtl).toEqual(Duration.days(365));
+
+      for (const value of ["0d", "forever", "-1d"]) {
+        const error = yield* resolveWith({ T3CODE_CLIENT_SESSION_TTL: value }).pipe(Effect.flip);
+        expect(String(error)).toContain("T3CODE_CLIENT_SESSION_TTL");
+      }
     }),
   );
 });

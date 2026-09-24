@@ -655,7 +655,9 @@ export const make = Effect.gen(function* () {
       );
       const issuedAt = yield* DateTime.now;
       const expiresAt = DateTime.add(issuedAt, {
-        milliseconds: Duration.toMillis(input?.ttl ?? DEFAULT_SESSION_TTL),
+        milliseconds: Duration.toMillis(
+          input?.ttl ?? serverConfig.clientSessionTtl ?? DEFAULT_SESSION_TTL,
+        ),
       });
       const claims: SessionClaims = {
         v: 1,
