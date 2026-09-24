@@ -7,7 +7,11 @@ import * as PlatformError from "effect/PlatformError";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
-import { HostProcessHostname, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessEnvironment,
+  HostProcessHostname,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
 import { vi } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -61,6 +65,26 @@ afterEach(() => {
 });
 
 describe("resolveServerEnvironmentLabel", () => {
+  it.effect("prefers the explicit T3CODE_ENVIRONMENT_LABEL", () =>
+    Effect.gen(function* () {
+      const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
+        cwdBaseName: "t3code",
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            withHostPlatform(TestLayer, "linux", "buildbox"),
+            Layer.succeed(HostProcessEnvironment, {
+              T3CODE_ENVIRONMENT_LABEL: "  Iotor / Management  ",
+            }),
+          ),
+        ),
+      );
+
+      expect(result).toBe("Iotor / Management");
+      expect(runMock).not.toHaveBeenCalled();
+    }),
+  );
+
   it.effect("uses hostname fallback regardless of launch mode", () =>
     Effect.gen(function* () {
       const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
