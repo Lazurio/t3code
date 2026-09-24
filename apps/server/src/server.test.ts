@@ -2318,6 +2318,25 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("sets a Secure host-only session cookie behind an external origin", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          mode: "web",
+          host: "127.0.0.1",
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        },
+      });
+
+      const { response, cookie } = yield* bootstrapBrowserSession();
+
+      assert.equal(response.status, 200);
+      assert.match(String(cookie), /^__Host-t3_session=/);
+      assert.match(String(cookie), /; Secure/);
+      assert.match(String(cookie), /; Path=\//);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("migrates a valid legacy remote-web session cookie", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({ config: { mode: "web", host: "192.168.1.50" } });
@@ -2334,6 +2353,32 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(body.authenticated, true);
       assert.equal(response.headers["set-cookie"], cookie);
       assert.equal(response.headers["cache-control"], "no-store");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("migrates a legacy cookie to a Secure host-only cookie behind an external origin", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          mode: "web",
+          host: "192.168.1.50",
+          externalOrigin: new URL("https://t3code.management.example.test/"),
+        },
+      });
+
+      const { cookie } = yield* bootstrapBrowserSession();
+      const currentCookie = cookie?.split(";")[0] ?? "";
+      const legacyCookie = currentCookie.replace(/^__Host-t3_session=/, "t3_session=");
+      assert.match(legacyCookie, /^t3_session=/);
+      const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
+      const response = yield* fetchEffect(sessionUrl, {
+        headers: { cookie: legacyCookie },
+      });
+      const body = yield* responseJsonEffect<{ readonly authenticated: boolean }>(response);
+
+      assert.equal(body.authenticated, true);
+      assert.match(String(response.headers["set-cookie"]), /^__Host-t3_session=/);
+      assert.match(String(response.headers["set-cookie"]), /; Secure/);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

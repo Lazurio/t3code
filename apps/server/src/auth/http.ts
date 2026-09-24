@@ -178,6 +178,8 @@ const appendSessionCookie = (cookieName: string, token: string, expiresAt: DateT
       httpOnly: true,
       path: "/",
       sameSite: "lax",
+      // Browsers accept `__Host-` cookies only when they are Secure.
+      ...(cookieName.startsWith("__Host-") ? { secure: true } : {}),
     }),
   ).pipe(
     Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")),
@@ -280,6 +282,8 @@ export const authHttpApiLayer = HttpApiBuilder.group(
                 httpOnly: true,
                 path: "/",
                 sameSite: "lax",
+                // Browsers accept `__Host-` cookies only when they are Secure.
+                ...(cookieName.startsWith("__Host-") ? { secure: true } : {}),
               }),
             ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")));
             const sessionCookies = result.expireNormalCookie
