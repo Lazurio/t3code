@@ -1,4 +1,5 @@
 import {
+  CLI_RELEASE_INDEX_PAGE_SIZE,
   CLI_RELEASE_REPOSITORY_ENV,
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
@@ -15,7 +16,7 @@ import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
-import { compareExactServiceVersions } from "./serviceProtocol.ts";
+import { compareExactServiceVersions, isExactServiceVersion } from "./serviceProtocol.ts";
 
 export class ReleaseIndexError extends Schema.TaggedError<ReleaseIndexError>()(
   "ReleaseIndexError",
@@ -35,15 +36,21 @@ const ReleaseIndex = Schema.Array(
 const decodeReleaseIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(ReleaseIndex));
 
 const RELEASE_INDEX_TIMEOUT = Duration.seconds(30);
-// Enough to walk past a long run of nightlies without hammering the API when
-// a channel genuinely has nothing published.
+// Enough to walk past a long run of nightlies without hammering the API; a
+// bounded walk of at most this many requests per lookup.
 const RELEASE_INDEX_MAX_PAGES = 10;
 
-/** Asks GitHub for the newest published version on a channel, page by page. */
+/**
+ * Asks GitHub for the newest published version on a channel. The index is
+ * ordered by publish time, not version, so every page up to the last one (or
+ * the page bound) is read and the highest version wins. Tags that are not
+ * exact SemVer are dropped first: the launcher would refuse to install them.
+ */
 export const resolveNewestReleaseVersion = Effect.fn("cloud.release_index.resolve_newest")(
   function* (channel: CliReleaseChannel, repository?: string | undefined) {
     const httpClient = yield* HttpClient.HttpClient;
     const source = cliReleaseRepository(repository);
+    const installable: Array<(typeof ReleaseIndex.Type)[number]> = [];
     for (let page = 1; page <= RELEASE_INDEX_MAX_PAGES; page += 1) {
       const body = yield* httpClient
         .execute(
@@ -73,10 +80,16 @@ export const resolveNewestReleaseVersion = Effect.fn("cloud.release_index.resolv
             }),
         ),
       );
-      const version = newestCliReleaseVersion(releases, channel);
-      if (version !== undefined) return version;
-      if (releases.length === 0) break;
+      installable.push(
+        ...releases.filter(
+          (release) =>
+            release.tag_name.startsWith("v") && isExactServiceVersion(release.tag_name.slice(1)),
+        ),
+      );
+      if (releases.length < CLI_RELEASE_INDEX_PAGE_SIZE) break;
     }
+    const version = newestCliReleaseVersion(installable, channel);
+    if (version !== undefined) return version;
     return yield* new ReleaseIndexError({
       reason: `No published ${channel} release was found in ${source}.`,
     });
@@ -116,12 +129,14 @@ export const checkServerUpdate = Effect.fn("cloud.release_index.check_server_upd
 export const watchAvailableServerUpdate = Effect.fn("cloud.release_index.watch_server_update")(
   function* (input: { readonly managed: boolean; readonly currentVersion: string }) {
     const available = yield* SubscriptionRef.make<string | undefined>(undefined);
+    // Eligibility first: a server that never checks must not fail on the flag.
+    if (!input.managed || cliReleaseChannelOf(input.currentVersion) === "preview") {
+      return available;
+    }
     const enabled = yield* Config.boolean(SERVER_UPDATE_CHECK_ENABLED_ENV).pipe(
       Config.withDefault(true),
     );
-    if (!input.managed || !enabled || cliReleaseChannelOf(input.currentVersion) === "preview") {
-      return available;
-    }
+    if (!enabled) return available;
 
     const repository = Option.getOrUndefined(
       yield* Config.string(CLI_RELEASE_REPOSITORY_ENV).pipe(Config.option),

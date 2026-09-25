@@ -11,10 +11,12 @@ import {
   watchAvailableServerUpdate,
 } from "./releaseIndex.ts";
 
-// Serves one page of GitHub's list-releases response per repository and
-// records every URL asked for.
+type Release = { tag_name: string; draft?: boolean };
+
+// Serves GitHub's list-releases response per repository, one array per page
+// (a bare array is page 1), and records every URL asked for.
 const releaseIndexClient = (
-  pages: Record<string, ReadonlyArray<{ tag_name: string; draft?: boolean }>>,
+  index: Record<string, ReadonlyArray<Release> | ReadonlyArray<ReadonlyArray<Release>>>,
   requested: string[] = [],
 ) =>
   HttpClient.make((request) =>
@@ -22,7 +24,11 @@ const releaseIndexClient = (
       requested.push(request.url);
       const url = new URL(request.url);
       const repository = /^\/repos\/([^/]+\/[^/]+)\/releases$/.exec(url.pathname)?.[1] ?? "";
-      const releases = url.searchParams.get("page") === "1" ? (pages[repository] ?? []) : [];
+      const entries = index[repository] ?? [];
+      const pages = (Array.isArray(entries[0]) ? entries : [entries]) as ReadonlyArray<
+        ReadonlyArray<Release>
+      >;
+      const releases = pages[Number(url.searchParams.get("page")) - 1] ?? [];
       return HttpClientResponse.fromWeb(request, Response.json(releases));
     }),
   );
@@ -55,6 +61,49 @@ it.effect("lists releases from the configured repository", () =>
       Effect.flip,
     );
     expect(error.message).toBe("No published nightly release was found in acme/t3code.");
+  }),
+);
+
+it.effect("compares versions across every page, not just the first hit", () =>
+  Effect.gen(function* () {
+    // A full first page (.1 plus 99 nightlies) and the higher .2 on page 2,
+    // published earlier: publish order is not version order.
+    const pageOne = [
+      { tag_name: "v0.0.42-acme.1" },
+      ...Array.from({ length: 99 }, (_, run) => ({
+        tag_name: `v0.0.43-nightly.20260901.${run + 1}`,
+      })),
+    ];
+    const requested: string[] = [];
+    const client = releaseIndexClient(
+      { "acme/t3code": [pageOne, [{ tag_name: "v0.0.42-acme.2" }]] },
+      requested,
+    );
+    expect(
+      yield* resolveNewestReleaseVersion("stable", "acme/t3code").pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      ),
+    ).toBe("0.0.42-acme.2");
+    // Page 2 is short, so it is the last page asked for.
+    expect(requested).toHaveLength(2);
+    expect(
+      yield* checkServerUpdate("0.0.42-acme.1", "acme/t3code").pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      ),
+    ).toBe("0.0.42-acme.2");
+  }),
+);
+
+it.effect("skips a tag the launcher would refuse as not exact SemVer", () =>
+  Effect.gen(function* () {
+    const client = releaseIndexClient({
+      "acme/t3code": [{ tag_name: "v0.0.43-acme.01" }, { tag_name: "v0.0.42-acme.2" }],
+    });
+    expect(
+      yield* checkServerUpdate("0.0.42-acme.1", "acme/t3code").pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      ),
+    ).toBe("0.0.42-acme.2");
   }),
 );
 
@@ -102,6 +151,18 @@ it.effect.each([
     managed: true,
     currentVersion: "0.0.1-preview.20260911.4",
     env: {},
+  },
+  {
+    name: "an unmanaged server with a malformed check flag",
+    managed: false,
+    currentVersion: "0.0.1",
+    env: { T3CODE_UPDATE_CHECK_ENABLED: "maybe" },
+  },
+  {
+    name: "a preview build with a malformed check flag",
+    managed: true,
+    currentVersion: "0.0.1-preview.20260911.4",
+    env: { T3CODE_UPDATE_CHECK_ENABLED: "maybe" },
   },
 ])("$name never checks", ({ managed, currentVersion, env }) =>
   Effect.gen(function* () {

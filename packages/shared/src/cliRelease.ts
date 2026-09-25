@@ -106,16 +106,19 @@ export function cliReleaseChannelOf(version: string): CliReleaseChannel {
 }
 
 /**
- * One page of GitHub's list-releases endpoint, newest first. Callers walk pages
- * until a channel match turns up; a busy nightly train can push the newest
- * preview or stable release past any single page.
+ * One page of GitHub's list-releases endpoint, newest published first. A busy
+ * nightly train can push the newest preview or stable release past any single
+ * page, and publish order is not version order, so callers read every page up
+ * to a bound and compare versions across all of them.
  */
+export const CLI_RELEASE_INDEX_PAGE_SIZE = 100;
+
 export function cliReleaseIndexPageUrl(page: number, repository?: string | undefined): string {
-  return `https://api.github.com/repos/${cliReleaseRepository(repository)}/releases?per_page=100&page=${page}`;
+  return `https://api.github.com/repos/${cliReleaseRepository(repository)}/releases?per_page=${CLI_RELEASE_INDEX_PAGE_SIZE}&page=${page}`;
 }
 
 /**
- * Picks the highest version on a channel from a page of the release index.
+ * Picks the highest version on a channel from the release index.
  * Tags are `v<version>`; the channel is decided by the same rule the runtime
  * uses, so a preview tag never satisfies a nightly lookup and vice versa.
  * Versions are compared by semver precedence rather than taken in listing

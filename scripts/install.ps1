@@ -39,20 +39,21 @@ $arch = switch ($rawArch) {
   default { Fail "unsupported architecture $rawArch" }
 }
 
+# The release train of a version or v-tag, by the rule the runtime uses: a
+# nightly or preview identifier right after major.minor.patch names its train;
+# every other version, including a fork's own prerelease suffix, is stable.
+$trainOf = {
+  param([string] $candidate)
+  if ($candidate -match '^v?\d+\.\d+\.\d+-(nightly|preview)\.\d{8}\.\d+$') { $Matches[1] } else { "stable" }
+}
+
 $channel = if ($env:T3CODE_CHANNEL) { $env:T3CODE_CHANNEL } else { "stable" }
 $version = $env:T3CODE_VERSION
 if (-not $version) {
-  # Tags are v<semver>. A nightly or preview prerelease identifier names its
-  # train; every other version, including a fork's own prerelease suffix, is
-  # stable, the same rule the runtime uses. Only tags of the requested train
-  # are considered, so a stable install can never pick up a nightly or
-  # preview build by accident.
+  # Tags are v<semver>. Only tags of the requested train are considered, so a
+  # stable install can never pick up a nightly or preview build by accident.
   if ($channel -notin @("stable", "nightly", "preview")) {
     Fail "T3CODE_CHANNEL must be stable, nightly, or preview"
-  }
-  $trainOf = {
-    param([string] $tagName)
-    if ($tagName -match '-(nightly|preview)\.\d{8}\.\d+$') { $Matches[1] } else { "stable" }
   }
   $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers @{ "User-Agent" = "t3-install" }
   $tag = ($releases | Where-Object {
@@ -63,7 +64,7 @@ if (-not $version) {
   if (-not $tag) { Fail "could not find a $channel release; set T3CODE_VERSION" }
   $version = $tag.Substring(1)
 }
-if ($version -match '-preview\.') {
+if ((& $trainOf $version) -eq "preview") {
   Write-Warning "t3 $version is a preview build. Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, and are never offered as updates. Set T3CODE_CHANNEL=stable (the default) for a supported build."
   if ($channel -ne "preview" -and -not $env:T3CODE_VERSION) {
     Fail "refusing a preview build that was not explicitly requested"
