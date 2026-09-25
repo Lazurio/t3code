@@ -1,13 +1,21 @@
 import {
+  CLI_RELEASE_REPOSITORY_ENV,
+  cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
   cliReleaseRepository,
   newestCliReleaseVersion,
   type CliReleaseChannel,
 } from "@t3tools/shared/cliRelease";
+import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+
+import { compareExactServiceVersions } from "./serviceProtocol.ts";
 
 export class ReleaseIndexError extends Schema.TaggedError<ReleaseIndexError>()(
   "ReleaseIndexError",
@@ -72,5 +80,67 @@ export const resolveNewestReleaseVersion = Effect.fn("cloud.release_index.resolv
     return yield* new ReleaseIndexError({
       reason: `No published ${channel} release was found in ${source}.`,
     });
+  },
+);
+
+/** Opts a managed server out of checking for updates, for hosts without GitHub access. */
+const SERVER_UPDATE_CHECK_ENABLED_ENV = "T3CODE_UPDATE_CHECK_ENABLED";
+const SERVER_UPDATE_CHECK_INTERVAL = Duration.hours(6);
+
+/**
+ * The newest release on `currentVersion`'s channel in the release repository
+ * when it is strictly newer than `currentVersion`, else undefined. Uses the
+ * same precedence the service launcher enforces, so an advertised version is
+ * one the launcher will accept.
+ */
+export const checkServerUpdate = Effect.fn("cloud.release_index.check_server_update")(function* (
+  currentVersion: string,
+  repository?: string | undefined,
+) {
+  const newest = yield* resolveNewestReleaseVersion(
+    cliReleaseChannelOf(currentVersion),
+    repository,
+  );
+  return compareExactServiceVersions(newest, currentVersion) > 0 ? newest : undefined;
+});
+
+/**
+ * Keeps the answer of {@link checkServerUpdate} current for the lifetime of
+ * the scope: checked at startup and then every few hours, retrying a failed
+ * check with backoff and keeping the previous answer meanwhile.
+ *
+ * Only a server that can install the answer checks: one managed by the boot
+ * service launcher, unless the operator turned the check off. Preview builds
+ * never check, since preview is never offered as an update.
+ */
+export const watchAvailableServerUpdate = Effect.fn("cloud.release_index.watch_server_update")(
+  function* (input: { readonly managed: boolean; readonly currentVersion: string }) {
+    const available = yield* SubscriptionRef.make<string | undefined>(undefined);
+    const enabled = yield* Config.boolean(SERVER_UPDATE_CHECK_ENABLED_ENV).pipe(
+      Config.withDefault(true),
+    );
+    if (!input.managed || !enabled || cliReleaseChannelOf(input.currentVersion) === "preview") {
+      return available;
+    }
+
+    const repository = Option.getOrUndefined(
+      yield* Config.string(CLI_RELEASE_REPOSITORY_ENV).pipe(Config.option),
+    );
+    yield* checkServerUpdate(input.currentVersion, repository).pipe(
+      Effect.flatMap((version) => SubscriptionRef.set(available, version)),
+      Effect.tapError((error) =>
+        Effect.logWarning("Could not check for a server update", { reason: error.reason }),
+      ),
+      Effect.retry({
+        schedule: Schedule.exponential("1 minute").pipe(
+          Schedule.modifyDelay(({ duration }) =>
+            Effect.succeed(Duration.min(duration, SERVER_UPDATE_CHECK_INTERVAL)),
+          ),
+        ),
+      }),
+      Effect.repeat(Schedule.spaced(SERVER_UPDATE_CHECK_INTERVAL)),
+      Effect.forkScoped,
+    );
+    return available;
   },
 );
