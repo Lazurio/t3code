@@ -67,14 +67,22 @@ else
   fail "sha256sum or shasum is required"
 fi
 
+# The release train of a version, by the rule the runtime uses: a nightly or
+# preview identifier right after major.minor.patch names its train; every other
+# version, including a fork's own prerelease suffix, is stable.
+train_of() {
+  case "$(printf '%s\n' "$1" | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+-(nightly|preview)\.[0-9]{8}\.[0-9]+$')" in
+    *-nightly.*) printf 'nightly\n' ;;
+    *-preview.*) printf 'preview\n' ;;
+    *) printf 'stable\n' ;;
+  esac
+}
+
 channel="${T3CODE_CHANNEL:-stable}"
 version="${T3CODE_VERSION:-}"
 if [ -z "$version" ]; then
-  # Tags are v<semver>. A nightly or preview prerelease identifier names its
-  # train; every other version, including a fork's own prerelease suffix, is
-  # stable, the same rule the runtime uses. Only tags of the requested train
-  # are considered, so a stable install can never pick up a nightly or
-  # preview build by accident.
+  # Tags are v<semver>. Only tags of the requested train are considered, so a
+  # stable install can never pick up a nightly or preview build by accident.
   case "$channel" in
     stable | nightly | preview) ;;
     *) fail "T3CODE_CHANNEL must be stable, nightly, or preview" ;;
@@ -83,16 +91,16 @@ if [ -z "$version" ]; then
   fetch "https://api.github.com/repos/${repo}/releases?per_page=100" "$tmp_index"
   versions="$(sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(-[0-9A-Za-z.-]*\)\{0,1\}\)".*/\1/p' "$tmp_index")"
   rm -f "$tmp_index"
-  train_suffix='-(nightly|preview)\.[0-9]{8}\.[0-9]+$'
-  if [ "$channel" = "stable" ]; then
-    version="$(printf '%s\n' "$versions" | grep -Ev -- "$train_suffix" | head -n 1)"
-  else
-    version="$(printf '%s\n' "$versions" | grep -E -- "-${channel}\\.[0-9]{8}\\.[0-9]+\$" | head -n 1)"
-  fi
+  for candidate in $versions; do
+    if [ "$(train_of "$candidate")" = "$channel" ]; then
+      version="$candidate"
+      break
+    fi
+  done
   [ -n "$version" ] || fail "could not find a ${channel} release; set T3CODE_VERSION"
 fi
-case "$version" in
-  *-preview.*)
+case "$(train_of "$version")" in
+  preview)
     printf '%s\n' \
       "t3 ${version} is a preview build." \
       "  Preview builds are cut by maintainers from unreleased branches to exercise the release" \
