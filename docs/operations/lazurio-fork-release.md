@@ -68,11 +68,15 @@ nabídne normálně.
 | `hosted: configurable client session TTL`                | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                |
 | `hosted: serve behind an explicit HTTPS external origin` | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu. |
 | `hosted: explicit environment label`                     | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Iotor / Management`).                                                                                                           |
+| in-app update from the configured release channel        | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.     |
 | `release: Lazurio distribution`                          | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                            |
 
 Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
-upstream nabídne ekvivalent. Overlay nesahá na klienty, sdílené balíčky ani
-wire kontrakty; CI takovou změnu odmítne. Verze se razítkují jen při buildu
+upstream nabídne ekvivalent. Klienty, sdílené balíčky a wire kontrakty
+(`apps/web`, `apps/mobile`, `apps/desktop`, `packages/`) overlay mění jen v
+přesných souborech z allowlistu `allowed_upstream_changes` v
+`lazurio-fork-ci.yml`. Každý záznam je vědomé rozhodnutí se zdůvodněním;
+jakoukoli jinou změnu pod těmito cestami CI odmítne. Verze se razítkují jen při buildu
 upstream skriptem `scripts/update-release-package-versions.ts`, do Gitu se
 necommitují.
 
@@ -95,8 +99,11 @@ hromadně.
 2. V `lazurio-fork-ci.yml` aktualizuj `UPSTREAM_TAG`, `UPSTREAM_SHA` a verzi
    `X.Y.Z-lazurio.0` u jobu `cli-archives`. Kontraktní test hlídá, že sedí
    k `UPSTREAM_TAG`.
-3. Otevři PR a počkej na zelené `Lazurio Fork CI`.
-4. Než se `main` přepne, musí být současný `main` zachycený publikovaným
+3. Při každé přestavbě znovu projdi allowlist `allowed_upstream_changes`.
+   Soubor, který overlay už nemění nebo jehož změnu převzal upstream, z něj
+   odeber. Nový soubor přidej jen jako vědomé rozhodnutí se zdůvodněním.
+4. Otevři PR a počkej na zelené `Lazurio Fork CI`.
+5. Než se `main` přepne, musí být současný `main` zachycený publikovaným
    vydáním `v…-lazurio.N` nebo chráněným tagem `lazurio-archive-*`. S
    explicitním pokynem Organization Admina vázaným na oba SHA:
 
@@ -107,7 +114,7 @@ hromadně.
 
    Neúspěšný lease znamená souběžnou změnu. Nikdy ho automaticky neopakuj.
 
-5. Vydej `X.Y.Z-lazurio.1` z nového `main` postupem níže.
+6. Vydej `X.Y.Z-lazurio.1` z nového `main` postupem níže.
 
 ## Testování před vydáním
 
