@@ -1553,7 +1553,7 @@ function SavedBackendListRow({
           <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap leading-tight">
             {enabled ? connectionStatusText(environment.connection) : "Switched off"}
             {versionMismatch
-              ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}`
+              ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.targetVersion}`
               : ""}
           </TooltipPopup>
         </Tooltip>
@@ -1573,7 +1573,7 @@ function SavedBackendListRow({
           selfUpdate={resolveServerSelfUpdateCapability(environment.serverConfig)}
           desktopAppUpdate={supportsDesktopAppUpdate(environment.serverConfig)}
           threadContinuation={supportsServerUpdateThreadContinuation(environment.serverConfig)}
-          targetVersion={versionMismatch.clientVersion}
+          targetVersion={versionMismatch.targetVersion}
           label={serverUpdateState.status === "failed" ? "Retry update" : "Update"}
           appearance="icon"
         />
@@ -1871,7 +1871,7 @@ export function ConnectionsSettings() {
             threadContinuation: supportsServerUpdateThreadContinuation(environment.serverConfig),
             continueThreadsAfterServerUpdate:
               environment.serverConfig?.settings.continueThreadsAfterServerUpdate ?? false,
-            targetVersion: mismatch.clientVersion,
+            targetVersion: mismatch.targetVersion,
           },
         ];
       }),
@@ -3313,11 +3313,11 @@ export function ConnectionsSettings() {
                       threadContinuation={supportsServerUpdateThreadContinuation(
                         primaryServerConfig,
                       )}
-                      targetVersion={primaryVersionMismatch.clientVersion}
+                      targetVersion={primaryVersionMismatch.targetVersion}
                       label={
                         primaryServerUpdateState.status === "failed"
                           ? "Retry update"
-                          : `Update to ${primaryVersionMismatch.clientVersion}`
+                          : `Update to ${primaryVersionMismatch.targetVersion}`
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (
