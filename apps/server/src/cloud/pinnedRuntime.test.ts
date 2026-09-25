@@ -14,6 +14,7 @@ import {
   pinnedRuntimeCommand,
   pinnedRuntimePaths,
   PinnedRuntimeInstallError,
+  PinnedRuntimeReleaseNotPublishedError,
 } from "./pinnedRuntime.ts";
 
 // Every install fetches the release archive, checks it against SHA256SUMS,
@@ -118,6 +119,48 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.equal(error.step, "verifying the t3 release archive checksum");
       assert.deepEqual(commands, []);
       assert.deepEqual(yield* fs.readDirectory(path.join(baseDir, "runtime", "versions")), []);
+    }),
+  );
+
+  it.effect("names the release repository when the version was never published there", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-archive-missing-" });
+      const requests: string[] = [];
+      const notFound = HttpClient.make((request) => {
+        requests.push(request.url);
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("Not Found", { status: 404 })),
+        );
+      });
+      const install = (releaseBaseUrl?: string) =>
+        ensurePinnedRuntimeInstalled({
+          baseDir,
+          version,
+          fs,
+          path,
+          platform: "linux",
+          arch: "x64",
+          httpClient: notFound,
+          releaseBaseUrl,
+          releaseRepository: "acme/t3code",
+          runner: extractingRunner(fs, path),
+          validate: () => Effect.die("must not validate a missing release"),
+        }).pipe(Effect.flip);
+
+      const error = yield* install();
+      assert.instanceOf(error, PinnedRuntimeReleaseNotPublishedError);
+      assert.equal(error.message, `t3@${version} is not published in acme/t3code releases.`);
+      assert.deepEqual(requests, [
+        `https://github.com/acme/t3code/releases/download/v${version}/SHA256SUMS`,
+      ]);
+
+      const mirrored = yield* install("https://mirror.example/t3");
+      assert.equal(
+        mirrored.message,
+        `t3@${version} is not published in https://mirror.example/t3.`,
+      );
     }),
   );
 

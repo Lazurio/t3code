@@ -5,10 +5,19 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+import { compareSemverVersions } from "./semver.ts";
+
+const CLI_RELEASE_DEFAULT_REPOSITORY = "pingdotgg/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
+/** The `owner/name` GitHub repository whose releases are installed and offered as updates. */
+export const CLI_RELEASE_REPOSITORY_ENV = "T3CODE_RELEASE_REPOSITORY";
+
+/** The configured release repository, or upstream when unset. */
+export function cliReleaseRepository(repository: string | undefined): string {
+  return repository?.trim() || CLI_RELEASE_DEFAULT_REPOSITORY;
+}
 
 /**
  * The archives a release attaches. Kept in step with the build_linux_cli
@@ -54,14 +63,18 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
   return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
 }
 
-const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
-
-/** Directory that `releases/download/<tag>/<asset>` lives under. */
+/**
+ * Directory that `releases/download/<tag>/<asset>` lives under: the mirror
+ * when one is set, else the release repository's GitHub Releases.
+ */
 export function cliReleaseDownloadBaseUrl(
   version: string,
-  baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,
+  baseUrl?: string | undefined,
+  repository?: string | undefined,
 ): string {
-  return `${(baseUrl?.trim() || CLI_RELEASE_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v${version}`;
+  const root =
+    baseUrl?.trim() || `https://github.com/${cliReleaseRepository(repository)}/releases/download`;
+  return `${root.replace(/\/+$/, "")}/v${version}`;
 }
 
 /**
@@ -97,15 +110,18 @@ export function cliReleaseChannelOf(version: string): CliReleaseChannel {
  * until a channel match turns up; a busy nightly train can push the newest
  * preview or stable release past any single page.
  */
-export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+export function cliReleaseIndexPageUrl(page: number, repository?: string | undefined): string {
+  return `https://api.github.com/repos/${cliReleaseRepository(repository)}/releases?per_page=100&page=${page}`;
 }
 
 /**
- * Picks the newest version on a channel from the release index. Tags are
- * `v<version>`; the channel is decided by the same rule the runtime uses, so
- * a preview tag never satisfies a nightly lookup and vice versa. Drafts are
- * skipped because their assets are not downloadable.
+ * Picks the highest version on a channel from a page of the release index.
+ * Tags are `v<version>`; the channel is decided by the same rule the runtime
+ * uses, so a preview tag never satisfies a nightly lookup and vice versa.
+ * Versions are compared by semver precedence rather than taken in listing
+ * order, which follows publish time: a patch for an older line published
+ * later must not win. Drafts are skipped because their assets are not
+ * downloadable.
  */
 export function newestCliReleaseVersion(
   releases: ReadonlyArray<{
@@ -114,11 +130,12 @@ export function newestCliReleaseVersion(
   }>,
   channel: CliReleaseChannel,
 ): string | undefined {
+  let newest: string | undefined;
   for (const release of releases) {
     if (release.draft) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
-    if (version === undefined) continue;
-    if (cliReleaseChannelOf(version) === channel) return version;
+    if (version === undefined || cliReleaseChannelOf(version) !== channel) continue;
+    if (newest === undefined || compareSemverVersions(version, newest) > 0) newest = version;
   }
-  return undefined;
+  return newest;
 }
