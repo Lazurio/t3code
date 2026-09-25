@@ -89,3 +89,22 @@ NodeTest.test("the image build context excludes local state and secrets", () => 
     NodeAssert.ok(patterns.has(pattern), `.dockerignore must exclude ${pattern}`);
   }
 });
+
+NodeTest.test("the overlay may change only listed upstream client and shared files", async () => {
+  NodeAssert.match(ci, /grep -E '\^\(apps\/\(web\|mobile\|desktop\)\|packages\)\/'/);
+  NodeAssert.match(ci, /grep -vxF -f <\(printf '%s\\n' "\$\{allowed_upstream_changes\[@\]\}"\)/);
+  NodeAssert.match(ci, /if \[ -n "\$unexpected" \]; then[^]*?exit 1/);
+  const list = /allowed_upstream_changes=\(\n([^]*?)\n\s*\)\n/.exec(ci)?.[1];
+  NodeAssert.ok(list, "the guard must declare allowed_upstream_changes");
+  const lines = list.split("\n").map((line) => line.trim());
+  NodeAssert.match(lines[0] ?? "", /^# \S/, "the allowlist must open with a reason");
+  const entries = lines.filter((line) => line.length > 0 && !line.startsWith("#"));
+  NodeAssert.ok(entries.length > 0);
+  for (const entry of entries) {
+    // Exact files only: no globs, directories or patterns.
+    NodeAssert.match(entry, /^(apps\/(web|mobile|desktop)|packages)\/[\w./-]+\.[a-z]+$/, entry);
+    NodeAssert.doesNotMatch(entry, /[*?[\]{}]|\.\.|\/$/, entry);
+    await NodeFSP.access(entry);
+  }
+  NodeAssert.equal(new Set(entries).size, entries.length, "allowlist entries must be unique");
+});
