@@ -16,7 +16,7 @@ COPY . .
 RUN npm install --global "pnpm@$PNPM_VERSION" --no-audit --no-fund \
     && pnpm config set allowUnusedPatches true --location=project \
     && pnpm install --frozen-lockfile \
-    && node scripts/lazurio-stamp-package-version.mjs "$PACKAGE_VERSION" \
+    && node scripts/update-release-package-versions.ts "$PACKAGE_VERSION" \
     && pnpm exec vp run --filter @t3tools/web build \
     && pnpm exec vp run --filter t3 build \
     && test -s /source/apps/server/dist/client/index.html \

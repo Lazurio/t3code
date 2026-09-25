@@ -5,23 +5,25 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeTest from "node:test";
 
 const read = (path) => NodeFSP.readFile(path, "utf8");
-const [release, ci, dockerfile, dockerignore, stamp, docs] = await Promise.all([
+const [release, archives, ci, dockerfile, dockerignore, docs] = await Promise.all([
   read(".github/workflows/lazurio-release.yml"),
+  read(".github/workflows/lazurio-cli-archives.yml"),
   read(".github/workflows/lazurio-fork-ci.yml"),
   read("Dockerfile.lazurio"),
   read(".dockerignore"),
-  read("scripts/lazurio-stamp-package-version.mjs"),
   read("docs/operations/lazurio-fork-release.md"),
 ]);
 
-NodeTest.test("release is manual, gated, and publishes one immutable tag", () => {
+NodeTest.test("release is manual, gated, and never overwrites", () => {
   const triggers = release.slice(release.indexOf("\non:"), release.indexOf("\npermissions:"));
   NodeAssert.match(triggers, /workflow_dispatch:/);
   NodeAssert.doesNotMatch(triggers, /^ {2}(push|schedule|release|pull_request\w*):/m);
   NodeAssert.match(release, /^permissions:\n {2}contents: read\n {2}id-token: none/m);
   NodeAssert.match(release, /environment: lazurio-t3code-release/);
   NodeAssert.match(release, /test "\$RELEASE_CONTROL" = "reviewed-v1"/);
-  NodeAssert.match(release, /test "\$GITHUB_REF" = "refs\/tags\/\$RELEASE_TAG"/);
+  NodeAssert.match(release, /test "\$GITHUB_REF" = "refs\/heads\/main"/);
+  NodeAssert.match(release, /\^\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+-lazurio\\\.\[1-9\]/);
+  NodeAssert.match(release, /RELEASE_TAG: v\$\{\{ inputs\.version \}\}/);
   NodeAssert.match(
     release,
     /test "\$\(git rev-parse refs\/remotes\/origin\/main\)" = "\$SOURCE_SHA"/,
@@ -30,10 +32,37 @@ NodeTest.test("release is manual, gated, and publishes one immutable tag", () =>
     release,
     /git rev-list --merges "\$UPSTREAM_SHA\.\.\$SOURCE_SHA" --count\)" = 0/,
   );
+  // The channel is the newest release, so a release must be the highest version.
+  NodeAssert.match(release, /compareExactServiceVersions\(version, published\) <= 0/);
   NodeAssert.match(release, /already exists and will not be overwritten/);
+  NodeAssert.match(release, /--method POST "repos\/\$GITHUB_REPOSITORY\/git\/refs"/);
+  NodeAssert.match(release, /--verify-tag/);
+  NodeAssert.match(release, /uses: \.\/\.github\/workflows\/lazurio-cli-archives\.yml/);
+  NodeAssert.match(release, /needs: \[verify, archives\]/);
+  NodeAssert.match(release, /sha256sum t3-\*\.tar\.gz > SHA256SUMS/);
+  NodeAssert.match(release, /subject-path: release-assets\/t3-\*\.tar\.gz/);
   NodeAssert.match(release, /grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'/);
   NodeAssert.match(release, /base_path: "\/"/);
   NodeAssert.doesNotMatch(release, /:\s*latest\b/);
+});
+
+NodeTest.test("archives are built with upstream's own release steps", () => {
+  NodeAssert.match(archives, /on:\n {2}workflow_call:/);
+  NodeAssert.match(archives, /^permissions:\n {2}contents: read\n {2}id-token: none/m);
+  NodeAssert.match(archives, /key: linux-x64\n {12}runner: ubuntu-24\.04/);
+  NodeAssert.match(archives, /key: darwin-arm64\n {12}runner: macos-15/);
+  const stamp = archives.indexOf('node scripts/update-release-package-versions.ts "$VERSION"');
+  NodeAssert.ok(stamp > 0 && stamp < archives.indexOf("vp run --filter t3 build"));
+  NodeAssert.match(archives, /node apps\/server\/scripts\/cli\.ts build-exe/);
+  NodeAssert.match(archives, /node scripts\/build-cli-archive\.ts/);
+  NodeAssert.match(archives, /node scripts\/smoke-cli-archive\.ts .* --expect-version "\$VERSION"/);
+  NodeAssert.match(archives, /T3CODE_RELEASE_BASE_URL=http:\/\/127\.0\.0\.1:8765/);
+  NodeAssert.match(archives, /__service-preflight/);
+  for (const source of [archives, release, ci]) {
+    for (const [, action] of source.matchAll(/uses: ([^\s.][^\s]*)/g)) {
+      NodeAssert.match(action, /@[0-9a-f]{40}$/, `${action} must be pinned by commit`);
+    }
+  }
 });
 
 NodeTest.test("CI is read-only and pins the exact upstream base", () => {
@@ -42,12 +71,14 @@ NodeTest.test("CI is read-only and pins the exact upstream base", () => {
   NodeAssert.match(ci, /UPSTREAM_TAG: v0\.0\.42/);
   NodeAssert.match(ci, /UPSTREAM_SHA: 719a76ca1dbf5490f1aa33ffb9966301e02be9a9/);
   NodeAssert.match(ci, /\^\(apps\/\(web\|mobile\|desktop\)\|packages\)\//);
+  const upstreamVersion = /UPSTREAM_TAG: v(\S+)/.exec(ci)?.[1];
+  NodeAssert.match(ci, new RegExp(`version: ${upstreamVersion?.replaceAll(".", "\\.")}-lazurio\\.0\\n`));
 });
 
 NodeTest.test("image is root-served, non-root, and self-checks its terminal", () => {
   NodeAssert.match(
     dockerfile,
-    /node scripts\/lazurio-stamp-package-version\.mjs "\$PACKAGE_VERSION"/,
+    /node scripts\/update-release-package-versions\.ts "\$PACKAGE_VERSION"/,
   );
   NodeAssert.match(dockerfile, /pnpm install --frozen-lockfile/);
   NodeAssert.match(dockerfile, /pnpm --filter t3 deploy --prod --legacy --ignore-scripts/);
@@ -58,16 +89,10 @@ NodeTest.test("image is root-served, non-root, and self-checks its terminal", ()
 });
 
 NodeTest.test("T3 is served at the root; no mount path or branding overlay remains", () => {
-  for (const source of [release, ci, dockerfile]) {
+  for (const source of [release, archives, ci, dockerfile]) {
     NodeAssert.doesNotMatch(source, /T3CODE_BASE_PATH|VITE_HOSTED_APP_NAME/);
   }
-  NodeAssert.match(docs, /root of its own hostname/);
-});
-
-NodeTest.test("version stamping touches only the server and web manifests", () => {
-  NodeAssert.match(stamp, /apps\/server\/package\.json/);
-  NodeAssert.match(stamp, /apps\/web\/package\.json/);
-  NodeAssert.doesNotMatch(stamp, /packages\/|apps\/desktop|apps\/mobile/);
+  NodeAssert.match(docs, /v kořeni vlastního hostname/);
 });
 
 NodeTest.test("the image build context excludes local state and secrets", () => {

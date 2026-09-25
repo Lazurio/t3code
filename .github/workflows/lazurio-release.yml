@@ -1,24 +1,27 @@
 name: Lazurio T3 Code Release
 
-# Manually dispatched, immutable publication of the Lazurio hosted T3 Code
-# image. See docs/operations/lazurio-fork-release.md.
+# Manually dispatched from main by the release owner. Builds and tests the CLI
+# archives, then waits for approval in the lazurio-t3code-release environment
+# before it tags the source, publishes the GitHub Release that Lazurio Machines
+# update from, and pushes the matching OCI image. Nothing is ever overwritten.
+# Runbook: docs/operations/lazurio-fork-release.md.
 
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: Existing immutable Lazurio tag to publish (lazurio-vX.Y.Z-rN)
+      version:
+        description: Release version X.Y.Z-lazurio.N (tag vX.Y.Z-lazurio.N)
         required: true
         type: string
-      expected_source_sha:
-        description: Exact 40-character source commit
+      source_sha:
+        description: Exact 40-character commit at the tip of main
         required: true
         type: string
       upstream_tag:
-        description: Exact upstream stable tag the source is based on
+        description: Exact upstream stable tag the source is based on (vX.Y.Z)
         required: true
         type: string
-      expected_upstream_sha:
+      upstream_sha:
         description: Exact 40-character upstream tag commit
         required: true
         type: string
@@ -31,10 +34,96 @@ concurrency:
   group: lazurio-t3code-release
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/lazurio/t3code
+  VERSION: ${{ inputs.version }}
+  RELEASE_TAG: v${{ inputs.version }}
+  SOURCE_SHA: ${{ inputs.source_sha }}
+  UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+  UPSTREAM_SHA: ${{ inputs.upstream_sha }}
+
 jobs:
-  publish:
-    name: Publish immutable image and evidence
+  verify:
+    name: Verify source and version
     if: github.repository == 'Lazurio/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch and verify the exact release source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-lazurio\.[1-9][0-9]*$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$UPSTREAM_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$VERSION" == "${UPSTREAM_TAG#v}-lazurio."* ]]
+          test "$GITHUB_REF" = "refs/heads/main"
+
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --filter=blob:none --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --filter=blob:none upstream \
+            "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-$UPSTREAM_TAG"
+          test "$(git rev-parse "refs/tags/upstream-$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_SHA"
+          test "$(git merge-base "$UPSTREAM_SHA" "$SOURCE_SHA")" = "$UPSTREAM_SHA"
+          test "$(git rev-list --merges "$UPSTREAM_SHA..$SOURCE_SHA" --count)" = 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+
+      # Servers take the newest non-draft release in the index as the one to
+      # update to, so a release must be the highest version on the channel.
+      - name: Refuse an existing or non-increasing version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$(git ls-remote origin "refs/tags/$RELEASE_TAG")" ]]; then
+            echo "Tag $RELEASE_TAG already exists." >&2
+            exit 1
+          fi
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          node --input-type=module - "$RUNNER_TEMP/releases.json" <<'JS'
+          import * as NodeFS from "node:fs";
+          import { compareExactServiceVersions } from "./apps/server/src/cloud/serviceProtocol.ts";
+
+          const version = process.env.VERSION;
+          const releases = JSON.parse(NodeFS.readFileSync(process.argv[2], "utf8")).flat();
+          if (releases.some((release) => release.tag_name === `v${version}`)) {
+            throw new Error(`A GitHub Release for v${version} already exists.`);
+          }
+          for (const release of releases) {
+            if (release.draft) continue;
+            const published = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
+            if (published !== undefined && compareExactServiceVersions(version, published) <= 0) {
+              throw new Error(`${version} is not newer than the published ${published}.`);
+            }
+          }
+          console.log(`${version} is the highest version on the channel.`);
+          JS
+
+  archives:
+    name: CLI archives
+    needs: verify
+    uses: ./.github/workflows/lazurio-cli-archives.yml
+    with:
+      version: ${{ inputs.version }}
+      source_sha: ${{ inputs.source_sha }}
+
+  publish:
+    name: Publish release and image
+    needs: [verify, archives]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: lazurio-t3code-release
@@ -44,48 +133,53 @@ jobs:
       id-token: write
       packages: write
     env:
-      IMAGE: ghcr.io/lazurio/t3code
-      RELEASE_TAG: ${{ inputs.release_tag }}
       RELEASE_CONTROL: ${{ vars.LAZURIO_T3CODE_RELEASE_CONTROL }}
-      SOURCE_SHA: ${{ inputs.expected_source_sha }}
-      UPSTREAM_TAG: ${{ inputs.upstream_tag }}
-      UPSTREAM_SHA: ${{ inputs.expected_upstream_sha }}
     steps:
       - id: source
-        name: Fetch and verify the exact release source
+        name: Fetch the exact release source
         shell: bash
         run: |
           set -euo pipefail
-
-          [[ "$RELEASE_TAG" =~ ^lazurio-v[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+$ ]]
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$UPSTREAM_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$RELEASE_TAG" == "lazurio-$UPSTREAM_TAG-r"* ]]
           test "$RELEASE_CONTROL" = "reviewed-v1"
-          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
 
           git init .
           git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git fetch --filter=blob:none --no-tags origin "$GITHUB_REF"
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-
           git fetch --filter=blob:none --no-tags origin \
             "refs/heads/main:refs/remotes/origin/main"
-          test "$(git rev-parse refs/remotes/origin/main)" = "$SOURCE_SHA"
-
+          git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main
+          git checkout --detach "$SOURCE_SHA"
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --filter=blob:none upstream \
             "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-$UPSTREAM_TAG"
           test "$(git rev-parse "refs/tags/upstream-$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_SHA"
-          test "$(git merge-base "$UPSTREAM_SHA" "$SOURCE_SHA")" = "$UPSTREAM_SHA"
-          test "$(git rev-list --merges "$UPSTREAM_SHA..$SOURCE_SHA" --count)" = 0
 
           source_date_epoch="$(git show -s --format=%ct HEAD)"
           echo "source_date_epoch=$source_date_epoch" >> "$GITHUB_OUTPUT"
           echo "source_date_iso=$(date -u -d "@$source_date_epoch" +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
-          echo "package_version=${UPSTREAM_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download CLI archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
+      # Installers verify archives against this file, so it is written from the
+      # exact bytes that get uploaded, in upstream's sha256sum format.
+      - name: Write CLI archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          test "$(ls)" = "$(printf '%s\n' "t3-$VERSION-darwin-arm64.tar.gz" "t3-$VERSION-linux-x64.tar.gz")"
+          sha256sum t3-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - id: attest_archives
+        name: Attest the CLI archives
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: release-assets/t3-*.tar.gz
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -94,26 +188,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Refuse an existing release or image tag
+      - name: Refuse an existing image tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-
-          release_status=0
-          release_response="$(
-            gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>&1
-          )" || release_status=$?
-          if (( release_status == 0 )); then
-            echo "GitHub Release $RELEASE_TAG already exists." >&2
-            exit 1
-          fi
-          if ! grep -Eq '^HTTP/[0-9.]+ 404( |$)' <<< "$release_response"; then
-            echo "Unable to prove that GitHub Release $RELEASE_TAG is absent." >&2
-            exit 1
-          fi
-
           package_versions="$(mktemp)"
           if ! gh api --paginate --slurp \
             "orgs/Lazurio/packages/container/t3code/versions?per_page=100" > "$package_versions"
@@ -122,11 +202,11 @@ jobs:
             exit 1
           fi
           tag_query_status=0
-          jq -e --arg tag "$RELEASE_TAG" \
+          jq -e --arg tag "$VERSION" \
             '[.[][] | .metadata.container.tags[]?] | index($tag) != null' \
             "$package_versions" >/dev/null || tag_query_status=$?
           if (( tag_query_status == 0 )); then
-            echo "OCI tag $IMAGE:$RELEASE_TAG already exists and will not be overwritten." >&2
+            echo "OCI tag $IMAGE:$VERSION already exists and will not be overwritten." >&2
             exit 1
           fi
           if (( tag_query_status != 1 )); then
@@ -146,12 +226,12 @@ jobs:
           platforms: linux/amd64
           push: true
           pull: true
-          tags: ${{ env.IMAGE }}:${{ env.RELEASE_TAG }}
+          tags: ${{ env.IMAGE }}:${{ env.VERSION }}
           provenance: mode=max
           sbom: true
           build-args: |
             NODE_BASE_IMAGE=node:24.19.0-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584
-            PACKAGE_VERSION=${{ steps.source.outputs.package_version }}
+            PACKAGE_VERSION=${{ env.VERSION }}
             PNPM_VERSION=11.10.0
             RELEASE_TAG=${{ env.RELEASE_TAG }}
             SOURCE_DATE_EPOCH=${{ steps.source.outputs.source_date_epoch }}
@@ -161,12 +241,11 @@ jobs:
             org.opencontainers.image.created=${{ steps.source.outputs.source_date_iso }}
             org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
             org.opencontainers.image.source=https://github.com/Lazurio/t3code
-            org.opencontainers.image.version=${{ env.RELEASE_TAG }}
+            org.opencontainers.image.version=${{ env.VERSION }}
 
       - name: Verify the published image
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          PACKAGE_VERSION: ${{ steps.source.outputs.package_version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -175,9 +254,9 @@ jobs:
             --format '{{range .Config.Env}}{{println .}}{{end}}' | \
             grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
           docker run --rm --network none "$IMAGE@$IMAGE_DIGEST" --version | \
-            grep -Fx "t3 v$PACKAGE_VERSION"
+            grep -Fx "t3 v$VERSION"
 
-      - id: attest
+      - id: attest_image
         name: Attest the published OCI digest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
@@ -185,54 +264,44 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-      - name: Assemble immutable release evidence
+      - name: Assemble release notes and evidence
         env:
-          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
-          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
-          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
+          ARCHIVES_ATTESTATION: ${{ steps.attest_archives.outputs.attestation-url }}
+          IMAGE_ATTESTATION: ${{ steps.attest_image.outputs.attestation-url }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release
-          install -m 0644 "$ATTESTATION_BUNDLE" release/attestation.jsonl
-          printf '%s\n' "$BUILD_METADATA" | jq --sort-keys . > release/build-metadata.json
-          docker buildx imagetools inspect "$IMAGE@$IMAGE_DIGEST" \
-            --format '{{ json .SBOM }}' | jq --sort-keys . > release/sbom.spdx.json
-          docker buildx imagetools inspect "$IMAGE@$IMAGE_DIGEST" \
-            --format '{{ json .Provenance }}' | jq --sort-keys . > release/provenance.slsa.json
-          git log --no-merges --pretty='format:- %s (%h)' \
-            "$UPSTREAM_SHA..$SOURCE_SHA" > release/CHANGELOG.md
-
           jq -n --sort-keys \
             --arg repository "https://github.com/$GITHUB_REPOSITORY" \
             --arg source "$SOURCE_SHA" \
             --arg tag "$RELEASE_TAG" \
+            --arg version "$VERSION" \
             --arg upstream_tag "$UPSTREAM_TAG" \
             --arg upstream_sha "$UPSTREAM_SHA" \
             --arg image "$IMAGE" \
             --arg digest "$IMAGE_DIGEST" \
-            --arg attestation "$ATTESTATION_URL" \
+            --arg archives_attestation "$ARCHIVES_ATTESTATION" \
+            --arg image_attestation "$IMAGE_ATTESTATION" \
             --arg run "$RUN_URL" \
+            --rawfile checksums release-assets/SHA256SUMS \
             '{
-              schema_version: "t3code.fork-release.v2",
+              schema_version: "t3code.fork-release.v3",
               source: {
                 repository: $repository,
                 commit: $source,
                 tag: $tag,
+                version: $version,
                 upstream_repository: "https://github.com/pingdotgg/t3code",
                 upstream_release: $upstream_tag,
                 upstream_base: $upstream_sha
               },
               artifact: {
+                archives: ($checksums | split("\n") | map(select(length > 0) | split("  ") | {name: .[1], sha256: .[0]})),
+                checksums: "SHA256SUMS",
                 image: $image,
-                digest: $digest,
-                sbom: "sbom.spdx.json",
-                provenance: "provenance.slsa.json",
-                build_metadata: "build-metadata.json",
-                attestation_bundle: "attestation.jsonl",
-                checksums: "SHA256SUMS"
+                digest: $digest
               },
               configuration: {
                 base_path: "/",
@@ -242,30 +311,40 @@ jobs:
               },
               validation: {
                 workflow_run: $run,
-                attestation: $attestation
+                archives_attestation: $archives_attestation,
+                image_attestation: $image_attestation
               }
-            }' > release/release-evidence.json
+            }' > release-assets/release-evidence.json
 
           {
-            echo "# Lazurio T3 Code $RELEASE_TAG"
-            echo
-            echo "Vanilla upstream T3 Code $UPSTREAM_TAG plus the Lazurio hosted-server overlay,"
-            echo "served at the root of its own hostname. Official desktop and mobile apps remain"
-            echo "upstream clients."
+            echo "Vanilla upstream T3 Code $UPSTREAM_TAG plus the Lazurio overlay, served at the"
+            echo "root of its own hostname. Lazurio Machines update to it from this release."
             echo
             echo "- Source: \`$SOURCE_SHA\`"
             echo "- Upstream base: \`$UPSTREAM_TAG\` at \`$UPSTREAM_SHA\`"
-            echo "- OCI image: \`$IMAGE@$IMAGE_DIGEST\`"
-            echo "- GitHub attestation: $ATTESTATION_URL"
-          } > release/RELEASE_NOTES.md
+            echo "- OCI image: \`$IMAGE:$VERSION\` = \`$IMAGE@$IMAGE_DIGEST\`"
+            echo "- Archive attestation: $ARCHIVES_ATTESTATION"
+            echo "- Image attestation: $IMAGE_ATTESTATION"
+            echo
+            echo "## Lazurio overlay"
+            echo
+            git log --no-merges --pretty='format:- %s (%h)' "$UPSTREAM_SHA..$SOURCE_SHA"
+            echo
+          } > "$RUNNER_TEMP/RELEASE_NOTES.md"
 
-          (
-            cd release
-            sha256sum CHANGELOG.md RELEASE_NOTES.md attestation.jsonl build-metadata.json \
-              provenance.slsa.json release-evidence.json sbom.spdx.json > SHA256SUMS
-          )
+      # The tag is created first and on its own: the API refuses an existing
+      # ref, so a tag that appeared since verification stops the release here.
+      - name: Tag the exact source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$RELEASE_TAG" -f sha="$SOURCE_SHA" > /dev/null
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
 
-      - name: Publish the matching GitHub Release
+      - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -274,14 +353,10 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "Lazurio T3 Code $RELEASE_TAG" \
-            --notes-file release/RELEASE_NOTES.md \
-            --latest=false \
-            release/CHANGELOG.md \
-            release/RELEASE_NOTES.md \
-            release/SHA256SUMS \
-            release/attestation.jsonl \
-            release/build-metadata.json \
-            release/provenance.slsa.json \
-            release/release-evidence.json \
-            release/sbom.spdx.json
+            --title "T3 Code $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/RELEASE_NOTES.md" \
+            --latest \
+            "release-assets/t3-$VERSION-darwin-arm64.tar.gz" \
+            "release-assets/t3-$VERSION-linux-x64.tar.gz" \
+            release-assets/SHA256SUMS \
+            release-assets/release-evidence.json

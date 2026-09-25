@@ -1,68 +1,232 @@
-# Lazurio T3 Code distribution
+# Lazurio T3 Code: vydávání
 
-`Lazurio/t3code` distributes the vanilla upstream T3 Code server and web client for Lazurio
-Workspaces. T3 is always served at the root of its own hostname
-(`https://t3code.<vm>.<org>.lazurio.io/`) behind a TLS reverse proxy. Official desktop and
-mobile apps connect as unmodified upstream clients.
+Runbook pro vlastníka vydávání T3 Code v Lazuriu (Steward, dnes Pablo,
+`agentrozjedemeai`). Vydání připravíš, otestuješ a spustíš sám; Organization
+Admin (Matěj, `immakermatty`) ho jen schválí v GitHub environmentu.
+
+`Lazurio/t3code` distribuuje vanilla upstream T3 Code server a web klient pro
+Lazurio Mašiny. T3 vždy běží v kořeni vlastního hostname
+(`https://t3code.<vm>.<org>.lazurio.io/`) za TLS reverse proxy. Oficiální
+desktop a mobilní aplikace se připojují jako neupravení upstream klienti.
+
+## Kanál aktualizací
+
+GitHub Releases tohoto repozitáře jsou kanál, ze kterého se T3 Code na všech
+Lazurio Mašinách instaluje a aktualizuje. Každé vydání obsahuje:
+
+| Asset                                 | K čemu                                                  |
+| ------------------------------------- | ------------------------------------------------------- |
+| `t3-<verze>-linux-x64.tar.gz`         | headless Linux Mašiny                                   |
+| `t3-<verze>-darwin-arm64.tar.gz`      | Mac Mašiny (přes web verzi T3 Code)                     |
+| `SHA256SUMS`                          | `sha256sum` přes finální bajty archivů, upstream formát |
+| `release-evidence.json`               | zdrojový commit, upstream báze, checksumy, OCI digest   |
+
+Archivy mají přesně upstream layout (`t3`, `client/`, `resource-monitor/`,
+`node_modules/`), protože je staví upstream skripty. Launcher boot service je
+stahuje z `<base>/v<verze>/SHA256SUMS` a `<base>/v<verze>/t3-<verze>-<platforma>.tar.gz`.
+Mašina míří na náš kanál přes `T3CODE_RELEASE_BASE_URL=https://github.com/Lazurio/t3code/releases/download`;
+volbu repozitáře pro index vydání a banner s aktualizací přináší
+`T3CODE_RELEASE_REPOSITORY=Lazurio/t3code` (přichází v PR update-channel).
+
+Publikace nikoho automaticky nepřepne. Mašina přejde na novou verzi, až
+uživatel klikne na Update, nebo až někdo spustí `t3 update`.
+
+Každé publikované vydání je na kanálu. Příznak GitHub „pre-release“ servery
+neskrývá (index přeskakuje jen drafty), proto ho nepoužíváme a oddělený canary
+kanál neexistuje. Canary je pořadí: novou verzi nejdřív nainstaluje canary
+Mašina a teprve potom ostatní.
+
+Na macOS je binárka podepsaná ad hoc, stejně jako upstream bez `CSC_LINK`.
+Archiv stažený launcherem nemá atribut karantény, takže ho Gatekeeper
+neblokuje. Archiv stažený ručně prohlížečem je potřeba odkaranténovat
+(`xattr -dr com.apple.quarantine <adresář>`).
+
+### Verze
+
+Verze je `X.Y.Z-lazurio.N`, tag `vX.Y.Z-lazurio.N`. `X.Y.Z` je upstream
+stable tag, na kterém `main` stojí. `N` začíná na 1 a roste s každým vydáním
+nad stejnou upstream bází. Nová upstream báze začíná znovu od `.1`. Verze
+`X.Y.Z-lazurio.0` nikdy nevychází, používá ji jen CI.
+
+Workflow odmítne verzi, která není vyšší než všechna publikovaná vydání. Důvod:
+dnešní upstream kód bere jako aktualizaci první vydání v indexu podle data
+publikace, takže později publikovaná nižší verze by se serverům nabídla jako
+novinka.
+
+Pozor na SemVer: `0.0.42-lazurio.1` je nižší než `0.0.42`. Mašina, která dnes
+běží na nativním buildu Machines hlášeném jako `0.0.42`, proto první přechod na
+kanál neudělá tlačítkem. Poprvé ji převeď přes pin v Machines nebo
+`t3 update 0.0.42-lazurio.1 --allow-downgrade`. Další vydání už tlačítko
+nabídne normálně.
 
 ## Overlay
 
-`main` is the exact upstream stable tag followed only by these commits:
+`main` je přesný upstream stable tag a nad ním jen tyto commity:
 
-| Commit                                                   | Why Lazurio needs it                                                                                                                                                                                                         |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hosted: configurable client session TTL`                | `T3CODE_CLIENT_SESSION_TTL` (Machines sets `365d` and refuses a release whose `dist` does not contain that name).                                                                                                            |
-| `hosted: serve behind an explicit HTTPS external origin` | `T3CODE_EXTERNAL_ORIGIN`: a loopback-bound server behind the proxy is remote-reachable, uses the Secure `__Host-t3_session` cookie, and accepts cookie-authenticated mutations and WebSocket upgrades only from that origin. |
-| `hosted: explicit environment label`                     | `T3CODE_ENVIRONMENT_LABEL` names a containerized Workspace (for example `Iotor / Management`).                                                                                                                               |
-| `release: Lazurio distribution`                          | This document, `Dockerfile.lazurio`, `.dockerignore`, version stamping, the contract test, and the two Lazurio workflows.                                                                                                    |
+| Commit                                                   | Proč ho Lazurio potřebuje                                                                                                                                                                                                                    |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hosted: configurable client session TTL`                | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                                                     |
+| `hosted: serve behind an explicit HTTPS external origin` | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.                                  |
+| `hosted: explicit environment label`                     | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Iotor / Management`).                                                                                                                                                |
+| `release: Lazurio distribution`                          | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                                                                  |
 
-Unset variables keep upstream behavior. Remove a commit as soon as upstream offers an
-equivalent. Nothing in the overlay touches clients, shared packages, or wire contracts; CI
-rejects such changes.
+Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
+upstream nabídne ekvivalent. Overlay nesahá na klienty, sdílené balíčky ani
+wire kontrakty; CI takovou změnu odmítne. Verze se razítkují jen při buildu
+upstream skriptem `scripts/update-release-package-versions.ts`, do Gitu se
+necommitují.
 
-## Artifacts
+## Kdy vydávat
 
-- **Native release (VM lane).** Machines builds it from an exact fork revision with
-  `workloads/workspace-vm/build-t3-native.sh`, which runs
-  `scripts/lazurio-stamp-package-version.mjs <upstream version>` and writes
-  `lazurio-native-release.json` (`lazurio.t3-native-release.v1`, `base_path: "/"`).
-- **OCI image (Docker lane).** `lazurio-release.yml` publishes `ghcr.io/lazurio/t3code:<tag>`
-  with SBOM, provenance, attestation and a GitHub Release. The image sets
-  `T3CODE_CLIENT_SESSION_TTL=365d`; the origin and label are set per Workspace at runtime.
+- **Nový upstream stable** (`pingdotgg/t3code` vydal `vX.Y.Z`): přestav
+  overlay na nový tag (viz další sekce) a vydej `X.Y.Z-lazurio.1`.
+- **Vlastní oprava nebo změna overlaye** na stejné bázi: po merge do `main`
+  vydej další `-lazurio.N`.
+- Nevydávej upstream nightly ani preview a nevydávej z jiné branche než `main`.
 
-Package stamping sets only the server and web manifest versions, because upstream stamps
-versions at publish time and its source manifests lag behind the tag.
+## Přestavba na nový upstream tag
 
-## Stable refresh
+`main` je rolling patch-stack. Starý `main` se neslučuje ani nepřehrává
+hromadně.
 
-1. Create the candidate branch at the exact upstream stable tag. Do not merge or replay the old
-   `main`; port each kept capability by intent onto the new upstream code.
-2. Update `UPSTREAM_TAG`/`UPSTREAM_SHA` in `lazurio-fork-ci.yml` and the pinned SHA in the
-   contract test. Keep the diff against the tag to the overlay above.
-3. Prove it: `Lazurio Fork CI` green (focused server tests, typecheck, contract test, image build
-   with terminal self-check).
-4. Publish the source. Before the cutover, protect the current `main` with an immutable
-   `lazurio-*` release or `lazurio-archive-*` tag. With an approved, green candidate and the
-   Organization Admin's explicit instruction bound to both SHAs:
+1. Z přesného upstream stable tagu založ candidate branch. Každý commit
+   overlaye přenes podle záměru (`git cherry-pick`, případně ručně) a overlay
+   zmenši o všechno, co už upstream umí.
+2. V `lazurio-fork-ci.yml` aktualizuj `UPSTREAM_TAG`, `UPSTREAM_SHA` a verzi
+   `X.Y.Z-lazurio.0` u jobu `cli-archives`. Kontraktní test hlídá, že sedí
+   k `UPSTREAM_TAG`.
+3. Otevři PR a počkej na zelené `Lazurio Fork CI`.
+4. Než se `main` přepne, musí být současný `main` zachycený publikovaným
+   vydáním `v…-lazurio.N` nebo chráněným tagem `lazurio-archive-*`. S
+   explicitním pokynem Organization Admina vázaným na oba SHA:
 
    ```bash
    git push --force-with-lease="refs/heads/main:$expected_old_main" \
      origin "$candidate_head:refs/heads/main"
    ```
 
-   A failed lease is a concurrent change; never retry it automatically.
+   Neúspěšný lease znamená souběžnou změnu. Nikdy ho automaticky neopakuj.
 
-5. Release separately: tag `lazurio-vX.Y.Z-rN` on the new `main` and dispatch
-   `lazurio-release.yml` with the exact source and upstream SHAs. Releasing never changes an
-   infrastructure pin; Machines rolls it out through its own reviewed pins.
+5. Vydej `X.Y.Z-lazurio.1` z nového `main` postupem níže.
 
-## Automation boundary
+## Testování před vydáním
 
-Upstream workflow files stay in the tree so refreshes stay diff-free, but they are **disabled in
-this repository's Actions settings** (Actions → select workflow → Disable). They need Blacksmith
-runners and upstream secrets, so they cannot publish from this repository; left enabled they
-only queue or fail, and `pr-vouch`/`pr-size` would label our pull requests. After a refresh that
-adds a new upstream workflow, disable it too:
+1. **CI.** `Lazurio Fork CI` na PR i na `main` musí být zelené. Běží v něm:
+   - server a web testy, typecheck a kontraktní test;
+   - build OCI image;
+   - `CLI archives`: build a `smoke-cli-archive` obou archivů na nativních
+     runnerech;
+   - `Launcher install linux-x64`: archiv se servíruje přes HTTP v upstream
+     layoutu a `t3 update` ho stáhne přes `T3CODE_RELEASE_BASE_URL`, ověří
+     `SHA256SUMS`, rozbalí a zkontroluje přesnou verzi. Nainstalovaný runtime
+     pak odpoví na `__service-preflight` stavem `ready` se stejnou verzí.
+     Tyto dvě brány projde i skutečný Update. Restart samotné služby CI
+     neověřuje, protože runner nemá uživatelský service manager.
+2. **Lokální smoke** (volitelné; hodí se při ladění buildu). Spusť v čistém
+   worktree na Linux x64 nebo Mac arm64 s `vp` a Rustem:
+
+   ```bash
+   VERSION=0.0.42-lazurio.0 KEY=linux-x64 RUST_TARGET=x86_64-unknown-linux-gnu  # Mac: darwin-arm64, aarch64-apple-darwin
+   vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/scripts...
+   node scripts/update-release-package-versions.ts "$VERSION"
+   vp run --filter t3 build
+   cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "$RUST_TARGET"
+   VP_NODE_VERSION=26.8.2 node apps/server/scripts/cli.ts build-exe --verbose
+   mkdir -p "$HOME/.cache/t3-rm/$KEY" && cp "native/resource-monitor/target/$RUST_TARGET/release/t3-resource-monitor" "$HOME/.cache/t3-rm/$KEY/"
+   node scripts/build-cli-archive.ts --platform linux --arch x64 --version "$VERSION" \
+     --resource-monitor-dir "$HOME/.cache/t3-rm" --output-dir release-cli   # Mac: --platform mac --arch arm64
+   node scripts/smoke-cli-archive.ts --archive "release-cli/t3-$VERSION-$KEY.tar.gz" --expect-version "$VERSION"
+   git checkout -- apps/server/package.json apps/web/package.json apps/desktop/package.json packages/contracts/package.json
+   ```
+
+3. **Canary.** Po publikaci klikni na Update nejdřív na canary Mašině (Matějova
+   osobní VM nebo Spectoda VM101). Ověř verzi v T3, přihlášení, terminál a jeden
+   agentní turn. Teprve potom dej vědět ostatním Mašinám.
+
+## Spuštění vydání
+
+Vydání se spouští jen z `main` a jen z commitu, který je právě na jeho špičce:
+
+```bash
+VERSION=0.0.42-lazurio.1
+SOURCE_SHA="$(git ls-remote https://github.com/Lazurio/t3code.git refs/heads/main | cut -f1)"
+UPSTREAM_TAG=v0.0.42
+UPSTREAM_SHA="$(git ls-remote https://github.com/pingdotgg/t3code.git "refs/tags/$UPSTREAM_TAG" | cut -f1)"
+# Upstream tagy jsou lightweight, SHA tagu je přímo commit (workflow to ověří).
+
+gh workflow run lazurio-release.yml --repo Lazurio/t3code --ref main \
+  -f version="$VERSION" \
+  -f source_sha="$SOURCE_SHA" \
+  -f upstream_tag="$UPSTREAM_TAG" \
+  -f upstream_sha="$UPSTREAM_SHA"
+gh run list --repo Lazurio/t3code --workflow lazurio-release.yml --limit 1
+```
+
+Workflow `Lazurio T3 Code Release` postupně:
+
+1. **Verify source and version** ověří formát vstupů a to, že `source_sha` je
+   špička `main`, stojí na přesném upstream tagu a nemá merge commity. Dál
+   ověří, že tag ani vydání ještě neexistují a že verze je nejvyšší.
+2. **CLI archives** postaví a otestuje oba archivy stejně jako CI.
+3. **Publish release and image** čeká na schválení v environmentu
+   `lazurio-t3code-release`. Po schválení:
+   - napíše `SHA256SUMS` a attestuje archivy;
+   - postaví, pushne a attestuje `ghcr.io/lazurio/t3code:<verze>`;
+   - vytvoří tag `v<verze>` na `source_sha`;
+   - publikuje GitHub Release jako `latest`.
+
+   Existující tag, vydání ani image nikdy nepřepíše.
+
+## Schválení
+
+Když jsou první dva kroky zelené, požádej Matěje o schválení a pošli mu odkaz na
+běh. Matěj ho schválí v GitHubu (běh → Review deployments →
+`lazurio-t3code-release` → Approve). Environment má `prevent_self_review`, takže
+kdo vydání spustil, ho sám schválit nemůže. Pokud se vydání rozmyslíš, Matěj
+ho odmítne (Reject) a nic se nepublikuje.
+
+## Ověření publikovaného vydání
+
+```bash
+VERSION=0.0.42-lazurio.1
+mkdir -p "/tmp/t3-$VERSION" && cd "/tmp/t3-$VERSION"
+gh release download "v$VERSION" --repo Lazurio/t3code
+sha256sum --check SHA256SUMS            # macOS: shasum -a 256 --check SHA256SUMS
+gh attestation verify "t3-$VERSION-linux-x64.tar.gz" --repo Lazurio/t3code
+gh attestation verify "t3-$VERSION-darwin-arm64.tar.gz" --repo Lazurio/t3code
+gh attestation verify "oci://ghcr.io/lazurio/t3code:$VERSION" --repo Lazurio/t3code
+gh release view --repo Lazurio/t3code --json tagName,isLatest
+```
+
+Pak proveď Update na canary Mašině (viz Testování).
+
+## Rollback
+
+Tlačítkem se na nižší verzi vrátit nedá. Rollback je vždy nové, vyšší vydání:
+oprav chybu (nebo revertni commit) na `main` a vydej další `-lazurio.N`.
+
+Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
+
+- na Mašině `t3 update <předchozí verze> --allow-downgrade`;
+- v Machines vrátit pin na předchozí známou dobrou verzi, reviewovaným PR.
+
+## Co nedělat
+
+- Publikované vydání, jeho assety ani tag nikdy nemaž a nepřepisuj. Chybné
+  vydání nahradí vyšší verze.
+- Nepublikuj vydání ručně (`gh release create`) ani nevytvářej tag
+  `v*-lazurio.*` ručně. Kanál smí plnit jen workflow.
+- Nepoužívej příznak pre-release jako canary, servery ho neskryjí.
+- Nepushuj na `main` s force mimo postup „Přestavba na nový upstream tag“.
+- Nespouštěj upstream workflow (`release.yml` a další) a nezapínej je.
+
+## Hranice automatizace
+
+Upstream workflow soubory zůstávají ve stromu, aby refresh zůstal bez diffu, ale
+v nastavení Actions tohoto repozitáře jsou **vypnuté**. Potřebují Blacksmith
+runnery a upstream secrets, takže odsud publikovat nemohou. Zapnuté by jen
+visely ve frontě nebo padaly a `release.yml` by reagoval na tagy `v*`. Když
+refresh přinese nový upstream workflow, vypni ho také:
 
 ```bash
 gh workflow list --repo Lazurio/t3code --all --json id,path,state \
@@ -70,5 +234,12 @@ gh workflow list --repo Lazurio/t3code --all --json id,path,state \
   | xargs -n1 gh workflow disable --repo Lazurio/t3code
 ```
 
-Only `lazurio-fork-ci.yml` (read-only, required check `Server and web compatibility`) and the
-manually dispatched `lazurio-release.yml` stay active.
+Aktivní zůstávají jen `lazurio-fork-ci.yml` (read-only, povinný check
+`Server and web compatibility`), `lazurio-cli-archives.yml` (volaný z obou
+ostatních) a ručně spouštěný `lazurio-release.yml`.
+
+## Historie
+
+Do září 2026 vycházely jen OCI image pod tagy `lazurio-vX.Y.Z-rN`, bez CLI
+archivů. Tyto tagy a vydání zůstávají jako neměnný archiv. Launcher je
+ignoruje, protože tagy nezačínají na `v`. Nové verze je nepoužívají.
