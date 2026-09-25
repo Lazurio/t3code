@@ -1,0 +1,206 @@
+name: Lazurio CLI archives
+
+# Builds and tests the per-platform CLI archives that Lazurio Machines install
+# and self-update from. Called by lazurio-release.yml before publishing and by
+# lazurio-fork-ci.yml on every pull request. Each step reuses upstream's own
+# scripts exactly as .github/workflows/release-desktop.yml runs them; see
+# docs/operations/lazurio-fork-release.md.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Exact release version (X.Y.Z-lazurio.N)
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character source commit
+        required: true
+        type: string
+      source_repository:
+        description: Repository that holds the source commit
+        required: false
+        default: ${{ github.repository }}
+        type: string
+
+permissions:
+  contents: read
+  id-token: none
+
+jobs:
+  build:
+    name: Build ${{ matrix.key }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: linux-x64
+            runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+            rust_target: x86_64-unknown-linux-gnu
+          - key: darwin-arm64
+            runner: macos-15
+            platform: mac
+            arch: arm64
+            rust_target: aarch64-apple-darwin
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Fetch exact source without credentials
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-lazurio\.[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install server and web dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      # The binary reports apps/server/package.json and the launcher checks it
+      # for exact equality, so versions are stamped before anything is built.
+      - name: Align package versions to release version
+        run: node scripts/update-release-package-versions.ts "$VERSION"
+
+      - name: Build server and web client
+        run: vp run --filter t3 build
+
+      - name: Build resource monitor
+        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ matrix.rust_target }}"
+
+      - name: Build CLI single-executable
+        env:
+          # Keep in step with VP_NODE_VERSION in release-desktop.yml and
+          # SEA_NODE_VERSION in apps/server/vite.config.ts.
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Stage resource monitor for the CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/${{ matrix.key }}"
+          mkdir -p "$target_dir"
+          cp "native/resource-monitor/target/${{ matrix.rust_target }}/release/t3-resource-monitor" "$target_dir/t3-resource-monitor"
+
+      # No signing identity is configured, so macOS binaries are signed ad hoc,
+      # as upstream does without CSC_LINK.
+      - name: Build CLI archive
+        run: |
+          node scripts/build-cli-archive.ts \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$VERSION" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+
+      - name: Smoke-test CLI archive
+        run: node scripts/smoke-cli-archive.ts --archive "release-cli/t3-$VERSION-${{ matrix.key }}.tar.gz" --expect-version "$VERSION"
+
+      - name: Upload CLI archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cli-${{ matrix.key }}
+          path: release-cli/t3-${{ inputs.version }}-${{ matrix.key }}.tar.gz
+          if-no-files-found: error
+
+  # Installs the linux-x64 archive the way a Machine's Update does: the release
+  # directory is served over HTTP in upstream's layout, `t3 update` downloads
+  # SHA256SUMS and the archive through T3CODE_RELEASE_BASE_URL, verifies the
+  # checksum, unpacks the runtime and checks its exact version, and the staged
+  # runtime then answers the launcher's service preflight. Only the service
+  # restart itself is not exercised; runners have no user service manager.
+  launcher:
+    name: Launcher install linux-x64
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Fetch exact source without credentials
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install server dependencies
+        run: vp install --filter=t3...
+
+      - name: Download linux-x64 archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cli-linux-x64
+          path: ${{ runner.temp }}/channel/v${{ inputs.version }}
+
+      # The updating CLI runs from the unstamped source, so it is a different
+      # version than the target, just like a Machine on the previous release.
+      - name: Install the archive through the release channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/channel/v$VERSION"
+          (cd "$release_dir" && sha256sum t3-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$RUNNER_TEMP/channel" \
+            > "$RUNNER_TEMP/http.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for _ in $(seq 1 50); do
+            curl --silent --fail --output /dev/null "http://127.0.0.1:8765/v$VERSION/SHA256SUMS" && break
+            sleep 0.2
+          done
+
+          home="$RUNNER_TEMP/t3-home"
+          T3CODE_RELEASE_BASE_URL=http://127.0.0.1:8765 \
+            node apps/server/src/bin.ts update "$VERSION" --base-dir "$home" --allow-downgrade --yes
+
+          runtime="$home/runtime/versions/$VERSION/t3"
+          test "$(cat "$home/runtime/versions/$VERSION/.install-complete")" = "$VERSION"
+          test "$("$runtime" --version)" = "t3 v$VERSION"
+          protocol="$(sed -n 's/^export const SERVICE_LAUNCHER_PROTOCOL = \([0-9][0-9]*\) as const;$/\1/p' apps/server/src/cloud/serviceProtocol.ts)"
+          [[ "$protocol" =~ ^[0-9]+$ ]]
+          preflight="$("$runtime" __service-preflight --database-path "$home/userdata/state.sqlite" --launcher-protocol "$protocol")"
+          echo "$preflight"
+          jq -e --arg version "$VERSION" '.status == "ready" and .version == $version' <<< "$preflight"
