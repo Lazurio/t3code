@@ -6,7 +6,12 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
 
 import {
   CLI_RELEASE_CHECKSUMS_FILE,
@@ -14,6 +19,7 @@ import {
   cliArchivePlatformKey,
   cliArchiveTarCommand,
   cliReleaseDownloadBaseUrl,
+  cliReleaseRepository,
   parseChecksums,
 } from "@t3tools/shared/cliRelease";
 
@@ -98,6 +104,20 @@ export class PinnedRuntimePreflightBlockedError extends Schema.TaggedError<Pinne
   }
 }
 
+/** The release has no checksums file where releases are downloaded from. */
+export class PinnedRuntimeReleaseNotPublishedError extends Schema.TaggedError<PinnedRuntimeReleaseNotPublishedError>()(
+  "PinnedRuntimeReleaseNotPublishedError",
+  {
+    version: Schema.String,
+    /** The release repository, or the mirror when one is configured. */
+    source: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `t3@${this.version} is not published in ${this.source}.`;
+  }
+}
+
 /**
  * Installs the t3 release archive for `version` into the pinned runtime
  * directory unless a complete install is already there, and returns its
@@ -119,6 +139,7 @@ interface PinnedRuntimeInstallInput {
   readonly arch: string;
   readonly httpClient: HttpClient.HttpClient;
   readonly releaseBaseUrl?: string | undefined;
+  readonly releaseRepository?: string | undefined;
 }
 
 const fetchReleaseAsset = Effect.fn("cloud.pinned_runtime.fetch_release_asset")(function* (
@@ -158,15 +179,37 @@ const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(fun
     });
   }
   const httpClient = input.httpClient;
-  const baseUrl = cliReleaseDownloadBaseUrl(input.version, input.releaseBaseUrl);
+  const baseUrl = cliReleaseDownloadBaseUrl(
+    input.version,
+    input.releaseBaseUrl,
+    input.releaseRepository,
+  );
   const fileName = cliArchiveFileName(input.version, platformKey);
 
+  // Every published release has a checksums file, so a 404 here means the
+  // version was never released where this machine downloads from. Say that
+  // plainly: it is the answer when a client asks for a version that exists
+  // only on another release channel or repository.
   const checksums = parseChecksums(
     new TextDecoder().decode(
       yield* fetchReleaseAsset(
         httpClient,
         `${baseUrl}/${CLI_RELEASE_CHECKSUMS_FILE}`,
         "downloading the t3 release checksums",
+      ).pipe(
+        Effect.catchIf(
+          (error) =>
+            HttpClientError.isHttpClientError(error.cause) && error.cause.response?.status === 404,
+          () =>
+            Effect.fail(
+              new PinnedRuntimeReleaseNotPublishedError({
+                version: input.version,
+                source: input.releaseBaseUrl?.trim()
+                  ? input.releaseBaseUrl.trim()
+                  : `${cliReleaseRepository(input.releaseRepository)} releases`,
+              }),
+            ),
+        ),
       ),
     ),
   );

@@ -10,14 +10,17 @@
 #   T3CODE_VERSION           exact version to install (overrides T3CODE_CHANNEL)
 #   T3CODE_HOME              T3 home directory (default: ~/.t3)
 #   T3CODE_INSTALL_BIN_DIR   where the `t3` symlink goes (default: ~/.local/bin)
-#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
+#   T3CODE_RELEASE_REPOSITORY  GitHub repository (owner/name) whose releases to
+#                            install (default: pingdotgg/t3code)
+#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: the
+#                            repository's GitHub Releases)
 #
 # The archive is unpacked into $T3CODE_HOME/runtime/versions/<version>, the
 # same layout `t3 service install` uses, so the service reuses this download
 # instead of fetching the release again.
 set -eu
 
-repo="pingdotgg/t3code"
+repo="${T3CODE_RELEASE_REPOSITORY:-pingdotgg/t3code}"
 base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 t3_home="${T3CODE_HOME:-$HOME/.t3}"
 bin_dir="${T3CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"
@@ -67,18 +70,25 @@ fi
 channel="${T3CODE_CHANNEL:-stable}"
 version="${T3CODE_VERSION:-}"
 if [ -z "$version" ]; then
-  # Tags are v<semver>; the channel is the prerelease identifier, or none for
-  # stable. Only tags of the requested train are considered, so a stable
-  # install can never pick up a nightly or preview build by accident.
+  # Tags are v<semver>. A nightly or preview prerelease identifier names its
+  # train; every other version, including a fork's own prerelease suffix, is
+  # stable, the same rule the runtime uses. Only tags of the requested train
+  # are considered, so a stable install can never pick up a nightly or
+  # preview build by accident.
   case "$channel" in
-    stable) tag_pattern='v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)' ;;
-    nightly | preview) tag_pattern="v\([0-9][^\"]*-${channel}\.[0-9]*\.[0-9]*\)" ;;
+    stable | nightly | preview) ;;
     *) fail "T3CODE_CHANNEL must be stable, nightly, or preview" ;;
   esac
   tmp_index="$(mktemp)"
   fetch "https://api.github.com/repos/${repo}/releases?per_page=100" "$tmp_index"
-  version="$(sed -n "s/.*\"tag_name\": *\"${tag_pattern}\".*/\1/p" "$tmp_index" | head -n 1)"
+  versions="$(sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(-[0-9A-Za-z.-]*\)\{0,1\}\)".*/\1/p' "$tmp_index")"
   rm -f "$tmp_index"
+  train_suffix='-(nightly|preview)\.[0-9]{8}\.[0-9]+$'
+  if [ "$channel" = "stable" ]; then
+    version="$(printf '%s\n' "$versions" | grep -Ev -- "$train_suffix" | head -n 1)"
+  else
+    version="$(printf '%s\n' "$versions" | grep -E -- "-${channel}\\.[0-9]{8}\\.[0-9]+\$" | head -n 1)"
+  fi
   [ -n "$version" ] || fail "could not find a ${channel} release; set T3CODE_VERSION"
 fi
 case "$version" in

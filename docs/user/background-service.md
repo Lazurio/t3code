@@ -39,7 +39,9 @@ On Windows, run `irm https://t3.codes/install.ps1 | iex` in PowerShell instead.
 It places `t3` in `~/.local/bin` and reuses the same download when you later
 run `t3 service install`. It follows the stable train by default; set
 `T3CODE_CHANNEL=nightly` for nightlies, `T3CODE_VERSION` to pin an exact
-version, or `T3CODE_RELEASE_BASE_URL` to download from a mirror.
+version, `T3CODE_RELEASE_REPOSITORY=owner/name` to install a fork's releases, or
+`T3CODE_RELEASE_BASE_URL` to download from a mirror. `t3 update` honors the same
+two variables, and so does the service when they are set in its environment.
 
 `preview` is a third train that maintainers cut from unreleased branches to
 exercise the release pipeline. Those builds can be broken, receive no fixes,
