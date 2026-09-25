@@ -135,18 +135,29 @@ jobs:
     env:
       RELEASE_CONTROL: ${{ vars.LAZURIO_T3CODE_RELEASE_CONTROL }}
     steps:
+      # Runs after approval and before any side effect. main may have moved
+      # while the run waited; then this release is stale and stops here.
       - id: source
-        name: Fetch the exact release source
+        name: Recheck the release source after approval
         shell: bash
+        env:
+          TAG_KEY_PRESENT: ${{ secrets.LAZURIO_RELEASE_TAG_KEY != '' }}
         run: |
           set -euo pipefail
           test "$RELEASE_CONTROL" = "reviewed-v1"
+          if [[ "$TAG_KEY_PRESENT" != "true" ]]; then
+            echo "Environment secret LAZURIO_RELEASE_TAG_KEY is missing; nothing was published." >&2
+            exit 1
+          fi
 
           git init .
           git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
           git fetch --filter=blob:none --no-tags origin \
             "refs/heads/main:refs/remotes/origin/main"
-          git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main
+          if [[ "$(git rev-parse refs/remotes/origin/main)" != "$SOURCE_SHA" ]]; then
+            echo "main moved away from $SOURCE_SHA since dispatch; nothing was published." >&2
+            exit 1
+          fi
           git checkout --detach "$SOURCE_SHA"
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --filter=blob:none upstream \
@@ -175,11 +186,19 @@ jobs:
           sha256sum t3-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
-      - id: attest_archives
-        name: Attest the CLI archives
+      # One attestation per archive: attestation-url is only set for a
+      # single subject, and each archive gets its own link in the evidence.
+      - id: attest_linux
+        name: Attest the linux-x64 archive
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
-          subject-path: release-assets/t3-*.tar.gz
+          subject-path: release-assets/t3-${{ inputs.version }}-linux-x64.tar.gz
+
+      - id: attest_darwin
+        name: Attest the darwin-arm64 archive
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: release-assets/t3-${{ inputs.version }}-darwin-arm64.tar.gz
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -266,7 +285,8 @@ jobs:
 
       - name: Assemble release notes and evidence
         env:
-          ARCHIVES_ATTESTATION: ${{ steps.attest_archives.outputs.attestation-url }}
+          LINUX_ATTESTATION: ${{ steps.attest_linux.outputs.attestation-url }}
+          DARWIN_ATTESTATION: ${{ steps.attest_darwin.outputs.attestation-url }}
           IMAGE_ATTESTATION: ${{ steps.attest_image.outputs.attestation-url }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -282,7 +302,8 @@ jobs:
             --arg upstream_sha "$UPSTREAM_SHA" \
             --arg image "$IMAGE" \
             --arg digest "$IMAGE_DIGEST" \
-            --arg archives_attestation "$ARCHIVES_ATTESTATION" \
+            --arg linux_attestation "$LINUX_ATTESTATION" \
+            --arg darwin_attestation "$DARWIN_ATTESTATION" \
             --arg image_attestation "$IMAGE_ATTESTATION" \
             --arg run "$RUN_URL" \
             --rawfile checksums release-assets/SHA256SUMS \
@@ -311,7 +332,10 @@ jobs:
               },
               validation: {
                 workflow_run: $run,
-                archives_attestation: $archives_attestation,
+                archive_attestations: {
+                  "linux-x64": $linux_attestation,
+                  "darwin-arm64": $darwin_attestation
+                },
                 image_attestation: $image_attestation
               }
             }' > release-assets/release-evidence.json
@@ -323,7 +347,8 @@ jobs:
             echo "- Source: \`$SOURCE_SHA\`"
             echo "- Upstream base: \`$UPSTREAM_TAG\` at \`$UPSTREAM_SHA\`"
             echo "- OCI image: \`$IMAGE:$VERSION\` = \`$IMAGE@$IMAGE_DIGEST\`"
-            echo "- Archive attestation: $ARCHIVES_ATTESTATION"
+            echo "- linux-x64 archive attestation: $LINUX_ATTESTATION"
+            echo "- darwin-arm64 archive attestation: $DARWIN_ATTESTATION"
             echo "- Image attestation: $IMAGE_ATTESTATION"
             echo
             echo "## Lazurio overlay"
@@ -332,16 +357,34 @@ jobs:
             echo
           } > "$RUNNER_TEMP/RELEASE_NOTES.md"
 
-      # The tag is created first and on its own: the API refuses an existing
-      # ref, so a tag that appeared since verification stops the release here.
-      - name: Tag the exact source
+      # Release tags can only be created through the deploy key whose private
+      # half is a secret of this environment, so only an approved run can tag.
+      # A plain push never replaces an existing tag: one that appeared since
+      # verification stops the release here.
+      - name: Tag the exact source with the release deploy key
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_KEY: ${{ secrets.LAZURIO_RELEASE_TAG_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f ref="refs/tags/$RELEASE_TAG" -f sha="$SOURCE_SHA" > /dev/null
+          if [[ -z "$TAG_KEY" ]]; then
+            echo "Environment secret LAZURIO_RELEASE_TAG_KEY is missing." >&2
+            exit 1
+          fi
+          if [[ "$(git ls-remote origin refs/heads/main | cut -f1)" != "$SOURCE_SHA" ]]; then
+            echo "main moved away from $SOURCE_SHA; the release is not tagged." >&2
+            exit 1
+          fi
+
+          ssh_dir="$(mktemp -d)"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$TAG_KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$ssh_dir/known_hosts"
+          git -c core.sshCommand="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ssh_dir/known_hosts" \
+            push "git@github.com:$GITHUB_REPOSITORY.git" "$SOURCE_SHA:refs/tags/$RELEASE_TAG"
+
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
 
       - name: Publish the GitHub Release

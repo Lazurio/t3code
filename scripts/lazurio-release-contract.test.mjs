@@ -35,12 +35,27 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
   // The channel is the newest release, so a release must be the highest version.
   NodeAssert.match(release, /compareExactServiceVersions\(version, published\) <= 0/);
   NodeAssert.match(release, /already exists and will not be overwritten/);
-  NodeAssert.match(release, /--method POST "repos\/\$GITHUB_REPOSITORY\/git\/refs"/);
+  // After approval: live main must still be the source, and only the
+  // environment's deploy key creates the tag, never with force.
+  NodeAssert.match(release, /main moved away from \$SOURCE_SHA since dispatch/);
+  NodeAssert.match(release, /secrets\.LAZURIO_RELEASE_TAG_KEY/);
+  NodeAssert.match(
+    release,
+    /push "git@github\.com:\$GITHUB_REPOSITORY\.git" "\$SOURCE_SHA:refs\/tags\/\$RELEASE_TAG"/,
+  );
+  NodeAssert.doesNotMatch(release, /git\/refs"|--force|\+\$SOURCE_SHA/);
   NodeAssert.match(release, /--verify-tag/);
   NodeAssert.match(release, /uses: \.\/\.github\/workflows\/lazurio-cli-archives\.yml/);
   NodeAssert.match(release, /needs: \[verify, archives\]/);
   NodeAssert.match(release, /sha256sum t3-\*\.tar\.gz > SHA256SUMS/);
-  NodeAssert.match(release, /subject-path: release-assets\/t3-\*\.tar\.gz/);
+  NodeAssert.match(
+    release,
+    /subject-path: release-assets\/t3-\$\{\{ inputs\.version \}\}-linux-x64\.tar\.gz/,
+  );
+  NodeAssert.match(
+    release,
+    /subject-path: release-assets\/t3-\$\{\{ inputs\.version \}\}-darwin-arm64\.tar\.gz/,
+  );
   NodeAssert.match(release, /grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'/);
   NodeAssert.match(release, /base_path: "\/"/);
   NodeAssert.doesNotMatch(release, /:\s*latest\b/);
