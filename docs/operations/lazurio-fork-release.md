@@ -14,12 +14,12 @@ desktop a mobilní aplikace se připojují jako neupravení upstream klienti.
 GitHub Releases tohoto repozitáře jsou kanál, ze kterého se T3 Code na všech
 Lazurio Mašinách instaluje a aktualizuje. Každé vydání obsahuje:
 
-| Asset                                 | K čemu                                                  |
-| ------------------------------------- | ------------------------------------------------------- |
-| `t3-<verze>-linux-x64.tar.gz`         | headless Linux Mašiny                                   |
-| `t3-<verze>-darwin-arm64.tar.gz`      | Mac Mašiny (přes web verzi T3 Code)                     |
-| `SHA256SUMS`                          | `sha256sum` přes finální bajty archivů, upstream formát |
-| `release-evidence.json`               | zdrojový commit, upstream báze, checksumy, OCI digest   |
+| Asset                            | K čemu                                                  |
+| -------------------------------- | ------------------------------------------------------- |
+| `t3-<verze>-linux-x64.tar.gz`    | headless Linux Mašiny                                   |
+| `t3-<verze>-darwin-arm64.tar.gz` | Mac Mašiny (přes web verzi T3 Code)                     |
+| `SHA256SUMS`                     | `sha256sum` přes finální bajty archivů, upstream formát |
+| `release-evidence.json`          | zdrojový commit, upstream báze, checksumy, OCI digest   |
 
 Archivy mají přesně upstream layout (`t3`, `client/`, `resource-monitor/`,
 `node_modules/`), protože je staví upstream skripty. Launcher boot service je
@@ -63,12 +63,12 @@ nabídne normálně.
 
 `main` je přesný upstream stable tag a nad ním jen tyto commity:
 
-| Commit                                                   | Proč ho Lazurio potřebuje                                                                                                                                                                                                                    |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hosted: configurable client session TTL`                | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                                                     |
-| `hosted: serve behind an explicit HTTPS external origin` | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.                                  |
-| `hosted: explicit environment label`                     | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Iotor / Management`).                                                                                                                                                |
-| `release: Lazurio distribution`                          | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                                                                  |
+| Commit                                                   | Proč ho Lazurio potřebuje                                                                                                                                                                               |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hosted: configurable client session TTL`                | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                |
+| `hosted: serve behind an explicit HTTPS external origin` | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu. |
+| `hosted: explicit environment label`                     | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Iotor / Management`).                                                                                                           |
+| `release: Lazurio distribution`                          | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                            |
 
 Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
 upstream nabídne ekvivalent. Overlay nesahá na klienty, sdílené balíčky ani
