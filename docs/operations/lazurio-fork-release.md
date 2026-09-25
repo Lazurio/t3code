@@ -87,6 +87,16 @@ necommitují.
 - **Vlastní oprava nebo změna overlaye** na stejné bázi: po merge do `main`
   vydej další `-lazurio.N`.
 - Nevydávej upstream nightly ani preview a nevydávej z jiné branche než `main`.
+- PR do `main` se mergují jen rebase, bez merge commitu. Release i CI odmítnou
+  merge commit nad upstream tagem.
+
+**Brána před prvním vydáním.** První vydání spusť, až platí obojí:
+
+- PR s in-app aktualizací z nastaveného kanálu (#19) je mergnutý do `main`.
+  Bez něj Mašiny tlačítko Update z našeho kanálu nenabídnou.
+- `lazurio-fork-ci.yml` na `main` obsahuje allowlist
+  `allowed_upstream_changes`:
+  `gh api 'repos/Lazurio/t3code/contents/.github/workflows/lazurio-fork-ci.yml?ref=main' --jq .content | base64 -d | grep -q allowed_upstream_changes`.
 
 ## Přestavba na nový upstream tag
 
@@ -104,8 +114,18 @@ hromadně.
    odeber. Nový soubor přidej jen jako vědomé rozhodnutí se zdůvodněním.
 4. Otevři PR a počkej na zelené `Lazurio Fork CI`.
 5. Než se `main` přepne, musí být současný `main` zachycený publikovaným
-   vydáním `v…-lazurio.N` nebo chráněným tagem `lazurio-archive-*`. S
-   explicitním pokynem Organization Admina vázaným na oba SHA:
+   **immutable** vydáním `v…-lazurio.N`. Jiný tag nestačí. Ověř, že tag
+   vydání míří přesně na starý `main` a že vydání je immutable:
+
+   ```bash
+   expected_old_main="$(git ls-remote https://github.com/Lazurio/t3code.git refs/heads/main | cut -f1)"
+   capture=v0.0.42-lazurio.3   # poslední vydání
+   test "$(gh api "repos/Lazurio/t3code/git/ref/tags/$capture" --jq .object.sha)" = "$expected_old_main"
+   test "$(gh api "repos/Lazurio/t3code/releases/tags/$capture" --jq .immutable)" = true
+   ```
+
+   Pokud poslední vydání nemíří na současný `main`, vydej ho nejdřív. Potom,
+   s explicitním pokynem Organization Admina vázaným na oba SHA:
 
    ```bash
    git push --force-with-lease="refs/heads/main:$expected_old_main" \
@@ -177,20 +197,32 @@ Workflow `Lazurio T3 Code Release` postupně:
 2. **CLI archives** postaví a otestuje oba archivy stejně jako CI.
 3. **Publish release and image** čeká na schválení v environmentu
    `lazurio-t3code-release`. Po schválení:
-   - napíše `SHA256SUMS` a attestuje archivy;
+   - před jakýmkoli zápisem znovu ověří, že `source_sha` je pořád špička
+     `main`. Když se `main` mezitím posunul, skončí a nic nepublikuje; spusť
+     vydání znovu s novou špičkou;
+   - napíše `SHA256SUMS` a attestuje každý archiv zvlášť;
    - postaví, pushne a attestuje `ghcr.io/lazurio/t3code:<verze>`;
-   - vytvoří tag `v<verze>` na `source_sha`;
+   - vytvoří tag `v<verze>` na `source_sha` pushem přes release deploy key;
    - publikuje GitHub Release jako `latest`.
 
    Existující tag, vydání ani image nikdy nepřepíše.
+
+Tagy `v*-lazurio.*` chrání ruleset, který smí obejít jen deploy key. Jeho
+privátní klíč je jen secret `LAZURIO_RELEASE_TAG_KEY` environmentu
+`lazurio-t3code-release`, takže ho má k dispozici až schválený publish job.
+Ruční tag proto vytvořit nejde, ani Stewardovi, ani Adminovi, ani jinému
+workflow. Tak je to navržené. Když secret chybí, publish skončí dřív, než cokoli
+zapíše.
 
 ## Schválení
 
 Když jsou první dva kroky zelené, požádej Matěje o schválení a pošli mu odkaz na
 běh. Matěj ho schválí v GitHubu (běh → Review deployments →
-`lazurio-t3code-release` → Approve). Environment má `prevent_self_review`, takže
-kdo vydání spustil, ho sám schválit nemůže. Pokud se vydání rozmyslíš, Matěj
-ho odmítne (Reject) a nic se nepublikuje.
+`lazurio-t3code-release` → Approve). Jediný povinný schvalovatel environmentu je
+Matěj, takže bez jeho schválení vydání nevyjde. Environment má
+`prevent_self_review`: vydání proto spouštíš ty, ne Matěj, protože vlastní běh by
+schválit nemohl. Pokud se vydání rozmyslíš, Matěj ho odmítne (Reject) a nic se
+nepublikuje.
 
 ## Ověření publikovaného vydání
 
@@ -221,8 +253,10 @@ Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
 
 - Publikované vydání, jeho assety ani tag nikdy nemaž a nepřepisuj. Chybné
   vydání nahradí vyšší verze.
-- Nepublikuj vydání ručně (`gh release create`) ani nevytvářej tag
-  `v*-lazurio.*` ručně. Kanál smí plnit jen workflow.
+- Nepublikuj vydání ručně (`gh release create`). Tag `v*-lazurio.*` ručně
+  vytvořit ani nejde; kanál plní jen workflow.
+- Nepoužívej release deploy key mimo workflow a jeho privátní klíč nikam
+  nekopíruj.
 - Nepoužívej příznak pre-release jako canary, servery ho neskryjí.
 - Nepushuj na `main` s force mimo postup „Přestavba na nový upstream tag“.
 - Nespouštěj upstream workflow (`release.yml` a další) a nezapínej je.
