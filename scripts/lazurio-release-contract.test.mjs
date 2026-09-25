@@ -72,7 +72,10 @@ NodeTest.test("CI is read-only and pins the exact upstream base", () => {
   NodeAssert.match(ci, /UPSTREAM_SHA: 719a76ca1dbf5490f1aa33ffb9966301e02be9a9/);
   NodeAssert.match(ci, /\^\(apps\/\(web\|mobile\|desktop\)\|packages\)\//);
   const upstreamVersion = /UPSTREAM_TAG: v(\S+)/.exec(ci)?.[1];
-  NodeAssert.match(ci, new RegExp(`version: ${upstreamVersion?.replaceAll(".", "\\.")}-lazurio\\.0\\n`));
+  NodeAssert.match(
+    ci,
+    new RegExp(`version: ${upstreamVersion?.replaceAll(".", "\\.")}-lazurio\\.0\\n`),
+  );
 });
 
 NodeTest.test("image is root-served, non-root, and self-checks its terminal", () => {
