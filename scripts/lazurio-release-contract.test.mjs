@@ -35,15 +35,16 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
   // The channel is the newest release, so a release must be the highest version.
   NodeAssert.match(release, /compareExactServiceVersions\(version, published\) <= 0/);
   NodeAssert.match(release, /already exists and will not be overwritten/);
-  // After approval: live main must still be the source, and only the
-  // environment's deploy key creates the tag, never with force.
+  // After approval: live main must still be the source, and only the release
+  // App, whose key is an environment secret, creates the tag.
   NodeAssert.match(release, /main moved away from \$SOURCE_SHA since dispatch/);
-  NodeAssert.match(release, /secrets\.LAZURIO_RELEASE_TAG_KEY/);
-  NodeAssert.match(
-    release,
-    /push "git@github\.com:\$GITHUB_REPOSITORY\.git" "\$SOURCE_SHA:refs\/tags\/\$RELEASE_TAG"/,
-  );
-  NodeAssert.doesNotMatch(release, /git\/refs"|--force|\+\$SOURCE_SHA/);
+  NodeAssert.match(release, /vars\.LAZURIO_RELEASE_APP_ID != ''/);
+  NodeAssert.match(release, /secrets\.LAZURIO_RELEASE_APP_PRIVATE_KEY != ''/);
+  NodeAssert.match(release, /uses: actions\/create-github-app-token@[0-9a-f]{40}/);
+  NodeAssert.match(release, /owner: Lazurio\n {10}repositories: t3code\n/);
+  NodeAssert.match(release, /GH_TOKEN: \$\{\{ steps\.release_app\.outputs\.token \}\}/);
+  NodeAssert.match(release, /--method POST "repos\/\$GITHUB_REPOSITORY\/git\/refs"/);
+  NodeAssert.doesNotMatch(release, /--force|LAZURIO_RELEASE_TAG_KEY|sshCommand/);
   NodeAssert.match(release, /--verify-tag/);
   NodeAssert.match(release, /uses: \.\/\.github\/workflows\/lazurio-cli-archives\.yml/);
   NodeAssert.match(release, /needs: \[verify, archives\]/);
