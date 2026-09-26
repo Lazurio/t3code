@@ -141,12 +141,13 @@ jobs:
         name: Recheck the release source after approval
         shell: bash
         env:
-          TAG_KEY_PRESENT: ${{ secrets.LAZURIO_RELEASE_TAG_KEY != '' }}
+          APP_ID_PRESENT: ${{ vars.LAZURIO_RELEASE_APP_ID != '' }}
+          APP_KEY_PRESENT: ${{ secrets.LAZURIO_RELEASE_APP_PRIVATE_KEY != '' }}
         run: |
           set -euo pipefail
           test "$RELEASE_CONTROL" = "reviewed-v1"
-          if [[ "$TAG_KEY_PRESENT" != "true" ]]; then
-            echo "Environment secret LAZURIO_RELEASE_TAG_KEY is missing; nothing was published." >&2
+          if [[ "$APP_ID_PRESENT" != "true" || "$APP_KEY_PRESENT" != "true" ]]; then
+            echo "Release App variable LAZURIO_RELEASE_APP_ID or secret LAZURIO_RELEASE_APP_PRIVATE_KEY is missing; nothing was published." >&2
             exit 1
           fi
 
@@ -357,34 +358,33 @@ jobs:
             echo
           } > "$RUNNER_TEMP/RELEASE_NOTES.md"
 
-      # Release tags can only be created through the deploy key whose private
-      # half is a secret of this environment, so only an approved run can tag.
-      # A plain push never replaces an existing tag: one that appeared since
+      # Release tags can only be created by the Lazurio T3 Code Release App,
+      # whose private key is a secret of this environment, so only an
+      # approved run can tag. The token is scoped to this repository.
+      - id: release_app
+        name: Mint the release App token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.LAZURIO_RELEASE_APP_ID }}
+          private-key: ${{ secrets.LAZURIO_RELEASE_APP_PRIVATE_KEY }}
+          owner: Lazurio
+          repositories: t3code
+          permission-contents: write
+
+      # The API refuses an existing ref, so a tag that appeared since
       # verification stops the release here.
-      - name: Tag the exact source with the release deploy key
+      - name: Tag the exact source with the release App
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_KEY: ${{ secrets.LAZURIO_RELEASE_TAG_KEY }}
+          GH_TOKEN: ${{ steps.release_app.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$TAG_KEY" ]]; then
-            echo "Environment secret LAZURIO_RELEASE_TAG_KEY is missing." >&2
-            exit 1
-          fi
           if [[ "$(git ls-remote origin refs/heads/main | cut -f1)" != "$SOURCE_SHA" ]]; then
             echo "main moved away from $SOURCE_SHA; the release is not tagged." >&2
             exit 1
           fi
-
-          ssh_dir="$(mktemp -d)"
-          trap 'rm -rf "$ssh_dir"' EXIT
-          printf '%s\n' "$TAG_KEY" > "$ssh_dir/key"
-          chmod 600 "$ssh_dir/key"
-          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$ssh_dir/known_hosts"
-          git -c core.sshCommand="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ssh_dir/known_hosts" \
-            push "git@github.com:$GITHUB_REPOSITORY.git" "$SOURCE_SHA:refs/tags/$RELEASE_TAG"
-
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$RELEASE_TAG" -f sha="$SOURCE_SHA" > /dev/null
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
 
       - name: Publish the GitHub Release

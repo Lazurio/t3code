@@ -221,32 +221,39 @@ Workflow `Lazurio T3 Code Release` postupně:
      vydání znovu s novou špičkou;
    - napíše `SHA256SUMS` a attestuje každý archiv zvlášť;
    - postaví, pushne a attestuje `ghcr.io/lazurio/t3code:<verze>`;
-   - vytvoří tag `v<verze>` na `source_sha` pushem přes release deploy key;
+   - vytvoří tag `v<verze>` na `source_sha` tokenem release App (API odmítne
+     existující tag);
    - publikuje GitHub Release jako `latest`.
 
    Existující tag, vydání ani image nikdy nepřepíše.
 
-Tagy `v*-lazurio.*` chrání ruleset, který smí obejít jen deploy key. Jeho
-privátní klíč je jen secret `LAZURIO_RELEASE_TAG_KEY` environmentu
-`lazurio-t3code-release`, takže ho má k dispozici až schválený publish job.
-Ruční tag proto vytvořit nejde, ani Stewardovi, ani Adminovi, ani jinému
-workflow. Tak je to navržené. Když secret chybí, publish skončí dřív, než cokoli
-zapíše.
+Tagy `v*-lazurio.*` chrání ruleset 24037218 „Protect Lazurio channel tags“.
+Obejít ho smí jen GitHub App „Lazurio T3 Code Release“ (contents write,
+metadata read), nainstalovaná jen na `Lazurio/t3code`. Její ID je proměnná
+`LAZURIO_RELEASE_APP_ID` a privátní klíč secret
+`LAZURIO_RELEASE_APP_PRIVATE_KEY`, obojí v environmentu
+`lazurio-t3code-release`. Token si proto umí vyrobit až schválený publish job,
+a to jen pro tento repozitář. Ruční tag vytvořit nejde, ani Stewardovi, ani
+Adminovi, ani jinému workflow. Tak je to navržené. Když proměnná nebo secret
+chybí, publish skončí dřív, než cokoli zapíše.
 
-Bypass rulesetu platí pro kategorii `DeployKey`, ne pro jeden konkrétní klíč.
-Proto platí invariant: **na repozitáři existuje právě jeden deploy key, a to
-release tag key.** Admin to ověří při aplikaci nastavení a po každé změně
-klíčů (endpoint vidí jen Admin):
+Platí invariant: **bypass typu `Integration` v rulesetu 24037218 má jen tahle
+App a App je nainstalovaná jen na `t3code`.** Admin ho ověří při aplikaci
+nastavení a po každé změně rulesetu nebo instalace (endpointy vidí jen Admin):
 
 ```bash
-gh api repos/Lazurio/t3code/keys --jq '[.[] | {id, title, read_only}]'
-# očekáváno: jediný záznam „lazurio-t3code-release tag push“, read_only false
+gh api repos/Lazurio/t3code/rulesets/24037218 --jq '.bypass_actors'
+# očekáváno: [{"actor_id":<LAZURIO_RELEASE_APP_ID>,"actor_type":"Integration","bypass_mode":"always"}]
+gh api orgs/Lazurio/installations \
+  --jq '.installations[] | select(.app_id == <LAZURIO_RELEASE_APP_ID>) | {repository_selection, permissions}'
+# očekáváno: repository_selection "selected", permissions {"contents":"write","metadata":"read"}
 ```
 
-Jiný deploy key na tento repozitář nepřidávej. Kdyby byl potřeba, nahradí
-kategorii `DeployKey` vlastní GitHub App jako release identita, jejíž klíč
-bude secret environmentu. To je zdokumentovaná budoucí varianta, dnes není
-implementovaná.
+Seznam repozitářů instalace přes API neukáže token uživatele, jen token samotné
+App. Admin ho proto čte v Organization settings → GitHub Apps → Lazurio T3
+Code Release → Configure → Repository access: „Only select repositories“ a
+jediný repozitář `t3code`. App na další repozitáře nepřidávej a do bypassu
+rulesetu nepřidávej jiného aktéra.
 
 ## Schválení
 
@@ -289,8 +296,7 @@ Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
   vydání nahradí vyšší verze.
 - Nepublikuj vydání ručně (`gh release create`). Tag `v*-lazurio.*` ručně
   vytvořit ani nejde; kanál plní jen workflow.
-- Nepoužívej release deploy key mimo workflow a jeho privátní klíč nikam
-  nekopíruj.
+- Nepoužívej release App mimo workflow a její privátní klíč nikam nekopíruj.
 - Nepoužívej příznak pre-release jako canary, servery ho neskryjí.
 - Nepushuj na `main` s force mimo postup „Přestavba na nový upstream tag“.
 - Nespouštěj upstream workflow (`release.yml` a další) a nezapínej je.
