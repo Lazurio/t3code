@@ -88,7 +88,10 @@ necommitují.
   vydej další `-lazurio.N`.
 - Nevydávej upstream nightly ani preview a nevydávej z jiné branche než `main`.
 - PR do `main` se mergují jen rebase, bez merge commitu. Release i CI odmítnou
-  merge commit nad upstream tagem.
+  merge commit nad upstream tagem. Main ruleset 21717536 to vynucuje:
+  povoluje jen `rebase` a vyžaduje lineární historii. Readback:
+  `gh api repos/Lazurio/t3code/rulesets/21717536 --jq '[.rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods], [.rules[].type]'`
+  vrátí `[["rebase"]]` a mezi typy `required_linear_history`.
 
 **Brána před prvním vydáním.** První vydání spusť, až platí obojí:
 
@@ -101,7 +104,12 @@ necommitují.
 ## Přestavba na nový upstream tag
 
 `main` je rolling patch-stack. Starý `main` se neslučuje ani nepřehrává
-hromadně.
+hromadně. Přestavbu připravuješ ty (Steward): candidate branch, checky a
+přesné SHA. Samotnou výměnu `main` provádí Organization Admin, tedy Matěj,
+nebo jeho Task Agent na jeho explicitní pokyn. Používá k tomu existující bypass
+`OrganizationAdmin` v main rulesetu 21717536. Ostatním force-push dál blokuje
+pravidlo `non_fast_forward` a běžné PR a check ochrany platí pro všechny beze
+změny.
 
 1. Z přesného upstream stable tagu založ candidate branch. Každý commit
    overlaye přenes podle záměru (`git cherry-pick`, případně ručně) a overlay
@@ -112,7 +120,9 @@ hromadně.
 3. Při každé přestavbě znovu projdi allowlist `allowed_upstream_changes`.
    Soubor, který overlay už nemění nebo jehož změnu převzal upstream, z něj
    odeber. Nový soubor přidej jen jako vědomé rozhodnutí se zdůvodněním.
-4. Otevři PR a počkej na zelené `Lazurio Fork CI`.
+4. Otevři PR a počkej na zelené `Lazurio Fork CI`. Pak předej Adminovi
+   přesný starý `main` (`expected_old_main`) a přesný nový head
+   (`candidate_head`) spolu s odkazem na zelený běh.
 5. Než se `main` přepne, musí být současný `main` zachycený publikovaným
    **immutable** vydáním `v…-lazurio.N`. Jiný tag nestačí. Ověř, že tag
    vydání míří přesně na starý `main` a že vydání je immutable:
@@ -124,8 +134,17 @@ hromadně.
    test "$(gh api "repos/Lazurio/t3code/releases/tags/$capture" --jq .immutable)" = true
    ```
 
-   Pokud poslední vydání nemíří na současný `main`, vydej ho nejdřív. Potom,
-   s explicitním pokynem Organization Admina vázaným na oba SHA:
+   Pokud poslední vydání nemíří na současný `main`, vydej ho nejdřív. Admin
+   pak ověří, že bypass existuje:
+
+   ```bash
+   gh api repos/Lazurio/t3code/rulesets/21717536 --jq '.bypass_actors'
+   # očekáváno: [{"actor_id":null,"actor_type":"OrganizationAdmin","bypass_mode":"always"}]
+   # (Maintainer vidí null kvůli svým právům; readback dělá Admin.)
+   ```
+
+   Potom Admin, nebo jeho Task Agent na explicitní pokyn vázaný na oba SHA,
+   vymění `main`:
 
    ```bash
    git push --force-with-lease="refs/heads/main:$expected_old_main" \
@@ -213,6 +232,21 @@ privátní klíč je jen secret `LAZURIO_RELEASE_TAG_KEY` environmentu
 Ruční tag proto vytvořit nejde, ani Stewardovi, ani Adminovi, ani jinému
 workflow. Tak je to navržené. Když secret chybí, publish skončí dřív, než cokoli
 zapíše.
+
+Bypass rulesetu platí pro kategorii `DeployKey`, ne pro jeden konkrétní klíč.
+Proto platí invariant: **na repozitáři existuje právě jeden deploy key, a to
+release tag key.** Admin to ověří při aplikaci nastavení a po každé změně
+klíčů (endpoint vidí jen Admin):
+
+```bash
+gh api repos/Lazurio/t3code/keys --jq '[.[] | {id, title, read_only}]'
+# očekáváno: jediný záznam „lazurio-t3code-release tag push“, read_only false
+```
+
+Jiný deploy key na tento repozitář nepřidávej. Kdyby byl potřeba, nahradí
+kategorii `DeployKey` vlastní GitHub App jako release identita, jejíž klíč
+bude secret environmentu. To je zdokumentovaná budoucí varianta, dnes není
+implementovaná.
 
 ## Schválení
 
