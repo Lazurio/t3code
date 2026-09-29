@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
+import { HttpClient } from "effect/unstable/http";
 
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
@@ -78,7 +79,17 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
   } satisfies ServerConfig.ServerConfig["Service"];
 });
 
-it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
+// These servers are not managed by the boot service, so they never check for
+// updates; any request is a bug.
+const testLayer = Layer.merge(
+  NodeServices.layer,
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make(() => Effect.die("an unmanaged server checked for updates")),
+  ),
+);
+
+it.layer(testLayer)("ServerEnvironmentLive", (it) => {
   it.effect.each([
     { name: "missing", content: undefined },
     { name: "empty", content: "" },
