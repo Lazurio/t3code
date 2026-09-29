@@ -4,14 +4,17 @@ import * as NodeAssert from "node:assert/strict";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeTest from "node:test";
 
+import { cliReleaseChannelOf } from "../packages/shared/src/cliRelease.ts";
+
 const read = (path) => NodeFSP.readFile(path, "utf8");
-const [release, archives, ci, dockerfile, dockerignore, docs] = await Promise.all([
+const [release, archives, ci, dockerfile, dockerignore, docs, updateSource] = await Promise.all([
   read(".github/workflows/lazurio-release.yml"),
   read(".github/workflows/lazurio-cli-archives.yml"),
   read(".github/workflows/lazurio-fork-ci.yml"),
   read("Dockerfile.lazurio"),
   read(".dockerignore"),
   read("docs/operations/lazurio-fork-release.md"),
+  read("apps/server/src/cli/update.ts"),
 ]);
 
 NodeTest.test("release is manual, gated, and never overwrites", () => {
@@ -22,7 +25,6 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
   NodeAssert.match(release, /environment: lazurio-t3code-release/);
   NodeAssert.match(release, /test "\$RELEASE_CONTROL" = "reviewed-v1"/);
   NodeAssert.match(release, /test "\$GITHUB_REF" = "refs\/heads\/main"/);
-  NodeAssert.match(release, /\^\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+-lazurio\\\.\[1-9\]/);
   NodeAssert.match(release, /RELEASE_TAG: v\$\{\{ inputs\.version \}\}/);
   NodeAssert.match(
     release,
@@ -32,7 +34,9 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
     release,
     /git rev-list --merges "\$UPSTREAM_SHA\.\.\$SOURCE_SHA" --count\)" = 0/,
   );
-  // The channel is the newest release, so a release must be the highest version.
+  // Servers take the newest release on their own channel, so a release must be
+  // the highest version on its channel; channels are compared as upstream derives them.
+  NodeAssert.match(release, /cliReleaseChannelOf\(published\) !== channel\) continue;/);
   NodeAssert.match(release, /compareExactServiceVersions\(version, published\) <= 0/);
   NodeAssert.match(release, /already exists and will not be overwritten/);
   // After approval: live main must still be the source, and only the release
@@ -60,6 +64,70 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
   NodeAssert.match(release, /grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'/);
   NodeAssert.match(release, /base_path: "\/"/);
   NodeAssert.doesNotMatch(release, /:\s*latest\b/);
+});
+
+// Only the two upstream channel shapes are releasable: stable X.Y.Z-lazurio.N and
+// preview X.Y.Z-preview.YYYYMMDD.N, both on the exact upstream base X.Y.Z.
+const versionPattern = new RegExp(/\[\[ "\$VERSION" =~ (\S+) \]\]/.exec(release)?.[1] ?? "(?!)");
+
+NodeTest.test("release accepts only upstream stable-train and preview versions", () => {
+  for (const version of ["0.0.43-lazurio.1", "0.0.43-lazurio.12", "0.0.43-preview.20260929.1"]) {
+    NodeAssert.match(version, versionPattern, version);
+    // The workflow's CHANNEL expression must agree with upstream's rule.
+    const workflowChannel = version.includes("-preview.") ? "preview" : "stable";
+    NodeAssert.equal(cliReleaseChannelOf(version), workflowChannel, version);
+  }
+  for (const version of [
+    "0.0.43",
+    "0.0.43-lazurio.0",
+    "0.0.43-preview.20260929.0",
+    "0.0.43-preview.2026092.1",
+    "0.0.43-nightly.20260929.1",
+    "0.0.43-lazurio.1+build",
+  ]) {
+    NodeAssert.doesNotMatch(version, versionPattern, version);
+  }
+  NodeAssert.match(release, /\[\[ "\$VERSION" == "\$\{UPSTREAM_TAG#v\}-"\* \]\]/);
+  NodeAssert.match(
+    release,
+    /CHANNEL: \$\{\{ contains\(inputs\.version, '-preview\.'\) && 'preview' \|\| 'stable' \}\}/,
+  );
+});
+
+NodeTest.test("the archive build accepts every releasable version and CI's -lazurio.0", () => {
+  const archivePattern = new RegExp(/\[\[ "\$VERSION" =~ (\S+) \]\]/.exec(archives)?.[1] ?? "(?!)");
+  for (const version of [
+    "0.0.43-lazurio.0",
+    "0.0.43-lazurio.1",
+    "0.0.43-preview.20260929.1",
+    "0.0.43-preview.20260929.12",
+  ]) {
+    NodeAssert.match(version, archivePattern, version);
+  }
+  for (const version of ["0.0.43", "0.0.43-nightly.20260929.1"]) {
+    NodeAssert.doesNotMatch(version, archivePattern, version);
+  }
+});
+
+NodeTest.test("the launcher smoke passes the real preview consent prompt in a TTY", () => {
+  const prompt = /prompt = b"([^"]+)"/.exec(archives)?.[1];
+  NodeAssert.ok(prompt, "the smoke must answer a named prompt");
+  // The exact upstream prompt, so a changed prompt fails here instead of hanging in CI.
+  NodeAssert.ok(updateSource.includes(`message: "${prompt}"`), prompt);
+  NodeAssert.match(archives, /pid, fd = pty\.fork\(\)/);
+  NodeAssert.match(archives, /\[\[ "\$VERSION" == \*-preview\.\* \]\] && expect_prompt=1/);
+  NodeAssert.match(archives, /a stable target must not ask for preview consent/);
+  NodeAssert.match(archives, /a preview target must ask for consent before installing/);
+});
+
+NodeTest.test("a preview is a GitHub pre-release and never latest; stable is latest", () => {
+  NodeAssert.match(
+    release,
+    /if \[\[ "\$CHANNEL" == preview \]\]; then\n\s+channel_flags=\(--prerelease --latest=false\)\n\s+else\n\s+channel_flags=\(--latest\)\n/,
+  );
+  NodeAssert.match(release, /"\$\{channel_flags\[@\]\}"/);
+  NodeAssert.match(release, /releases\/latest" --jq \.tag_name\)" != "\$RELEASE_TAG"/);
+  NodeAssert.doesNotMatch(release, /^\s+--latest \\$/m);
 });
 
 NodeTest.test("archives are built with upstream's own release steps", () => {
