@@ -4,13 +4,15 @@ name: Lazurio T3 Code Release
 # archives, then waits for approval in the lazurio-t3code-release environment
 # before it tags the source, publishes the GitHub Release that Lazurio Machines
 # update from, and pushes the matching OCI image. Nothing is ever overwritten.
+# The channel follows upstream: X.Y.Z-lazurio.N is stable, X.Y.Z-preview.YYYYMMDD.N
+# is preview, published as a GitHub pre-release and never as latest.
 # Runbook: docs/operations/lazurio-fork-release.md.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version X.Y.Z-lazurio.N (tag vX.Y.Z-lazurio.N)
+        description: Stable X.Y.Z-lazurio.N or preview X.Y.Z-preview.YYYYMMDD.N (tag v<version>)
         required: true
         type: string
       source_sha:
@@ -37,6 +39,8 @@ concurrency:
 env:
   IMAGE: ghcr.io/lazurio/t3code
   VERSION: ${{ inputs.version }}
+  # The verify job accepts only these two shapes, as upstream's cliReleaseChannelOf reads them.
+  CHANNEL: ${{ contains(inputs.version, '-preview.') && 'preview' || 'stable' }}
   RELEASE_TAG: v${{ inputs.version }}
   SOURCE_SHA: ${{ inputs.source_sha }}
   UPSTREAM_TAG: ${{ inputs.upstream_tag }}
@@ -54,11 +58,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-lazurio\.[1-9][0-9]*$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(lazurio\.[1-9][0-9]*|preview\.[0-9]{8}\.[1-9][0-9]*)$ ]]
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$UPSTREAM_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$VERSION" == "${UPSTREAM_TAG#v}-lazurio."* ]]
+          [[ "$VERSION" == "${UPSTREAM_TAG#v}-"* ]]
           test "$GITHUB_REF" = "refs/heads/main"
 
           git init .
@@ -80,8 +84,10 @@ jobs:
         with:
           node-version: 24.13.1
 
-      # Servers take the newest non-draft release in the index as the one to
-      # update to, so a release must be the highest version on the channel.
+      # Servers take the newest non-draft release on their own channel as the
+      # one to update to, so a release must be the highest version on its
+      # channel. Channels are derived from the version exactly as upstream's
+      # cliReleaseChannelOf does; a preview never competes with stable.
       - name: Refuse an existing or non-increasing version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -97,8 +103,13 @@ jobs:
           node --input-type=module - "$RUNNER_TEMP/releases.json" <<'JS'
           import * as NodeFS from "node:fs";
           import { compareExactServiceVersions } from "./apps/server/src/cloud/serviceProtocol.ts";
+          import { cliReleaseChannelOf } from "./packages/shared/src/cliRelease.ts";
 
           const version = process.env.VERSION;
+          const channel = cliReleaseChannelOf(version);
+          if (channel !== process.env.CHANNEL) {
+            throw new Error(`${version} is on the ${channel} channel, not ${process.env.CHANNEL}.`);
+          }
           const releases = JSON.parse(NodeFS.readFileSync(process.argv[2], "utf8")).flat();
           if (releases.some((release) => release.tag_name === `v${version}`)) {
             throw new Error(`A GitHub Release for v${version} already exists.`);
@@ -106,11 +117,12 @@ jobs:
           for (const release of releases) {
             if (release.draft) continue;
             const published = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
-            if (published !== undefined && compareExactServiceVersions(version, published) <= 0) {
-              throw new Error(`${version} is not newer than the published ${published}.`);
+            if (published === undefined || cliReleaseChannelOf(published) !== channel) continue;
+            if (compareExactServiceVersions(version, published) <= 0) {
+              throw new Error(`${version} is not newer than the published ${published} on ${channel}.`);
             }
           }
-          console.log(`${version} is the highest version on the channel.`);
+          console.log(`${version} is the highest version on the ${channel} channel.`);
           JS
 
   archives:
@@ -299,6 +311,7 @@ jobs:
             --arg source "$SOURCE_SHA" \
             --arg tag "$RELEASE_TAG" \
             --arg version "$VERSION" \
+            --arg channel "$CHANNEL" \
             --arg upstream_tag "$UPSTREAM_TAG" \
             --arg upstream_sha "$UPSTREAM_SHA" \
             --arg image "$IMAGE" \
@@ -315,6 +328,7 @@ jobs:
                 commit: $source,
                 tag: $tag,
                 version: $version,
+                channel: $channel,
                 upstream_repository: "https://github.com/pingdotgg/t3code",
                 upstream_release: $upstream_tag,
                 upstream_base: $upstream_sha
@@ -345,6 +359,11 @@ jobs:
             echo "Vanilla upstream T3 Code $UPSTREAM_TAG plus the Lazurio overlay, served at the"
             echo "root of its own hostname. Lazurio Machines update to it from this release."
             echo
+            if [[ "$CHANNEL" == preview ]]; then
+              echo "Preview: never offered as an update. Install it on a chosen Machine with"
+              echo "\`t3 update $VERSION\`; return with \`t3 update --channel stable --allow-downgrade\`."
+              echo
+            fi
             echo "- Source: \`$SOURCE_SHA\`"
             echo "- Upstream base: \`$UPSTREAM_TAG\` at \`$UPSTREAM_SHA\`"
             echo "- OCI image: \`$IMAGE:$VERSION\` = \`$IMAGE@$IMAGE_DIGEST\`"
@@ -393,13 +412,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$CHANNEL" == preview ]]; then
+            channel_flags=(--prerelease --latest=false)
+          else
+            channel_flags=(--latest)
+          fi
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "T3 Code $RELEASE_TAG" \
             --notes-file "$RUNNER_TEMP/RELEASE_NOTES.md" \
-            --latest \
+            "${channel_flags[@]}" \
             "release-assets/t3-$VERSION-darwin-arm64.tar.gz" \
             "release-assets/t3-$VERSION-linux-x64.tar.gz" \
             release-assets/SHA256SUMS \
             release-assets/release-evidence.json
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = "$([[ "$CHANNEL" == preview ]] && echo true || echo false)"
+          if [[ "$CHANNEL" == preview ]]; then
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" != "$RELEASE_TAG"
+          fi
