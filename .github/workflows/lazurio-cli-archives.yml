@@ -57,7 +57,7 @@ jobs:
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-lazurio\.[0-9]+$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(lazurio\.[0-9]+|preview\.[0-9]{8}\.[0-9]+)$ ]]
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git init .
           git remote add origin "${GITHUB_SERVER_URL}/${SOURCE_REPOSITORY}.git"
@@ -176,6 +176,9 @@ jobs:
 
       # The updating CLI runs from the unstamped source, so it is a different
       # version than the target, just like a Machine on the previous release.
+      # It runs in a pseudo-terminal: a preview target must pass the real
+      # consent prompt, which refuses without a TTY. The prompt is answered
+      # only for a preview and must not appear for a stable target.
       - name: Install the archive through the release channel
         shell: bash
         run: |
@@ -193,8 +196,41 @@ jobs:
           done
 
           home="$RUNNER_TEMP/t3-home"
-          T3CODE_RELEASE_BASE_URL=http://127.0.0.1:8765 \
-            node apps/server/src/bin.ts update "$VERSION" --base-dir "$home" --allow-downgrade --yes
+          expect_prompt=0
+          [[ "$VERSION" == *-preview.* ]] && expect_prompt=1
+          T3CODE_RELEASE_BASE_URL=http://127.0.0.1:8765 EXPECT_PREVIEW_PROMPT="$expect_prompt" \
+            python3 - node apps/server/src/bin.ts update "$VERSION" --base-dir "$home" --allow-downgrade --yes <<'PY'
+          import os, pty, select, sys
+
+          prompt = b"Install the preview build anyway?"
+          pid, fd = pty.fork()
+          if pid == 0:
+              os.execvp(sys.argv[1], sys.argv[1:])
+          seen = b""
+          answered = False
+          while True:
+              ready, _, _ = select.select([fd], [], [], 900)
+              if not ready:
+                  sys.exit("t3 update produced no output for 15 minutes")
+              try:
+                  chunk = os.read(fd, 4096)
+              except OSError:
+                  break
+              if not chunk:
+                  break
+              sys.stdout.buffer.write(chunk)
+              sys.stdout.flush()
+              seen = (seen + chunk)[-4096:]
+              if not answered and prompt in seen:
+                  if os.environ["EXPECT_PREVIEW_PROMPT"] != "1":
+                      sys.exit("a stable target must not ask for preview consent")
+                  os.write(fd, b"y")
+                  answered = True
+          code = os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
+          if os.environ["EXPECT_PREVIEW_PROMPT"] == "1" and not answered:
+              sys.exit("a preview target must ask for consent before installing")
+          sys.exit(code)
+          PY
 
           runtime="$home/runtime/versions/$VERSION/t3"
           test "$(cat "$home/runtime/versions/$VERSION/.install-complete")" = "$VERSION"

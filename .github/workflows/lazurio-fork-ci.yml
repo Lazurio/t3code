@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  UPSTREAM_TAG: v0.0.44
-  UPSTREAM_SHA: 451afcb22d93f06cb24f9bc16703404564952553
+  UPSTREAM_TAG: v0.0.45
+  UPSTREAM_SHA: 6c8fed35dded9ff71c5b46807125457acbb76be6
 
 jobs:
   server-and-web:
@@ -134,6 +134,6 @@ jobs:
     name: CLI archives
     uses: ./.github/workflows/lazurio-cli-archives.yml
     with:
-      version: 0.0.44-lazurio.0
+      version: 0.0.45-lazurio.0
       source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
       source_repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}

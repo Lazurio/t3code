@@ -32,10 +32,18 @@ je jen pro zrcadlo a Machines ho nenastavují.
 Publikace nikoho automaticky nepřepne. Mašina přejde na novou verzi, až
 uživatel klikne na Update, nebo až někdo spustí `t3 update`.
 
-Každé publikované vydání je na kanálu. Příznak GitHub „pre-release“ servery
-neskrývá (index přeskakuje jen drafty), proto ho nepoužíváme a oddělený canary
-kanál neexistuje. Canary je pořadí: novou verzi nejdřív nainstaluje canary
-Mašina a teprve potom ostatní.
+Kanál vydání se odvozuje z verze stejně jako upstream (`cliReleaseChannelOf`):
+
+| Kanál     | Verze                      | Kdo ji dostane                                                                                                                                                      |
+| --------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stable`  | `X.Y.Z-lazurio.N`          | Všechny Mašiny pod launcherem: server ji ohlásí jako `availableServerUpdate` a webová T3 ukáže tlačítko Update.                                                     |
+| `preview` | `X.Y.Z-preview.YYYYMMDD.N` | Jen Mašina, kde ji někdo výslovně nainstaluje `t3 update <verze>` s potvrzením v terminálu. Preview se nikdy nenabízí a server na preview aktualizace nekontroluje. |
+
+Preview je canary: nejdřív ho nainstaluješ na vybrané Mašiny, a až obstojí,
+vydáš stable ze stejného commitu. Nightly nevydáváme. Příznak GitHub
+„pre-release“ sám nic neskrývá (index přeskakuje jen drafty); rozhoduje tvar
+verze. Workflow přesto vydá preview jako pre-release a nikdy jako latest, aby
+ho člověk na stránce vydání nespletl se stable.
 
 Na macOS je binárka podepsaná ad hoc, stejně jako upstream bez `CSC_LINK`.
 Archiv stažený launcherem nemá atribut karantény, takže ho Gatekeeper
@@ -44,15 +52,24 @@ neblokuje. Archiv stažený ručně prohlížečem je potřeba odkaranténovat
 
 ### Verze
 
-Verze je `X.Y.Z-lazurio.N`, tag `vX.Y.Z-lazurio.N`. `X.Y.Z` je upstream
-stable tag, na kterém `main` stojí. `N` začíná na 1 a roste s každým vydáním
-nad stejnou upstream bází. Nová upstream báze začíná znovu od `.1`. Verze
-`X.Y.Z-lazurio.0` nikdy nevychází, používá ji jen CI.
+Stable verze je `X.Y.Z-lazurio.N`, tag `vX.Y.Z-lazurio.N`. `X.Y.Z` je
+upstream stable tag, na kterém `main` stojí. `N` začíná na 1 a roste s každým
+vydáním nad stejnou upstream bází. Nová upstream báze začíná znovu od `.1`.
+Verze `X.Y.Z-lazurio.0` nikdy nevychází, používá ji jen CI.
 
-Workflow odmítne verzi, která není vyšší než všechna publikovaná vydání. Důvod:
-dnešní upstream kód bere jako aktualizaci první vydání v indexu podle data
-publikace, takže později publikovaná nižší verze by se serverům nabídla jako
-novinka.
+Preview verze je `X.Y.Z-preview.YYYYMMDD.N` (upstream tvar), tag
+`vX.Y.Z-preview.YYYYMMDD.N`. `X.Y.Z` je opět upstream báze `main`, datum je
+den vydání (UTC) a `N` začíná v každém dni na 1.
+
+Workflow odmítne verzi, která není vyšší než všechna publikovaná vydání
+**stejného kanálu**. Upstream `newestCliReleaseVersion` bere první vydání
+kanálu v indexu podle data publikace; overlay sice vybírá nejvyšší verzi, ale
+pravidlo drží obě varianty v souladu. Preview a stable spolu nesoupeří, takže
+`0.0.44-lazurio.1` jde vydat i po `0.0.44-preview.20260930.1`.
+
+SemVer řadí `X.Y.Z-lazurio.N` pod `X.Y.Z-preview.…` (`lazurio` < `preview`)
+a obojí pod vanilla `X.Y.Z`. Z preview na stable proto vede jen výslovný
+návrat `t3 update --channel stable --allow-downgrade`; tlačítko ho nenabídne.
 
 Pozor na SemVer: `0.0.42-lazurio.1` je nižší než `0.0.42`. Mašina, která dnes
 běží na nativním buildu Machines hlášeném jako `0.0.42`, proto první přechod na
@@ -87,7 +104,11 @@ necommitují.
   overlay na nový tag (viz další sekce) a vydej `X.Y.Z-lazurio.1`.
 - **Vlastní oprava nebo změna overlaye** na stejné bázi: po merge do `main`
   vydej další `-lazurio.N`.
-- Nevydávej upstream nightly ani preview a nevydávej z jiné branche než `main`.
+- **Canary před stable:** z téže špičky `main` nejdřív vydej preview
+  `X.Y.Z-preview.YYYYMMDD.N`, nainstaluj ho na canary Mašiny a teprve po
+  jejich ověření vydej stable. Oprava během canary je nový commit na `main`
+  a další preview `.N+1`.
+- Nevydávej nightly a nevydávej z jiné branche než `main`.
 - PR do `main` se mergují jen rebase, bez merge commitu. Release i CI odmítnou
   merge commit nad upstream tagem. Main ruleset 21717536 to vynucuje:
   povoluje jen `rebase` a vyžaduje lineární historii. Readback:
@@ -186,18 +207,39 @@ změny.
    git checkout -- apps/server/package.json apps/web/package.json apps/desktop/package.json packages/contracts/package.json
    ```
 
-3. **Canary.** Po publikaci klikni na Update nejdřív na canary Mašině (Matějova
-   osobní VM nebo Spectoda VM101). Ověř verzi v T3, přihlášení, terminál a jeden
-   agentní turn. Teprve potom dej vědět ostatním Mašinám.
+3. **Canary přes preview.** Vydej preview a na canary Mašinách pod launcherem
+   (Spectoda VM101, potom další Spectoda Mašiny a Matějova testovací VM) ho
+   nainstaluj přes SSH s TTY:
+
+   ```bash
+   # Proměnná je jen v drop-inu služby; SSH shell ji nemá a bez ní by
+   # `t3 update` hledal vydání v pingdotgg/t3code.
+   export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code
+   ~/.local/bin/t3 update 0.0.44-preview.20260930.1   # potvrdí preview a restart služby
+   ~/.local/bin/t3 --version
+   ```
+
+   Launcher službu vyzkouší (trial) a teprve pak novou verzi potvrdí; při
+   selhání se sám vrátí na předchozí. Ověř přesnou verzi, přihlášení a pairing
+   přes Launchpad Chat, terminál, agentní turn, starý i nový thread, upload a
+   download, reconnect a restart služby se zachovanými daty. Ověř také, že
+   Mašina na stable banner s preview neukáže. První selhání zastaví
+   rozšiřování.
+
+4. **Stable a tlačítko Update.** Stable vydej ze stejného commitu až po
+   zeleném canary a výslovném souhlasu Admina. Mašiny na předchozím stable
+   pak ukážou banner Update (server kontroluje kanál při startu a každých
+   6 hodin). Canary Mašiny vrať z preview (se stejnou proměnnou):
+   `t3 update --channel stable --allow-downgrade`.
 
 ## Spuštění vydání
 
 Vydání se spouští jen z `main` a jen z commitu, který je právě na jeho špičce:
 
 ```bash
-VERSION=0.0.42-lazurio.1
+VERSION=0.0.44-preview.20260930.1   # nebo stable 0.0.44-lazurio.1
 SOURCE_SHA="$(git ls-remote https://github.com/Lazurio/t3code.git refs/heads/main | cut -f1)"
-UPSTREAM_TAG=v0.0.42
+UPSTREAM_TAG=v0.0.44
 UPSTREAM_SHA="$(git ls-remote https://github.com/pingdotgg/t3code.git "refs/tags/$UPSTREAM_TAG" | cut -f1)"
 # Upstream tagy jsou lightweight, SHA tagu je přímo commit (workflow to ověří).
 
@@ -213,7 +255,8 @@ Workflow `Lazurio T3 Code Release` postupně:
 
 1. **Verify source and version** ověří formát vstupů a to, že `source_sha` je
    špička `main`, stojí na přesném upstream tagu a nemá merge commity. Dál
-   ověří, že tag ani vydání ještě neexistují a že verze je nejvyšší.
+   ověří, že tag ani vydání ještě neexistují a že verze je nejvyšší ve svém
+   kanálu.
 2. **CLI archives** postaví a otestuje oba archivy stejně jako CI.
 3. **Publish release and image** čeká na schválení v environmentu
    `lazurio-t3code-release`. Po schválení:
@@ -224,11 +267,15 @@ Workflow `Lazurio T3 Code Release` postupně:
    - postaví, pushne a attestuje `ghcr.io/lazurio/t3code:<verze>`;
    - vytvoří tag `v<verze>` na `source_sha` tokenem release App (API odmítne
      existující tag);
-   - publikuje GitHub Release jako `latest`.
+   - publikuje GitHub Release: stable jako `latest`, preview jako pre-release,
+     které `latest` nikdy není (workflow to po publikaci ověří).
 
    Existující tag, vydání ani image nikdy nepřepíše.
 
-Tagy `v*-lazurio.*` chrání ruleset 24037218 „Protect Lazurio channel tags“.
+Tagy `v*-lazurio.*` a `v*-preview.*` chrání ruleset 24037218 „Protect
+Lazurio channel tags“. Readback (Admin):
+`gh api repos/Lazurio/t3code/rulesets/24037218 --jq '.conditions.ref_name.include'`
+vrátí oba vzory.
 Obejít ho smí jen GitHub App „Lazurio T3 Code Release“ (contents write,
 metadata read), nainstalovaná jen na `Lazurio/t3code`. Její ID je proměnná
 `LAZURIO_RELEASE_APP_ID` a privátní klíč secret
@@ -269,36 +316,60 @@ nepublikuje.
 ## Ověření publikovaného vydání
 
 ```bash
-VERSION=0.0.42-lazurio.1
+VERSION=0.0.44-preview.20260930.1
 mkdir -p "/tmp/t3-$VERSION" && cd "/tmp/t3-$VERSION"
 gh release download "v$VERSION" --repo Lazurio/t3code
 sha256sum --check SHA256SUMS            # macOS: shasum -a 256 --check SHA256SUMS
 gh attestation verify "t3-$VERSION-linux-x64.tar.gz" --repo Lazurio/t3code
 gh attestation verify "t3-$VERSION-darwin-arm64.tar.gz" --repo Lazurio/t3code
 gh attestation verify "oci://ghcr.io/lazurio/t3code:$VERSION" --repo Lazurio/t3code
-gh release view --repo Lazurio/t3code --json tagName,isLatest
+gh release view "v$VERSION" --repo Lazurio/t3code --json tagName,isPrerelease
+gh api repos/Lazurio/t3code/releases/latest --jq .tag_name   # preview tu nikdy není
 ```
 
 Pak proveď Update na canary Mašině (viz Testování).
 
+## Desktop a mobil proti serveru z forku
+
+Oficiální desktop a mobilní aplikace jsou vanilla upstream a o našem kanálu
+nevědí:
+
+- **Desktop** porovnává s verzí serveru jen `X.Y.Z`. Desktop `0.0.44` proti
+  serveru `0.0.44-lazurio.1` (nebo preview `0.0.44-preview.…`) nic nenabízí.
+  Proti serveru se starším `X.Y.Z` (`0.0.42-lazurio.1`) nabídne „Update to
+  0.0.44“; server pak hledá `v0.0.44` v `Lazurio/t3code`, kde není, a skončí
+  hláškou, že verze v kanálu není publikovaná. Server se nezmění. Totéž nastane,
+  když se desktop sám aktualizuje na novější upstream dřív, než vydáme refresh.
+- **Mobil** („Check for updates“) čte index `pingdotgg/t3code` a nabídne
+  nejnovější upstream verzi kanálu serveru. Server ji v našem kanálu nenajde
+  a skončí stejnou hláškou.
+
+Pořadí pro operátory proto je: nejdřív Update ve webové T3 v Environmentu
+(tlačítko nabízí jen vydání našeho kanálu), potom aktualizace desktopu.
+Nabídku z desktopu nebo mobilu na vanilla verzi ignoruj.
+
 ## Rollback
 
 Tlačítkem se na nižší verzi vrátit nedá. Rollback je vždy nové, vyšší vydání:
-oprav chybu (nebo revertni commit) na `main` a vydej další `-lazurio.N`.
+oprav chybu (nebo revertni commit) na `main` a vydej další `-lazurio.N`,
+během canary další preview.
 
 Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
 
 - na Mašině `t3 update <předchozí verze> --allow-downgrade`;
-- v Machines vrátit pin na předchozí známou dobrou verzi, reviewovaným PR.
+- canary Mašinu z preview vrátit `t3 update --channel stable --allow-downgrade`.
+
+Pin T3 v Machines je minimum: Mašinu s vyšší verzí nevrátí.
 
 ## Co nedělat
 
 - Publikované vydání, jeho assety ani tag nikdy nemaž a nepřepisuj. Chybné
   vydání nahradí vyšší verze.
-- Nepublikuj vydání ručně (`gh release create`). Tag `v*-lazurio.*` ručně
-  vytvořit ani nejde; kanál plní jen workflow.
+- Nepublikuj vydání ručně (`gh release create`). Tag `v*-lazurio.*` ani
+  `v*-preview.*` ručně vytvořit nejde; kanál plní jen workflow.
 - Nepoužívej release App mimo workflow a její privátní klíč nikam nekopíruj.
-- Nepoužívej příznak pre-release jako canary, servery ho neskryjí.
+- Nespoléhej na příznak pre-release: servery ho neskryjí. Canary drží jen
+  preview tvar verze.
 - Nepushuj na `main` s force mimo postup „Přestavba na nový upstream tag“.
 - Nespouštěj upstream workflow (`release.yml` a další) a nezapínej je.
 
