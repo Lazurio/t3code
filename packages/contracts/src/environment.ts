@@ -196,6 +196,10 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   /** Missing metadata denotes protocol 1. Bump this for breaking wire changes. */
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,
+  /** A newer release the server found on its own release channel, which
+      server.updateServer can install. Only boot-service managed servers
+      check; absent when there is nothing newer and on older servers. */
+  availableServerUpdate: Schema.optionalKey(Schema.Struct({ version: TrimmedNonEmptyString })),
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;
 

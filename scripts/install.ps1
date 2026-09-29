@@ -9,14 +9,17 @@
 #   T3CODE_VERSION           exact version to install (overrides T3CODE_CHANNEL)
 #   T3CODE_HOME              T3 home directory (default: ~\.t3)
 #   T3CODE_INSTALL_BIN_DIR   where t3.exe is linked (default: ~\.local\bin)
-#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
+#   T3CODE_RELEASE_REPOSITORY  GitHub repository (owner/name) whose releases to
+#                            install (default: pingdotgg/t3code)
+#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: the
+#                            repository's GitHub Releases)
 #
 # The archive is unpacked into $T3CODE_HOME\runtime\versions\<version>, the
 # same layout `t3 service install` uses, so the service reuses this download.
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "pingdotgg/t3code"
+$repo = if ($env:T3CODE_RELEASE_REPOSITORY) { $env:T3CODE_RELEASE_REPOSITORY.Trim() } else { "pingdotgg/t3code" }
 $baseUrl = if ($env:T3CODE_RELEASE_BASE_URL) { $env:T3CODE_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
 $t3Home = if ($env:T3CODE_HOME) { $env:T3CODE_HOME } else { Join-Path $HOME ".t3" }
 $binDir = if ($env:T3CODE_INSTALL_BIN_DIR) { $env:T3CODE_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }
@@ -127,24 +130,32 @@ $arch = switch ($rawArch) {
   default { Fail "unsupported architecture $rawArch" }
 }
 
+# The release train of a version or v-tag, by the rule the runtime uses: a
+# nightly or preview identifier right after major.minor.patch names its train;
+# every other version, including a fork's own prerelease suffix, is stable.
+$trainOf = {
+  param([string] $candidate)
+  if ($candidate -match '^v?\d+\.\d+\.\d+-(nightly|preview)\.\d{8}\.\d+$') { $Matches[1] } else { "stable" }
+}
+
 $channel = if ($env:T3CODE_CHANNEL) { $env:T3CODE_CHANNEL } else { "stable" }
 $version = $env:T3CODE_VERSION
 if (-not $version) {
-  # Tags are v<semver>; the channel is the prerelease identifier, or none for
-  # stable. Only tags of the requested train are considered, so a stable
-  # install can never pick up a nightly or preview build by accident.
-  $tagPattern = switch ($channel) {
-    "stable" { '^v\d+\.\d+\.\d+$' }
-    "nightly" { '^v\d+\.\d+\.\d+-nightly\.\d+\.\d+$' }
-    "preview" { '^v\d+\.\d+\.\d+-preview\.\d+\.\d+$' }
-    default { Fail "T3CODE_CHANNEL must be stable, nightly, or preview" }
+  # Tags are v<semver>. Only tags of the requested train are considered, so a
+  # stable install can never pick up a nightly or preview build by accident.
+  if ($channel -notin @("stable", "nightly", "preview")) {
+    Fail "T3CODE_CHANNEL must be stable, nightly, or preview"
   }
   $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers @{ "User-Agent" = "t3-install" }
-  $tag = ($releases | Where-Object { -not $_.draft -and $_.tag_name -match $tagPattern } | Select-Object -First 1).tag_name
+  $tag = ($releases | Where-Object {
+      -not $_.draft -and
+      $_.tag_name -match '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$' -and
+      (& $trainOf $_.tag_name) -eq $channel
+    } | Select-Object -First 1).tag_name
   if (-not $tag) { Fail "could not find a $channel release; set T3CODE_VERSION" }
   $version = $tag.Substring(1)
 }
-if ($version -match '-preview\.') {
+if ((& $trainOf $version) -eq "preview") {
   Write-Warning "t3 $version is a preview build. Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, and are never offered as updates. Set T3CODE_CHANNEL=stable (the default) for a supported build."
   if ($channel -ne "preview" -and -not $env:T3CODE_VERSION) {
     Fail "refusing a preview build that was not explicitly requested"
