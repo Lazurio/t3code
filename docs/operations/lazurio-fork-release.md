@@ -208,29 +208,47 @@ změny.
    ```
 
 3. **Canary přes preview.** Vydej preview a na canary Mašinách pod launcherem
-   (Spectoda VM101, potom další Spectoda Mašiny a Matějova testovací VM) ho
-   nainstaluj přes SSH s TTY:
+   (Spectoda VM101, Matějova osobní VM, potom další Mašiny) ho nainstaluj přes
+   SSH s TTY. Lokální `t3 update` nejde přes launcherův trial ani zálohu
+   databáze (ty má jen tlačítko Update, #22), proto nejdřív zálohuj databázi:
 
    ```bash
+   # Konzistentní kopie za běhu (SQLite backup API)
+   python3 -c 'import sqlite3,os,time; d=os.path.expanduser("~/.t3/backups/pre-"+time.strftime("%Y%m%dT%H%M%SZ",time.gmtime())); os.makedirs(d,0o700); s=sqlite3.connect("file:"+os.path.expanduser("~/.t3/userdata/state.sqlite")+"?mode=ro",uri=True); t=sqlite3.connect(d+"/state.sqlite"); s.backup(t); print(d)'
    # Proměnná je jen v drop-inu služby; SSH shell ji nemá a bez ní by
    # `t3 update` hledal vydání v pingdotgg/t3code.
    export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code
-   ~/.local/bin/t3 update 0.0.44-preview.20260930.1   # potvrdí preview a restart služby
+   ~/.local/bin/t3 update 0.0.44-preview.20260930.1   # potvrď preview; restart: viz níže
    ~/.local/bin/t3 --version
    ```
 
-   Launcher službu vyzkouší (trial) a teprve pak novou verzi potvrdí; při
-   selhání se sám vrátí na předchozí. Ověř přesnou verzi, přihlášení a pairing
-   přes Launchpad Chat, terminál, agentní turn, starý i nový thread, upload a
-   download, reconnect a restart služby se zachovanými daty. Ověř také, že
-   Mašina na stable banner s preview neukáže. První selhání zastaví
-   rozšiřování.
+   **Když nová verze mění protokol launcheru** (`SERVICE_LAUNCHER_PROTOCOL`
+   v `apps/server/src/cloud/serviceProtocol.ts`, např. 2 → 3 mezi v0.0.42
+   a v0.0.44), odpověz na dotaz na restart **ne** a službu přepni novým CLI:
+   `~/.local/bin/t3 service install`. Starý CLI by při restartu zapsal stav
+   služby ve starém protokolu a nový launcher by ho odmítl („Service state is
+   invalid or unsupported.“). Oprava takto shozené služby:
+   `~/.local/bin/t3 service install` a `systemctl --user reset-failed
+t3code.service && systemctl --user start t3code.service` (#25).
+
+   Ověř přesnou verzi, `~/.t3/runtime/service-state.json` (protokol
+   a `activeVersion`), přihlášení a pairing přes Launchpad Chat, terminál,
+   agentní turn, starý i nový thread, upload a download, reconnect a restart
+   služby se zachovanými daty. Ověř také, že Mašina na stable preview nenabízí
+   (`/.well-known/t3/environment` → `availableServerUpdate`). První selhání
+   zastaví rozšiřování.
 
 4. **Stable a tlačítko Update.** Stable vydej ze stejného commitu až po
-   zeleném canary a výslovném souhlasu Admina. Mašiny na předchozím stable
-   pak ukážou banner Update (server kontroluje kanál při startu a každých
-   6 hodin). Canary Mašiny vrať z preview (se stejnou proměnnou):
-   `t3 update --channel stable --allow-downgrade`.
+   zeleném canary a výslovném souhlasu Admina. Canary Mašiny vrať z preview
+   (se stejnou proměnnou): `t3 update --channel stable --allow-downgrade`
+   (bez `--allow-downgrade` je to odmítnuté, SemVer řadí `-lazurio.N` pod
+   `-preview.…`). Mašiny na předchozím stable ukážou banner Update po příští
+   kontrole kanálu (při startu a každých 6 hodin). Tlačítko projde trialem
+   launcheru a zálohou databáze, **jen když má Mašina launcher se stejným
+   protokolem, jaký nová verze vyžaduje**. Jinak preflight update bezpečně
+   odmítne („This release requires a newer T3 Code service launcher“) a
+   Mašinu je potřeba jednou převést lokálně (postup výše) nebo zvýšením pinu
+   v Machines, které instalují přes `t3 service install`.
 
 ## Spuštění vydání
 
@@ -344,6 +362,9 @@ nevědí:
   nejnovější upstream verzi kanálu serveru. Server ji v našem kanálu nenajde
   a skončí stejnou hláškou.
 
+Matějův test 2026-09-30 (DEV-6633): desktop 0.0.44 proti serveru `0.0.44-preview.…`
+nic nenabídl. Podrobnosti a stav v #26.
+
 Pořadí pro operátory proto je: nejdřív Update ve webové T3 v Environmentu
 (tlačítko nabízí jen vydání našeho kanálu), potom aktualizace desktopu.
 Nabídku z desktopu nebo mobilu na vanilla verzi ignoruj.
@@ -356,7 +377,22 @@ během canary další preview.
 
 Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
 
-- na Mašině `t3 update <předchozí verze> --allow-downgrade`;
+- na Mašině `t3 update <předchozí verze> --allow-downgrade`. Pokud mezitím
+  proběhly nové migrace databáze (starší server nemá down migrace) nebo se
+  mění protokol launcheru, nesmí starší server naběhnout dřív, než je
+  databáze obnovená a stav služby zapsaný jeho CLI:
+
+  ```bash
+  export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code
+  ~/.local/bin/t3 update <předchozí verze> --allow-downgrade   # restart: ne
+  systemctl --user stop t3code.service
+  cp ~/.t3/backups/<záloha>/state.sqlite ~/.t3/userdata/state.sqlite
+  rm -f ~/.t3/userdata/state.sqlite-wal ~/.t3/userdata/state.sqlite-shm
+  ~/.local/bin/t3 service install   # CLI předchozí verze zapíše svůj protokol a službu spustí
+  ```
+
+  Data vzniklá po záloze se tím ztratí. Tahle cesta zatím nebyla živě vyzkoušená;
+
 - canary Mašinu z preview vrátit `t3 update --channel stable --allow-downgrade`.
 
 Pin T3 v Machines je minimum: Mašinu s vyšší verzí nevrátí.
