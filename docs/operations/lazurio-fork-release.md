@@ -146,17 +146,25 @@ změny.
    přesný starý `main` (`expected_old_main`) a přesný nový head
    (`candidate_head`) spolu s odkazem na zelený běh.
 5. Než se `main` přepne, musí být současný `main` zachycený publikovaným
-   **immutable** vydáním `v…-lazurio.N`. Jiný tag nestačí. Ověř, že tag
-   vydání míří přesně na starý `main` a že vydání je immutable:
+   **immutable** vydáním `v…-lazurio.N`. Jiný tag nestačí. Tag vydání míří
+   buď přesně na starý `main`, nebo na jeho předka, od kterého se starý
+   `main` liší jen v `docs/`. Takové commity nemění nic, co se vydává, a
+   jejich obsah přejde do nového `main` s přestavěným overlayem; kvůli nim
+   se samostatné vydání nedělá (rozhodnutí Admina 2026-10-02, DEV-6633).
+   Ověř obojí a že vydání je immutable:
 
    ```bash
+   git fetch origin main --tags
    expected_old_main="$(git ls-remote https://github.com/Lazurio/t3code.git refs/heads/main | cut -f1)"
-   capture=v0.0.42-lazurio.3   # poslední vydání
-   test "$(gh api "repos/Lazurio/t3code/git/ref/tags/$capture" --jq .object.sha)" = "$expected_old_main"
+   capture=v0.0.44-lazurio.1   # poslední vydání
+   capture_sha="$(gh api "repos/Lazurio/t3code/git/ref/tags/$capture" --jq .object.sha)"
+   git merge-base --is-ancestor "$capture_sha" "$expected_old_main"
+   git diff --quiet "$capture_sha" "$expected_old_main" -- . ':(exclude)docs/'
    test "$(gh api "repos/Lazurio/t3code/releases/tags/$capture" --jq .immutable)" = true
    ```
 
-   Pokud poslední vydání nemíří na současný `main`, vydej ho nejdřív. Admin
+   Pokud starý `main` mění proti poslednímu vydání cokoli mimo `docs/`,
+   vydej ho nejdřív. Docs commity starého `main` přenes do candidate. Admin
    pak ověří, že bypass existuje:
 
    ```bash
