@@ -87,7 +87,7 @@ nabídne normálně.
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `hosted: configurable client session TTL`                 | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                | retain: upstream má pevných 30 dní                                                  |
 | `hosted: serve behind an explicit HTTPS external origin`  | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu. | retain: upstream ekvivalent nemá                                                    |
-| `hosted: explicit environment label`                      | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Iotor / Management`).                                                                                                           | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou |
+| `hosted: explicit environment label`                      | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                            | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou |
 | `feat: in-app update from the configured release channel` | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.     | retain: upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu             |
 | `release: Lazurio distribution`                           | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                            | retain                                                                              |
 
@@ -255,7 +255,7 @@ změny.
    ```
 
 3. **Canary přes preview.** Vydej preview a na canary Mašinách pod launcherem
-   (Spectoda VM101, Matějova osobní VM, potom další Mašiny) ho nainstaluj přes
+   (nejdřív testovací VM klientské Organizace, potom osobní VM a další Mašiny) ho nainstaluj přes
    SSH s TTY. Lokální `t3 update` nejde přes launcherův trial ani zálohu
    databáze (ty má jen tlačítko Update, #22), proto nejdřív zálohuj databázi:
 
