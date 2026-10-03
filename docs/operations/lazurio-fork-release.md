@@ -8,6 +8,8 @@ Admin (Matěj, `immakermatty`) ho jen schválí v GitHub environmentu.
 Lazurio Mašiny. T3 vždy běží v kořeni vlastního hostname
 (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS reverse proxy. Oficiální
 desktop a mobilní aplikace se připojují jako neupravení upstream klienti.
+Vzhled a branding webového klienta zůstávají upstream; jediný rozhodnutý zásah
+do jeho UI je načtení shellu Lazuria (viz [Lazurio shell](#lazurio-shell)).
 
 ## Kanál aktualizací
 
@@ -97,6 +99,43 @@ přesných souborech z allowlistu `allowed_upstream_changes` v
 jakoukoli jinou změnu pod těmito cestami CI odmítne. Verze se razítkují jen při buildu
 upstream skriptem `scripts/update-release-package-versions.ts`, do Gitu se
 necommitují.
+
+### Lazurio shell
+
+**Rozhodnuto 2026-10-03 (rozhodnutí o shellu Lazuria), implementace čeká.**
+V tabulce overlaye ani v allowlistu zatím není.
+
+V Lazuriu je T3 Code aplikace **Chat** v přepínači Chat · Apps · Automate.
+Overlay do webového klienta přidá jen načtení shellu Lazuria: rail
+Environmentů, přepínač aplikací v sidebaru T3 a plovoucí bublinu Buddyho.
+Shell jsou Web Components se Shadow DOM, takže CSS T3 a Lazuria se navzájem
+neovlivní. Servíruje je Launchpad daného Environmentu na stejném originu, za
+bránou Environmentu:
+
+- `/.lazurio/shell.js` definuje `<lazurio-rail>`, `<lazurio-column-head>`
+  a `<lazurio-buddy>` ve verzi Launchpadu na tom Environmentu. Nový rail proto
+  nepotřebuje nové vydání forku.
+- `/.lazurio/shell.json` drží data: přihlášeného člověka, Environmenty
+  a Organizace, adresy aplikací a barvu Organizace. Fork data Lazuria nezná
+  a sám nic nenačítá.
+
+Patch bude mít zhruba 20 řádků ve zhruba třech souborech `apps/web`:
+`<script type="module" src="/.lazurio/shell.js">` v `index.html`,
+`<lazurio-rail>` vedle kořene aplikace, `<lazurio-column-head>` nahoře
+v sidebaru místo loga upstreamu, `<lazurio-buddy>` v kořeni aplikace
+a `#root { margin-left: var(--lazurio-rail-width, 0); }`. Tyto soubory
+přibudou do `allowed_upstream_changes` jako jeden zdůvodněný záznam a kontrola
+ve forku bude hlídat, že slot (skript a `<lazurio-column-head>`) existuje.
+Při přestavbě na nový upstream tag se pak konflikt ukáže jen v těchto řádcích.
+Přepínač i rail vedou obyčejnými odkazy na jiné originy Environmentu
+(`launchpad.…`, `mausbot.…`), takže router T3 se nemění.
+
+Vzhled a branding zůstávají upstream až do stabilních vydání upstreamu: T3
+Code nepřebarvujeme ani nepřejmenováváme a dál o něm mluvíme jako o T3 Code.
+Mimo Lazurio se nic nevykreslí: bez `/.lazurio/shell.js` (samostatný server,
+vývoj upstreamu) zůstanou elementy nedefinované, šířka railu je 0 a klient se
+chová jako upstream. Oficiální desktop a mobilní aplikace jsou upstream a shell
+nemají.
 
 ## Kdy vydávat
 
