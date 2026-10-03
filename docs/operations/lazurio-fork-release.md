@@ -122,10 +122,16 @@ bránou Environmentu:
 Patch bude mít zhruba 20 řádků ve zhruba třech souborech `apps/web`:
 `<script type="module" src="/.lazurio/shell.js">` v `index.html`,
 `<lazurio-rail>` vedle kořene aplikace, `<lazurio-column-head>` nahoře
-v sidebaru místo loga upstreamu, `<lazurio-buddy>` v kořeni aplikace
-a `#root { margin-left: var(--lazurio-rail-width, 0); }`. Tyto soubory
-přibudou do `allowed_upstream_changes` jako jeden zdůvodněný záznam a kontrola
-ve forku bude hlídat, že slot (skript a `<lazurio-column-head>`) existuje.
+v sidebaru místo loga upstreamu a `<lazurio-buddy>` v kořeni aplikace.
+Rail je `position: fixed` u levého okraje a místo pro něj udělá odsazení,
+ne posun: `#root { box-sizing: border-box; padding-left:
+var(--lazurio-rail-width, 0px); }`. `#root` má v upstreamu `width: 100%`
+a `body` `overflow: hidden`, takže `margin-left` by pravý okraj aplikace
+uřízl; s `border-box` se šířka obsahu zmenší o rail. Každý změněný soubor
+přibude do `allowed_upstream_changes` jako vlastní řádek s přesnou cestou
+(například `apps/web/index.html`, `apps/web/src/index.css` a soubor sidebaru),
+pod jedním komentářem s důvodem na začátku bloku. Kontrola ve forku bude
+hlídat, že slot (skript a `<lazurio-column-head>`) existuje.
 Při přestavbě na nový upstream tag se pak konflikt ukáže jen v těchto řádcích.
 Přepínač i rail vedou obyčejnými odkazy na jiné originy Environmentu
 (`launchpad.…`, `mausbot.…`), takže router T3 se nemění.
