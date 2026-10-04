@@ -7,6 +7,13 @@ import * as NodeTest from "node:test";
 import { cliReleaseChannelOf } from "../packages/shared/src/cliRelease.ts";
 
 const read = (path) => NodeFSP.readFile(path, "utf8");
+const promptOverlay = [
+  "apps/web/src/lazurio/LazurioPromptDraft.tsx",
+  "apps/web/src/lazurio/promptDraft.test.ts",
+  "apps/web/src/lazurio/promptDraft.ts",
+  "apps/web/src/main.tsx",
+  "apps/web/src/routes/_chat.tsx",
+];
 const [release, archives, ci, dockerfile, dockerignore, docs, updateSource] = await Promise.all([
   read(".github/workflows/lazurio-release.yml"),
   read(".github/workflows/lazurio-cli-archives.yml"),
@@ -219,4 +226,45 @@ NodeTest.test("the overlay may change only listed upstream client and shared fil
     await NodeFSP.access(entry);
   }
   NodeAssert.equal(new Set(entries).size, entries.length, "allowlist entries must be unique");
+});
+
+// Lazurio/t3code#35: the Lazurio shell opens Chat with a prompt id and an
+// Organization login in the link; the overlay fetches the text from its own
+// origin and leaves it unsent in a new thread's composer. The seam is two
+// lines in upstream files, so a rebase onto a new upstream tag that loses
+// either fails here.
+NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", async () => {
+  const [main, chatLayout, promptDraft, component] = await Promise.all(
+    [
+      "apps/web/src/main.tsx",
+      "apps/web/src/routes/_chat.tsx",
+      "apps/web/src/lazurio/promptDraft.ts",
+      "apps/web/src/lazurio/LazurioPromptDraft.tsx",
+    ].map(read),
+  );
+  // The link leaves the address before the router or the pairing read it.
+  const capture = main.indexOf("\ncaptureLazurioPromptLink();\n");
+  NodeAssert.ok(capture > 0, "main.tsx must capture the prompt link");
+  NodeAssert.ok(capture < main.indexOf("createBrowserHistory()"), "capture before the history");
+  NodeAssert.ok(capture < main.indexOf("getRouter(history)"), "capture before the router");
+  // The chat layout, which renders only once the environment is signed in, opens it.
+  NodeAssert.match(chatLayout, /<LazurioPromptDraft \/>/);
+  // Text only from this origin's /.lazurio/prompts/<id>, never from the link.
+  NodeAssert.match(
+    promptDraft,
+    /new URL\(`\/\.lazurio\/prompts\/\$\{encodeURIComponent\(link\.id\)\}`, origin\)/,
+  );
+  NodeAssert.match(promptDraft, /credentials: "same-origin"/);
+  NodeAssert.match(promptDraft, /redirect: "error"/);
+  NodeAssert.match(component, /origin: window\.location\.origin/);
+  // Nothing here can start a turn: it only writes the composer draft.
+  for (const source of [promptDraft, component]) {
+    NodeAssert.doesNotMatch(source, /turn\.start|startTurn|dispatchCommand|queuedMessage|onSend/);
+  }
+  NodeAssert.match(component, /\.setPrompt\(draftId, text\)/);
+  // Every overlay file is a reviewed allowlist entry.
+  for (const file of promptOverlay) {
+    NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
+  }
+  NodeAssert.match(ci, /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio/);
 });
