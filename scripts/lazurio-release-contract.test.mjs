@@ -268,3 +268,52 @@ NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", asyn
   }
   NodeAssert.match(ci, /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio/);
 });
+
+NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag", async () => {
+  const [page, layout, sidebarUi] = await Promise.all([
+    read("apps/web/index.html"),
+    read("apps/web/src/components/AppSidebarLayout.tsx"),
+    read("apps/web/src/components/ui/sidebar.tsx"),
+  ]);
+  // Same-origin loader that Vite leaves alone; the Environment's Launchpad serves it.
+  NodeAssert.match(
+    page,
+    /<script type="module" src="\/\.lazurio\/shell\.js" vite-ignore><\/script>/,
+  );
+  // Padding, not margin: #root is full width under an overflow-hidden body.
+  NodeAssert.match(
+    page,
+    /#root \{\s*box-sizing: border-box;\s*padding-left: var\(--lazurio-rail-width, 0px\);\s*\}/,
+  );
+  // T3's sidebar and its toggle are position: fixed, so padding alone leaves them under the
+  // rail; with the shell present, the sidebar wrapper becomes their containing block.
+  NodeAssert.match(
+    page,
+    /lazurio-rail:defined ~ #root \[data-slot="sidebar-wrapper"\] \{\s*contain: layout paint;\s*\}/,
+  );
+  NodeAssert.match(sidebarUi, /data-slot="sidebar-wrapper"/);
+  NodeAssert.match(page, /<body>\s*<lazurio-rail><\/lazurio-rail>\s*<div id="root">/);
+  NodeAssert.match(
+    page,
+    /<\/div>\s*<lazurio-buddy><\/lazurio-buddy>\s*<script type="module" src="\/src\/bootstrap\.ts"><\/script>\s*<\/body>/,
+  );
+  // The column head is the sidebar's first child, above the upstream top row, for the thread,
+  // legacy and settings sidebars alike; the toggle moves down with that row.
+  NodeAssert.match(
+    layout,
+    /\n\s*>\n(?:\s*\{\/\*[^\n]*\*\/\}\n)?\s*\{createElement\("lazurio-column-head", \{\s*active: "chat",\s*ref: observeLazurioColumnHead,?\s*\}\)\}\n\s*\{isOnSettings \? \(/,
+  );
+  NodeAssert.equal(layout.match(/lazurio-column-head/g)?.length, 1);
+  NodeAssert.match(
+    layout,
+    /<SidebarControl lazurioColumnHeadHeight=\{lazurioColumnHeadHeight\} \/>/,
+  );
+  NodeAssert.match(
+    layout,
+    /new ResizeObserver\(\(\) => setLazurioColumnHeadHeight\(element\.offsetHeight\)\)/,
+  );
+  NodeAssert.match(
+    layout,
+    /isSidebarVisible && !isMobile && lazurioColumnHeadHeight > 0\s*\?\s*\{ top: `calc\(var\(--workspace-controls-top\) \+ \$\{lazurioColumnHeadHeight\}px\)` \}/,
+  );
+});

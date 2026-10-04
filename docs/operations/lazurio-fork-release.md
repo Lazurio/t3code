@@ -8,8 +8,8 @@ Admin (Matěj, `immakermatty`) ho jen schválí v GitHub environmentu.
 Lazurio Mašiny. T3 vždy běží v kořeni vlastního hostname
 (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS reverse proxy. Oficiální
 desktop a mobilní aplikace se připojují jako neupravení upstream klienti.
-Vzhled a branding webového klienta zůstávají upstream; jediný rozhodnutý zásah
-do jeho UI je načtení shellu Lazuria (viz [Lazurio shell](#lazurio-shell)).
+Vzhled a branding webového klienta zůstávají upstream; jediný zásah do jeho UI
+je slot pro shell Lazuria (viz [Lazurio shell](#lazurio-shell)).
 
 ## Kanál aktualizací
 
@@ -83,14 +83,15 @@ nabídne normálně.
 
 `main` je přesný upstream stable tag a nad ním jen tyto commity:
 
-| Commit                                                    | Proč ho Lazurio potřebuje                                                                                                                                                                               | v0.0.45                                                                             |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `hosted: configurable client session TTL`                 | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                | retain: upstream má pevných 30 dní                                                  |
-| `hosted: serve behind an explicit HTTPS external origin`  | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu. | retain: upstream ekvivalent nemá                                                    |
-| `hosted: explicit environment label`                      | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                            | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou |
-| `feat: in-app update from the configured release channel` | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.     | retain: upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu             |
-| `release: Lazurio distribution`                           | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                            | retain                                                                              |
-| `lazurio: unsent prompt draft by link from the shell`     | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                           | retain: upstream nemá vstup pro koncept zprávy zvenku                               |
+| Commit                                                    | Proč ho Lazurio potřebuje                                                                                                                                                                                         | v0.0.45                                                                             |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `hosted: configurable client session TTL`                 | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                          | retain: upstream má pevných 30 dní                                                  |
+| `hosted: serve behind an explicit HTTPS external origin`  | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.           | retain: upstream ekvivalent nemá                                                    |
+| `hosted: explicit environment label`                      | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                                      | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou |
+| `feat: in-app update from the configured release channel` | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.               | retain: upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu             |
+| `release: Lazurio distribution`                           | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                                      | retain                                                                              |
+| `lazurio: unsent prompt draft by link from the shell`     | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                     | retain: upstream nemá vstup pro koncept zprávy zvenku                               |
+| `feat(web): Lazurio shell slot`                           | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí. | retain: upstream ekvivalent nemá                                                    |
 
 Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
 upstream nabídne ekvivalent. Klienty, sdílené balíčky a wire kontrakty
@@ -103,46 +104,53 @@ necommitují.
 
 ### Lazurio shell
 
-**Rozhodnuto 2026-10-03 (rozhodnutí o shellu Lazuria), implementace čeká.**
-V tabulce overlaye ani v allowlistu zatím není.
+**Rozhodnuto 2026-10-03 (rozhodnutí o shellu Lazuria); slot je v overlayi od
+issue #33.** V Lazuriu je T3 Code aplikace **Chat** v přepínači Chat · Apps ·
+Automate. Overlay do webového klienta přidává jen slot pro shell Lazuria: rail
+vlevo, hlavičku sloupce (výběr Environmentu, ozubené kolo Nastavení a přepínač
+Chat · Apps · Automate) nahoře ve vlastním sidebaru T3 a plovoucí bublinu
+Buddyho. Shell jsou Web Components se Shadow DOM (`<lazurio-rail>`,
+`<lazurio-column-head>`, `<lazurio-buddy>`), takže CSS T3 a Lazuria se navzájem
+neovlivní. Definuje je `/.lazurio/shell.js`, který servíruje Launchpad daného
+Environmentu na stejném originu za bránou Environmentu; data má v
+`/.lazurio/shell.json` (LazurioPlatform rozhodnutí F36). Fork data Lazuria
+nezná a sám nic nenačítá, takže nový rail, nový výběr ani nová data
+nepotřebují vydání forku. Fork se smí spolehnout jen na rozhraní v1 z
+LazurioPlatform `src/shell/interface.ts`.
 
-V Lazuriu je T3 Code aplikace **Chat** v přepínači Chat · Apps · Automate.
-Overlay do webového klienta přidá jen načtení shellu Lazuria: rail
-Environmentů, přepínač aplikací v sidebaru T3 a plovoucí bublinu Buddyho.
-Shell jsou Web Components se Shadow DOM, takže CSS T3 a Lazuria se navzájem
-neovlivní. Servíruje je Launchpad daného Environmentu na stejném originu, za
-bránou Environmentu:
+Slot jsou dva upstream soubory, každý jako vlastní řádek v
+`allowed_upstream_changes`:
 
-- `/.lazurio/shell.js` definuje `<lazurio-rail>`, `<lazurio-column-head>`
-  a `<lazurio-buddy>` ve verzi Launchpadu na tom Environmentu. Nový rail proto
-  nepotřebuje nové vydání forku.
-- `/.lazurio/shell.json` drží data: přihlášeného člověka, Environmenty
-  a Organizace, adresy aplikací a barvu Organizace. Fork data Lazuria nezná
-  a sám nic nenačítá.
+- `apps/web/index.html`: modulový skript `/.lazurio/shell.js` s atributem
+  `vite-ignore` (Vite značku nechá být a nic nebunduje), `<lazurio-rail>` před
+  `#root` a `<lazurio-buddy>` za ním. Dál
+  `#root { box-sizing: border-box; padding-left: var(--lazurio-rail-width, 0px); }`:
+  odsazení, ne posun, protože `#root` má v upstreamu `width: 100%` pod
+  `body` s `overflow: hidden` a `margin-left` by pravý okraj uřízl. Sidebar T3
+  a jeho přepínač jsou ale `position: fixed` vůči oknu a samotné odsazení by je
+  nechalo pod railem. Proto se při definovaném railu stane obal sidebaru
+  (`[data-slot="sidebar-wrapper"]`) jejich containing blockem
+  (`contain: layout paint`). Bez shellu pravidlo neplatí.
+- `apps/web/src/components/AppSidebarLayout.tsx`:
+  `<lazurio-column-head active="chat">` jako první prvek sidebaru, nad horním
+  řádkem upstreamu s logem T3 Code, který zůstává se všemi ovládacími prvky
+  (rozhodnutí 0179 bod 6: vzhled a branding upstreamu zůstávají). Jedno místo
+  platí pro sidebar vláken, legacy sidebar i Nastavení. Přepínač sidebaru je
+  `position: fixed` u horního okraje, takže se při otevřeném sidebaru na
+  desktopu posune dolů o výšku hlavičky sloupce, s horním řádkem sidebaru.
 
-Patch bude mít zhruba 20 řádků ve zhruba třech souborech `apps/web`:
-`<script type="module" src="/.lazurio/shell.js">` v `index.html`,
-`<lazurio-rail>` vedle kořene aplikace, `<lazurio-column-head>` nahoře
-v sidebaru místo loga upstreamu a `<lazurio-buddy>` v kořeni aplikace.
-Rail je `position: fixed` u levého okraje a místo pro něj udělá odsazení,
-ne posun: `#root { box-sizing: border-box; padding-left:
-var(--lazurio-rail-width, 0px); }`. `#root` má v upstreamu `width: 100%`
-a `body` `overflow: hidden`, takže `margin-left` by pravý okraj aplikace
-uřízl; s `border-box` se šířka obsahu zmenší o rail. Každý změněný soubor
-přibude do `allowed_upstream_changes` jako vlastní řádek s přesnou cestou
-(například `apps/web/index.html`, `apps/web/src/index.css` a soubor sidebaru),
-pod jedním komentářem s důvodem na začátku bloku. Kontrola ve forku bude
-hlídat, že slot (skript a `<lazurio-column-head>`) existuje.
-Při přestavbě na nový upstream tag se pak konflikt ukáže jen v těchto řádcích.
-Přepínač i rail vedou obyčejnými odkazy na jiné originy Environmentu
-(`launchpad.…`, `mausbot.…`), takže router T3 se nemění.
+Kontraktní test hlídá obojí, takže přestavba na nový upstream tag, která slot
+ztratí, v CI selže. Přepínač i rail vedou obyčejnými odkazy na jiné originy
+Environmentu (`launchpad.…`, `mausbot.…`), takže router T3 se nemění.
 
 Vzhled a branding zůstávají upstream až do stabilních vydání upstreamu: T3
 Code nepřebarvujeme ani nepřejmenováváme a dál o něm mluvíme jako o T3 Code.
 Mimo Lazurio se nic nevykreslí: bez `/.lazurio/shell.js` (samostatný server,
-vývoj upstreamu) zůstanou elementy nedefinované, šířka railu je 0 a klient se
-chová jako upstream. Oficiální desktop a mobilní aplikace jsou upstream a shell
-nemají.
+vývoj upstreamu) zůstanou elementy nedefinované, šířka railu je 0, hlavička
+sloupce má výšku 0 a klient se chová jako upstream. Server T3 na neznámou
+cestu vrátí `index.html`, takže prohlížeč jen zaloguje neúspěšné načtení
+skriptu. Oficiální desktop a mobilní aplikace jsou upstream
+a shell nemají.
 
 ### Zadání z Launchpadu
 
