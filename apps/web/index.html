@@ -478,8 +478,21 @@
       }
     </style>
     <title>T3 Code (Alpha)</title>
+    <!-- Lazurio shell (docs/operations/lazurio-fork-release.md "Lazurio shell"): served by the Environment's Launchpad; absent outside Lazurio. -->
+    <script type="module" src="/.lazurio/shell.js" vite-ignore></script>
+    <style>
+      #root {
+        box-sizing: border-box;
+        padding-left: var(--lazurio-rail-width, 0px);
+      }
+      /* T3's sidebar and its toggle are position: fixed; contain them beside the rail, not under it. */
+      lazurio-rail:defined ~ #root [data-slot="sidebar-wrapper"] {
+        contain: layout paint;
+      }
+    </style>
   </head>
   <body>
+    <lazurio-rail></lazurio-rail>
     <div id="root">
       <div id="boot-shell">
         <div id="boot-shell-card" aria-label="T3 Code splash screen">
@@ -487,6 +500,7 @@
         </div>
       </div>
     </div>
+    <lazurio-buddy></lazurio-buddy>
     <script type="module" src="/src/bootstrap.ts"></script>
   </body>
 </html>

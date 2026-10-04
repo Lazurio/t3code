@@ -1,6 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
+  createElement,
+  useCallback,
   useEffect,
   useState,
   useSyncExternalStore,
@@ -78,10 +80,10 @@ function readInitialThreadSidebarWidth(): number {
   }
 }
 
-function SidebarControl() {
+function SidebarControl({ lazurioColumnHeadHeight }: { lazurioColumnHeadHeight: number }) {
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar } = useSidebar();
+  const { isMobile, toggleSidebar } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const stageBackdropVariant = useSidebarStageBackdropVariant(
@@ -132,6 +134,12 @@ function SidebarControl() {
     <div
       className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center"
       data-sidebar-control=""
+      // Lazurio shell: the open sidebar's top row sits below the column head, and so does its toggle.
+      style={
+        isSidebarVisible && !isMobile && lazurioColumnHeadHeight > 0
+          ? { top: `calc(var(--workspace-controls-top) + ${lazurioColumnHeadHeight}px)` }
+          : undefined
+      }
     >
       <Tooltip>
         <TooltipTrigger
@@ -240,6 +248,17 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
     setSidebarWidth(resolveInitialThreadSidebarWidth(null, viewportWidth));
   };
+  // Lazurio shell: height of the column head, 0 while the shell is absent.
+  const [lazurioColumnHeadHeight, setLazurioColumnHeadHeight] = useState(0);
+  const observeLazurioColumnHead = useCallback((element: HTMLElement | null) => {
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setLazurioColumnHeadHeight(element.offsetHeight));
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      setLazurioColumnHeadHeight(0);
+    };
+  }, []);
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(() => {
     const getWindowFullscreenState = window.desktopBridge?.getWindowFullscreenState;
     return isMacosDesktop && typeof getWindowFullscreenState === "function"
@@ -316,6 +335,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             onResize: setSidebarWidth,
           }}
         >
+          {/* Lazurio shell (docs/operations/lazurio-fork-release.md): the Environment picker and the app switch, above the upstream top row. Undefined, it renders nothing. */}
+          {createElement("lazurio-column-head", { active: "chat", ref: observeLazurioColumnHead })}
           {isOnSettings ? (
             <>
               <SidebarChromeHeader isElectron={isElectron} />
@@ -329,7 +350,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}
-        <SidebarControl />
+        <SidebarControl lazurioColumnHeadHeight={lazurioColumnHeadHeight} />
         <NavigationHistoryShortcuts />
         <MainAppLocationTracker />
       </SidebarProvider>
