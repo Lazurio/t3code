@@ -292,7 +292,10 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
     /lazurio-rail:defined ~ #root \[data-slot="sidebar-wrapper"\] \{\s*contain: layout paint;\s*\}/,
   );
   NodeAssert.match(sidebarUi, /data-slot="sidebar-wrapper"/);
-  NodeAssert.match(page, /<body>\s*<lazurio-rail><\/lazurio-rail>\s*<div id="root">/);
+  NodeAssert.match(
+    page,
+    /<body>\s*<lazurio-rail data-app-sidebar><\/lazurio-rail>\s*<div id="root">/,
+  );
   NodeAssert.match(
     page,
     /<\/div>\s*<lazurio-buddy><\/lazurio-buddy>\s*<script type="module" src="\/src\/bootstrap\.ts"><\/script>\s*<\/body>/,
@@ -316,4 +319,73 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
     layout,
     /isSidebarVisible && !isMobile && lazurioColumnHeadHeight > 0\s*\?\s*\{ top: `calc\(var\(--workspace-controls-top\) \+ \$\{lazurioColumnHeadHeight\}px\)` \}/,
   );
+});
+
+NodeTest.test("the Lazurio shell takes T3's sidebar colours through the colour roles", async () => {
+  const [page, styles, layout] = await Promise.all([
+    read("apps/web/index.html"),
+    read("apps/web/src/index.css"),
+    read("apps/web/src/components/AppSidebarLayout.tsx"),
+  ]);
+  // The roles name T3's own tokens, so they follow every theme, light and dark, live. They are
+  // declared where T3 recomputes its sidebar palette, so they resolve against the sidebar's values.
+  const roles = page.match(/\n\s*:root,\s*\[data-app-sidebar\] \{([^}]*)\}/)?.[1] ?? "";
+  const tokens = {
+    surface: "var\\(--sidebar\\)",
+    ink: "var\\(--contrast-sidebar-foreground\\)",
+    "ink-muted": "var\\(--contrast-sidebar-muted-foreground\\)",
+    line: "var\\(--contrast-sidebar-border\\)",
+    "line-strong":
+      "color-mix\\(\\s*in oklab,\\s*var\\(--contrast-sidebar-foreground\\) 24%,\\s*var\\(--sidebar\\)\\s*\\)",
+    hover: "var\\(--sidebar-row-hover\\)",
+    selected: "var\\(--sidebar-row-selected\\)",
+    control: "var\\(--sidebar-control-surface\\)",
+    raised: "var\\(--sidebar-row-active\\)",
+    overlay: "var\\(--popover\\)",
+    "overlay-ink": "var\\(--contrast-popover-foreground\\)",
+    focus: "var\\(--ring\\)",
+  };
+  for (const [role, token] of Object.entries(tokens)) {
+    NodeAssert.match(roles, new RegExp(`--lazurio-${role}: ${token};`), role);
+  }
+  NodeAssert.equal(roles.match(/--lazurio-/g)?.length, Object.keys(tokens).length);
+  // The rail joins T3's sidebar palette scope, so it reads as one surface with the sidebar beside
+  // it (the default dark sidebar is darker than the document's own --sidebar), grain included.
+  NodeAssert.match(page, /<lazurio-rail data-app-sidebar><\/lazurio-rail>/);
+  NodeAssert.match(
+    page,
+    /lazurio-rail:defined \{\s*background-image: var\(--surface-grain\);\s*background-repeat: repeat;\s*background-size: var\(--surface-grain-size\);\s*\}/,
+  );
+  // A rebuild on a new upstream tag keeps every token the roles name, the sidebar palette scope
+  // and its contrast recomputation.
+  for (const token of [
+    "--sidebar",
+    "--contrast-sidebar-foreground",
+    "--contrast-sidebar-muted-foreground",
+    "--contrast-sidebar-border",
+    "--sidebar-row-hover",
+    "--sidebar-row-selected",
+    "--sidebar-control-surface",
+    "--sidebar-row-active",
+    "--popover",
+    "--contrast-popover-foreground",
+    "--ring",
+    "--surface-grain",
+    "--surface-grain-size",
+  ]) {
+    NodeAssert.match(styles, new RegExp(`\\n\\s*${token}: `), token);
+  }
+  NodeAssert.match(styles, /\n\[data-app-sidebar\] \{\n\s*--background: /);
+  NodeAssert.match(styles, /\n:root,\n\[data-app-sidebar\] \{\n\s*--contrast-/);
+  NodeAssert.match(layout, /\n\s*data-app-sidebar=""\n/);
+  // With the rail in that scope, a script lookup of [data-app-sidebar] would find the rail first.
+  // Upstream uses the attribute only as a CSS scope; a rebuild that starts querying it is a review.
+  const sources = (await NodeFSP.readdir("apps/web/src", { recursive: true })).filter((file) =>
+    /\.tsx?$/.test(file),
+  );
+  const users = [];
+  for (const file of sources) {
+    if ((await read(`apps/web/src/${file}`)).includes("data-app-sidebar")) users.push(file);
+  }
+  NodeAssert.deepEqual(users, ["components/AppSidebarLayout.tsx"]);
 });

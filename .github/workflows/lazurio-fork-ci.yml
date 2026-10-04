@@ -74,6 +74,7 @@ jobs:
             # The Lazurio shell slot (issue #33): the loader, the rail, the padding and
             # Buddy in index.html, and the column head at the top of the sidebar. The
             # shell itself is served by the Environment's Launchpad; without it nothing renders.
+            # index.html also maps T3's sidebar tokens to the shell's colour roles.
             apps/web/index.html
             apps/web/src/components/AppSidebarLayout.tsx
           )

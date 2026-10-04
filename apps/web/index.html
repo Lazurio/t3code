@@ -489,10 +489,39 @@
       lazurio-rail:defined ~ #root [data-slot="sidebar-wrapper"] {
         contain: layout paint;
       }
+      /* The shell's colour roles, from T3's own sidebar tokens, so the shell follows every T3
+         theme, light and dark. Declared where T3 recomputes its sidebar palette, so they resolve
+         against the sidebar's own values; the rail joins that scope (data-app-sidebar) and reads
+         as one surface with T3's sidebar. */
+      :root,
+      [data-app-sidebar] {
+        --lazurio-surface: var(--sidebar);
+        --lazurio-ink: var(--contrast-sidebar-foreground);
+        --lazurio-ink-muted: var(--contrast-sidebar-muted-foreground);
+        --lazurio-line: var(--contrast-sidebar-border);
+        --lazurio-line-strong: color-mix(
+          in oklab,
+          var(--contrast-sidebar-foreground) 24%,
+          var(--sidebar)
+        );
+        --lazurio-hover: var(--sidebar-row-hover);
+        --lazurio-selected: var(--sidebar-row-selected);
+        --lazurio-control: var(--sidebar-control-surface);
+        --lazurio-raised: var(--sidebar-row-active);
+        --lazurio-overlay: var(--popover);
+        --lazurio-overlay-ink: var(--contrast-popover-foreground);
+        --lazurio-focus: var(--ring);
+      }
+      /* T3 grains its chrome surfaces (surface-grain); without it the rail reads a shade apart. */
+      lazurio-rail:defined {
+        background-image: var(--surface-grain);
+        background-repeat: repeat;
+        background-size: var(--surface-grain-size);
+      }
     </style>
   </head>
   <body>
-    <lazurio-rail></lazurio-rail>
+    <lazurio-rail data-app-sidebar></lazurio-rail>
     <div id="root">
       <div id="boot-shell">
         <div id="boot-shell-card" aria-label="T3 Code splash screen">

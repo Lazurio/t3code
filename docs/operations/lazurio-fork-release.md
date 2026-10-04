@@ -143,6 +143,35 @@ Kontraktní test hlídá obojí, takže přestavba na nový upstream tag, která
 ztratí, v CI selže. Přepínač i rail vedou obyčejnými odkazy na jiné originy
 Environmentu (`launchpad.…`, `mausbot.…`), takže router T3 se nemění.
 
+**Barvy shellu (rozhodnutí 0187, 2026-10-04).** Rail, hlavička sloupce a
+seznam Environmentů berou barvy aplikace, ve které sedí. `index.html` proto
+nastaví dvanáct barevných rolí shellu (`--lazurio-surface`, `--lazurio-ink`,
+… `--lazurio-focus`) z vlastních tokenů sidebaru T3: plocha je `--sidebar`,
+text, hairline a text seznamu jsou `--contrast-*` varianty, které T3 sám
+kreslí (respektují nastavení kontrastu ve Vzhledu), seznam je `--popover` a
+fokus `--ring`. Role jsou jen odkazy na tokeny, takže shell sleduje každý
+motiv T3, světlý i tmavý, i jeho přepnutí za běhu. Vlastní výběr motivů má
+zatím každá aplikace; sjednocení motivů napříč aplikacemi je samostatná
+pozdější práce.
+
+Mezi railem a sidebarem T3 nesmí být vidět čára. Proto:
+
+- Role jsou deklarované na `:root` i na `[data-app-sidebar]`, tedy tam, kde
+  T3 přepočítává paletu svého sidebaru, a `<lazurio-rail>` nese
+  `data-app-sidebar`. Ve výchozím tmavém motivu má sidebar T3 vlastní paletu
+  (`#000`), kdežto `--sidebar` dokumentu je o odstín světlejší; bez toho by
+  rail vedle sidebaru tvořil hranu.
+- Rail nosí zrnitost `--surface-grain`, kterou T3 dává svým plochám. Bez ní
+  se rail od sidebaru liší o 1–3 z 255 úrovní jasu a hrana je vidět.
+- Kontejner sidebaru T3 má okraj jen vpravo, mezi sidebarem a hlavní plochou,
+  a ten zůstává. Levá hrana sidebaru ani `#root` okraj nemají.
+
+Atribut `data-app-sidebar` je v upstreamu jen CSS scope palety; žádný skript
+ho nevyhledává. Kdyby to upstream začal dělat, našel by jako první rail.
+Kontraktní test proto hlídá mapování rolí, tokeny v `index.css` i to, že
+atribut v `apps/web/src` používá jen `AppSidebarLayout.tsx`. Přestavba, která
+cokoli z toho poruší, v CI selže a vyžaduje nové rozhodnutí.
+
 Vzhled a branding zůstávají upstream až do stabilních vydání upstreamu: T3
 Code nepřebarvujeme ani nepřejmenováváme a dál o něm mluvíme jako o T3 Code.
 Mimo Lazurio se nic nevykreslí: bez `/.lazurio/shell.js` (samostatný server,
