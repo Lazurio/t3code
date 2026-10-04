@@ -90,6 +90,7 @@ nabídne normálně.
 | `hosted: explicit environment label`                      | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                            | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou |
 | `feat: in-app update from the configured release channel` | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.     | retain: upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu             |
 | `release: Lazurio distribution`                           | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                            | retain                                                                              |
+| `lazurio: unsent prompt draft by link from the shell`     | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                           | retain: upstream nemá vstup pro koncept zprávy zvenku                               |
 
 Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
 upstream nabídne ekvivalent. Klienty, sdílené balíčky a wire kontrakty
@@ -142,6 +143,50 @@ Mimo Lazurio se nic nevykreslí: bez `/.lazurio/shell.js` (samostatný server,
 vývoj upstreamu) zůstanou elementy nedefinované, šířka railu je 0 a klient se
 chová jako upstream. Oficiální desktop a mobilní aplikace jsou upstream a shell
 nemají.
+
+### Zadání z Launchpadu
+
+**Implementováno (Lazurio/t3code#35).** „+ Nový modul“ v Apps otevře Chat
+téhož Environmentu s připraveným zadáním v poli zprávy nového vlákna. Zadání
+se nikdy neodešle samo; odešle ho až člověk.
+
+- Launchpad otevře Chat přes párování a za token přidá do fragmentu
+  `lazurio-prompt=<id>&lazurio-org=<GitHub login Organizace>`, bez párování
+  na holý origin. Odkaz nikdy nenese text. Fragment se neposílá na server ani
+  do logu a T3 bez overlaye ho ignoruje.
+- `main.tsx` při startu odkaz z adresy odebere (`captureLazurioPromptLink`),
+  dřív než ho přečte router nebo párování; token zůstane.
+- Až je primární environment načtený, `<LazurioPromptDraft />` v layoutu
+  `_chat` stáhne text z vlastního originu:
+  `GET /.lazurio/prompts/<id>?org=<login>` (brána Environmentu ho za stejným
+  přihlášením předá Launchpadu), `credentials: "same-origin"`,
+  `redirect: "error"`. Přijme jen JSON `lazurio.prompt.v1` se stejným `id`,
+  neprázdným `text` do 16 KiB a absolutním `cwd`.
+- Otevře nové vlákno v projektu primárního environmentu s kořenem `cwd`.
+  Když takový projekt není, přidá složku jako projekt, jako to dělá „Add
+  project“, ale bez zakládání složky. Text vloží do pole zprávy, nic
+  neodešle.
+- Neznámé `id`, neúspěšný nebo přesměrovaný fetch, jiný tvar odpovědi nebo
+  cizí origin nevloží nic. Člověk uvidí jen chybový toast „Could not open the
+  prepared prompt“.
+- Kdo zadání dostane, rozhoduje Launchpad. Dnes jediné zadání `new-module`
+  dostane jen Environment, jehož GitHub identita je Owner Organizace. Komukoli
+  jinému odpoví stejným 404.
+
+Launchpad podává zadání odkazem jen tam, kde to T3 na Environmentu umí: zeptá
+se `t3 --version` a odkaz použije od prvního vydání s tímto overlayem
+(`0.0.45-lazurio.2`, preview od `0.0.45-preview.20261004.1`). Jinde zadání
+zkopíruje do schránky jako dřív. **Při vydání ověř, že první vydání s tímto
+commitem má právě tato čísla.** Jinak je oprav v Lazurio/LazurioPlatform
+(`chatPromptsSince` v `src/launchpad/chat.ts`).
+
+Overlay se dotýká jen dvou řádků upstream souborů: zachycení v `main.tsx`
+a `<LazurioPromptDraft />` v `routes/_chat.tsx`. Zbytek je ve složce
+`apps/web/src/lazurio/`. Všech pět souborů je v allowlistu. Kontraktní test
+hlídá, že zachycení proběhne před vytvořením routeru, že layout komponentu
+vykreslí, že text přichází jen z vlastního originu bez přesměrování a že
+overlay nemá cestu, jak zprávu odeslat. CI spouští testy overlaye
+(`vp test run src/lazurio`).
 
 ## Kdy vydávat
 
