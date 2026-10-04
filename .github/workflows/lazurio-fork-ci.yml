@@ -64,6 +64,13 @@ jobs:
             # Configurable release repository and semver release index; proposed upstream.
             packages/shared/src/cliRelease.test.ts
             packages/shared/src/cliRelease.ts
+            # Prepared prompt from the Lazurio shell by link (Lazurio/t3code#35): the link is
+            # taken off the address at boot and the chat layout opens it as an unsent draft.
+            apps/web/src/lazurio/LazurioPromptDraft.tsx
+            apps/web/src/lazurio/promptDraft.test.ts
+            apps/web/src/lazurio/promptDraft.ts
+            apps/web/src/main.tsx
+            apps/web/src/routes/_chat.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps/(web|mobile|desktop)|packages)/' |
@@ -105,6 +112,10 @@ jobs:
             src/auth \
             src/environment/ServerEnvironmentLabel.test.ts
           pnpm exec vp test run src/server.test.ts
+
+      - name: Test the Lazurio web overlay
+        working-directory: apps/web
+        run: pnpm exec vp test run src/lazurio
 
       - name: Validate Lazurio release contract
         run: node --test scripts/lazurio-release-contract.test.mjs
