@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Options as ClaudeQueryOptions } from "@anthropic-ai/claude-agent-sdk";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -95,13 +96,24 @@ describe("agent-browser session name", () => {
       `import:codex:${threadId}`,
       `import:${longInstance}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
       `import:${longInstance}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a71`,
+      // Two imported ids whose 32-bit FNV-1a suffixes collided (review of Lazurio/t3code#41).
+      `import:codex-${"w".repeat(58)}:f64cccd6-59c8-42a7-aa0e-319969aeccc9`,
+      `import:codex-${"w".repeat(58)}:3c4a8834-35dc-418d-a6dd-d8d1934ab83f`,
     ];
     const names = ids.map(agentBrowserSessionName);
     for (const name of names) assert.match(name, /^t3-[A-Za-z0-9_-]{1,61}$/);
     assert.strictEqual(new Set(names).size, ids.length);
-    assert.match(names[0] ?? "", /^t3-thread-with-colons-and-slashes-[0-9a-f]{8}$/);
+    // A readable start, then 32 hex digits of the exact id's SHA-256.
+    assert.match(names[0] ?? "", /^t3-thread-with-colons-and-slash-[0-9a-f]{32}$/);
     assert.strictEqual(names[2], "t3-thread-with-colons-and-slashes");
-    assert.match(names[7] ?? "", new RegExp(`^t3-${"x".repeat(52)}-[0-9a-f]{8}$`));
+    assert.match(names[7] ?? "", new RegExp(`^t3-${"x".repeat(28)}-[0-9a-f]{32}$`));
+    assert.strictEqual(
+      names[0],
+      `t3-thread-with-colons-and-slash-${createHash("sha256")
+        .update("thread.with:colons/and/slashes", "utf8")
+        .digest("hex")
+        .slice(0, 32)}`,
+    );
     // The same thread always gets the same session.
     assert.deepStrictEqual(ids.map(agentBrowserSessionName), names);
   });
