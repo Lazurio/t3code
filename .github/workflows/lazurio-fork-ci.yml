@@ -119,6 +119,10 @@ jobs:
             src/environment/ServerEnvironmentLabel.test.ts
           pnpm exec vp test run src/server.test.ts
 
+      - name: Test the Lazurio server overlay
+        working-directory: apps/server
+        run: pnpm exec vp test run src/lazurio
+
       - name: Test the Lazurio web overlay
         working-directory: apps/web
         run: pnpm exec vp test run src/lazurio

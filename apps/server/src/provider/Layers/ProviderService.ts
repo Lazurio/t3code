@@ -84,6 +84,7 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import { withAgentBrowserSession } from "../../lazurio/agentBrowserSession.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 const isModelSelection = Schema.is(ModelSelection);
@@ -975,10 +976,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ? yield* agentDeviceEnvironment
           : undefined;
         yield* Effect.sync(() =>
-          McpProviderSession.setMcpProviderSession({
-            ...credential.config,
-            ...(deviceEnvironment ? { agentDeviceEnvironment: deviceEnvironment } : {}),
-          }),
+          McpProviderSession.setMcpProviderSession(
+            // Lazurio overlay (root decision 0191): the thread's agent-browser session.
+            withAgentBrowserSession({
+              ...credential.config,
+              ...(deviceEnvironment ? { agentDeviceEnvironment: deviceEnvironment } : {}),
+            }),
+          ),
         );
       }
       return credential;
