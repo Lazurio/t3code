@@ -389,3 +389,27 @@ NodeTest.test("the Lazurio shell takes T3's sidebar colours through the colour r
   }
   NodeAssert.deepEqual(users, ["components/AppSidebarLayout.tsx"]);
 });
+
+// Root decision 0191 (plan DEV-6646): the agents of every thread drive a window of their own in
+// the Environment browser through the agent-browser CLI, which takes the session from
+// AGENT_BROWSER_SESSION. Every adapter spreads the provider session ProviderService records for a
+// thread into the processes it starts for that thread, so the thread's session joins it there.
+NodeTest.test(
+  "every provider process of a thread gets the thread's agent-browser session",
+  async () => {
+    const [providerService, session] = await Promise.all([
+      read("apps/server/src/provider/Layers/ProviderService.ts"),
+      import("../apps/server/src/lazurio/agentBrowserSession.ts"),
+    ]);
+    NodeAssert.equal(session.AGENT_BROWSER_SESSION_ENV, "AGENT_BROWSER_SESSION");
+    NodeAssert.match(
+      providerService,
+      /McpProviderSession\.setMcpProviderSession\(\n(?:\s*\/\/[^\n]*\n)?\s*withAgentBrowserSession\(\{\n\s*\.\.\.credential\.config,/,
+    );
+    NodeAssert.equal(providerService.match(/withAgentBrowserSession\(/g)?.length, 1);
+    NodeAssert.match(
+      ci,
+      /working-directory: apps\/server\n\s+run: pnpm exec vp test run src\/lazurio\n/,
+    );
+  },
+);
