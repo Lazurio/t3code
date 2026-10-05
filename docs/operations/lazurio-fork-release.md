@@ -8,8 +8,9 @@ Admin (Matěj, `immakermatty`) ho jen schválí v GitHub environmentu.
 Lazurio Mašiny. T3 vždy běží v kořeni vlastního hostname
 (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS reverse proxy. Oficiální
 desktop a mobilní aplikace se připojují jako neupravení upstream klienti.
-Vzhled a branding webového klienta zůstávají upstream; jediný zásah do jeho UI
-je slot pro shell Lazuria (viz [Lazurio shell](#lazurio-shell)).
+Vzhled a branding webového klienta zůstávají upstream; do jeho UI zasahuje jen
+slot pro shell Lazuria (viz [Lazurio shell](#lazurio-shell)) a prohlížeč
+Environmentu v pravém panelu (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).
 
 ## Kanál aktualizací
 
@@ -83,15 +84,17 @@ nabídne normálně.
 
 `main` je přesný upstream stable tag a nad ním jen tyto commity:
 
-| Commit                                                    | Proč ho Lazurio potřebuje                                                                                                                                                                                         | v0.0.45                                                                             |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `hosted: configurable client session TTL`                 | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                          | retain: upstream má pevných 30 dní                                                  |
-| `hosted: serve behind an explicit HTTPS external origin`  | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.           | retain: upstream ekvivalent nemá                                                    |
-| `hosted: explicit environment label`                      | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                                      | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou |
-| `feat: in-app update from the configured release channel` | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.               | retain: upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu             |
-| `release: Lazurio distribution`                           | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                                      | retain                                                                              |
-| `lazurio: unsent prompt draft by link from the shell`     | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                     | retain: upstream nemá vstup pro koncept zprávy zvenku                               |
-| `feat(web): Lazurio shell slot`                           | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí. | retain: upstream ekvivalent nemá                                                    |
+| Commit                                                                         | Proč ho Lazurio potřebuje                                                                                                                                                                                                       | v0.0.45                                                                                                          |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `hosted: configurable client session TTL`                                      | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                                        | retain: upstream má pevných 30 dní                                                                               |
+| `hosted: serve behind an explicit HTTPS external origin`                       | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.                         | retain: upstream ekvivalent nemá                                                                                 |
+| `hosted: explicit environment label`                                           | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                                                    | retain: upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou                              |
+| `feat: in-app update from the configured release channel`                      | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.                             | retain: upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu                                          |
+| `release: Lazurio distribution`                                                | Tento dokument, `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`.                                                                    | retain                                                                                                           |
+| `lazurio: unsent prompt draft by link from the shell`                          | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                   | retain: upstream nemá vstup pro koncept zprávy zvenku                                                            |
+| `feat(web): Lazurio shell slot`                                                | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.               | retain: upstream ekvivalent nemá                                                                                 |
+| `feat(server): each thread's provider processes get its agent-browser session` | Každý proces poskytovatele, který T3 spustí pro vlákno, dostane `AGENT_BROWSER_SESSION=t3-<id vlákna>`: agenti vlákna pracují ve vlastním okně prohlížeče Environmentu (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)). | retain: rozhodnutí 0191 / plán DEV-6646; upstream ekvivalent nemá                                                |
+| `feat(web): the right panel's Browser shows the Environment browser`           | Webový klient nemá vlastní prohlížeč. Bez desktopového náhledu ukáže Browser v pravém panelu pohled prohlížeče Environmentu, pokud ho Environment nabízí (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).               | retain: rozhodnutí 0191 / plán DEV-6646; webové UI nemá prohlížeč, tohle je zdokumentovaný minimální zásah do UI |
 
 Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
 upstream nabídne ekvivalent. Klienty, sdílené balíčky a wire kontrakty
@@ -224,6 +227,63 @@ hlídá, že zachycení proběhne před vytvořením routeru, že layout kompone
 vykreslí, že text přichází jen z vlastního originu bez přesměrování a že
 overlay nemá cestu, jak zprávu odeslat. CI spouští testy overlaye
 (`vp test run src/lazurio`).
+
+### Prohlížeč Environmentu
+
+**Rozhodnutí 0191 (plán DEV-6646, Lazurio/t3code#40).** Na Remote
+Environmentu běží jeden sdílený Chromium. Agenti každého vlákna v něm pracují ve
+vlastním okně přes CLI `agent-browser` a člověk okna sleduje a přebírá v
+pohledu, dashboardu agent-browser za bránou Environmentu. Webový klient T3 žádný
+prohlížeč nemá, a tak overlay dělá dvě věci:
+
+- **Server: sezení vlákna.** Každý proces poskytovatele, který T3 spustí pro
+  vlákno (app-server Codexu, Claude Code i ostatní adaptéry), dostane
+  `AGENT_BROWSER_SESSION=t3-<id vlákna>`. Každý znak mimo `[A-Za-z0-9_-]` se
+  nahradí `-` a jméno má nejvýš 64 znaků (gramatika agent-browser a limit jeho
+  dashboardu). ProviderService jméno zapíše do sezení poskytovatele, které pro
+  vlákno vede; prostředí toho sezení už každý adaptér předává procesům vlákna
+  (stejnou cestou jde CLI `agent-device`). Proměnná jen pojmenovává sezení, nic
+  nepovoluje a platí i při vypnutém přístupu agentů k prohlížeči T3.
+- **Web: Browser v pravém panelu.** Bez desktopového náhledu
+  (`window.desktopBridge.preview`) a jen pro vlákna Environmentu, který stránku
+  servíruje, se pravý panel při otevření zeptá na vlastním originu
+  `GET /.lazurio/browser.json?session=<jméno>` (`credentials: "same-origin"`,
+  `redirect: "error"`, `cache: "no-store"`, timeout 10 s). Odpověď 200
+  `{"available": true, "view": "<https URL>", "session": "<jméno>" | null}`
+  Browser povolí. Cokoli jiného (`available: false`, 404 staršího Launchpadu,
+  400, chyba sítě, odpověď mimo JSON včetně `index.html` T3, pohled mimo
+  `https:` nebo na originu T3, jiné sezení) nechá Browser vypnutý s upstream
+  textem.
+- **Povrch.** Otevření přidá povrch `environment-browser`. Druh `preview` to
+  být nemůže, protože `reconcileBrowserSurfaces` maže náhledy bez živé záložky
+  serveru. Povrch se ptá znovu při každém otevření i při Reload, protože URL
+  pohledu nese ve fragmentu krátkodobý přístupový token. URL žije jen ve stavu
+  komponenty, nikdy v localStorage ani v nastavení; uložený popis povrchu je
+  jen `{id, kind}`.
+- **Rám.** Pohled je v `<iframe>` s
+  `allow="clipboard-read; clipboard-write; fullscreen"` a
+  `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"`.
+  `allow-same-origin` nechá pohled v jeho vlastním originu, proto se pohled na
+  originu T3 odmítne. Hlavička má Reload a „Open in new tab“ (`target=_blank`,
+  `rel=noopener`) na tutéž URL: přihlašovací stránka brány se po vypršení
+  přihlášení v rámu nevykreslí.
+- **Co se nemění.** Desktop s `desktopBridge.preview` se nemění (žádný dotaz,
+  Browser je desktopový náhled), mobilní aplikace také ne. Na úzké obrazovce je
+  pohled ve stejném sheetu pravého panelu. Klávesová zkratka `preview.toggle` a
+  odkazy otevírané v náhledu zůstávají jen desktopové.
+
+Upstream soubory overlay mění jen ve švech: `rightPanelStore.ts` (druh
+povrchu), `RightPanelTabs.tsx` (název a ikona záložky, bez volby desktopového
+profilu tam, kde desktopový náhled chybí), `ChatView.tsx` (povolení Browser a
+vykreslení povrchu) a `ProviderService.ts` (jedno volání). Zbytek je ve
+složkách `apps/web/src/lazurio/` a `apps/server/src/lazurio/`. Funkci pro jméno
+sezení mají server i web každý ve vlastní kopii: sdílení přes `packages/shared`
+by vyžadovalo záznam v jeho mapě exportů a tu upstream přepisuje každých pár
+dní. Kontraktní test hlídá, že obě kopie jsou stejná funkce, švy, URL jen z
+vlastního originu bez přesměrování a to, že se URL nikam neukládá. CI spouští
+testy overlaye serveru i webu (`vp test run src/lazurio`).
+`/.lazurio/browser.json` servíruje Launchpad Environmentu, takže změna pohledu
+vydání forku nepotřebuje.
 
 ## Kdy vydávat
 
