@@ -436,6 +436,7 @@ NodeTest.test("the server and the web name a thread's agent-browser session alik
     "vlákno-č",
     "emoji-\u{1F642}",
     "x".repeat(100),
+    `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
     "",
   ]) {
     const name = server.agentBrowserSessionName(threadId);
