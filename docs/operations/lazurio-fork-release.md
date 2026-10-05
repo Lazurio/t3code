@@ -238,12 +238,16 @@ prohlížeč nemá, a tak overlay dělá dvě věci:
 
 - **Server: sezení vlákna.** Každý proces poskytovatele, který T3 spustí pro
   vlákno (app-server Codexu, Claude Code i ostatní adaptéry), dostane
-  `AGENT_BROWSER_SESSION=t3-<id vlákna>`. Každý znak mimo `[A-Za-z0-9_-]` se
-  nahradí `-` a jméno má nejvýš 64 znaků (gramatika agent-browser a limit jeho
-  dashboardu). ProviderService jméno zapíše do sezení poskytovatele, které pro
-  vlákno vede; prostředí toho sezení už každý adaptér předává procesům vlákna
-  (stejnou cestou jde CLI `agent-device`). Proměnná jen pojmenovává sezení, nic
-  nepovoluje a platí i při vypnutém přístupu agentů k prohlížeči T3.
+  `AGENT_BROWSER_SESSION=t3-<id vlákna>`. Jméno smí mít jen `[A-Za-z0-9_-]` a
+  nejvýš 64 znaků (gramatika agent-browser a limit jeho dashboardu). Běžné id
+  vlákna (UUID) se do jména vejde beze změny. Id s jinými znaky nebo delší
+  (například importované vlákno `import:<instance>:<sezení>`) dostane místo
+  nich `-`, zkrátí se a na konec dostane hash celého id, takže dvě vlákna
+  nikdy nesdílejí sezení ani okno. ProviderService jméno zapíše do sezení
+  poskytovatele, které pro vlákno vede; prostředí toho sezení už každý adaptér
+  předává procesům vlákna (stejnou cestou jde CLI `agent-device`). Proměnná jen
+  pojmenovává sezení, nic nepovoluje a platí i při vypnutém přístupu agentů k
+  prohlížeči T3.
 - **Web: Browser v pravém panelu.** Bez desktopového náhledu
   (`window.desktopBridge.preview`) a jen pro vlákna Environmentu, který stránku
   servíruje, se pravý panel při otevření zeptá na vlastním originu

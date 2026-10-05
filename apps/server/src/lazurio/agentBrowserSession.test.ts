@@ -73,21 +73,37 @@ const withRecordedSession = <A, E, R>(
 const testBaseDir = { prefix: "lazurio-agent-browser-" } as const;
 
 describe("agent-browser session name", () => {
-  it("is t3- and the thread id, sanitized to agent-browser's grammar, at most 64 long", () => {
-    const cases: ReadonlyArray<readonly [string, string]> = [
-      [threadId, sessionName],
-      ["thread.with:colons/and/slashes", "t3-thread-with-colons-and-slashes"],
-      ["under_score and space", "t3-under_score-and-space"],
-      ["vlákno-č", "t3-vl-kno--"],
-      ["emoji-\u{1F642}", "t3-emoji---"],
-      ["x".repeat(100), `t3-${"x".repeat(61)}`],
-      ["", "t3-"],
+  it("is t3- and the thread id when the id already fits agent-browser's grammar", () => {
+    assert.strictEqual(agentBrowserSessionName(threadId), sessionName);
+    assert.strictEqual(agentBrowserSessionName("under_score-and-dash"), "t3-under_score-and-dash");
+    assert.strictEqual(agentBrowserSessionName("x".repeat(61)), `t3-${"x".repeat(61)}`);
+  });
+
+  it("keeps a readable start of a sanitized or cut id and never gives two threads one session", () => {
+    // Imported threads are `import:<provider instance>:<provider session>`, and an instance id
+    // may take 64 characters: cutting alone would give every such thread the same name.
+    const longInstance = `codex-${"w".repeat(58)}`;
+    const ids = [
+      "thread.with:colons/and/slashes",
+      "thread:with:colons:and:slashes",
+      "thread-with-colons-and-slashes",
+      "vlákno-č",
+      "vlákno-ř",
+      "emoji-\u{1F642}",
+      "x".repeat(62),
+      "x".repeat(100),
+      `import:codex:${threadId}`,
+      `import:${longInstance}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
+      `import:${longInstance}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a71`,
     ];
-    for (const [id, expected] of cases) {
-      const name = agentBrowserSessionName(id);
-      assert.deepStrictEqual([id, name], [id, expected]);
-      assert.match(name, /^[A-Za-z0-9_-]{1,64}$/);
-    }
+    const names = ids.map(agentBrowserSessionName);
+    for (const name of names) assert.match(name, /^t3-[A-Za-z0-9_-]{1,61}$/);
+    assert.strictEqual(new Set(names).size, ids.length);
+    assert.match(names[0] ?? "", /^t3-thread-with-colons-and-slashes-[0-9a-f]{8}$/);
+    assert.strictEqual(names[2], "t3-thread-with-colons-and-slashes");
+    assert.match(names[7] ?? "", new RegExp(`^t3-${"x".repeat(52)}-[0-9a-f]{8}$`));
+    // The same thread always gets the same session.
+    assert.deepStrictEqual(ids.map(agentBrowserSessionName), names);
   });
 
   it("joins the thread's provider-session environment and keeps the device variables", () => {

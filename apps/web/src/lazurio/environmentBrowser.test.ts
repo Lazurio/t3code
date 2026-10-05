@@ -29,17 +29,25 @@ function answer(body: unknown, init: ResponseInit & { url?: string } = {}): Resp
 }
 
 describe("the session name", () => {
-  it("is t3- and the thread id in agent-browser's grammar, at most 64 characters", () => {
-    for (const [threadId, name] of [
-      ["4a1f9c2e-7b3d-4e5f-8a6b-9c0d1e2f3a4b", session],
-      ["thread.with:colons/and/slashes", "t3-thread-with-colons-and-slashes"],
-      ["vlákno-č", "t3-vl-kno--"],
-      ["emoji-\u{1F642}", "t3-emoji---"],
-      ["x".repeat(100), `t3-${"x".repeat(61)}`],
-    ] as const) {
-      expect([threadId, agentBrowserSessionName(threadId)]).toEqual([threadId, name]);
-      expect(agentBrowserSessionName(threadId)).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
-    }
+  it("is t3- and the thread id when the id already fits agent-browser's grammar", () => {
+    expect(agentBrowserSessionName("4a1f9c2e-7b3d-4e5f-8a6b-9c0d1e2f3a4b")).toBe(session);
+  });
+
+  it("marks a sanitized or cut id with a hash of the exact id, so threads never share one", () => {
+    const ids = [
+      "thread.with:colons/and/slashes",
+      "thread:with:colons:and:slashes",
+      "vlákno-č",
+      "emoji-\u{1F642}",
+      "x".repeat(62),
+      "x".repeat(100),
+      `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
+      `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a71`,
+    ];
+    const names = ids.map(agentBrowserSessionName);
+    for (const name of names) expect(name).toMatch(/^t3-[A-Za-z0-9_-]{1,61}$/);
+    expect(new Set(names).size).toBe(ids.length);
+    expect(names[0]).toMatch(/^t3-thread-with-colons-and-slashes-[0-9a-f]{8}$/);
   });
 });
 
