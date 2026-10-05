@@ -14,6 +14,15 @@ const promptOverlay = [
   "apps/web/src/main.tsx",
   "apps/web/src/routes/_chat.tsx",
 ];
+const environmentBrowserOverlay = [
+  "apps/web/src/components/ChatView.tsx",
+  "apps/web/src/components/RightPanelTabs.tsx",
+  "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+  "apps/web/src/lazurio/agentBrowserSession.ts",
+  "apps/web/src/lazurio/environmentBrowser.test.ts",
+  "apps/web/src/lazurio/environmentBrowser.ts",
+  "apps/web/src/rightPanelStore.ts",
+];
 const [release, archives, ci, dockerfile, dockerignore, docs, updateSource] = await Promise.all([
   read(".github/workflows/lazurio-release.yml"),
   read(".github/workflows/lazurio-cli-archives.yml"),
@@ -413,3 +422,106 @@ NodeTest.test(
     );
   },
 );
+
+// The web asks the Environment for the view of the thread's session. packages/shared's export
+// map is upstream-hot, so the server and the web each have a copy of the name; one function.
+NodeTest.test("the server and the web name a thread's agent-browser session alike", async () => {
+  const [server, web] = await Promise.all([
+    import("../apps/server/src/lazurio/agentBrowserSession.ts"),
+    import("../apps/web/src/lazurio/agentBrowserSession.ts"),
+  ]);
+  for (const threadId of [
+    "4a1f9c2e-7b3d-4e5f-8a6b-9c0d1e2f3a4b",
+    "thread.with:colons/and/slashes",
+    "vlákno-č",
+    "emoji-\u{1F642}",
+    "x".repeat(100),
+    "",
+  ]) {
+    const name = server.agentBrowserSessionName(threadId);
+    NodeAssert.equal(web.agentBrowserSessionName(threadId), name, threadId);
+    // agent-browser's grammar and its dashboard's 64 characters.
+    NodeAssert.match(name, /^t3-[A-Za-z0-9_-]{0,61}$/, threadId);
+  }
+  NodeAssert.equal(
+    web.agentBrowserSessionName.toString(),
+    server.agentBrowserSessionName.toString(),
+  );
+});
+
+// The web client has no browser: without the desktop preview, the right panel's Browser frames
+// the Environment browser's view that the Environment names at /.lazurio/browser.json.
+NodeTest.test("the Environment browser keeps its seams and never stores the view", async () => {
+  const [store, tabs, chatView, view, component] = await Promise.all(
+    [
+      "apps/web/src/rightPanelStore.ts",
+      "apps/web/src/components/RightPanelTabs.tsx",
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/lazurio/environmentBrowser.ts",
+      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+    ].map(read),
+  );
+  // A surface kind of its own: preview reconciliation drops preview tabs without a server tab.
+  NodeAssert.match(store, /\| \{ id: "environment-browser"; kind: "environment-browser" \}/);
+  NodeAssert.match(
+    store,
+    /case "environment-browser":\n\s+return \{ id: "environment-browser", kind \};/,
+  );
+  NodeAssert.match(tabs, /case "environment-browser":\n\s+return "Browser";/);
+  NodeAssert.match(
+    tabs,
+    /const browserProfiles = previewBridge \? browserDefaults\.profiles : \[\];/,
+  );
+  // The desktop preview stays first; the Environment browser only where the Environment offers it.
+  NodeAssert.equal(
+    chatView.match(
+      /browserAvailable=\{isPreviewSupportedInRuntime\(\) \|\| environmentBrowser\.available\}/g,
+    )?.length,
+    2,
+  );
+  NodeAssert.equal(
+    chatView.match(
+      /environmentBrowser\.available \? environmentBrowser\.open : \(\) => createBrowserSurface\(\)/g,
+    )?.length,
+    2,
+  );
+  NodeAssert.match(
+    chatView,
+    /renderedRightPanelSurface\?\.kind === "environment-browser" \? \(\n\s+<LazurioEnvironmentBrowser /,
+  );
+  NodeAssert.match(
+    component,
+    /threadRef\.environmentId === primaryEnvironmentId &&\n\s+!isPreviewSupportedInRuntime\(\)/,
+  );
+  // The view only from this origin's /.lazurio/browser.json, and only at an https: URL.
+  NodeAssert.match(view, /const BROWSER_VIEW_PATH = "\/\.lazurio\/browser\.json";/);
+  NodeAssert.match(view, /new URL\(BROWSER_VIEW_PATH, origin\)/);
+  NodeAssert.match(view, /credentials: "same-origin"/);
+  NodeAssert.match(view, /redirect: "error"/);
+  NodeAssert.match(view, /cache: "no-store"/);
+  NodeAssert.match(view, /if \(viewUrl\.protocol !== "https:"\) return null;/);
+  // allow-same-origin confines the framed view only while it is on another origin.
+  NodeAssert.match(view, /if \(viewUrl\.origin === pageOrigin\) return null;/);
+  NodeAssert.match(
+    component,
+    /fetchEnvironmentBrowser\(agentBrowserSessionName\(threadId\), window\.location\.origin,/,
+  );
+  // The frame, and the way out of it when the gateway's sign-in cannot render in a frame.
+  NodeAssert.match(component, /allow="clipboard-read; clipboard-write; fullscreen"/);
+  NodeAssert.match(
+    component,
+    /sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"/,
+  );
+  NodeAssert.match(component, /<a href=\{view\.view\} target="_blank" rel="noopener" \/>/);
+  // The URL carries an access token: it lives in component state only.
+  for (const source of [view, component]) {
+    NodeAssert.doesNotMatch(source, /localStorage|sessionStorage|persist\(|ClientSettings/);
+  }
+  for (const file of environmentBrowserOverlay) {
+    NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
+  }
+  NodeAssert.match(
+    ci,
+    /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio\n/,
+  );
+});

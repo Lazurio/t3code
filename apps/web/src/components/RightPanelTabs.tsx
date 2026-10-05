@@ -632,6 +632,8 @@ function surfaceTitle(
       return "Agents";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "environment-browser":
+      return "Browser";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -715,6 +717,8 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "environment-browser":
+      return <Globe2 className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -826,7 +830,10 @@ function PullRequestSurfaceIcon({
 
 export function RightPanelTabs(props: RightPanelTabsProps) {
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
-  const browserProfiles = useBrowserDefaults().profiles;
+  const browserDefaults = useBrowserDefaults();
+  // Profiles belong to the desktop preview. Without it, an available Browser is the Lazurio
+  // Environment browser (apps/web/src/lazurio), which has none to choose from.
+  const browserProfiles = previewBridge ? browserDefaults.profiles : [];
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
@@ -1285,7 +1292,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     // while hover or arrow reveals the profiles. The choice
                     // lives at open time because a tab's profile is fixed then —
                     // Electron only honours a partition before attach.
-                    if (action.label === "Browser" && action.available) {
+                    if (
+                      action.label === "Browser" &&
+                      action.available &&
+                      browserProfiles.length > 0
+                    ) {
                       return (
                         <MenuSub key={action.label}>
                           <MenuSubTrigger

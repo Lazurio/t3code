@@ -29,6 +29,8 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   "agents",
+  // Lazurio overlay: the web's Browser on a Lazurio Environment (apps/web/src/lazurio).
+  "environment-browser",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -85,7 +87,9 @@ export type RightPanelSurface =
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
-  | { id: "agents"; kind: "agents" };
+  | { id: "agents"; kind: "agents" }
+  /** The Environment browser's view. Its URL carries a token, so it is asked for on open, not kept. */
+  | { id: "environment-browser"; kind: "environment-browser" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -193,6 +197,8 @@ const singletonSurface = (
       return { id: "agents", kind };
     case "device":
       return { id: "device", kind };
+    case "environment-browser":
+      return { id: "environment-browser", kind };
   }
 };
 
