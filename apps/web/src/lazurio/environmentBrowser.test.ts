@@ -43,11 +43,14 @@ describe("the session name", () => {
       "x".repeat(100),
       `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
       `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a71`,
+      // Two imported ids whose 32-bit FNV-1a suffixes collided (review of Lazurio/t3code#41).
+      `import:codex-${"w".repeat(58)}:f64cccd6-59c8-42a7-aa0e-319969aeccc9`,
+      `import:codex-${"w".repeat(58)}:3c4a8834-35dc-418d-a6dd-d8d1934ab83f`,
     ];
     const names = ids.map(agentBrowserSessionName);
     for (const name of names) expect(name).toMatch(/^t3-[A-Za-z0-9_-]{1,61}$/);
     expect(new Set(names).size).toBe(ids.length);
-    expect(names[0]).toMatch(/^t3-thread-with-colons-and-slashes-[0-9a-f]{8}$/);
+    expect(names[0]).toMatch(/^t3-thread-with-colons-and-slash-[0-9a-f]{32}$/);
   });
 });
 

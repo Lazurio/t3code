@@ -437,6 +437,8 @@ NodeTest.test("the server and the web name a thread's agent-browser session alik
     "emoji-\u{1F642}",
     "x".repeat(100),
     `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
+    `import:codex-${"w".repeat(58)}:f64cccd6-59c8-42a7-aa0e-319969aeccc9`,
+    `import:codex-${"w".repeat(58)}:3c4a8834-35dc-418d-a6dd-d8d1934ab83f`,
     "",
   ]) {
     const name = server.agentBrowserSessionName(threadId);
@@ -447,6 +449,15 @@ NodeTest.test("the server and the web name a thread's agent-browser session alik
   NodeAssert.equal(
     web.agentBrowserSessionName.toString(),
     server.agentBrowserSessionName.toString(),
+  );
+  // The pair whose 32-bit suffixes once collided gets two sessions on both sides.
+  const pair = [
+    `import:codex-${"w".repeat(58)}:f64cccd6-59c8-42a7-aa0e-319969aeccc9`,
+    `import:codex-${"w".repeat(58)}:3c4a8834-35dc-418d-a6dd-d8d1934ab83f`,
+  ];
+  NodeAssert.notEqual(
+    server.agentBrowserSessionName(pair[0]),
+    server.agentBrowserSessionName(pair[1]),
   );
 });
 
