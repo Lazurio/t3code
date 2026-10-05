@@ -497,6 +497,10 @@ NodeTest.test("the Environment browser keeps its seams and never stores the view
   // The view only from this origin's /.lazurio/browser.json, and only at an https: URL.
   NodeAssert.match(view, /const BROWSER_VIEW_PATH = "\/\.lazurio\/browser\.json";/);
   NodeAssert.match(view, /new URL\(BROWSER_VIEW_PATH, origin\)/);
+  NodeAssert.match(
+    view,
+    /if \(response\.status !== 200 \|\| new URL\(response\.url\)\.origin !== url\.origin\)/,
+  );
   NodeAssert.match(view, /credentials: "same-origin"/);
   NodeAssert.match(view, /redirect: "error"/);
   NodeAssert.match(view, /cache: "no-store"/);
