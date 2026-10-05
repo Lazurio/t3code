@@ -39,7 +39,7 @@ export async function fetchEnvironmentBrowser(
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok || new URL(response.url).origin !== url.origin) return null;
+    if (response.status !== 200 || new URL(response.url).origin !== url.origin) return null;
     if (!(response.headers.get("content-type") ?? "").startsWith("application/json")) return null;
     return readView(await response.json(), session, url.origin);
   } catch {

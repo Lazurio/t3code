@@ -84,6 +84,7 @@ describe("the view", () => {
     const cases: Array<[string, () => Promise<Response>]> = [
       ["not offered", async () => answer({ available: false, reason: "not-declared" })],
       ["older Platform", async () => answer({ error: "not-found" }, { status: 404 })],
+      ["another success status", async () => answer(document, { status: 202 })],
       ["refused session", async () => answer({ error: "invalid-request" }, { status: 400 })],
       [
         "network or redirect",
