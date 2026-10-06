@@ -102,6 +102,8 @@ interface RightPanelTabsProps {
    */
   previewRuntimeTabId?: ((tabId: string) => string) | undefined;
   terminalLabelsById: ReadonlyMap<string, string>;
+  /** Lazurio overlay: the titles Environment browser tabs report, by surface id. */
+  environmentBrowserTitles?: Readonly<Record<string, string>>;
   onActivate: (surface: RightPanelSurface) => void;
   onRenameDevice?: (surfaceId: string, title: string) => void;
   onCloseSurface: (surface: RightPanelSurface) => void;
@@ -609,6 +611,7 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  environmentBrowserTitles: Readonly<Record<string, string>> | undefined,
 ): string {
   switch (surface.kind) {
     case "diff":
@@ -633,7 +636,7 @@ function surfaceTitle(
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "environment-browser":
-      return "Browser";
+      return environmentBrowserTitles?.[surface.id] ?? "Browser";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -1138,7 +1141,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
-              const title = surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
+              const title = surfaceTitle(
+                surface,
+                props.previewSessions,
+                props.terminalLabelsById,
+                props.environmentBrowserTitles,
+              );
               const previewTabId = previewTabIdOf(surface, props.previewSessions);
               // Desktop state is keyed by the session id, but desktop actions
               // must be addressed with the runtime id.

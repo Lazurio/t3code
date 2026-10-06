@@ -232,9 +232,10 @@ overlay nemá cestu, jak zprávu odeslat. CI spouští testy overlaye
 
 **Rozhodnutí 0191 (plán DEV-6646, Lazurio/t3code#40).** Na Remote
 Environmentu běží jeden sdílený Chromium. Agenti každého vlákna v něm pracují ve
-vlastním okně přes CLI `agent-browser` a člověk okna sleduje a přebírá v
-pohledu, dashboardu agent-browser za bránou Environmentu. Webový klient T3 žádný
-prohlížeč nemá, a tak overlay dělá dvě věci:
+vlastním okně přes CLI `agent-browser` a člověk s nimi pracuje v pohledu za
+bránou Environmentu, kde `https://browser.<vm>.<org>.lazurio.io/t/<id>` ukazuje
+právě jednu vzdálenou záložku (rozhodnutí F39 LazurioPlatform). Webový klient
+T3 žádný prohlížeč nemá, a tak overlay dělá dvě věci:
 
 - **Server: sezení vlákna.** Každý proces poskytovatele, který T3 spustí pro
   vlákno (app-server Codexu, Claude Code i ostatní adaptéry), dostane
@@ -258,12 +259,41 @@ prohlížeč nemá, a tak overlay dělá dvě věci:
   400, chyba sítě, odpověď mimo JSON včetně `index.html` T3, pohled mimo
   `https:` nebo na originu T3, jiné sezení) nechá Browser vypnutý s upstream
   textem.
-- **Povrch.** Otevření přidá povrch `environment-browser`. Druh `preview` to
-  být nemůže, protože `reconcileBrowserSurfaces` maže náhledy bez živé záložky
-  serveru. Povrch se ptá znovu při každém otevření i při Reload, protože URL
-  pohledu nese ve fragmentu krátkodobý přístupový token. URL žije jen ve stavu
-  komponenty, nikdy v localStorage ani v nastavení; uložený popis povrchu je
-  jen `{id, kind}`.
+- **Povrch.** Otevření přidá povrch `environment-browser`, vlastní záložku
+  vlákna. Druh `preview` to být nemůže, protože `reconcileBrowserSurfaces` maže
+  náhledy bez živé záložky serveru. Na vlastní záložku vlákna se povrch ptá při
+  každém otevření i při Reload, protože ji zná jen Environment. Její URL žije
+  jen ve stavu komponenty, nikdy v localStorage ani v nastavení; uložený popis
+  povrchu je jen `{id, kind}`.
+- **Záložky ze stránky** (rozhodnutí 0191 bod 12). Pohled v rámu posílá rodiči
+  `lazurio-browser:info` s adresou a titulkem své záložky a
+  `lazurio-browser:new-tab` s adresou `/t/<id>` záložky, kterou stránka otevřela
+  jako novou (odkaz s `target=_blank`). Panel bere jen zprávy, jejichž
+  `event.source` je jeho vlastní rám a `event.origin` je origin pohledu v rámu.
+  Nová záložka stránky otevře v panelu povrch `environment-browser:<id>` a
+  přepne na něj; tutéž vzdálenou záložku panel neotevře dvakrát. Adresa musí
+  být přesně `https://<host>/t/<32 hex číslic>` na originu rámu, bez
+  přihlašovacích údajů, query a fragmentu. Token nenese, takže se povrch ukládá
+  jako `{id, kind, view}` a přežije obnovení stránky; verze úložiště pravého
+  panelu se nemění. Záložka panelu ukazuje místo „Browser“ titulek, který
+  pohled hlásí (jinak host adresy stránky); titulky žijí jen v paměti sezení.
+  Lišta pohledu s nabídkou nové záložky funguje dál. Novou záložku ze stránky ve
+  skryté záložce panelu (typicky práci agenta) panel přidá na pozadí a zobrazený
+  povrch nepřepne.
+- **Rámy zůstávají připojené.** Dokud pravý panel ukazuje vlákno, má každá jeho
+  záložka prohlížeče Environmentu svůj rám připojený, i když je vpředu jiná
+  záložka nebo jiný povrch (diff, terminál, soubory). Skryté rámy jsou
+  neviditelné a `inert`, ale drží velikost panelu (`visibility`, ne
+  `display: none`): pohled nastavuje vzdálenému oknu velikost své plochy a rám
+  bez layoutu by okno zmenšil na 200×150, i okno agenta. Přepínání záložek a
+  povrchů tak sledující neodpojí a záložky ze stránky žijí dál. Zavřením panelu
+  nebo přechodem do jiného vlákna se rámy odpojí. Služba pohledu záložku ze
+  stránky zavře 30 s poté, co ji nikdo nesleduje (F39 bod 9), takže se může
+  vrátit jako „Tahle záložka už neexistuje“; člověk pak odkaz otevře znovu ze
+  záložky agenta. Zavření záložky panelu křížkem odpojí její rám a Environment
+  vzdálenou záložku po 30 s zavře. Cena: dokud je panel otevřený, drží každá
+  skrytá záložka ze stránky živý přenos; snímky chodí, jen když se stránka
+  překreslí.
 - **Rám.** Pohled je v `<iframe>` s
   `allow="clipboard-read; clipboard-write; fullscreen"` a
   `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"`.
@@ -277,15 +307,17 @@ prohlížeč nemá, a tak overlay dělá dvě věci:
   odkazy otevírané v náhledu zůstávají jen desktopové.
 
 Upstream soubory overlay mění jen ve švech: `rightPanelStore.ts` (druh
-povrchu), `RightPanelTabs.tsx` (název a ikona záložky, bez volby desktopového
-profilu tam, kde desktopový náhled chybí), `ChatView.tsx` (povolení Browser a
-vykreslení povrchu) a `ProviderService.ts` (jedno volání). Zbytek je ve
+povrchu a akce `openEnvironmentBrowserTab`), `RightPanelTabs.tsx` (název a
+ikona záložky, bez volby desktopového profilu tam, kde desktopový náhled
+chybí), `ChatView.tsx` (povolení Browser, rámy záložek vedle povrchu v popředí
+a titulky záložek) a `ProviderService.ts` (jedno volání). Zbytek je ve
 složkách `apps/web/src/lazurio/` a `apps/server/src/lazurio/`. Funkci pro jméno
 sezení mají server i web každý ve vlastní kopii: sdílení přes `packages/shared`
 by vyžadovalo záznam v jeho mapě exportů a tu upstream přepisuje každých pár
 dní. Kontraktní test hlídá, že obě kopie jsou stejná funkce, švy, URL jen z
-vlastního originu bez přesměrování a to, že se URL nikam neukládá. CI spouští
-testy overlaye serveru i webu (`vp test run src/lazurio`).
+vlastního originu bez přesměrování, zprávy jen z vlastního rámu a to, že se URL
+vlastní záložky vlákna nikam neukládá. CI spouští testy overlaye serveru i webu
+(`vp test run src/lazurio`).
 `/.lazurio/browser.json` servíruje Launchpad Environmentu, takže změna pohledu
 vydání forku nepotřebuje.
 

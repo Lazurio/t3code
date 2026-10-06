@@ -3,16 +3,17 @@
  *
  * The web client has no browser of its own. On a Lazurio Remote Environment one shared Chromium
  * runs on the Environment, the agents of every thread drive a window of their own in it through
- * the agent-browser CLI, and a person watches and takes over through a view on the Environment's
- * gateway. The Environment's Launchpad says where that view is at `/.lazurio/browser.json` on
- * this page's own origin, which the gateway forwards behind the same sign-in. Anything but an
- * available view at an absolute https: URL means unavailable, and the right panel keeps
- * upstream's disabled Browser. The view URL carries a short-lived access token in its fragment,
- * so it is asked for each time the browser opens and never stored.
+ * the agent-browser CLI, and a person works along in the view on the Environment's gateway, where
+ * `https://browser.<…>/t/<target id>` shows exactly one remote tab. The Environment's Launchpad
+ * says which tab is the thread's own at `/.lazurio/browser.json` on this page's own origin, which
+ * the gateway forwards behind the same sign-in. Anything but an available view at an absolute
+ * https: URL means unavailable, and the right panel keeps upstream's disabled Browser. The
+ * thread's own tab is asked for each time the browser opens; a tab that a page opens joins the
+ * panel with the address of its view, which carries no token.
  */
 
 export interface EnvironmentBrowserView {
-  /** The view, an absolute https: URL with its access token in the fragment. */
+  /** The view, an absolute https: URL. */
   readonly view: string;
   /** The session whose window the view shows, or null for a view of every window. */
   readonly session: string | null;
@@ -67,4 +68,90 @@ function readView(
   // allow-same-origin), which keeps it out of this page only while that origin is another one.
   if (viewUrl.origin === pageOrigin) return null;
   return { view: viewUrl.href, session: viewSession };
+}
+
+/** A tab of the panel's Environment browser beside the thread's own: one remote tab. */
+export interface EnvironmentBrowserTab {
+  /** The panel surface, `environment-browser:<target id>`, so each remote tab is open once. */
+  readonly id: `environment-browser:${string}`;
+  /** The view of that tab, `https://<view host>/t/<target id>`. */
+  readonly view: string;
+}
+
+/** The view of one remote tab names its DevTools target id: 32 hexadecimal digits. */
+const TAB_VIEW_PATH = /^\/t\/([0-9A-Fa-f]{32})$/;
+
+/**
+ * The panel tab whose view is at `view`, or null unless it is exactly
+ * `https://<host>/t/<32 hex digits>`: no credentials, query or fragment, not even an empty one,
+ * so an address the panel keeps names one remote tab and carries nothing else. Where it frames
+ * the view, the panel also refuses its own origin (`pageOrigin`), as for the thread's own tab.
+ */
+export function environmentBrowserTab(
+  view: unknown,
+  pageOrigin?: string,
+): EnvironmentBrowserTab | null {
+  if (typeof view !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(view);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.href !== `${url.origin}${url.pathname}`) return null;
+  if (url.origin === pageOrigin) return null;
+  const target = TAB_VIEW_PATH.exec(url.pathname)?.[1];
+  return target === undefined ? null : { id: `environment-browser:${target}`, view: url.href };
+}
+
+/** What the view in a panel frame says (LazurioPlatform F39): its tab's title, or a new tab. */
+export type EnvironmentBrowserMessage =
+  | {
+      readonly type: "info";
+      /** The page's title, else its host; null for a page with neither, such as a new tab. */
+      readonly title: string | null;
+    }
+  | { readonly type: "new-tab"; readonly tab: EnvironmentBrowserTab };
+
+/**
+ * The message of the view that `frame` (the panel frame's window) shows at `view`, or null for
+ * any other message: from another window, from another origin than the view's, of another type,
+ * or malformed. A page's new tab counts only on the view's own origin.
+ */
+export function readEnvironmentBrowserMessage(
+  event: { readonly data: unknown; readonly origin: string; readonly source: unknown },
+  frame: object | null,
+  view: string,
+): EnvironmentBrowserMessage | null {
+  if (frame === null || event.source !== frame) return null;
+  const origin = originOf(view);
+  if (origin === null || event.origin !== origin) return null;
+  if (typeof event.data !== "object" || event.data === null) return null;
+  const message = event.data as Record<string, unknown>;
+  if (message.type === "lazurio-browser:info") {
+    const { title, url } = message;
+    if (typeof title !== "string" || typeof url !== "string") return null;
+    return { type: "info", title: title.trim() || hostOf(url) };
+  }
+  if (message.type === "lazurio-browser:new-tab") {
+    const tab = environmentBrowserTab(message.view);
+    return tab !== null && originOf(tab.view) === origin ? { type: "new-tab", tab } : null;
+  }
+  return null;
+}
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host || null;
+  } catch {
+    return null;
+  }
 }
