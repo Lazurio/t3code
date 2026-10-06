@@ -79,10 +79,13 @@ jobs:
             apps/web/src/components/AppSidebarLayout.tsx
             # The Environment browser (root decision 0191, plan DEV-6646): the web client has no
             # browser, so on a Lazurio Environment the right panel's Browser frames the view the
-            # Environment names at /.lazurio/browser.json. A surface kind of its own, its tab, no
+            # Environment names at /.lazurio/browser.json, and a tab a page opens there becomes
+            # another tab of the panel. A surface kind of its own, its tabs and their titles, no
             # desktop profile choice without the desktop preview, and the seam in ChatView.tsx
-            # (listed above) that enables Browser and renders the surface.
+            # (listed above) that enables Browser and keeps each tab's frame beside the surface
+            # in view.
             apps/web/src/components/RightPanelTabs.tsx
+            apps/web/src/lazurio/LazurioEnvironmentBrowser.test.tsx
             apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx
             apps/web/src/lazurio/agentBrowserSession.ts
             apps/web/src/lazurio/environmentBrowser.test.ts

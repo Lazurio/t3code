@@ -17,6 +17,7 @@ const promptOverlay = [
 const environmentBrowserOverlay = [
   "apps/web/src/components/ChatView.tsx",
   "apps/web/src/components/RightPanelTabs.tsx",
+  "apps/web/src/lazurio/LazurioEnvironmentBrowser.test.tsx",
   "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
   "apps/web/src/lazurio/agentBrowserSession.ts",
   "apps/web/src/lazurio/environmentBrowser.test.ts",
@@ -462,8 +463,9 @@ NodeTest.test("the server and the web name a thread's agent-browser session alik
 });
 
 // The web client has no browser: without the desktop preview, the right panel's Browser frames
-// the Environment browser's view that the Environment names at /.lazurio/browser.json.
-NodeTest.test("the Environment browser keeps its seams and never stores the view", async () => {
+// the Environment browser's view that the Environment names at /.lazurio/browser.json, and a tab
+// that a page opens there becomes another tab of the panel (root decision 0191 point 12).
+NodeTest.test("the Environment browser keeps its seams and stores only a page's tabs", async () => {
   const [store, tabs, chatView, view, component] = await Promise.all(
     [
       "apps/web/src/rightPanelStore.ts",
@@ -477,9 +479,21 @@ NodeTest.test("the Environment browser keeps its seams and never stores the view
   NodeAssert.match(store, /\| \{ id: "environment-browser"; kind: "environment-browser" \}/);
   NodeAssert.match(
     store,
+    /\| \{ id: `environment-browser:\$\{string\}`; kind: "environment-browser"; view: string \}/,
+  );
+  NodeAssert.match(
+    store,
     /case "environment-browser":\n\s+return \{ id: "environment-browser", kind \};/,
   );
-  NodeAssert.match(tabs, /case "environment-browser":\n\s+return "Browser";/);
+  // A page's tab joins the panel only at the view of exactly one remote tab.
+  NodeAssert.match(
+    store,
+    /openEnvironmentBrowserTab: \(ref, view, automatic = false\) =>\n\s+set\(\(state\) => \{\n\s+const tab = environmentBrowserTab\(view\);\n\s+if \(tab === null\) return state;/,
+  );
+  NodeAssert.match(
+    tabs,
+    /case "environment-browser":\n\s+return environmentBrowserTitles\?\.\[surface\.id\] \?\? "Browser";/,
+  );
   NodeAssert.match(
     tabs,
     /const browserProfiles = previewBridge \? browserDefaults\.profiles : \[\];/,
@@ -497,10 +511,27 @@ NodeTest.test("the Environment browser keeps its seams and never stores the view
     )?.length,
     2,
   );
+  NodeAssert.equal(
+    chatView.match(/environmentBrowserTitles=\{environmentBrowser\.titles\}/g)?.length,
+    2,
+  );
+  // Every Environment browser tab of the thread keeps its frame beside the surface in view: the
+  // panel's content is upstream's surface in view wrapped once, and both panels show it.
+  NodeAssert.match(chatView, /const rightPanelActiveContent = activeThreadRef \? \(/);
   NodeAssert.match(
     chatView,
-    /renderedRightPanelSurface\?\.kind === "environment-browser" \? \(\n\s+<LazurioEnvironmentBrowser /,
+    /const rightPanelContent = activeThreadRef \? \(\n\s+<LazurioRightPanelSurfaces\n\s+threadRef=\{activeThreadRef\}\n\s+surfaces=\{renderedRightPanelSurfaces\}\n\s+activeSurfaceId=\{renderedRightPanelSurface\?\.id \?\? null\}\n\s+>\n\s+\{rightPanelActiveContent\}/,
   );
+  NodeAssert.equal(chatView.match(/\{rightPanelContent\}/g)?.length, 2);
+  NodeAssert.doesNotMatch(chatView, /kind === "environment-browser"/);
+  // Mounted while the panel shows the thread, one per thread and tab; a hidden one keeps its size
+  // (visibility, never display: the view sizes its remote window to its page area, F39 point 3).
+  NodeAssert.match(component, /if \(isPreviewSupportedInRuntime\(\)\) return props\.children;/);
+  NodeAssert.match(component, /props\.surfaces\.filter\(isEnvironmentBrowserSurface\)\.map\(/);
+  NodeAssert.match(component, /key=\{`\$\{threadKey\}:\$\{surface\.id\}`\}/);
+  NodeAssert.match(component, /!shown && "invisible"/);
+  NodeAssert.match(component, /inert=\{!shown\}/);
+  NodeAssert.doesNotMatch(component, /"hidden"|\bhidden=|display: ?"?none/);
   NodeAssert.match(
     component,
     /threadRef\.environmentId === primaryEnvironmentId &&\n\s+!isPreviewSupportedInRuntime\(\)/,
@@ -528,8 +559,16 @@ NodeTest.test("the Environment browser keeps its seams and never stores the view
     component,
     /sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"/,
   );
-  NodeAssert.match(component, /<a href=\{view\.view\} target="_blank" rel="noopener" \/>/);
-  // The URL carries an access token: it lives in component state only.
+  NodeAssert.match(component, /<a href=\{view\} target="_blank" rel="noopener" \/>/);
+  // Only the panel's own frame, on its view's origin, is heard (unit tests in src/lazurio).
+  NodeAssert.match(
+    component,
+    /readEnvironmentBrowserMessage\(\n\s+event,\n\s+frame\.current\?\.contentWindow \?\? null,/,
+  );
+  NodeAssert.match(view, /if \(frame === null \|\| event\.source !== frame\) return null;/);
+  NodeAssert.match(view, /if \(origin === null \|\| event\.origin !== origin\) return null;/);
+  // The thread's own view is asked for each time and never stored; the panel keeps only a
+  // page's tab (rightPanelStore.ts), whose address names one remote tab and carries nothing else.
   for (const source of [view, component]) {
     NodeAssert.doesNotMatch(source, /localStorage|sessionStorage|persist\(|ClientSettings/);
   }

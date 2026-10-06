@@ -197,7 +197,7 @@ import {
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import { BrowserSettingsReadError } from "../browser/openFileInPreview";
 import {
-  LazurioEnvironmentBrowser,
+  LazurioRightPanelSurfaces,
   useLazurioEnvironmentBrowser,
 } from "../lazurio/LazurioEnvironmentBrowser";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
@@ -9539,7 +9539,7 @@ export default function ChatView(props: ChatViewProps) {
       <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
     </div>
   );
-  const rightPanelContent = activeThreadRef ? (
+  const rightPanelActiveContent = activeThreadRef ? (
     renderedRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
         <PreviewPanel
@@ -9641,8 +9641,6 @@ export default function ChatView(props: ChatViewProps) {
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
       />
-    ) : renderedRightPanelSurface?.kind === "environment-browser" ? (
-      <LazurioEnvironmentBrowser key={activeThreadKey} threadId={activeThreadRef.threadId} />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
         <DevicePanel
@@ -9703,6 +9701,17 @@ export default function ChatView(props: ChatViewProps) {
         />
       </Suspense>
     ) : null
+  ) : null;
+  // Lazurio overlay: every Environment browser tab of the thread keeps its frame beside the
+  // surface in view (apps/web/src/lazurio).
+  const rightPanelContent = activeThreadRef ? (
+    <LazurioRightPanelSurfaces
+      threadRef={activeThreadRef}
+      surfaces={renderedRightPanelSurfaces}
+      activeSurfaceId={renderedRightPanelSurface?.id ?? null}
+    >
+      {rightPanelActiveContent}
+    </LazurioRightPanelSurfaces>
   ) : null;
 
   const workspaceFileDropHandlers = makeWorkspaceFileDropHandlers({
@@ -10281,6 +10290,7 @@ export default function ChatView(props: ChatViewProps) {
           desktopByTabId={activePreviewState.desktopByTabId}
           previewRuntimeTabId={resolvePreviewRuntimeTabId}
           terminalLabelsById={activeTerminalLabelsById}
+          environmentBrowserTitles={environmentBrowser.titles}
           onActivate={activateRightPanelSurface}
           onCloseSurface={closeRightPanelSurface}
           onRenameDevice={(surfaceId, title) => {
@@ -10340,6 +10350,7 @@ export default function ChatView(props: ChatViewProps) {
             desktopByTabId={activePreviewState.desktopByTabId}
             previewRuntimeTabId={resolvePreviewRuntimeTabId}
             terminalLabelsById={activeTerminalLabelsById}
+            environmentBrowserTitles={environmentBrowser.titles}
             onActivate={activateRightPanelSurface}
             onCloseSurface={closeRightPanelSurface}
             onRenameDevice={(surfaceId, title) => {

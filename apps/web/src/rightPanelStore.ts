@@ -17,6 +17,7 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { environmentBrowserTab } from "./lazurio/environmentBrowser";
 import { resolveStorage } from "./lib/storage";
 
 const RIGHT_PANEL_KINDS = [
@@ -88,8 +89,10 @@ export type RightPanelSurface =
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: "agents"; kind: "agents" }
-  /** The Environment browser's view. Its URL carries a token, so it is asked for on open, not kept. */
-  | { id: "environment-browser"; kind: "environment-browser" };
+  /** The Environment browser's view of the thread's own tab, which the Environment names on open. */
+  | { id: "environment-browser"; kind: "environment-browser" }
+  /** Another tab of the Environment browser, one a page opened, at the view of that one tab. */
+  | { id: `environment-browser:${string}`; kind: "environment-browser"; view: string };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -138,6 +141,11 @@ interface RightPanelStoreState {
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
+  /**
+   * Lazurio overlay: a tab of the Environment browser at `view`; any other address is ignored.
+   * `automatic` adds it behind the surface in view, for a page in a hidden frame.
+   */
+  openEnvironmentBrowserTab: (ref: ScopedThreadRef, view: string, automatic?: boolean) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
@@ -566,6 +574,20 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return upsertSurface({ ...current, surfaces: withoutPlaceholder }, surface);
           }),
         ),
+      openEnvironmentBrowserTab: (ref, view, automatic = false) =>
+        set((state) => {
+          const tab = environmentBrowserTab(view);
+          if (tab === null) return state;
+          const surface = { id: tab.id, kind: "environment-browser", view: tab.view } as const;
+          return (automatic ? automaticUpdate : userAction)(
+            state,
+            scopedThreadKey(ref),
+            (current) =>
+              automatic
+                ? { ...upsertSurface(current, surface, false), isOpen: current.isOpen }
+                : upsertSurface(current, surface),
+          );
+        }),
       openPullRequest: (ref, target) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
