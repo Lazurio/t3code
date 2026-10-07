@@ -100,7 +100,11 @@ const makeFakeBrowser = () => {
       return operation === "evaluate" ? input : undefined;
     },
   });
+  let connectFailure: Error | undefined;
   const connect = async (): Promise<EnvironmentBrowserConnection> => {
+    const failure = connectFailure;
+    connectFailure = undefined;
+    if (failure !== undefined) throw failure;
     let end = () => {};
     const closed = new Promise<void>((resolve) => {
       end = resolve;
@@ -121,7 +125,10 @@ const makeFakeBrowser = () => {
       disconnect: async () => end(),
     };
   };
-  return { pages, connections, opened, addPage, connect };
+  const failNextConnect = (error: Error) => {
+    connectFailure = error;
+  };
+  return { pages, connections, opened, addPage, connect, failNextConnect };
 };
 
 type CliAnswer =
@@ -547,6 +554,29 @@ it.effect("connects again after the browser connection ended", () =>
         yield* invoke(host.broker, "evaluate", { expression: "2" }, { tabId: personTab }),
       ).toEqual({ expression: "2" });
       expect(host.browser.connections).toHaveLength(2);
+    }),
+  ),
+);
+
+it.effect("says why the Environment browser does not answer", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({ link: declared });
+      host.browser.failNextConnect(new Error("connect ECONNREFUSED 127.0.0.1:9222\nCall log: …"));
+      yield* host.registered;
+
+      const error = yield* invoke<void>(host.broker, "snapshot", {}, { tabId: personTab }).pipe(
+        Effect.flip,
+      );
+
+      expect(error).toBeInstanceOf(PreviewAutomationExecutionError);
+      expect(error.message).toBe(
+        "Preview automation snapshot failed: The Environment browser does not answer on its DevTools port (connect ECONNREFUSED 127.0.0.1:9222). Run lazurio doctor.",
+      );
+      // The next operation tries again.
+      host.browser.addPage(personTab);
+      yield* invoke(host.broker, "snapshot", {}, { tabId: personTab });
+      expect(host.browser.connections).toHaveLength(1);
     }),
   ),
 );
