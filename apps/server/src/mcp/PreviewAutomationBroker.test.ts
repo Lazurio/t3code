@@ -325,6 +325,46 @@ it.effect("announces a live replacement stream before delivering requests", () =
   ),
 );
 
+// Ported from upstream (pingdotgg/t3code 611132c1), where the preferred host may install
+// Chromium on its first open. The Lazurio Environment browser host installs nothing, but its
+// open may create a window and bind agent-browser to it, so it gets 60 s.
+it.effect("keeps a preferred host's open alive without extending other operations", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const received = yield* Deferred.make<RoutedRequest>();
+      const requests = requestsFrom(yield* broker.connect(makeHost(), { preferred: true }));
+      yield* Stream.runForEach(requests, (request) =>
+        request.operation === "open"
+          ? Deferred.succeed(received, request)
+          : broker.respond({
+              clientId: "client-1",
+              connectionId: request.connectionId,
+              requestId: request.requestId,
+              ok: true,
+              result: request.timeoutMs,
+            }),
+      ).pipe(Effect.forkScoped);
+      const opening = yield* broker
+        .invoke({ scope, operation: "open", input: {} })
+        .pipe(Effect.forkScoped);
+      const request = yield* Deferred.await(received);
+      expect(request.timeoutMs).toBe(60_000);
+      yield* TestClock.adjust(16_000);
+      yield* broker.respond({
+        clientId: "client-1",
+        connectionId: request.connectionId,
+        requestId: request.requestId,
+        ok: true,
+        result: "opened",
+      });
+      expect(yield* Fiber.join(opening)).toBe("opened");
+      expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe(15_000);
+      expect(yield* broker.invoke({ scope, operation: "navigate", input: {} })).toBe(15_000);
+    }),
+  ),
+);
+
 it.effect("preserves bounded request and remote selector diagnostics", () => {
   const locator = "role=button[name='request-secret']";
   const remoteMessage = "Unexpected token near remote-secret.";
@@ -846,6 +886,132 @@ it.effect("prefers a focused host over unrelated extra capabilities for a new se
       expect(yield* broker.invoke<string>({ scope, operation: "status", input: {} })).toBe(
         "focused",
       );
+    }),
+  ),
+);
+
+/** Connects hosts that answer every request with their client id, keyed to their connection. */
+const answeringHosts = (
+  broker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  hosts: ReadonlyArray<{
+    readonly clientId: string;
+    readonly options?: PreviewAutomationBroker.PreviewAutomationConnectOptions;
+  }>,
+) =>
+  Effect.gen(function* () {
+    const connections = new Map<string, string>();
+    const routed: Array<{ readonly clientId: string; readonly request: RoutedRequest }> = [];
+    for (const { clientId, options } of hosts) {
+      const requests = requestsFrom(
+        yield* broker.connect(makeHost({ clientId }), options),
+        (connectionId) => connections.set(clientId, connectionId),
+      );
+      yield* Stream.runForEach(requests, (request) => {
+        routed.push({ clientId, request });
+        return broker.respond({
+          clientId,
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: true,
+          result: clientId,
+        });
+      }).pipe(Effect.forkScoped);
+    }
+    yield* Effect.yieldNow;
+    return { connections, routed };
+  });
+
+it.effect("sends new work to a preferred host before a focused desktop host", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const { connections } = yield* answeringHosts(broker, [
+        { clientId: "environment", options: { preferred: true } },
+        { clientId: "desktop" },
+      ]);
+      // The desktop is newer and focused, and shows a tab of this very thread.
+      yield* broker.focusHost({
+        clientId: "desktop",
+        environmentId: scope.environmentId,
+        connectionId: connections.get("desktop")!,
+        focused: true,
+        liveTabs: [
+          { threadId: scope.threadId, tabId: PreviewTabId.make("desktop-tab"), visible: true },
+        ],
+      });
+
+      expect(yield* broker.invoke<string>({ scope, operation: "open", input: {} })).toBe(
+        "environment",
+      );
+      expect(
+        yield* broker.invoke<string>({
+          scope: { ...scope, providerSessionId: "provider-session-second" },
+          operation: "snapshot",
+          input: {},
+        }),
+      ).toBe("environment");
+    }),
+  ),
+);
+
+it.effect(
+  "routes an explicitly targeted tab to the host that reports it over the preferred one",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const { connections } = yield* answeringHosts(broker, [
+          { clientId: "environment", options: { preferred: true } },
+          { clientId: "desktop" },
+        ]);
+        yield* broker.focusHost({
+          clientId: "desktop",
+          environmentId: scope.environmentId,
+          connectionId: connections.get("desktop")!,
+          focused: false,
+          liveTabs: [{ threadId: scope.threadId, tabId: PreviewTabId.make("desktop-tab") }],
+        });
+
+        expect(
+          yield* broker.invoke<string>({
+            scope: { ...scope, providerSessionId: "explicit-desktop-tab" },
+            tabId: PreviewTabId.make("desktop-tab"),
+            operation: "snapshot",
+            input: {},
+          }),
+        ).toBe("desktop");
+        // A tab no host reports goes to the preferred host, which answers for it.
+        expect(
+          yield* broker.invoke<string>({
+            scope: { ...scope, providerSessionId: "explicit-unknown-tab" },
+            tabId: PreviewTabId.make("ABCDEF0123456789ABCDEF0123456789"),
+            operation: "snapshot",
+            input: {},
+          }),
+        ).toBe("environment");
+      }),
+    ),
+);
+
+it.effect("routes as before when no host is preferred", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const { connections, routed } = yield* answeringHosts(broker, [
+        { clientId: "older-focused" },
+        { clientId: "newer", options: { preferred: false } },
+      ]);
+      yield* broker.focusHost({
+        clientId: "older-focused",
+        environmentId: scope.environmentId,
+        connectionId: connections.get("older-focused")!,
+        focused: true,
+      });
+
+      expect(yield* broker.invoke<string>({ scope, operation: "open", input: {} })).toBe(
+        "older-focused",
+      );
+      expect(routed.map(({ request }) => request.timeoutMs)).toEqual([15_000]);
     }),
   ),
 );
