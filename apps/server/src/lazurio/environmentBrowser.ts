@@ -237,10 +237,11 @@ export const make = Effect.gen(function* () {
   };
   const browserConnection = Effect.tryPromise({
     try: sharedBrowser,
-    catch: () =>
+    // Playwright's first line tells a stopped browser from a broken install.
+    catch: (cause) =>
       failure(
         "PreviewAutomationExecutionError",
-        "The Environment browser does not answer on its DevTools port. Run lazurio doctor.",
+        `The Environment browser does not answer on its DevTools port (${toOperationError(cause).message}). Run lazurio doctor.`,
       ),
   });
   const tabOf = (targetId: string) =>
