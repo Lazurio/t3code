@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import type { Options as ClaudeQueryOptions } from "@anthropic-ai/claude-agent-sdk";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -109,7 +109,7 @@ describe("agent-browser session name", () => {
     assert.match(names[7] ?? "", new RegExp(`^t3-${"x".repeat(28)}-[0-9a-f]{32}$`));
     assert.strictEqual(
       names[0],
-      `t3-thread-with-colons-and-slash-${createHash("sha256")
+      `t3-thread-with-colons-and-slash-${NodeCrypto.createHash("sha256")
         .update("thread.with:colons/and/slashes", "utf8")
         .digest("hex")
         .slice(0, 32)}`,
