@@ -37,6 +37,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
+import {
+  isStaleRefDetail,
+  PreferredHostExecutionError,
+  StaleElementRefError,
+} from "../lazurio/preferredHostErrors.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 
 export interface PreviewAutomationInvokeInput {
@@ -96,6 +101,8 @@ interface PendingRequest {
   readonly queue: ClientConnection["queue"];
   readonly deferred: Deferred.Deferred<unknown, PreviewAutomationError>;
   readonly context: PreviewAutomationRequestErrorContext;
+  /** Lazurio overlay: answered by a host inside this server, whose explanations reach the agent. */
+  readonly preferred: boolean;
 }
 
 /**
@@ -210,6 +217,7 @@ function remoteDetailKind(detail: unknown): RemoteDetailKind {
 const classifyResponseError = (
   context: PreviewAutomationRequestErrorContext,
   error: NonNullable<PreviewAutomationResponse["error"]>,
+  preferred: boolean,
 ): PreviewAutomationError => {
   const remoteDiagnostics = {
     remoteTag: error._tag,
@@ -264,7 +272,12 @@ const classifyResponseError = (
         ...remoteDiagnostics,
       });
     case "PreviewAutomationInvalidSelectorError": {
-      return new PreviewAutomationInvalidSelectorError({
+      // Lazurio overlay (plan DEV-6646): upstream 0.0.46's `staleRef`, for a preferred host.
+      const SelectorError =
+        preferred && isStaleRefDetail(error.detail)
+          ? StaleElementRefError
+          : PreviewAutomationInvalidSelectorError;
+      return new SelectorError({
         ...context,
         ...remoteDiagnostics,
       });
@@ -322,7 +335,8 @@ const classifyResponseError = (
         ...remoteDiagnostics,
       });
     default:
-      return new PreviewAutomationExecutionError({
+      // Lazurio overlay (plan DEV-6646): upstream 0.0.46's `reason`, for a preferred host.
+      return new (preferred ? PreferredHostExecutionError : PreviewAutomationExecutionError)({
         ...context,
         ...remoteDiagnostics,
       });
@@ -480,7 +494,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       yield* Deferred.fail(
         pending.deferred,
         response.error
-          ? classifyResponseError(pending.context, response.error)
+          ? classifyResponseError(pending.context, response.error, pending.preferred)
           : new PreviewAutomationMalformedResponseError(pending.context),
       );
     }
@@ -580,7 +594,12 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         ...selectorDiagnostics,
       };
       const pending = new Map(current.pending);
-      pending.set(requestId, { queue: connection.queue, deferred, context });
+      pending.set(requestId, {
+        queue: connection.queue,
+        deferred,
+        context,
+        preferred: connection.preferred,
+      });
       return [
         { connection, requestId, requestContext: context, requestSequence },
         { ...current, assignments, pending, requestSequence: current.requestSequence + 1 },
