@@ -7,10 +7,14 @@
  * in the people's view. A tab is a page target of that browser, named by its DevTools target id
  * (the last segment of the people's view link `…/t/<target id>`).
  *
- * The browser is shared, so the connection changes nothing a person would notice. Playwright
- * applies none of its default overrides to the default context (`noDefaults`: downloads, focus
- * and media stay the browser's own), a dialog stays open for whoever works in the page, and
- * letting go only ends the connection: the browser and every window stay.
+ * The browser is shared, and sites must keep seeing the Environment's own browser, so the
+ * connection adds nothing beyond attaching itself. Playwright applies none of its overrides to the
+ * default context (`noDefaults`: downloads, focus and media stay the browser's own, and without a
+ * userAgent or locale option it overrides no user agent); the host adds no script, binding or
+ * context of its own (windows open in the default context); a dialog stays open for whoever works
+ * in the page; and letting go only ends the connection: the browser and every window stay.
+ * Attaching does enable CDP domains (Page, Runtime, Network, Log) in every page of the browser,
+ * from the first operation until the server stops.
  */
 
 import type {
