@@ -11,7 +11,7 @@
  * the two copies equal.
  */
 
-import { createHash } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 
 export const AGENT_BROWSER_SESSION_ENV = "AGENT_BROWSER_SESSION";
 
@@ -24,7 +24,7 @@ const DIGEST_LENGTH = 32;
 /** SHA-256 of the UTF-8 bytes, as hex (node:crypto; the web copy computes the same with
  * @noble/hashes, and the release contract test compares the two). */
 const sha256Hex = (value: string): string =>
-  createHash("sha256").update(value, "utf8").digest("hex");
+  NodeCrypto.createHash("sha256").update(value, "utf8").digest("hex");
 
 /**
  * `t3-` and the thread id. An id with characters outside [A-Za-z0-9_-], or too long to fit, has
