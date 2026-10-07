@@ -1078,6 +1078,111 @@ it.effect(
     ),
 );
 
+// Lazurio overlay (plan DEV-6646): a desktop that served a provider session before the
+// preferred host registered keeps no hold on the session's browsing.
+it.effect(
+  "gives a session's next work to a preferred host that registers after a desktop served it",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        yield* answeringHosts(broker, [{ clientId: "desktop" }]);
+        expect(yield* broker.invoke<string>({ scope, operation: "open", input: {} })).toBe(
+          "desktop",
+        );
+
+        const { routed } = yield* answeringHosts(broker, [
+          { clientId: "environment", options: { preferred: true } },
+        ]);
+        expect(yield* broker.invoke<string>({ scope, operation: "open", input: {} })).toBe(
+          "environment",
+        );
+        expect(yield* broker.invoke<string>({ scope, operation: "snapshot", input: {} })).toBe(
+          "environment",
+        );
+        // The desktop's current tab means nothing in the Environment browser.
+        expect(routed.map(({ request }) => request.tabId)).toEqual([undefined, undefined]);
+      }),
+    ),
+);
+
+it.effect(
+  "keeps an explicitly targeted desktop tab while the preferred host does the session's other work",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const { connections } = yield* answeringHosts(broker, [
+          { clientId: "environment", options: { preferred: true } },
+          { clientId: "desktop" },
+        ]);
+        const desktopTab = PreviewTabId.make("desktop-tab");
+        yield* broker.focusHost({
+          clientId: "desktop",
+          environmentId: scope.environmentId,
+          connectionId: connections.get("desktop")!,
+          focused: true,
+          liveTabs: [{ threadId: scope.threadId, tabId: desktopTab, visible: true }],
+        });
+
+        const explicit = { scope, tabId: desktopTab, operation: "snapshot", input: {} } as const;
+        expect(yield* broker.invoke<string>(explicit)).toBe("desktop");
+        // The explicit desktop tab leased the session to the desktop; its other work still
+        // goes to the Environment browser.
+        expect(yield* broker.invoke<string>({ scope, operation: "open", input: {} })).toBe(
+          "environment",
+        );
+        // And the desktop tab is not lost to the preferred host's lease.
+        expect(yield* broker.invoke<string>(explicit)).toBe("desktop");
+        // A tab no host reports, such as one handed over from the people's view, goes to the
+        // preferred host even while the desktop holds the session.
+        expect(
+          yield* broker.invoke<string>({
+            scope,
+            tabId: PreviewTabId.make("ABCDEF0123456789ABCDEF0123456789"),
+            operation: "snapshot",
+            input: {},
+          }),
+        ).toBe("environment");
+      }),
+    ),
+);
+
+it.effect("leaves a request in flight with the desktop when a preferred host registers", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const held = yield* Deferred.make<RoutedRequest>();
+      const desktopRequests = requestsFrom(
+        yield* broker.connect(makeHost({ clientId: "desktop" })),
+      );
+      yield* Stream.runForEach(desktopRequests, (request) => Deferred.succeed(held, request)).pipe(
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+      const opening = yield* broker
+        .invoke<string>({ scope, operation: "open", input: {} })
+        .pipe(Effect.forkScoped);
+      const request = yield* Deferred.await(held);
+
+      const { routed } = yield* answeringHosts(broker, [
+        { clientId: "environment", options: { preferred: true } },
+      ]);
+      yield* broker.respond({
+        clientId: "desktop",
+        connectionId: request.connectionId,
+        requestId: request.requestId,
+        ok: true,
+        result: "desktop",
+      });
+
+      expect(yield* Fiber.join(opening)).toBe("desktop");
+      // Nothing was sent again to the preferred host.
+      expect(routed).toEqual([]);
+    }),
+  ),
+);
+
 it.effect("routes as before when no host is preferred", () =>
   Effect.scoped(
     Effect.gen(function* () {

@@ -531,18 +531,32 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             (!visibleOnly || tab.visible === true) &&
             (input.tabId === undefined || tab.tabId === input.tabId),
         );
+      const candidates = Array.from(current.clients.values()).filter(
+        (host) =>
+          host.environmentId === input.scope.environmentId &&
+          supportsOperation(host, input.operation),
+      );
+      // Lazurio overlay (plan DEV-6646): once a preferred host is connected, it owns the
+      // environment's browsing. A desktop that served a provider session first (before the
+      // preferred host registered, or through an explicitly targeted desktop tab) keeps no
+      // hold on the session's other work: an explicitly targeted tab goes to the host that
+      // reports it, everything else to the preferred host. Requests in flight stay where
+      // they are; nothing is sent again.
+      const preferredHost = candidates.find((host) => host.preferred);
+      const authoritative =
+        preferredHost === undefined
+          ? undefined
+          : input.tabId === undefined
+            ? preferredHost
+            : (candidates.find((host) => ownsTargetTab(host)) ?? preferredHost);
       const connection =
-        hasLiveAssignment && supportsOperation(assignedConnection, input.operation)
-          ? assignedConnection
-          : hasLiveAssignment
-            ? undefined
-            : Array.from(current.clients.values())
-                .filter(
-                  (host) =>
-                    host.environmentId === input.scope.environmentId &&
-                    supportsOperation(host, input.operation),
-                )
-                .sort(
+        authoritative !== undefined
+          ? authoritative
+          : hasLiveAssignment && supportsOperation(assignedConnection, input.operation)
+            ? assignedConnection
+            : hasLiveAssignment
+              ? undefined
+              : candidates.sort(
                   (left, right) =>
                     Number(input.tabId !== undefined && ownsTargetTab(right)) -
                       Number(input.tabId !== undefined && ownsTargetTab(left)) ||

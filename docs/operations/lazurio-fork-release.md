@@ -254,8 +254,11 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tři věci:
   `preview_snapshot`, `preview_click` a další ovládají prohlížeč Environmentu,
   takže agent ve webovém T3 pracuje ve stejném okně jako `agent-browser` a člověk
   v pohledu. Hostitel uvnitř serveru T3 se u brokera náhledu registruje jako
-  preferovaný (dostane novou práci před každým desktopem) a hlásí všechny
-  operace, ale jen dokud Environment prohlížeč deklaruje:
+  preferovaný a hlásí všechny operace. Dokud je připojený, dostane veškerou
+  práci prohlížeče před každým desktopem, i v relaci agenta, kterou předtím
+  obsloužil desktop (třeba než se hostitel zaregistroval); na desktop jde jen
+  výslovně zadaná záložka, kterou desktop hlásí. Registruje se jen, dokud
+  Environment prohlížeč deklaruje:
   `~/.local/bin/lazurio browser link --json` skončí 0 s `{"kind":"browser-link"}`.
   Jinak (exit 10, chybějící binárka, cokoli jiného) se neregistruje a ptá se
   znovu každou minutu. Záložka je id cíle DevTools prohlížeče. `preview_open` bez
@@ -339,7 +342,8 @@ ikona záložky, bez volby desktopového profilu tam, kde desktopový náhled
 chybí), `ChatView.tsx` (povolení Browser, rámy záložek vedle povrchu v popředí
 a titulky záložek), `ProviderService.ts` (jedno volání), `server.ts` (vrstva
 hostitele nástrojů vedle MCP serveru), `PreviewAutomationBroker.ts`
-(preferovaný host, jeho 60 s pro `open` a vysvětlení jeho chyb),
+(preferovaný host a jeho přednost i před dřívějším přiřazením desktopu, jeho
+60 s pro `open` a vysvětlení jeho chyb),
 `McpHttpServer.ts` a `toolkits/preview/tools.ts` (ARIA strom s refy pro agenta)
 a v balení `apps/server/package.json` a `scripts/lib/cli-external-packages.ts`
 (`playwright-core`). Zbytek je ve
