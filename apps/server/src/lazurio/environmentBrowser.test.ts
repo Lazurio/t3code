@@ -436,6 +436,45 @@ it.effect("opens another window with reuseExistingTab false, and makes it the cu
   ),
 );
 
+it.effect(
+  "reuses the current tab on a later open, and returns to the thread's window once it is gone",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const host = yield* startHost({
+          link: declared,
+          window: () => {
+            host.browser.addPage(threadWindow);
+            return windowAnswer(threadWindow, true);
+          },
+        });
+        yield* host.registered;
+
+        // A second window is the current tab now.
+        const second = yield* invoke<{ readonly tabId: string }>(host.broker, "open", {
+          url: "https://first.example.test/",
+          reuseExistingTab: false,
+        });
+        // preview_open without a tab reuses it, as the tool's contract says, without the CLI.
+        const reused = yield* invoke<{ readonly tabId: string }>(host.broker, "open", {
+          url: "https://second.example.test/",
+        });
+        expect(reused.tabId).toBe(second.tabId);
+        expect(host.browser.pages.get(second.tabId)?.log).toEqual([
+          "settle",
+          "navigate https://second.example.test/",
+        ]);
+        expect(host.runs.filter((run) => run.args[1] === "window")).toEqual([]);
+
+        // Once that window is gone, the thread's own window takes its place.
+        host.browser.pages.delete(second.tabId);
+        const own = yield* invoke<{ readonly tabId: string }>(host.broker, "open", {});
+        expect(own.tabId).toBe(threadWindow);
+        expect(host.runs.filter((run) => run.args[1] === "window")).toHaveLength(1);
+      }),
+    ),
+);
+
 it.effect("adopts a tab handed over by its id, and refuses an id that names no tab", () =>
   Effect.scoped(
     Effect.gen(function* () {
