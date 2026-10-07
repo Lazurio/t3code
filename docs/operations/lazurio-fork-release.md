@@ -259,7 +259,8 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tři věci:
   `~/.local/bin/lazurio browser link --json` skončí 0 s `{"kind":"browser-link"}`.
   Jinak (exit 10, chybějící binárka, cokoli jiného) se neregistruje a ptá se
   znovu každou minutu. Záložka je id cíle DevTools prohlížeče. `preview_open` bez
-  záložky je vlastní okno vlákna z
+  záložky znovu použije aktuální záložku, dokud je otevřená (kontrakt nástroje);
+  vlákno bez ní dostane vlastní okno z
   `lazurio browser window --session t3-<id vlákna>`, tedy okno, ke kterému je
   navázané sezení agent-browser, a restartovaný server ho najde znovu;
   `reuseExistingTab: false` otevře další okno ve výchozím kontextu a `tabId`

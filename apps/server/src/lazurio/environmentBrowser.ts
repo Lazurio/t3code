@@ -9,11 +9,12 @@
  * The host registers with the preview broker as a preferred host and advertises every operation,
  * while the Environment declares its browser (`lazurio browser link --json`), asking again every
  * minute while it is not registered. A tab is a DevTools target id of the Environment browser.
- * Per thread, the host keeps in memory the tabs it opened or adopted and the current one:
- * preview_open without a tab is the thread's own window, the one `lazurio browser window` keeps
- * bound to the thread's agent-browser session, so T3's tools and agent-browser drive the same
- * window and a restarted server finds it again. A tab id from the people's view or another agent
- * hands that tab over. Operations run one at a time per tab; a person working in the same tab at
+ * Per thread, the host keeps in memory the tabs it opened or adopted and the current one.
+ * preview_open without a tab reuses the current tab while it is open (the tool's contract), and a
+ * thread without one gets its own window, the one `lazurio browser window` keeps bound to the
+ * thread's agent-browser session, so T3's tools and agent-browser drive the same window and a
+ * restarted server finds it again. A tab id from the people's view or another agent hands that
+ * tab over. Operations run one at a time per tab; a person working in the same tab at
  * the same time is expected and not locked out. Resizing and color schemes would change what the
  * person sees, and recording is not available, so those are answered with what to do instead.
  */
@@ -248,6 +249,13 @@ export const make = Effect.gen(function* () {
     Effect.flatMap(browserConnection, (connection) =>
       Effect.tryPromise({ try: () => connection.tab(targetId), catch: toOperationError }),
     );
+  /** The tab while its page is open; a closed one leaves every thread that had it. */
+  const liveTab = (targetId: string | undefined) =>
+    targetId === undefined
+      ? Effect.succeed(undefined)
+      : Effect.flatMap(tabOf(targetId), (tab) =>
+          tab === undefined ? Effect.as(forget(targetId), undefined) : Effect.succeed(targetId),
+        );
 
   const tabLocks = new Map<string, Semaphore.Semaphore>();
   /** One operation at a time per tab, in the order they arrive. */
@@ -370,14 +378,21 @@ export const make = Effect.gen(function* () {
               try: () => normalizePreviewUrl(input.url!),
               catch: toOperationError,
             });
-      // A named tab is handed over; the thread's own window is the CLI's to find or create.
+      // A named tab is handed over. Otherwise the current tab is reused while it is open, and a
+      // thread without one gets its own window, which the CLI finds or creates.
       const handedOver = request.tabIdExplicit === true ? request.tabId : undefined;
+      const current =
+        handedOver === undefined && input.reuseExistingTab !== false
+          ? yield* liveTab(requestTab(request))
+          : undefined;
       const { targetId, created } =
         handedOver !== undefined
           ? { targetId: handedOver, created: false }
-          : input.reuseExistingTab === false
-            ? { targetId: yield* newWindow(url), created: true }
-            : yield* threadWindow(request.threadId, url, answerBy);
+          : current !== undefined
+            ? { targetId: current, created: false }
+            : input.reuseExistingTab === false
+              ? { targetId: yield* newWindow(url), created: true }
+              : yield* threadWindow(request.threadId, url, answerBy);
       return yield* oneAtATime(targetId)(
         Effect.gen(function* () {
           const timeoutMs = yield* timeLeft(answerBy);
