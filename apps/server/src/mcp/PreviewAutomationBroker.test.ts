@@ -2,7 +2,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
+  PREVIEW_AUTOMATION_OPERATIONS,
   PreviewAutomationClientDisconnectedError,
+  PreviewAutomationExecutionError,
   PreviewAutomationInvalidSelectorError,
   PreviewAutomationMalformedResponseError,
   PreviewAutomationNoAvailableHostError,
@@ -510,6 +512,89 @@ it.effect.each([
       expect(error.cause).toBe(remoteError);
       expect(error.message).toContain("remains on the desktop");
       expect(error.message).not.toContain("remote recording details");
+    }),
+  ),
+);
+
+/** A host that fails every request with `error`, connected as `preferred` or not. */
+const failingHost = (
+  broker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  preferred: boolean,
+  error: { readonly _tag: string; readonly message: string; readonly detail?: unknown },
+) =>
+  Effect.gen(function* () {
+    const requests = requestsFrom(
+      yield* broker.connect(makeHost({ supportedOperations: [...PREVIEW_AUTOMATION_OPERATIONS] }), {
+        preferred,
+      }),
+    );
+    yield* Stream.runForEach(requests, (request) =>
+      broker.respond({
+        clientId: "client-1",
+        connectionId: request.connectionId,
+        requestId: request.requestId,
+        ok: false,
+        error,
+      }),
+    ).pipe(Effect.forkScoped);
+    yield* Effect.yieldNow;
+  });
+
+// Ported from upstream (pingdotgg/t3code 611132c1), where the server's own browser explains its
+// failures through the contract's `reason`. A preferred host runs inside this server.
+it.effect.each([true, false])(
+  "tells the agent why a preferred host failed (preferred: %s)",
+  (preferred) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        yield* failingHost(broker, preferred, {
+          _tag: "PreviewAutomationExecutionError",
+          message: "Navigation to http://localhost:4719/ failed: ERR_CONNECTION_REFUSED",
+        });
+        const error = yield* broker
+          .invoke<void>({ scope, operation: "navigate", input: {} })
+          .pipe(Effect.flip);
+        expect(error).toBeInstanceOf(PreviewAutomationExecutionError);
+        expect(error).toMatchObject({ operation: "navigate", clientId: "client-1" });
+        // A desktop or other remote host's text stays out of the agent's context.
+        expect(error.message.includes("ERR_CONNECTION_REFUSED")).toBe(preferred);
+      }),
+    ),
+);
+
+it.effect("keeps a preferred host's explanation short", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      yield* failingHost(broker, true, {
+        _tag: "PreviewAutomationExecutionError",
+        message: `The reason. ${"x".repeat(2_000)}`,
+      });
+      const error = yield* broker
+        .invoke<void>({ scope, operation: "resize", input: {} })
+        .pipe(Effect.flip);
+      expect(error.message.startsWith("Preview automation resize failed: The reason.")).toBe(true);
+      expect(error.message.length).toBeLessThan(600);
+    }),
+  ),
+);
+
+it.effect.each([true, false])("says a stale element ref is stale (preferred: %s)", (preferred) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      yield* failingHost(broker, preferred, {
+        _tag: "PreviewAutomationInvalidSelectorError",
+        message: "This element ref is stale or belongs to another tab.",
+        detail: { staleRef: true },
+      });
+      const error = yield* broker
+        .invoke<void>({ scope, operation: "click", input: { locator: "aria-ref=t3-1-e5" } })
+        .pipe(Effect.flip);
+      expect(error).toBeInstanceOf(PreviewAutomationInvalidSelectorError);
+      expect(error).toMatchObject({ selectorKind: "locator", selectorLength: 16 });
+      expect(/fresh snapshot/.test(error.message)).toBe(preferred);
     }),
   ),
 );
