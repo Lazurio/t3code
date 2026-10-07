@@ -580,3 +580,71 @@ NodeTest.test("the Environment browser keeps its seams and stores only a page's 
     /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio\n/,
   );
 });
+
+// Plan DEV-6646: T3's browser tools drive the Environment browser. The host is server overlay
+// files in apps/server/src/lazurio; the seams are a few lines in upstream files, ported from
+// upstream (611132c1) where it has the same idea, so a rebuild on a new upstream tag that loses
+// one fails here.
+NodeTest.test("T3's browser tools reach the Environment browser through their seams", async () => {
+  const [server, broker, mcp, externals, serverPackage, host, connection, engine] =
+    await Promise.all(
+      [
+        "apps/server/src/server.ts",
+        "apps/server/src/mcp/PreviewAutomationBroker.ts",
+        "apps/server/src/mcp/McpHttpServer.ts",
+        "scripts/lib/cli-external-packages.ts",
+        "apps/server/package.json",
+        "apps/server/src/lazurio/environmentBrowser.ts",
+        "apps/server/src/lazurio/environmentBrowserConnection.ts",
+        "apps/server/src/lazurio/environmentBrowserPage.ts",
+      ].map(read),
+    );
+  // The host shares the routes' one preview broker.
+  const routes = server.slice(server.indexOf("export const makeRoutesLayer"));
+  const seam = routes.indexOf(
+    "LazurioEnvironmentBrowser.layer.pipe(Layer.provide(ProcessRunner.layer)),",
+  );
+  NodeAssert.ok(seam > 0, "makeRoutesLayer must start the Environment browser host");
+  NodeAssert.ok(seam < routes.indexOf("Layer.provide(PreviewAutomationBroker.layer)"));
+  // A preferred host takes new work before any desktop; only an explicit tab's owner outranks it.
+  NodeAssert.match(
+    broker,
+    /export interface PreviewAutomationConnectOptions \{[^}]*readonly preferred\?: boolean;/,
+  );
+  NodeAssert.match(
+    broker,
+    /Number\(input\.tabId !== undefined && ownsTargetTab\(right\)\) -\n\s+Number\(input\.tabId !== undefined && ownsTargetTab\(left\)\) \|\|\n\s+Number\(right\.preferred\) - Number\(left\.preferred\) \|\|/,
+  );
+  NodeAssert.match(
+    broker,
+    /input\.operation === "open" && connection\.preferred \? 60_000 : 15_000/,
+  );
+  NodeAssert.match(host, /\{ preferred: true \}/);
+  NodeAssert.match(host, /path\.join\(home, "\.local", "bin", "lazurio"\)/);
+  NodeAssert.match(host, /args: \["browser", "link", "--json"\]/);
+  // Agents see a server host's ARIA refs.
+  NodeAssert.match(
+    mcp,
+    /const ariaTree = typeof accessibilityTree === "string" \? accessibilityTree : undefined;/,
+  );
+  // Playwright, upstream's exact version, beside the CLI bundle.
+  NodeAssert.equal(JSON.parse(serverPackage).dependencies["playwright-core"], "1.60.0");
+  NodeAssert.match(externals, /\n {2}"playwright-core",\n/);
+  // The Environment browser stays the Environment's own: Playwright keeps its overrides off the
+  // default context, and the host adds no context, script, binding or user agent of its own.
+  NodeAssert.match(
+    connection,
+    /connectOverCDP\(endpoint, \{ noDefaults: true, timeout: 15_000 \}\)/,
+  );
+  NodeAssert.match(connection, /browser\.contexts\(\)\[0\]/);
+  for (const source of [host, connection, engine]) {
+    NodeAssert.doesNotMatch(
+      source,
+      /\.newContext\(|\.launch(?:PersistentContext)?\(|\.addInitScript\(|\.exposeBinding\(|\.exposeFunction\(|userAgent:|\.setExtraHTTPHeaders\(|\.emulateMedia\(/,
+    );
+  }
+  NodeAssert.match(
+    ci,
+    /working-directory: apps\/server\n\s+run: pnpm exec vp test run src\/lazurio\n/,
+  );
+});
