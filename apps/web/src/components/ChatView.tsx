@@ -199,6 +199,7 @@ import { BrowserSettingsReadError } from "../browser/openFileInPreview";
 import {
   LazurioRightPanelSurfaces,
   useLazurioEnvironmentBrowser,
+  useLazurioEnvironmentBrowserFromChat,
 } from "../lazurio/LazurioEnvironmentBrowser";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
@@ -2892,6 +2893,13 @@ export default function ChatView(props: ChatViewProps) {
     conversationProviderStatus.supportsConversationRollback !== false;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  // Lazurio overlay: the chat opens the Environment browser in the panel (apps/web/src/lazurio).
+  useLazurioEnvironmentBrowserFromChat({
+    threadRef: activeThreadRef,
+    activities: threadActivities,
+    live: threadSyncPhase === null,
+    inlinePanel: !shouldUseRightPanelSheet,
+  });
   const latestCheckpointCompletedAt = activeThread?.checkpoints.at(-1)?.completedAt ?? null;
   const workspaceMutationId = useMemo(() => {
     const activityId = latestWorkspaceMutationId(threadActivities);

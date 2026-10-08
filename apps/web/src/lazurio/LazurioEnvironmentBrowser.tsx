@@ -16,9 +16,14 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
-import { type RightPanelSurface, useRightPanelStore } from "../rightPanelStore";
+import {
+  type RightPanelSurface,
+  selectActiveRightPanel,
+  useRightPanelStore,
+} from "../rightPanelStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { agentBrowserSessionName } from "./agentBrowserSession";
+import { type BrowserUseTracker, type ThreadActivity, trackBrowserUse } from "./browserUse";
 import {
   environmentBrowserTab,
   fetchEnvironmentBrowser,
@@ -29,6 +34,20 @@ const askEnvironment = (threadId: string) =>
   fetchEnvironmentBrowser(agentBrowserSessionName(threadId), window.location.origin, (url, init) =>
     window.fetch(url, init),
   );
+
+/**
+ * The thread where the Environment browser can serve it, else null: a thread of this page's own
+ * environment, in the web client. The desktop app keeps its own browser, and a thread of another
+ * environment has its window in that environment's browser.
+ */
+function useEnvironmentBrowserThread(threadRef: ScopedThreadRef | null): ScopedThreadRef | null {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  return threadRef !== null &&
+    threadRef.environmentId === primaryEnvironmentId &&
+    !isPreviewSupportedInRuntime()
+    ? threadRef
+    : null;
+}
 
 type TabTitles = Readonly<Record<string, string>>;
 const NO_TITLES: TabTitles = {};
@@ -67,13 +86,7 @@ export function useLazurioEnvironmentBrowser(
   threadRef: ScopedThreadRef | null,
   panelOpen: boolean,
 ): { readonly available: boolean; readonly open: () => void; readonly titles: TabTitles } {
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const threadId =
-    threadRef !== null &&
-    threadRef.environmentId === primaryEnvironmentId &&
-    !isPreviewSupportedInRuntime()
-      ? threadRef.threadId
-      : null;
+  const threadId = useEnvironmentBrowserThread(threadRef)?.threadId ?? null;
   const [answer, setAnswer] = useState<{
     readonly threadId: string;
     readonly available: boolean;
@@ -100,6 +113,69 @@ export function useLazurioEnvironmentBrowser(
     open,
     titles,
   };
+}
+
+/** The thread's own tab, the surface a person picks as Browser. */
+const OWN_TAB = { id: "environment-browser", kind: "environment-browser" } as const;
+
+const showsEnvironmentBrowser = (threadRef: ScopedThreadRef) =>
+  selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
+  "environment-browser";
+
+/**
+ * Lazurio overlay (root decision 0191, plan DEV-6646): the chat brings the Environment browser
+ * into the right panel. When the agent of the thread in view starts to use the browser
+ * (browserUse.ts) and the Environment offers it, the panel opens on the thread's own tab, the
+ * surface a person picks by hand, unless it shows the Environment browser already. Only activities
+ * that arrive while the thread is in view and `live` count, never its history. A person who closes
+ * the panel or picks another surface sees it open again at the agent's next browser call, so the
+ * person sees where the agent works; a choice the person makes while the Environment is asked wins
+ * over the opening. Where the panel is a sheet over the chat (`inlinePanel` false), it does not
+ * open by itself: it would cover the chat and take the composer's focus.
+ */
+export function useLazurioEnvironmentBrowserFromChat(input: {
+  readonly threadRef: ScopedThreadRef | null;
+  readonly activities: ReadonlyArray<ThreadActivity>;
+  /** False while the thread's history loads or catches up. */
+  readonly live: boolean;
+  /** False where the right panel is a sheet over the chat. */
+  readonly inlinePanel: boolean;
+}): void {
+  const { activities, live, inlinePanel } = input;
+  const threadRef = useEnvironmentBrowserThread(input.threadRef);
+  const tracker = useRef<BrowserUseTracker | null>(null);
+  // The key of the thread in view, and of the thread whose Environment is being asked.
+  const inView = useRef<string | null>(null);
+  const asking = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (threadRef === null) {
+      tracker.current = null;
+      return;
+    }
+    const threadKey = scopedThreadKey(threadRef);
+    const look = trackBrowserUse(tracker.current, threadKey, activities, live);
+    tracker.current = look.tracker;
+    if (!look.used || !inlinePanel || asking.current === threadKey) return;
+    if (showsEnvironmentBrowser(threadRef)) return;
+    const revision = useRightPanelStore.getState().getUserActionRevision(threadRef);
+    asking.current = threadKey;
+    void askEnvironment(threadRef.threadId).then((view) => {
+      if (asking.current === threadKey) asking.current = null;
+      if (view === null || inView.current !== threadKey || showsEnvironmentBrowser(threadRef)) {
+        return;
+      }
+      useRightPanelStore.getState().openProactive(threadRef, OWN_TAB, revision);
+    });
+  }, [activities, inlinePanel, live, threadRef]);
+
+  useEffect(() => {
+    if (threadRef === null) return;
+    inView.current = scopedThreadKey(threadRef);
+    return () => {
+      inView.current = null;
+    };
+  }, [threadRef]);
 }
 
 type EnvironmentBrowserSurface = Extract<RightPanelSurface, { kind: "environment-browser" }>;
