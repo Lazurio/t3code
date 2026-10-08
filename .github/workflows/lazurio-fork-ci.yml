@@ -91,6 +91,12 @@ jobs:
             apps/web/src/lazurio/environmentBrowser.test.ts
             apps/web/src/lazurio/environmentBrowser.ts
             apps/web/src/rightPanelStore.ts
+            # The right panel opens on the Environment browser when the thread's agent starts to
+            # use it, which these read from the thread's activities (plan DEV-6646). The seams are
+            # a hook call in ChatView.tsx and openProactive's surface type in rightPanelStore.ts
+            # (both listed above).
+            apps/web/src/lazurio/browserUse.test.ts
+            apps/web/src/lazurio/browserUse.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps/(web|mobile|desktop)|packages)/' |
