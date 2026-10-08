@@ -104,6 +104,37 @@ export function environmentBrowserTab(
   return target === undefined ? null : { id: `environment-browser:${target}`, view: url.href };
 }
 
+/**
+ * The panel tab that a link in the chat opens instead of a new browser tab: the view of one remote
+ * tab (environmentBrowserTab) on the origin of this Environment's view, as the Environment named it
+ * at /.lazurio/browser.json. Any other address, or a view not named yet, is left to the browser.
+ */
+export function environmentBrowserLink(
+  href: string,
+  pageOrigin: string,
+  viewOrigin: string | null,
+): EnvironmentBrowserTab | null {
+  const tab = viewOrigin === null ? null : environmentBrowserTab(href, pageOrigin);
+  return tab !== null && originOf(tab.view) === viewOrigin ? tab : null;
+}
+
+/** A plain primary click follows a link in place; modifiers or other buttons open it elsewhere. */
+export function isPlainPrimaryClick(
+  event: Pick<
+    MouseEvent,
+    "button" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "defaultPrevented"
+  >,
+): boolean {
+  return (
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.defaultPrevented
+  );
+}
+
 /** What the view in a panel frame says (LazurioPlatform F39): its tab's title, or a new tab. */
 export type EnvironmentBrowserMessage =
   | {

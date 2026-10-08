@@ -10,8 +10,10 @@ import {
 } from "../rightPanelStore";
 import { agentBrowserSessionName } from "./agentBrowserSession";
 import {
+  environmentBrowserLink,
   environmentBrowserTab,
   fetchEnvironmentBrowser,
+  isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
 } from "./environmentBrowser";
 
@@ -181,6 +183,55 @@ describe("a tab of the panel", () => {
     }
     // Framed with allow-same-origin on this page's own origin, the view would not be confined.
     expect(environmentBrowserTab(`${origin}/t/${targetId}`, origin)).toBeNull();
+  });
+});
+
+describe("a link in the chat", () => {
+  it("opens in the panel when it is one remote tab of the view the Environment named", () => {
+    expect(environmentBrowserLink(tabView, origin, viewOrigin)).toEqual({
+      id: `environment-browser:${targetId}`,
+      view: tabView,
+    });
+  });
+
+  it("is left to the browser at any other address, and before the Environment named its view", () => {
+    for (const href of [
+      `${tabView}?q=1`,
+      `${tabView}#top`,
+      tabView.replace("https:", "http:"),
+      tabView.replace("https://", "https://person@"),
+      `${viewOrigin}/`,
+      `${tabView}/live`,
+      `https://elsewhere.example.test/t/${targetId}`,
+      `${origin}/t/${targetId}`,
+      "not an address",
+    ]) {
+      expect([href, environmentBrowserLink(href, origin, viewOrigin)]).toEqual([href, null]);
+    }
+    expect(environmentBrowserLink(tabView, origin, null)).toBeNull();
+  });
+
+  it("opens there on a plain primary click only, never on a new-tab gesture", () => {
+    const click = {
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      defaultPrevented: false,
+    };
+    expect(isPlainPrimaryClick(click)).toBe(true);
+    for (const gesture of [
+      { metaKey: true },
+      { ctrlKey: true },
+      { shiftKey: true },
+      { altKey: true },
+      { button: 1 },
+      { button: 2 },
+      { defaultPrevented: true },
+    ]) {
+      expect([gesture, isPlainPrimaryClick({ ...click, ...gesture })]).toEqual([gesture, false]);
+    }
   });
 });
 
