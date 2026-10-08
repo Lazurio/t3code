@@ -194,7 +194,15 @@ describe("the chat and the Environment browser", () => {
       live: props.live ?? true,
       inlinePanel: props.inlinePanel ?? true,
     });
-    return null;
+    return (
+      <>
+        <div data-timeline-root="true">
+          <a href={opened.view}>The agent's tab</a>
+          <a href={`https://elsewhere.example.test/t/${"0".repeat(32)}`}>Another view</a>
+        </div>
+        <a href={second.view}>Not in the chat</a>
+      </>
+    );
   }
   const showChat = (props: Parameters<typeof Chat>[0]) =>
     act(async () => root.render(<Chat {...props} />));
@@ -277,5 +285,55 @@ describe("the chat and the Environment browser", () => {
     respond();
     await settle();
     expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: "files" });
+  });
+
+  it("opens a link to one remote tab of the Environment's view in the panel on a plain click", async () => {
+    const fetch = vi.fn(async () => answer());
+    vi.stubGlobal("fetch", fetch);
+    // The agent's browser use: the Environment names its view.
+    await showChat({ activities: [] });
+    await showChat({ activities: [browse("a", 1)] });
+    await settle();
+    act(() => useRightPanelStore.getState().close(threadA));
+    const [agentTab, anotherView, outside] = [...container.querySelectorAll("a")];
+    // What the browser would do with a click the panel leaves alone.
+    let followed: string | null = null;
+    const follow = (event: MouseEvent) => {
+      followed = (event.target as HTMLAnchorElement).href;
+      event.preventDefault();
+    };
+    document.addEventListener("click", follow);
+    const click = (
+      link: HTMLAnchorElement | undefined,
+      init: MouseEventInit = {},
+    ): string | null => {
+      followed = null;
+      act(() => {
+        link?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+      });
+      return followed;
+    };
+    try {
+      for (const gesture of [
+        { ctrlKey: true },
+        { metaKey: true },
+        { shiftKey: true },
+        { altKey: true },
+      ]) {
+        expect(click(agentTab, gesture)).toBe(opened.view);
+      }
+      expect(click(anotherView)).toBe(anotherView?.href);
+      expect(click(outside)).toBe(second.view);
+      expect(panel().isOpen).toBe(false);
+
+      expect(click(agentTab)).toBeNull();
+      expect(panel()).toEqual({
+        isOpen: true,
+        activeSurfaceId: opened.id,
+        surfaces: [{ id: "environment-browser", kind: "environment-browser" }, opened],
+      });
+    } finally {
+      document.removeEventListener("click", follow);
+    }
   });
 });

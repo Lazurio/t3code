@@ -25,15 +25,26 @@ import { usePrimaryEnvironmentId } from "../state/environments";
 import { agentBrowserSessionName } from "./agentBrowserSession";
 import { type BrowserUseTracker, type ThreadActivity, trackBrowserUse } from "./browserUse";
 import {
+  environmentBrowserLink,
   environmentBrowserTab,
   fetchEnvironmentBrowser,
+  isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
 } from "./environmentBrowser";
+
+/**
+ * The origin of this Environment's view, from the last answer that named a view: where the links
+ * to its tabs lead. Page memory only, like the answers themselves.
+ */
+let viewOrigin: string | null = null;
 
 const askEnvironment = (threadId: string) =>
   fetchEnvironmentBrowser(agentBrowserSessionName(threadId), window.location.origin, (url, init) =>
     window.fetch(url, init),
-  );
+  ).then((view) => {
+    if (view !== null) viewOrigin = new URL(view.view).origin;
+    return view;
+  });
 
 /**
  * The thread where the Environment browser can serve it, else null: a thread of this page's own
@@ -117,6 +128,8 @@ export function useLazurioEnvironmentBrowser(
 
 /** The thread's own tab, the surface a person picks as Browser. */
 const OWN_TAB = { id: "environment-browser", kind: "environment-browser" } as const;
+/** A row of the chat's timeline: a message, or the work the agent did. */
+const CHAT_ROW = "[data-timeline-root]";
 
 const showsEnvironmentBrowser = (threadRef: ScopedThreadRef) =>
   selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
@@ -131,7 +144,9 @@ const showsEnvironmentBrowser = (threadRef: ScopedThreadRef) =>
  * the panel or picks another surface sees it open again at the agent's next browser call, so the
  * person sees where the agent works; a choice the person makes while the Environment is asked wins
  * over the opening. Where the panel is a sheet over the chat (`inlinePanel` false), it does not
- * open by itself: it would cover the chat and take the composer's focus.
+ * open by itself: it would cover the chat and take the composer's focus. A plain click on a link
+ * in the chat to one remote tab of this Environment's view opens that tab in the panel instead of
+ * a new browser tab.
  */
 export function useLazurioEnvironmentBrowserFromChat(input: {
   readonly threadRef: ScopedThreadRef | null;
@@ -172,8 +187,22 @@ export function useLazurioEnvironmentBrowserFromChat(input: {
   useEffect(() => {
     if (threadRef === null) return;
     inView.current = scopedThreadKey(threadRef);
+    const openInPanel = (event: MouseEvent) => {
+      if (!isPlainPrimaryClick(event) || !(event.target instanceof Element)) return;
+      const link = event.target.closest("a[href]");
+      if (!(link instanceof HTMLAnchorElement) || link.closest(CHAT_ROW) === null) return;
+      const tab = environmentBrowserLink(link.href, window.location.origin, viewOrigin);
+      if (tab === null) return;
+      // The panel takes this click: no new browser tab, and no link handling of the chat's own.
+      event.preventDefault();
+      event.stopPropagation();
+      useRightPanelStore.getState().openEnvironmentBrowserTab(threadRef, tab.view);
+    };
+    // Capturing on the document runs before the chat's own handlers of the link.
+    document.addEventListener("click", openInPanel, true);
     return () => {
       inView.current = null;
+      document.removeEventListener("click", openInPanel, true);
     };
   }, [threadRef]);
 }
