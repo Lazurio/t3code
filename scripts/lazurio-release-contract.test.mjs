@@ -20,6 +20,8 @@ const environmentBrowserOverlay = [
   "apps/web/src/lazurio/LazurioEnvironmentBrowser.test.tsx",
   "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
   "apps/web/src/lazurio/agentBrowserSession.ts",
+  "apps/web/src/lazurio/browserUse.test.ts",
+  "apps/web/src/lazurio/browserUse.ts",
   "apps/web/src/lazurio/environmentBrowser.test.ts",
   "apps/web/src/lazurio/environmentBrowser.ts",
   "apps/web/src/rightPanelStore.ts",
@@ -579,6 +581,55 @@ NodeTest.test("the Environment browser keeps its seams and stores only a page's 
     ci,
     /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio\n/,
   );
+});
+
+// Plan DEV-6646: the right panel opens on the Environment browser when the thread's agent starts
+// to use it, and a plain click on a link in the chat to one of its remote tabs opens that tab
+// there. The seams are one hook call in ChatView.tsx, openProactive's surface type and the chat's
+// timeline rows, which upstream marks with data-timeline-root; a rebuild that loses one fails here.
+NodeTest.test("the chat opens the Environment browser in the panel through its seams", async () => {
+  const [chatView, store, timeline, component, host] = await Promise.all(
+    [
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/rightPanelStore.ts",
+      "apps/web/src/components/chat/MessagesTimeline.tsx",
+      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+      "apps/server/src/lazurio/environmentBrowser.ts",
+    ].map(read),
+  );
+  // Every activity of the thread in view, live only once its history has loaded, and never where
+  // the panel is a sheet over the chat.
+  NodeAssert.equal(chatView.match(/useLazurioEnvironmentBrowserFromChat\(/g)?.length, 1);
+  NodeAssert.match(
+    chatView,
+    /useLazurioEnvironmentBrowserFromChat\(\{\n\s+threadRef: activeThreadRef,\n\s+activities: threadActivities,\n\s+live: threadSyncPhase === null,\n\s+inlinePanel: !shouldUseRightPanelSheet,\n\s+\}\);/,
+  );
+  // The app opens it, not the person: an automatic update, refused once the person chose.
+  NodeAssert.match(
+    store,
+    /openProactive: \([^]*?\{ kind: "diff" \| "pull-request" \| "pull-requests" \| "environment-browser" \}/,
+  );
+  NodeAssert.match(
+    component,
+    /useRightPanelStore\.getState\(\)\.openProactive\(threadRef, OWN_TAB, revision\);/,
+  );
+  // Links in the chat's timeline rows, before the chat's own handlers, on a plain click only, to
+  // the view the Environment named.
+  NodeAssert.match(timeline, /data-timeline-root="true"/);
+  NodeAssert.match(component, /const CHAT_ROW = "\[data-timeline-root\]";/);
+  NodeAssert.match(component, /document\.addEventListener\("click", openInPanel, true\);/);
+  NodeAssert.match(component, /if \(!isPlainPrimaryClick\(event\)/);
+  NodeAssert.match(
+    component,
+    /environmentBrowserLink\(link\.href, window\.location\.origin, viewOrigin\)/,
+  );
+  // The host says the tab is visible once preview_open revealed it, unless it asked for
+  // background work.
+  NodeAssert.match(
+    host,
+    /const reveals = \(input: PreviewAutomationOpenInput\) => \(input\.open \?\? input\.show\) !== false;/,
+  );
+  NodeAssert.match(host, /yield\* adopt\(request\.threadId, targetId, reveals\(input\)\);/);
 });
 
 // Plan DEV-6646: T3's browser tools drive the Environment browser. The host is server overlay
