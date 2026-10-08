@@ -355,7 +355,7 @@ it.effect("opens the thread's own window through lazurio and answers with its ta
 
       expect(status).toEqual({
         available: true,
-        visible: false,
+        visible: true,
         tabId: threadWindow,
         url: "https://example.test/",
         title: null,
@@ -389,6 +389,60 @@ it.effect("opens the thread's own window through lazurio and answers with its ta
       });
     }),
   ),
+);
+
+it.effect(
+  "shows the person the thread's tab once preview_open revealed it, never for background work",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const host = yield* startHost({
+          link: declared,
+          window: () => windowAnswer(threadWindow, false),
+        });
+        host.browser.addPage(threadWindow, "https://example.test/");
+        yield* host.registered;
+        const visible = (
+          operation: PreviewAutomationOperation,
+          input: unknown,
+          thread: ThreadId = threadId,
+        ) =>
+          invoke<{ readonly visible: boolean }>(host.broker, operation, input, { thread }).pipe(
+            Effect.map((status) => status.visible),
+          );
+
+        // Background automation: open: false, or the deprecated show: false.
+        expect(yield* visible("open", { open: false })).toBe(false);
+        expect(yield* visible("status", {})).toBe(false);
+        expect(yield* visible("open", { show: false })).toBe(false);
+        expect(yield* visible("navigate", { url: "https://example.test/hidden" })).toBe(false);
+
+        // Any other preview_open reveals the tab: the person's web T3 opens its right panel on
+        // the agent's browser use. The thread's later answers about its tab say so.
+        expect(yield* invoke(host.broker, "open", {})).toMatchObject({
+          visible: true,
+          tabId: threadWindow,
+        });
+        expect(yield* visible("status", {})).toBe(true);
+        expect(yield* visible("navigate", { url: "https://example.test/next" })).toBe(true);
+        expect(yield* visible("open", { url: "https://example.test/again" })).toBe(true);
+        // open outranks the deprecated show, as in the desktop app.
+        expect(yield* visible("open", { open: true, show: false })).toBe(true);
+        // Another thread revealed nothing.
+        expect(yield* visible("status", {}, otherThreadId)).toBe(false);
+
+        // Background work in the same tab takes it back, until the next reveal.
+        expect(yield* visible("open", { open: false })).toBe(false);
+        expect(yield* visible("status", {})).toBe(false);
+        expect(yield* visible("open", {})).toBe(true);
+        // A tab that closed is shown to no one.
+        host.browser.pages.delete(threadWindow);
+        expect(yield* invoke(host.broker, "status", {})).toMatchObject({
+          visible: false,
+          tabId: null,
+        });
+      }),
+    ),
 );
 
 it.effect("navigates the thread's window when it was open already", () =>

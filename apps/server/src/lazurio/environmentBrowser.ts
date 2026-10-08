@@ -120,13 +120,28 @@ const NO_TAB: PreviewAutomationStatus = {
   loading: false,
 };
 
-/** Whether the person watches the tab is the people's view's to know, so never claimed. */
-const statusOf = (targetId: string, state: TabState): PreviewAutomationStatus => ({
+/**
+ * `visible` says the person is shown the tab. The person's web T3 opens its right panel on the
+ * thread's Environment browser when the thread's agent uses the browser
+ * (apps/web/src/lazurio/browserUse.ts), so the thread's current tab is shown once preview_open
+ * revealed it, while the tab stays open. preview_open reveals unless it asks for background work
+ * (`open: false`, or the deprecated `show: false`; `open` wins, as in the desktop app), and the
+ * thread's last preview_open decides. The host cannot see the person's screen: a panel the person
+ * closed, or a client without the panel, still counts as shown.
+ */
+const statusOf = (
+  targetId: string,
+  state: TabState,
+  visible: boolean,
+): PreviewAutomationStatus => ({
   available: true,
-  visible: false,
+  visible,
   tabId: targetId,
   ...state,
 });
+
+/** Whether preview_open shows its tab to the person: unless it asks for background work. */
+const reveals = (input: PreviewAutomationOpenInput) => (input.open ?? input.show) !== false;
 
 const failure = (tag: string, message: string) => new ServerBrowserOperationError(tag, message);
 const noTab = () =>
@@ -149,6 +164,8 @@ interface ThreadTabs {
   /** Tabs the thread opened or adopted, reported to the broker as its live tabs. */
   readonly tabs: Set<string>;
   current: string | undefined;
+  /** Whether the thread's last preview_open revealed its tab to the person (statusOf). */
+  revealed: boolean;
 }
 
 export const make = Effect.gen(function* () {
@@ -198,14 +215,24 @@ export const make = Effect.gen(function* () {
           ),
         }),
   );
-  const adopt = (threadId: ThreadId, targetId: string) =>
+  const adopt = (threadId: ThreadId, targetId: string, revealed: boolean) =>
     Effect.suspend(() => {
-      const thread = threads.get(threadId) ?? { tabs: new Set<string>(), current: undefined };
+      const thread = threads.get(threadId) ?? {
+        tabs: new Set<string>(),
+        current: undefined,
+        revealed: false,
+      };
       thread.tabs.add(targetId);
       thread.current = targetId;
+      thread.revealed = revealed;
       threads.set(threadId, thread);
       return reportLiveTabs;
     });
+  /** Whether the person is shown the tab: the thread's current tab, once revealed (statusOf). */
+  const shown = (threadId: ThreadId, targetId: string) => {
+    const thread = threads.get(threadId);
+    return thread?.revealed === true && thread.current === targetId;
+  };
   /** A tab whose page is gone leaves every thread that had it. */
   const forget = (targetId: string) =>
     Effect.suspend(() => {
@@ -317,6 +344,7 @@ export const make = Effect.gen(function* () {
       return statusOf(
         targetId,
         yield* Effect.tryPromise({ try: () => tab.state(), catch: toOperationError }),
+        shown(request.threadId, targetId),
       );
     });
 
@@ -408,7 +436,7 @@ export const make = Effect.gen(function* () {
                   ),
             );
           }
-          yield* adopt(request.threadId, targetId);
+          yield* adopt(request.threadId, targetId, reveals(input));
           const state = yield* Effect.tryPromise({
             try: async () => {
               // A new window opened at the URL; one that was open already goes there now.
@@ -418,7 +446,7 @@ export const make = Effect.gen(function* () {
             },
             catch: toOperationError,
           });
-          return statusOf(targetId, state);
+          return statusOf(targetId, state, shown(request.threadId, targetId));
         }),
       );
     });
@@ -441,7 +469,7 @@ export const make = Effect.gen(function* () {
           });
           return yield* inTab(targetId, answerBy, async (tab, timeoutMs) => {
             await tab.navigate(url, input.readiness ?? "load", timeoutMs);
-            return statusOf(targetId, await tab.state());
+            return statusOf(targetId, await tab.state(), shown(request.threadId, targetId));
           });
         }
         case "snapshot":
