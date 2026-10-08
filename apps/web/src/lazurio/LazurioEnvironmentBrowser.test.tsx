@@ -11,7 +11,14 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { LazurioRightPanelSurfaces } from "./LazurioEnvironmentBrowser";
+import type { ThreadActivity } from "./browserUse";
+import {
+  LazurioRightPanelSurfaces,
+  useLazurioEnvironmentBrowserFromChat,
+} from "./LazurioEnvironmentBrowser";
+
+// The threads below are of the page's own environment.
+vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "env-1" }));
 
 const viewOrigin = "https://browser.vm-01.example.lazurio.io";
 const pageTab = (target: string) =>
@@ -148,5 +155,127 @@ describe("the panel's Environment browser frames", () => {
     await showPanel(threadA, [first, files], files.id);
     expect(container.querySelectorAll("iframe")).toHaveLength(0);
     expect(container.innerHTML).toBe("<p>Files in view</p>");
+  });
+});
+
+describe("the chat and the Environment browser", () => {
+  const ownTab = `${viewOrigin}/t/${"8A3F0C2D4E5B6A79".repeat(2)}`;
+  const browse = (id: string, second: number, call = id, kind = "tool.started") => ({
+    id,
+    kind,
+    turnId: "turn-1",
+    createdAt: `2026-10-08T10:00:${String(second).padStart(2, "0")}.000Z`,
+    payload: {
+      itemType: "command_execution",
+      toolCallId: call,
+      data: { command: "agent-browser --cdp 9222 snapshot -i" },
+    },
+  });
+  // What the Environment answers at /.lazurio/browser.json on this page's origin.
+  const answer = () => {
+    const body = JSON.stringify({ available: true, view: ownTab, session: null });
+    const response = new Response(body, { headers: { "content-type": "application/json" } });
+    Object.defineProperty(response, "url", {
+      value: `${window.location.origin}/.lazurio/browser.json`,
+    });
+    return response;
+  };
+  const panel = () =>
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA);
+
+  function Chat(props: {
+    readonly activities: ReadonlyArray<ThreadActivity>;
+    readonly live?: boolean;
+    readonly inlinePanel?: boolean;
+  }) {
+    useLazurioEnvironmentBrowserFromChat({
+      threadRef: threadA,
+      activities: props.activities,
+      live: props.live ?? true,
+      inlinePanel: props.inlinePanel ?? true,
+    });
+    return null;
+  }
+  const showChat = (props: Parameters<typeof Chat>[0]) =>
+    act(async () => root.render(<Chat {...props} />));
+  // The Environment's answer and the opening it leads to.
+  const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  it("opens the panel on the thread's own tab when its agent starts to use the browser", async () => {
+    const fetch = vi.fn(async () => answer());
+    vi.stubGlobal("fetch", fetch);
+    const history = [browse("before", 1)];
+    await showChat({ activities: history });
+    await settle();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(panel().isOpen).toBe(false);
+
+    const started = [...history, browse("call", 2)];
+    await showChat({ activities: started });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: "environment-browser",
+      surfaces: [{ id: "environment-browser", kind: "environment-browser" }],
+    });
+    // The app opened it, not the person.
+    expect(useRightPanelStore.getState().getUserActionRevision(threadA)).toBe(0);
+
+    // The person closes it: the call going on leaves it closed, the agent's next call opens it.
+    act(() => useRightPanelStore.getState().close(threadA));
+    const ended = [...started, browse("call-done", 3, "call", "tool.completed")];
+    await showChat({ activities: ended });
+    await settle();
+    expect(panel().isOpen).toBe(false);
+    await showChat({ activities: [...ended, browse("next", 4)] });
+    await settle();
+    expect(panel().isOpen).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the panel for the backlog, on a narrow screen, without the browser, and while it shows", async () => {
+    const fetch = vi.fn(async () => answer());
+    vi.stubGlobal("fetch", fetch);
+    // A thread that loads: its backlog arrives before it is live.
+    await showChat({ activities: [], live: false });
+    await showChat({ activities: [browse("a", 1)], live: false });
+    await showChat({ activities: [browse("a", 1)] });
+    // On a narrow screen the panel is a sheet over the chat and its composer.
+    await showChat({ activities: [browse("a", 1), browse("b", 2)], inlinePanel: false });
+    await settle();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(panel().isOpen).toBe(false);
+
+    // An Environment without the browser: T3 answers its own page.
+    fetch.mockImplementation(
+      async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }),
+    );
+    await showChat({ activities: [browse("a", 1), browse("b", 2), browse("c", 3)] });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(panel().isOpen).toBe(false);
+
+    // The person picked the Environment browser already: nothing to ask.
+    act(() => useRightPanelStore.getState().open(threadA, "environment-browser"));
+    await showChat({
+      activities: [browse("a", 1), browse("b", 2), browse("c", 3), browse("d", 4)],
+    });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open over a choice the person made while the Environment was asked", async () => {
+    let respond = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (respond = () => resolve(answer())))),
+    );
+    await showChat({ activities: [] });
+    await showChat({ activities: [browse("a", 1)] });
+    act(() => useRightPanelStore.getState().open(threadA, "files"));
+    respond();
+    await settle();
+    expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: "files" });
   });
 });

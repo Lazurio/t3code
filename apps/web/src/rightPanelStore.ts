@@ -131,7 +131,11 @@ interface RightPanelStoreState {
    */
   openProactive: (
     ref: ScopedThreadRef,
-    surface: Extract<RightPanelSurface, { kind: "diff" | "pull-request" | "pull-requests" }>,
+    surface: Extract<
+      RightPanelSurface,
+      // Lazurio overlay: the Environment browser when the agent uses it (apps/web/src/lazurio).
+      { kind: "diff" | "pull-request" | "pull-requests" | "environment-browser" }
+    >,
     expectedUserActionRevision: number,
   ) => boolean;
   open: (
