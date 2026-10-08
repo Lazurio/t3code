@@ -94,7 +94,7 @@ nabídne normálně.
 | `lazurio: unsent prompt draft by link from the shell`                          | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                                                                                                                                                   | retain: upstream nemá vstup pro koncept zprávy zvenku                                                                                    |
 | `feat(web): Lazurio shell slot`                                                | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                               | retain: upstream ekvivalent nemá                                                                                                         |
 | `feat(server): each thread's provider processes get its agent-browser session` | Každý proces poskytovatele, který T3 spustí pro vlákno, dostane `AGENT_BROWSER_SESSION=t3-<id vlákna>`: agenti vlákna pracují ve vlastním okně prohlížeče Environmentu (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                 | retain: rozhodnutí 0191 / plán DEV-6646; upstream ekvivalent nemá                                                                        |
-| `feat(web): the right panel's Browser shows the Environment browser`           | Webový klient nemá vlastní prohlížeč. Bez desktopového náhledu ukáže Browser v pravém panelu pohled prohlížeče Environmentu, pokud ho Environment nabízí (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                               | retain: rozhodnutí 0191 / plán DEV-6646; webové UI nemá prohlížeč, tohle je zdokumentovaný minimální zásah do UI                         |
+| `feat(web): the right panel's Browser shows the Environment browser`           | Webový klient nemá vlastní prohlížeč. Bez desktopového náhledu ukáže Browser v pravém panelu pohled prohlížeče Environmentu, pokud ho Environment nabízí, a sám se otevře, když agent vlákna začne s prohlížečem pracovat (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                              | retain: rozhodnutí 0191 / plán DEV-6646; webové UI nemá prohlížeč, tohle je zdokumentovaný minimální zásah do UI                         |
 | `feat(server): T3's browser tools drive the Environment browser`               | Nástroje prohlížeče T3 (`preview_open`, `preview_snapshot`, …) ovládají prohlížeč Environmentu i ve webovém T3 (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)). Spolu s ním porty z upstream 611132c1: preferovaný host v brokeru, vysvětlení chyb preferovaného hostitele, ARIA strom pro agenta, `playwright-core` vedle CLI bundlu a engine stránky. | retain: rozhodnutí 0191 / plán DEV-6646; na v0.0.46 porty odpadnou a upstream serverový prohlížeč se nasměruje na prohlížeč Environmentu |
 
 Nenastavené proměnné zachovají upstream chování. Commit odstraň, jakmile
@@ -236,7 +236,7 @@ Environmentu běží jeden sdílený Chromium. Agenti každého vlákna v něm p
 vlastním okně přes CLI `agent-browser` a člověk s nimi pracuje v pohledu za
 bránou Environmentu, kde `https://browser.<vm>.<org>.lazurio.io/t/<id>` ukazuje
 právě jednu vzdálenou záložku (rozhodnutí F39 LazurioPlatform). Webový klient
-T3 žádný prohlížeč nemá, a tak overlay dělá tři věci:
+T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
 
 - **Server: sezení vlákna.** Každý proces poskytovatele, který T3 spustí pro
   vlákno (app-server Codexu, Claude Code i ostatní adaptéry), dostane
@@ -270,7 +270,15 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tři věci:
   z odkazu pohledu `…/t/<id>` nebo od jiného agenta záložku předá. V jedné
   záložce běží jedna operace po druhé a člověk v ní smí pracovat současně.
   `preview_resize` a `preview_set_appearance` by změnily, co člověk vidí, a
-  nahrávat host neumí: odpoví chybou, která řekne, co místo toho. Engine je
+  nahrávat host neumí: odpoví chybou, která řekne, co místo toho. `preview_open`
+  odpoví `visible: true` a vlákno si zapamatuje, že záložku ukázalo, pokud
+  nežádá práci na pozadí (`open: false`, nebo zastaralé `show: false`; `open` má
+  přednost jako v desktopové aplikaci). Další `preview_status`, `preview_open` a
+  `preview_navigate` vlákna pak odpovídají `visible: true`, dokud je jeho
+  aktuální záložka otevřená; rozhoduje poslední `preview_open`. Webové T3 totiž
+  při práci agenta s prohlížečem otevře pravý panel samo (viz níže). Obrazovku
+  člověka host nevidí: zavřený panel i klient bez panelu se počítají jako
+  ukázané. Engine je
   upstream `ServerBrowserPage.ts` (611132c1) nad Playwrightem připojeným přes
   CDP. Prohlížeč přitom zůstává prohlížečem Environmentu: Playwright nemění
   výchozí kontext (`noDefaults`), host nepřidává kontext, skript, binding ani
@@ -295,6 +303,38 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tři věci:
   každém otevření i při Reload, protože ji zná jen Environment. Její URL žije
   jen ve stavu komponenty, nikdy v localStorage ani v nastavení; uložený popis
   povrchu je jen `{id, kind}`.
+- **Panel se otevře sám.** Když agent vlákna, které má člověk otevřené, začne
+  pracovat s prohlížečem, pravý panel se otevře na vlastní záložce vlákna, tedy
+  na povrchu, který člověk volí jako Browser. Overlay to čte z aktivit vlákna
+  (`browserUse.ts`): volání `preview_open`, `preview_navigate`, `preview_click`,
+  `preview_type`, `preview_press`, `preview_scroll`, `preview_snapshot`,
+  `preview_evaluate` nebo `preview_wait_for` (ne `preview_status`, velikost ani
+  nahrávání), nebo příkaz, který spustí `agent-browser` s příkazem nad stránkou
+  (ne instalaci, nápovědu, sezení, `read` ani `close`) nebo
+  `lazurio browser window`. Příkaz se čte jako řádka shellu, i v uvozovkách, za
+  `bash -lc`, `env`, `sudo`, `timeout` nebo `npx` a v `$(…)`; argument, citovaný
+  text, here-dokument ani komentář, které `agent-browser` jen zmiňují, se
+  nepočítají. Panel se otevře, jen když Environment prohlížeč nabízí (týž dotaz
+  na `/.lazurio/browser.json` jako u Browser), a nic nedělá, když už prohlížeč
+  Environmentu ukazuje. Počítají se jen aktivity, které přijdou, když je vlákno
+  otevřené a synchronizované, a každá novější než vše, co panel o vlákně viděl:
+  historie při otevření vlákna, po obnovení stránky, dohnané události ani
+  starší stránka historie panel neotevřou. Jedno volání nástroje ho otevře
+  nejvýš jednou (podle `toolCallId`). Když člověk panel zavře nebo přepne na jiný
+  povrch, další volání agenta ho otevře znovu; volba, kterou člověk udělá,
+  zatímco se panel ptá Environmentu, má přednost (automatická změna přes
+  `openProactive`). Na úzké obrazovce, kde je panel sheet přes chat, se sám
+  neotevře: zakryl by chat a vzal fokus poli zprávy.
+- **Odkaz do panelu.** Prostý klik levým tlačítkem na odkaz v chatu na jednu
+  vzdálenou záložku tohoto Environmentu, přesně `https://<host>/t/<32 hex číslic>`
+  na originu pohledu, který Environment naposledy uvedl v odpovědi
+  `/.lazurio/browser.json`, otevře záložku v pravém panelu jako povrch
+  `environment-browser:<id>` místo nové záložky prohlížeče. Cmd, Ctrl, Shift,
+  Alt a prostřední tlačítko otevřou odkaz jako dřív. Overlay poslouchá kliknutí
+  na dokumentu ve fázi capture a bere jen odkazy v řádcích časové osy chatu
+  (`[data-timeline-root]`); jen u nich volá `preventDefault`. Origin pohledu zná
+  stránka až z první odpovědi Environmentu od načtení (otevřený panel nebo
+  práce agenta s prohlížečem); do té doby odkaz otevře novou záložku prohlížeče.
 - **Záložky ze stránky** (rozhodnutí 0191 bod 12). Pohled v rámu posílá rodiči
   `lazurio-browser:info` s adresou a titulkem své záložky a
   `lazurio-browser:new-tab` s adresou `/t/<id>` záložky, kterou stránka otevřela
@@ -337,23 +377,30 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tři věci:
   odkazy otevírané v náhledu zůstávají jen desktopové.
 
 Upstream soubory overlay mění jen ve švech: `rightPanelStore.ts` (druh
-povrchu a akce `openEnvironmentBrowserTab`), `RightPanelTabs.tsx` (název a
-ikona záložky, bez volby desktopového profilu tam, kde desktopový náhled
-chybí), `ChatView.tsx` (povolení Browser, rámy záložek vedle povrchu v popředí
-a titulky záložek), `ProviderService.ts` (jedno volání), `server.ts` (vrstva
+povrchu, akce `openEnvironmentBrowserTab` a povrch prohlížeče Environmentu v
+`openProactive`), `RightPanelTabs.tsx` (název a ikona záložky, bez volby
+desktopového profilu tam, kde desktopový náhled chybí), `ChatView.tsx`
+(povolení Browser, rámy záložek vedle povrchu v popředí, titulky záložek a
+jedno volání háčku, který otevírá panel při práci agenta s prohlížečem a z
+odkazu v chatu), `ProviderService.ts` (jedno volání), `server.ts` (vrstva
 hostitele nástrojů vedle MCP serveru), `PreviewAutomationBroker.ts`
 (preferovaný host a jeho přednost i před dřívějším přiřazením desktopu, jeho
 60 s pro `open` a vysvětlení jeho chyb),
 `McpHttpServer.ts` a `toolkits/preview/tools.ts` (ARIA strom s refy pro agenta)
 a v balení `apps/server/package.json` a `scripts/lib/cli-external-packages.ts`
 (`playwright-core`). Zbytek je ve
-složkách `apps/web/src/lazurio/` a `apps/server/src/lazurio/`. Funkci pro jméno
+složkách `apps/web/src/lazurio/` a `apps/server/src/lazurio/`. Řádky časové osy
+chatu poznává overlay podle atributu `data-timeline-root`, kterým je značí
+upstream `MessagesTimeline.tsx`; ten se nemění. Funkci pro jméno
 sezení mají server i web každý ve vlastní kopii: sdílení přes `packages/shared`
 by vyžadovalo záznam v jeho mapě exportů a tu upstream přepisuje každých pár
 dní. Kontraktní test hlídá, že obě kopie jsou stejná funkce, švy, URL jen z
 vlastního originu bez přesměrování, zprávy jen z vlastního rámu, to, že se URL
 vlastní záložky vlákna nikam neukládá, švy hostitele nástrojů a to, že hostitel
-nepřidává kontext, skript, binding ani user agent. CI spouští testy overlaye
+nepřidává kontext, skript, binding ani user agent. Hlídá i švy panelu, který se
+otevírá sám: jedno volání háčku v `ChatView.tsx`, automatické otevření přes
+`openProactive`, kliknutí jen v řádcích `data-timeline-root` a `visible`
+hostitele. CI spouští testy overlaye
 serveru i webu (`vp test run src/lazurio`); testy proti skutečnému Chromiu
 běží jen s `LAZURIO_TEST_DEVTOOLS_ENDPOINT` (jednorázový headless Chrome s
 vlastním profilem, nikdy prohlížeč, ve kterém někdo pracuje).
