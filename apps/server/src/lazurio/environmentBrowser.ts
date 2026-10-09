@@ -17,6 +17,10 @@
  * tab over. Operations run one at a time per tab; a person working in the same tab at
  * the same time is expected and not locked out. Resizing and color schemes would change what the
  * person sees, and recording is not available, so those are answered with what to do instead.
+ * Another Environment's view of a tab (an agent working in that Environment over SSH) is never
+ * loaded here: preview_open answers with that tab, which the person's right panel opens as the
+ * other Environment's, and says to drive it with agent-browser on that Environment. Any other
+ * operation on that tab fails with the same advice.
  */
 
 import {
@@ -49,6 +53,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { agentBrowserSessionName } from "./agentBrowserSession.ts";
+import { lazurioBrowserView, type LazurioBrowserView } from "./browserView.ts";
 import {
   connectEnvironmentBrowser,
   type EnvironmentBrowserConnection,
@@ -76,10 +81,24 @@ const DECLARATION_CHECK_INTERVAL = Duration.seconds(60);
 const HOST_RECONNECT_DELAY = Duration.seconds(1);
 const LINK_CHECK_TIMEOUT = Duration.seconds(10);
 
-/** `lazurio browser link --json` on an Environment that declares its browser. */
+/**
+ * `lazurio browser link --json` on an Environment that declares its browser. Its `link` is a new
+ * tab of the Environment's own view, so its origin is where this Environment's tabs are viewed.
+ */
 const decodeBrowserLink = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ kind: Schema.Literal("browser-link") })),
+  Schema.fromJsonString(
+    Schema.Struct({ kind: Schema.Literal("browser-link"), link: Schema.optional(Schema.Unknown) }),
+  ),
 );
+const viewOriginOf = (link: unknown) => {
+  if (typeof link !== "string") return undefined;
+  try {
+    const url = new URL(link);
+    return url.protocol === "https:" ? url.origin : undefined;
+  } catch {
+    return undefined;
+  }
+};
 /** `lazurio browser window --json`: the thread's window and whether this call created it. */
 const decodeBrowserWindow = Schema.decodeUnknownOption(
   Schema.fromJsonString(
@@ -154,6 +173,27 @@ const missingTab = (targetId: string) =>
     "PreviewAutomationTabNotFoundError",
     `The Environment browser has no tab ${targetId}. Call preview_open, or pass the id of an open tab.`,
   );
+
+/** The other Environment's browser, as the agent reaches it: the host of its view. */
+const browserHostOf = (view: LazurioBrowserView) => view.origin.slice("https://".length);
+/** What preview_open of another Environment's view says, so the agent works there instead. */
+const foreignAnswer = (view: LazurioBrowserView, visible: boolean) =>
+  `Tab ${view.targetId} is in the browser of another Environment (${browserHostOf(view)}), not of this one. ${
+    visible
+      ? "The person sees it in the right panel."
+      : "It joins the person's right panel without coming to the front."
+  } This Environment's preview tools cannot drive it: work in it with agent-browser on that Environment, over SSH.`;
+// An execution error, so that a preferred host's text reaches the agent (preferredHostErrors.ts).
+const foreignTab = (view: LazurioBrowserView) =>
+  failure(
+    "PreviewAutomationExecutionError",
+    `Tab ${view.targetId} is in the browser of another Environment (${browserHostOf(view)}), which this Environment's preview tools cannot drive. Work in it with agent-browser on that Environment, over SSH, or call preview_open without tabId to work in this Environment's browser.`,
+  );
+const foreignNavigation = (view: LazurioBrowserView) =>
+  failure(
+    "PreviewAutomationExecutionError",
+    `${view.view} is a tab of another Environment's browser (${browserHostOf(view)}), which this Environment's browser does not load. Show it to the person with preview_open, and work in it with agent-browser on that Environment, over SSH.`,
+  );
 const responseError = (error: ServerBrowserOperationError) => ({
   _tag: error.tag,
   message: error.message,
@@ -181,10 +221,10 @@ export const make = Effect.gen(function* () {
   const lazurio =
     home === undefined || home === "" ? undefined : path.join(home, ".local", "bin", "lazurio");
 
-  /** Whether the Environment declares its browser. A missing binary or any other answer is no. */
-  const browserDeclared =
+  /** The Environment's declaration of its browser. A missing binary or any other answer is none. */
+  const browserDeclaration =
     lazurio === undefined
-      ? Effect.succeed(false)
+      ? Effect.succeedNone
       : runner
           .run({
             command: lazurio,
@@ -192,14 +232,45 @@ export const make = Effect.gen(function* () {
             timeout: LINK_CHECK_TIMEOUT,
           })
           .pipe(
-            Effect.map(
-              (output) => output.code === 0 && Option.isSome(decodeBrowserLink(output.stdout)),
+            Effect.map((output) =>
+              output.code === 0 ? decodeBrowserLink(output.stdout) : Option.none(),
             ),
-            Effect.orElseSucceed(() => false),
+            Effect.orElseSucceed(() => Option.none()),
           );
 
   const threads = new Map<ThreadId, ThreadTabs>();
   let hostConnectionId: string | undefined;
+  /** The origin of this Environment's own view, from its declaration. */
+  let ownViewOrigin: string | undefined;
+  /** Tabs of other Environments' browsers that preview_open answered with, by target id. */
+  const foreignTabs = new Map<string, LazurioBrowserView>();
+  /**
+   * Another Environment's view of one remote tab: a Lazurio browser view on another origin than
+   * this Environment's. Without a declared origin, every Lazurio browser view is another's.
+   */
+  const foreignView = (url: string) => {
+    const view = lazurioBrowserView(url);
+    return view !== null && view.origin !== ownViewOrigin ? view : undefined;
+  };
+  /** Fails for a tab of another Environment's browser, which this host cannot drive. */
+  const notForeign = (targetId: string) =>
+    Effect.suspend(() => {
+      const view = foreignTabs.get(targetId);
+      return view === undefined ? Effect.void : Effect.fail(foreignTab(view));
+    });
+  /**
+   * preview_open of another Environment's view touches neither this browser nor the thread's tabs:
+   * it answers with the other tab, which the person's right panel opens as that Environment's.
+   */
+  const foreignOpen = (view: LazurioBrowserView, visible: boolean) =>
+    Effect.sync(() => {
+      foreignTabs.set(view.targetId, view);
+      return {
+        ...statusOf(view.targetId, { url: null, title: null, loading: false }, visible),
+        view: view.view,
+        message: foreignAnswer(view, visible),
+      };
+    });
 
   /** Like upstream's server host: explicit-tab routing finds the host that has the tab. */
   const reportLiveTabs = Effect.suspend(() =>
@@ -406,12 +477,21 @@ export const make = Effect.gen(function* () {
               try: () => normalizePreviewUrl(input.url!),
               catch: toOperationError,
             });
+      const foreign = url === undefined ? undefined : foreignView(url);
+      if (foreign !== undefined) return yield* foreignOpen(foreign, reveals(input));
       // A named tab is handed over. Otherwise the current tab is reused while it is open, and a
-      // thread without one gets its own window, which the CLI finds or creates.
+      // thread without one gets its own window, which the CLI finds or creates. The broker keeps
+      // another Environment's tab from an earlier answer as the current one; this browser's
+      // current tab of the thread stands in for it.
       const handedOver = request.tabIdExplicit === true ? request.tabId : undefined;
+      if (handedOver !== undefined) yield* notForeign(handedOver);
+      const reused =
+        request.tabId !== undefined && !foreignTabs.has(request.tabId)
+          ? request.tabId
+          : threads.get(request.threadId)?.current;
       const current =
         handedOver === undefined && input.reuseExistingTab !== false
-          ? yield* liveTab(requestTab(request))
+          ? yield* liveTab(reused)
           : undefined;
       const { targetId, created } =
         handedOver !== undefined
@@ -454,6 +534,9 @@ export const make = Effect.gen(function* () {
   const runOperation = (request: PreviewAutomationRequest, answerBy: number) =>
     Effect.gen(function* () {
       const operation = request.operation;
+      // Another Environment's tab is never driven from here; open handles the tab it is given.
+      const requested = operation === "open" ? undefined : requestTab(request);
+      if (requested !== undefined) yield* notForeign(requested);
       switch (operation) {
         case "status":
           return yield* status(request);
@@ -467,6 +550,9 @@ export const make = Effect.gen(function* () {
             try: () => resolveNavigationUrl(input),
             catch: toOperationError,
           });
+          // Another Environment's view in this browser would sign it in to that gateway.
+          const foreign = foreignView(url);
+          if (foreign !== undefined) return yield* Effect.fail(foreignNavigation(foreign));
           return yield* inTab(targetId, answerBy, async (tab, timeoutMs) => {
             await tab.navigate(url, input.readiness ?? "load", timeoutMs);
             return statusOf(targetId, await tab.state(), shown(request.threadId, targetId));
@@ -574,7 +660,9 @@ export const make = Effect.gen(function* () {
   // Registered while the Environment declares its browser. The broker ends a host's stream when
   // a request goes unanswered; the host then registers again.
   yield* Effect.gen(function* () {
-    if (!(yield* browserDeclared)) return yield* Effect.sleep(DECLARATION_CHECK_INTERVAL);
+    const declaration = yield* browserDeclaration;
+    if (Option.isNone(declaration)) return yield* Effect.sleep(DECLARATION_CHECK_INTERVAL);
+    ownViewOrigin = viewOriginOf(declaration.value.link);
     yield* Effect.exit(hostSession);
     yield* Effect.sleep(HOST_RECONNECT_DELAY);
   }).pipe(Effect.forever, Effect.forkIn(hostScope));
