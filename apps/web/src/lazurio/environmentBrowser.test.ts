@@ -475,6 +475,13 @@ describe("the surface", () => {
     });
   });
 
+  it("selects a tab added automatically to a panel with nothing selected, still closed", () => {
+    const store = useRightPanelStore.getState();
+    store.openEnvironmentBrowserTab(ref, tabView, true);
+    expect(panel()).toEqual({ isOpen: false, activeSurfaceId: tab.id, surfaces: [tab] });
+    expect(store.getUserActionRevision(ref)).toBe(0);
+  });
+
   it("ignores an address that is not the view of one remote tab", () => {
     const store = useRightPanelStore.getState();
     for (const address of [

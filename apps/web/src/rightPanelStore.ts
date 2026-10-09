@@ -147,7 +147,8 @@ interface RightPanelStoreState {
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   /**
    * Lazurio overlay: a tab of the Environment browser at `view`; any other address is ignored.
-   * `automatic` adds it behind the surface in view, for a page in a hidden frame.
+   * `automatic` adds it behind the surface in view without opening the panel, for a page in a
+   * hidden frame or the agent's background work; it is selected only where nothing is.
    */
   openEnvironmentBrowserTab: (ref: ScopedThreadRef, view: string, automatic?: boolean) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
@@ -588,7 +589,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             scopedThreadKey(ref),
             (current) =>
               automatic
-                ? { ...upsertSurface(current, surface, false), isOpen: current.isOpen }
+                ? {
+                    ...upsertSurface(current, surface, current.activeSurfaceId === null),
+                    isOpen: current.isOpen,
+                  }
                 : upsertSurface(current, surface),
           );
         }),
