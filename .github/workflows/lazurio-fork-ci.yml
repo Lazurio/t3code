@@ -97,6 +97,10 @@ jobs:
             # (both listed above).
             apps/web/src/lazurio/browserUse.test.ts
             apps/web/src/lazurio/browserUse.ts
+            # Another Lazurio Environment's view opens as a marked tab of the right panel (plan
+            # DEV-6646). The parser of a view's address is a copy of the server's, whose Environment
+            # browser host answers preview_open of such a view.
+            apps/web/src/lazurio/browserView.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps/(web|mobile|desktop)|packages)/' |

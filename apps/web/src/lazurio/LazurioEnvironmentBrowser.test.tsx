@@ -20,6 +20,10 @@ import {
 // The threads below are of the page's own environment.
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "env-1" }));
 
+// The page is T3 on a Lazurio Environment, beside its people's view (vitest's jsdom instance).
+const pageUrl = "https://t3code.vm-01.example.lazurio.io/";
+const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } })
+  .jsdom;
 const viewOrigin = "https://browser.vm-01.example.lazurio.io";
 const pageTab = (target: string) =>
   ({
@@ -38,6 +42,7 @@ let root: Root;
 let container: HTMLDivElement;
 
 beforeEach(() => {
+  jsdom.reconfigure({ url: pageUrl });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
@@ -155,6 +160,121 @@ describe("the panel's Environment browser frames", () => {
     await showPanel(threadA, [first, files], files.id);
     expect(container.querySelectorAll("iframe")).toHaveLength(0);
     expect(container.innerHTML).toBe("<p>Files in view</p>");
+  });
+});
+
+// Another Environment's people's view of one of its tabs, where an agent works over SSH.
+const foreignId = "fedcba9876543210".repeat(2);
+const foreignOrigin = "https://browser.vm-02.acme.lazurio.io";
+const foreignView = `${foreignOrigin}/t/${foreignId}`;
+const foreignTab = {
+  id: `environment-browser:${foreignId}`,
+  kind: "environment-browser",
+  view: foreignView,
+} as const;
+
+describe("another Environment's browser in the panel", () => {
+  const signInNotice = "Sign in to the Environment browser of Acme · vm-02";
+
+  it("frames it marked as that Environment's, telling it only this page's origin", async () => {
+    await showPanel(threadA, [first, foreignTab], foreignTab.id);
+    // That Environment's view lets T3 frame it by the origin its request names (jsdom has the
+    // attribute only).
+    expect(frameOf(foreignTab).getAttribute("referrerpolicy")).toBe("origin");
+    expect(frameOf(first).getAttribute("referrerpolicy")).toBe("origin");
+    // Named by its Organization and Environment, with the Organization's picture.
+    expect(frameOf(foreignTab).title).toBe("Acme · vm-02");
+    expect(container.textContent).toContain("Acme · vm-02");
+    const picture = container.querySelector<HTMLImageElement>(
+      'img[src="https://github.com/acme.png?size=32"]',
+    );
+    expect(picture?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    // A picture that does not load leaves the Organization's initial.
+    act(() => {
+      picture?.dispatchEvent(new Event("error"));
+    });
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("AAcme · vm-02");
+    // This Environment's own tab stays as it was.
+    expect(frameOf(first).title).toBe("Environment browser");
+  });
+
+  it("asks the person to sign in there where its view does not come up", async () => {
+    vi.useFakeTimers();
+    try {
+      await showPanel(threadA, [foreignTab], foreignTab.id);
+      const notice = () => container.textContent?.includes(signInNotice) ?? false;
+      // The gateway sends the frame to its sign-in, which does not render in a frame.
+      act(() => {
+        frameOf(foreignTab).dispatchEvent(new Event("load"));
+      });
+      act(() => vi.advanceTimersByTime(3_999));
+      expect(notice()).toBe(false);
+      act(() => vi.advanceTimersByTime(1));
+      expect(notice()).toBe(true);
+      // The way out: the view in a tab of its own, where the sign-in renders, then Reload.
+      expect(
+        [...container.querySelectorAll<HTMLAnchorElement>(`a[href="${foreignView}"]`)].map(
+          (link) => [link.target, link.rel],
+        ),
+      ).toEqual([
+        ["_blank", "noopener"],
+        ["_blank", "noopener"],
+      ]);
+      const before = frameOf(foreignTab);
+      const reload = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "Reload",
+      );
+      act(() => reload?.click());
+      expect(frameOf(foreignTab)).not.toBe(before);
+      expect(notice()).toBe(false);
+      // A frame that never even loads gets the notice too, later.
+      act(() => vi.advanceTimersByTime(14_999));
+      expect(notice()).toBe(false);
+      act(() => vi.advanceTimersByTime(1));
+      expect(notice()).toBe(true);
+      // Its view comes up after all and tells its tab: the notice goes.
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "lazurio-browser:info",
+              url: "https://example.com/",
+              title: "Example",
+              view: foreignView,
+            },
+            origin: foreignOrigin,
+            source: frameOf(foreignTab).contentWindow,
+          }),
+        );
+      });
+      expect(notice()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not ask while its view comes up, nor for this Environment's own tab", async () => {
+    vi.useFakeTimers();
+    try {
+      await showPanel(threadA, [first, foreignTab], foreignTab.id);
+      act(() => {
+        frameOf(foreignTab).dispatchEvent(new Event("load"));
+        frameOf(first).dispatchEvent(new Event("load"));
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "lazurio-browser:info", url: "https://a.example/", title: "A" },
+            origin: foreignOrigin,
+            source: frameOf(foreignTab).contentWindow,
+          }),
+        );
+      });
+      act(() => vi.advanceTimersByTime(60_000));
+      expect(container.textContent).not.toContain(signInNotice);
+      expect(container.textContent).not.toContain("Sign in");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -331,6 +451,57 @@ describe("the chat and the Environment browser", () => {
         isOpen: true,
         activeSurfaceId: opened.id,
         surfaces: [{ id: "environment-browser", kind: "environment-browser" }, opened],
+      });
+    } finally {
+      document.removeEventListener("click", follow);
+    }
+  });
+
+  it("opens a link to another Environment's tab in the panel on a plain click only", async () => {
+    function ForeignChat() {
+      useLazurioEnvironmentBrowserFromChat({
+        threadRef: threadA,
+        activities: [],
+        live: true,
+        inlinePanel: true,
+      });
+      return (
+        <div data-timeline-root="true">
+          <a href={foreignView}>The agent's tab on another Environment</a>
+        </div>
+      );
+    }
+    await act(async () => root.render(<ForeignChat />));
+    const link = container.querySelector("a");
+    let followed: string | null = null;
+    const follow = (event: MouseEvent) => {
+      followed = (event.target as HTMLAnchorElement).href;
+      event.preventDefault();
+    };
+    document.addEventListener("click", follow);
+    const click = (init: MouseEventInit = {}): string | null => {
+      followed = null;
+      act(() => {
+        link?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+      });
+      return followed;
+    };
+    try {
+      for (const gesture of [
+        { ctrlKey: true },
+        { metaKey: true },
+        { shiftKey: true },
+        { altKey: true },
+        { button: 1 },
+      ]) {
+        expect([gesture, click(gesture)]).toEqual([gesture, foreignView]);
+      }
+      expect(panel().isOpen).toBe(false);
+      expect(click()).toBeNull();
+      expect(panel()).toEqual({
+        isOpen: true,
+        activeSurfaceId: foreignTab.id,
+        surfaces: [foreignTab],
       });
     } finally {
       document.removeEventListener("click", follow);
