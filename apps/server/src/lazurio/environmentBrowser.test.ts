@@ -661,12 +661,47 @@ it.effect("refuses to drive another Environment's tab, and preview_open comes ba
       );
       expect(navigation).toBeInstanceOf(PreviewAutomationExecutionError);
       expect(navigation.message).toContain(
-        `${foreignView} is a tab of another Environment's browser (browser.vm-02.acme.lazurio.io), which this Environment's browser does not load.`,
+        `${foreignView} is in another Environment's browser (browser.vm-02.acme.lazurio.io), which this Environment's browser does not load.`,
       );
       expect(host.browser.pages.get(threadWindow)?.log).toEqual([
         "snapshot started",
         "snapshot done",
       ]);
+    }),
+  ),
+);
+
+// A fragment never reaches the gateway, and a query, another path or a port is still that
+// Environment's browser: preview_open and preview_navigate fail closed for any of them, before
+// this browser or its lazurio command is asked (only the exact view of one tab is answered).
+it.effect("fails closed for any other address in another Environment's browser", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({ link: declared });
+      yield* host.registered;
+      for (const address of [
+        `${foreignView}#view`,
+        `${foreignView}?source=agent`,
+        "https://browser.vm-02.acme.lazurio.io/",
+        `https://browser.vm-02.acme.lazurio.io:8443/t/${foreignId}`,
+        `https://BROWSER.vm-02.acme.lazurio.io/t/${foreignId}/live`,
+      ]) {
+        for (const operation of ["open", "navigate"] as const) {
+          const error = yield* invoke<void>(host.broker, operation, { url: address }).pipe(
+            Effect.flip,
+          );
+          expect([operation, address, error]).toEqual([
+            operation,
+            address,
+            expect.any(PreviewAutomationExecutionError),
+          ]);
+          expect(error.message).toContain(
+            "in another Environment's browser (browser.vm-02.acme.lazurio.io), which this Environment's browser does not load",
+          );
+        }
+      }
+      expect(host.browser.connections).toHaveLength(0);
+      expect(host.runs).toEqual([{ command: lazurio, args: ["browser", "link", "--json"] }]);
     }),
   ),
 );

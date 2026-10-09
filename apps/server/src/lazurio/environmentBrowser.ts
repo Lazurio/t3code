@@ -189,10 +189,10 @@ const foreignTab = (view: LazurioBrowserView) =>
     "PreviewAutomationExecutionError",
     `Tab ${view.targetId} is in the browser of another Environment (${browserHostOf(view)}), which this Environment's preview tools cannot drive. Work in it with agent-browser on that Environment, over SSH, or call preview_open without tabId to work in this Environment's browser.`,
   );
-const foreignNavigation = (view: LazurioBrowserView) =>
+const foreignNavigation = (url: string, host: string) =>
   failure(
     "PreviewAutomationExecutionError",
-    `${view.view} is a tab of another Environment's browser (${browserHostOf(view)}), which this Environment's browser does not load. Show it to the person with preview_open, and work in it with agent-browser on that Environment, over SSH.`,
+    `${url} is in another Environment's browser (${host}), which this Environment's browser does not load. Show one of its tabs to the person with preview_open of its view link https://${host}/t/<tab id>, and work in it with agent-browser on that Environment, over SSH.`,
   );
 const responseError = (error: ServerBrowserOperationError) => ({
   _tag: error.tag,
@@ -248,6 +248,24 @@ export const make = Effect.gen(function* () {
    * Another Environment's view of one remote tab: a Lazurio browser view on another origin than
    * this Environment's. Without a declared origin, every Lazurio browser view is another's.
    */
+  /**
+   * The host of another Environment's browser that `url` is in, whatever its path, query, fragment
+   * or port: `browser.<labels>.lazurio.io` on another host than this Environment's view. This
+   * browser never loads such an address, which would sign it in to that Environment's gateway.
+   */
+  const foreignBrowserHost = (url: string) => {
+    let address: URL;
+    try {
+      address = new URL(url);
+    } catch {
+      return undefined;
+    }
+    const own = ownViewOrigin === undefined ? undefined : new URL(ownViewOrigin).hostname;
+    return /^browser\.(?:[a-z0-9-]+\.)+lazurio\.io$/.test(address.hostname) &&
+      address.hostname !== own
+      ? address.hostname
+      : undefined;
+  };
   const foreignView = (url: string) => {
     const view = lazurioBrowserView(url);
     return view !== null && view.origin !== ownViewOrigin ? view : undefined;
@@ -479,6 +497,10 @@ export const make = Effect.gen(function* () {
             });
       const foreign = url === undefined ? undefined : foreignView(url);
       if (foreign !== undefined) return yield* foreignOpen(foreign, reveals(input));
+      const foreignHost = url === undefined ? undefined : foreignBrowserHost(url);
+      if (url !== undefined && foreignHost !== undefined) {
+        return yield* Effect.fail(foreignNavigation(url, foreignHost));
+      }
       // A named tab is handed over. Otherwise the current tab is reused while it is open, and a
       // thread without one gets its own window, which the CLI finds or creates. The broker keeps
       // another Environment's tab from an earlier answer as the current one; this browser's
@@ -543,16 +565,19 @@ export const make = Effect.gen(function* () {
         case "open":
           return yield* open(request, answerBy);
         case "navigate": {
-          const targetId = requestTab(request);
-          if (targetId === undefined) return yield* Effect.fail(noTab());
           const input = request.input as PreviewAutomationNavigateInput;
           const url = yield* Effect.try({
             try: () => resolveNavigationUrl(input),
             catch: toOperationError,
           });
-          // Another Environment's view in this browser would sign it in to that gateway.
-          const foreign = foreignView(url);
-          if (foreign !== undefined) return yield* Effect.fail(foreignNavigation(foreign));
+          // Another Environment's browser in this one would sign it in to that gateway; said first,
+          // so that a thread without a tab gets the same advice.
+          const foreignHost = foreignBrowserHost(url);
+          if (foreignHost !== undefined) {
+            return yield* Effect.fail(foreignNavigation(url, foreignHost));
+          }
+          const targetId = requestTab(request);
+          if (targetId === undefined) return yield* Effect.fail(noTab());
           return yield* inTab(targetId, answerBy, async (tab, timeoutMs) => {
             await tab.navigate(url, input.readiness ?? "load", timeoutMs);
             return statusOf(targetId, await tab.state(), shown(request.threadId, targetId));
