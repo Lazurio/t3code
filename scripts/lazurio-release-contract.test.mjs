@@ -22,6 +22,7 @@ const environmentBrowserOverlay = [
   "apps/web/src/lazurio/agentBrowserSession.ts",
   "apps/web/src/lazurio/browserUse.test.ts",
   "apps/web/src/lazurio/browserUse.ts",
+  "apps/web/src/lazurio/browserView.ts",
   "apps/web/src/lazurio/environmentBrowser.test.ts",
   "apps/web/src/lazurio/environmentBrowser.ts",
   "apps/web/src/rightPanelStore.ts",
@@ -698,4 +699,108 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
     ci,
     /working-directory: apps\/server\n\s+run: pnpm exec vp test run src\/lazurio\n/,
   );
+});
+
+// Plan DEV-6646: another Lazurio Environment's view of a tab, where an agent works over SSH. The
+// server's Environment browser host answers preview_open of such a view without loading it, and
+// the web opens it as a marked tab of the right panel. Both read a view's address with one
+// function, which each holds a copy of, as with the session name.
+NodeTest.test("the server and the web read a Lazurio browser view's address alike", async () => {
+  const [server, web] = await Promise.all([
+    import("../apps/server/src/lazurio/browserView.ts"),
+    import("../apps/web/src/lazurio/browserView.ts"),
+  ]);
+  NodeAssert.equal(web.lazurioBrowserView.toString(), server.lazurioBrowserView.toString());
+  const targetId = "0123456789abcdef".repeat(2);
+  NodeAssert.deepEqual(
+    server.lazurioBrowserView(`https://browser.vm-01.acme.lazurio.io/t/${targetId}`),
+    {
+      view: `https://browser.vm-01.acme.lazurio.io/t/${targetId}`,
+      origin: "https://browser.vm-01.acme.lazurio.io",
+      targetId,
+      owner: "acme",
+      environment: "vm-01",
+      personal: false,
+    },
+  );
+  for (const address of [
+    `https://browser.jana.lazurio.io/t/${targetId}`,
+    `https://browser.jana.lazurio.io/t/${targetId}?`,
+    `https://browser.jana.lazurio.io:8443/t/${targetId}`,
+    `https://t3code.jana.lazurio.io/t/${targetId}`,
+    "not an address",
+  ]) {
+    NodeAssert.deepEqual(
+      web.lazurioBrowserView(address),
+      server.lazurioBrowserView(address),
+      address,
+    );
+  }
+});
+
+// The seams are lines in upstream files: preview_open's result schema, the activity projection
+// that keeps preview_open's tab for clients (Lazurio/t3code#48), and the panel store; a rebuild
+// on a new upstream tag that loses one fails here.
+NodeTest.test("another Environment's tabs and agent-opened tabs reach the panel", async () => {
+  const [host, tools, projection, component, store] = await Promise.all(
+    [
+      "apps/server/src/lazurio/environmentBrowser.ts",
+      "apps/server/src/mcp/toolkits/preview/tools.ts",
+      "apps/server/src/orchestration/ActivityPayloadProjection.ts",
+      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+      "apps/web/src/rightPanelStore.ts",
+    ].map(read),
+  );
+  // Another Environment's view is answered before this browser, the CLI or a tab is touched.
+  const open = host.slice(host.indexOf("const open = (request: PreviewAutomationRequest"));
+  const answer = open.indexOf(
+    "if (foreign !== undefined) return yield* foreignOpen(foreign, reveals(input));",
+  );
+  NodeAssert.ok(answer > 0, "preview_open must answer another Environment's view");
+  for (const step of ["yield* liveTab(", "yield* newWindow(", "yield* threadWindow("]) {
+    NodeAssert.ok(answer < open.indexOf(step), step);
+  }
+  NodeAssert.match(
+    host,
+    /return view !== null && view\.origin !== ownViewOrigin \? view : undefined;/,
+  );
+  NodeAssert.match(host, /ownViewOrigin = viewOriginOf\(declaration\.value\.link\);/);
+  // Any other operation on such a tab fails with the host's advice, which reaches the agent.
+  NodeAssert.match(host, /if \(requested !== undefined\) yield\* notForeign\(requested\);/);
+  NodeAssert.match(
+    host,
+    /const foreignTab = \(view: LazurioBrowserView\) =>\n\s+failure\(\n\s+"PreviewAutomationExecutionError",/,
+  );
+  // The answer's view and advice survive preview_open's result encoding.
+  NodeAssert.match(
+    tools,
+    /success: Schema\.Struct\(\{\n\s+\.\.\.PreviewAutomationStatus\.fields,\n\s+view: Schema\.optional\(Schema\.String\),\n\s+message: Schema\.optional\(Schema\.String\),\n\s+\}\),/,
+  );
+  // Clients get the tab preview_open answered with, though its result is cut to one line.
+  NodeAssert.match(
+    projection,
+    /name\.endsWith\("preview_open"\) &&[^]*?previewTab: \{\n\s+tabId: page\.tabId,\n\s+visible: page\.visible,/,
+  );
+  NodeAssert.match(
+    projection,
+    /return \{ \.\.\.previewTab, toolIcon: \{ _tag: "website", pageUrl: url\.href \} \};/,
+  );
+  // The web shows that tab, takes links to other Environments' tabs, and keeps of every such tab
+  // only its id and view.
+  NodeAssert.match(
+    component,
+    /showOpenedTab\(threadRef, opened, opened\.visible && inlinePanel, inView\);/,
+  );
+  NodeAssert.match(
+    component,
+    /environmentBrowserLink\(link\.href, window\.location\.origin, viewOrigin\) \?\?\n\s+foreignTabAt\(link\.href\);/,
+  );
+  NodeAssert.match(component, /\{ id: tab\.id, kind: "environment-browser", view: tab\.view \}/);
+  NodeAssert.match(
+    store,
+    /openEnvironmentBrowserTab: \(ref, view, automatic = false\) =>\n\s+set\(\(state\) => \{\n\s+const tab = environmentBrowserTab\(view\);/,
+  );
+  // Another Environment's view frames T3 by the origin its request names (LazurioPlatform).
+  NodeAssert.equal(component.match(/<iframe\n/g)?.length, 1);
+  NodeAssert.match(component, /\n\s+referrerPolicy="origin"\n/);
 });
