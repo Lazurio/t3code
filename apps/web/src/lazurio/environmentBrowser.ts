@@ -9,8 +9,11 @@
  * the gateway forwards behind the same sign-in. Anything but an available view at an absolute
  * https: URL means unavailable, and the right panel keeps upstream's disabled Browser. The
  * thread's own tab is asked for each time the browser opens; a tab that a page opens joins the
- * panel with the address of its view, which carries no token.
+ * panel with the address of its view, which carries no token. Another Lazurio Environment's view
+ * of a tab joins the panel the same way, marked as that Environment's.
  */
+
+import { lazurioBrowserView, type LazurioBrowserView } from "./browserView";
 
 export interface EnvironmentBrowserView {
   /** The view, an absolute https: URL. */
@@ -117,6 +120,60 @@ export function environmentBrowserLink(
   const tab = viewOrigin === null ? null : environmentBrowserTab(href, pageOrigin);
   return tab !== null && originOf(tab.view) === viewOrigin ? tab : null;
 }
+
+/** A tab of the right panel that shows another Lazurio Environment's browser. */
+export interface ForeignEnvironmentBrowserTab extends EnvironmentBrowserTab {
+  /** Whose Environment it is, read from the view's address. */
+  readonly environment: LazurioBrowserView;
+}
+
+/**
+ * The panel tab of another Lazurio Environment's view at `address`, or null: the view of one
+ * remote tab at `https://browser.<labels>.lazurio.io/t/<32 hex digits>` (lazurioBrowserView),
+ * neither on the view origin this Environment named nor on a sibling host of this page. An
+ * Environment's apps and its people's view are sibling hosts under one domain, the hosts its view
+ * counts as its own (LazurioPlatform F39 point 8), so no answer of the Environment is needed: a
+ * link to another Environment's tab is recognized on a page that never asked.
+ */
+export function foreignEnvironmentBrowserTab(
+  address: unknown,
+  pageOrigin: string,
+  viewOrigin: string | null,
+): ForeignEnvironmentBrowserTab | null {
+  const tab = environmentBrowserTab(address, pageOrigin);
+  const environment = tab === null ? null : lazurioBrowserView(tab.view);
+  if (tab === null || environment === null || environment.origin === viewOrigin) return null;
+  return parentDomainOf(environment.origin) === parentDomainOf(pageOrigin)
+    ? null
+    : { ...tab, environment };
+}
+
+/** The domain an origin's host is a name in: the host without its first label. */
+function parentDomainOf(origin: string): string | null {
+  try {
+    const host = new URL(origin).hostname;
+    return host.includes(".") ? host.slice(host.indexOf(".") + 1) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How the panel names another Environment: `<Org> · <environment>` for an Organization's,
+ * `Osobní · <login>` or `Personal · <login>` for a person's own Environment.
+ */
+export function foreignEnvironmentLabel(environment: LazurioBrowserView, czech: boolean): string {
+  const owner = environment.personal
+    ? czech
+      ? "Osobní"
+      : "Personal"
+    : `${environment.owner.charAt(0).toUpperCase()}${environment.owner.slice(1)}`;
+  return `${owner} · ${environment.environment}`;
+}
+
+/** The GitHub picture of the Organization, or of the person, whose Environment it is. */
+export const foreignEnvironmentIcon = (environment: LazurioBrowserView) =>
+  `https://github.com/${environment.owner}.png?size=32`;
 
 /** A plain primary click follows a link in place; modifiers or other buttons open it elsewhere. */
 export function isPlainPrimaryClick(
