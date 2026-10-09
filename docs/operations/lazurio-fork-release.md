@@ -287,6 +287,20 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   Runtime, Network, Log) ve všech stránkách prohlížeče, od první operace do
   zastavení serveru. Verze 0.0.45 je průzkumná; upstream 0.0.46 má vlastní
   serverový prohlížeč s izolovanými kontexty.
+- **Server: pohled jiného Environmentu.** Agent, který přes SSH pracuje v jiném
+  Environmentu, dostane odkaz na pohled jeho prohlížeče
+  (`https://browser.<machine>.<org>.lazurio.io/t/<id>`, u osobního Environmentu
+  `browser.<login>.lazurio.io`). Takový odkaz v `preview_open` host do prohlížeče
+  tohoto Environmentu nenačte: pohled v pohledu by tento prohlížeč přihlásil do
+  brány toho Environmentu. Pohled Lazuria na jiném originu, než jaký Environment
+  uvádí v `link` z `lazurio browser link --json`, host zodpoví hned, bez
+  prohlížeče i CLI: `tabId` té záložky, `visible: true` (pokud nežádá
+  `open: false`), `view` a `message`, že ji člověk vidí v pravém panelu a agent
+  ji ovládá přes `agent-browser` na tom Environmentu přes SSH, protože nástroje
+  prohlížeče tohoto Environmentu na ni nedosáhnou. Každá jiná operace s touto
+  záložkou (pojmenovanou i jako aktuální záložkou sezení) selže se stejnou
+  radou, `preview_open` bez záložky se vrátí do okna vlákna v tomto prohlížeči a
+  `preview_navigate` pohled jiného Environmentu nenačte.
 - **Web: Browser v pravém panelu.** Bez desktopového náhledu
   (`window.desktopBridge.preview`) a jen pro vlákna Environmentu, který stránku
   servíruje, se pravý panel při otevření zeptá na vlastním originu
@@ -325,6 +339,18 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   zatímco se panel ptá Environmentu, má přednost (automatická změna přes
   `openProactive`). Na úzké obrazovce, kde je panel sheet přes chat, se sám
   neotevře: zakryl by chat a vzal fokus poli zprávy.
+- **Záložka, kterou otevře agent** (Lazurio/t3code#48). Dokončené
+  `preview_open` přidá do panelu záložku, kterou jmenuje jeho odpověď, za
+  stejných pravidel (jen nové aktivity, jednou za volání). Klienti dostávají
+  výsledek nástroje MCP zkrácený na první řádek, proto projekce aktivit
+  (`ActivityPayloadProjection.ts`) u dokončeného `preview_open` ponechá
+  `previewTab: {tabId, visible, view?}`. Záložka tohoto Environmentu je
+  `<pohled tohoto Environmentu>/t/<tabId>`, okno vlákna je vlastní záložka
+  vlákna, záložku jiného Environmentu nese `view`. Co `preview_open` ukázalo
+  člověku, přijde dopředu přes `openProactive`; práce na pozadí
+  (`open: false`) a cokoli na úzké obrazovce se přidá za zobrazený povrch.
+  Volání nad pohledem jiného Environmentu prohlížeč tohoto Environmentu na
+  začátku neotevře.
 - **Odkaz do panelu.** Prostý klik levým tlačítkem na odkaz v chatu na jednu
   vzdálenou záložku tohoto Environmentu, přesně `https://<host>/t/<32 hex číslic>`
   na originu pohledu, který Environment naposledy uvedl v odpovědi
@@ -335,6 +361,11 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   (`[data-timeline-root]`); jen u nich volá `preventDefault`. Origin pohledu zná
   stránka až z první odpovědi Environmentu od načtení (otevřený panel nebo
   práce agenta s prohlížečem); do té doby odkaz otevře novou záložku prohlížeče.
+  Stejně se otevře odkaz na záložku jiného Environmentu: přesně
+  `https://browser.<labels>.lazurio.io/t/<32 hex číslic>` bez portu, ne na
+  originu pohledu tohoto Environmentu ani na sesterském hostu stránky (aplikace
+  Environmentu a jeho pohled jsou sourozenci pod jednou doménou), takže ho
+  stránka pozná i bez odpovědi Environmentu.
 - **Záložky ze stránky** (rozhodnutí 0191 bod 12). Pohled v rámu posílá rodiči
   `lazurio-browser:info` s adresou a titulkem své záložky a
   `lazurio-browser:new-tab` s adresou `/t/<id>` záložky, kterou stránka otevřela
@@ -350,6 +381,19 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   Lišta pohledu s nabídkou nové záložky funguje dál. Novou záložku ze stránky ve
   skryté záložce panelu (typicky práci agenta) panel přidá na pozadí a zobrazený
   povrch nepřepne.
+- **Záložka jiného Environmentu.** Je nezaměnitelně označená: barevný okraj a
+  hlavička s obrázkem Organizace z GitHubu
+  (`https://github.com/<org-or-login>.png?size=32`, jinak její iniciála) a
+  jménem `<Org> · <environment>`, tedy label před `lazurio.io` s velkým prvním
+  písmenem a label za `browser.` (například `Acme · vm-01`). Osobní Environment
+  je `Osobní · <login>`, anglicky `Personal · <login>`; jazyk volí overlay jako
+  pohled sám, podle jazyka prohlížeče (`cs`). Rám posílá
+  `referrerPolicy="origin"`, podle kterého pohled jiného Environmentu dovolí
+  zarámování T3 nebo Launchpadu (změna LazurioPlatform). Když pohled do 4 s od
+  načtení rámu (15 s, když se nenačte) neohlásí svou záložku, typicky bez
+  sezení v bráně toho Environmentu, ukáže panel „Přihlas se do prohlížeče
+  Environmentu <label>“ s otevřením pohledu v nové záložce a Reload: přihlašovací
+  stránka Lazuria se v rámu nevykreslí. „Open in new tab“ v hlavičce zůstává.
 - **Rámy zůstávají připojené.** Dokud pravý panel ukazuje vlákno, má každá jeho
   záložka prohlížeče Environmentu svůj rám připojený, i když je vpředu jiná
   záložka nebo jiný povrch (diff, terminál, soubory). Skryté rámy jsou
@@ -386,13 +430,16 @@ odkazu v chatu), `ProviderService.ts` (jedno volání), `server.ts` (vrstva
 hostitele nástrojů vedle MCP serveru), `PreviewAutomationBroker.ts`
 (preferovaný host a jeho přednost i před dřívějším přiřazením desktopu, jeho
 60 s pro `open` a vysvětlení jeho chyb),
-`McpHttpServer.ts` a `toolkits/preview/tools.ts` (ARIA strom s refy pro agenta)
+`McpHttpServer.ts` a `toolkits/preview/tools.ts` (ARIA strom s refy pro agenta;
+`view` a `message` ve výsledku `preview_open`), `ActivityPayloadProjection.ts`
+(`previewTab` dokončeného `preview_open` pro klienty)
 a v balení `apps/server/package.json` a `scripts/lib/cli-external-packages.ts`
 (`playwright-core`). Zbytek je ve
 složkách `apps/web/src/lazurio/` a `apps/server/src/lazurio/`. Řádky časové osy
 chatu poznává overlay podle atributu `data-timeline-root`, kterým je značí
 upstream `MessagesTimeline.tsx`; ten se nemění. Funkci pro jméno
-sezení mají server i web každý ve vlastní kopii: sdílení přes `packages/shared`
+sezení a čtení adresy pohledu (`browserView.ts`) mají server i web každý ve
+vlastní kopii: sdílení přes `packages/shared`
 by vyžadovalo záznam v jeho mapě exportů a tu upstream přepisuje každých pár
 dní. Kontraktní test hlídá, že obě kopie jsou stejná funkce, švy, URL jen z
 vlastního originu bez přesměrování, zprávy jen z vlastního rámu, to, že se URL
@@ -400,8 +447,9 @@ vlastní záložky vlákna nikam neukládá, švy hostitele nástrojů a to, že
 nepřidává kontext, skript, binding ani user agent. Hlídá i švy panelu, který se
 otevírá sám: jedno volání háčku v `ChatView.tsx`, automatické otevření přes
 `openProactive`, kliknutí jen v řádcích `data-timeline-root` a `visible`
-hostitele. CI spouští testy overlaye
-serveru i webu (`vp test run src/lazurio`); testy proti skutečnému Chromiu
+hostitele, a to, že host odpoví na pohled jiného Environmentu dřív, než sáhne
+na prohlížeč, `previewTab` v projekci a `referrerPolicy` rámu. CI spouští
+testy overlaye serveru i webu (`vp test run src/lazurio`); testy proti skutečnému Chromiu
 běží jen s `LAZURIO_TEST_DEVTOOLS_ENDPOINT` (jednorázový headless Chrome s
 vlastním profilem, nikdy prohlížeč, ve kterém někdo pracuje).
 `/.lazurio/browser.json` servíruje Launchpad Environmentu, takže změna pohledu
