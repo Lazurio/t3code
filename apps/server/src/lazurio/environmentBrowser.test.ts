@@ -18,12 +18,16 @@ import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
+import { PreviewStandardToolkitHandlersLive } from "../mcp/toolkits/preview/handlers.ts";
+import { PreviewStandardToolkit } from "../mcp/toolkits/preview/tools.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { agentBrowserSessionName } from "./agentBrowserSession.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
@@ -555,6 +559,175 @@ it.effect("adopts a tab handed over by its id, and refuses an id that names no t
       expect(
         yield* invoke<void>(host.broker, "open", {}, { tabId: unknown }).pipe(Effect.flip),
       ).toBeInstanceOf(PreviewAutomationTabNotFoundError);
+    }),
+  ),
+);
+
+// Another Environment's people's view of one of its tabs: an agent here works over SSH in that
+// Environment, whose browser this host cannot drive.
+const foreignId = "0123456789ABCDEF0123456789ABCDEF";
+const foreignView = `https://browser.vm-02.acme.lazurio.io/t/${foreignId}`;
+
+it.effect("answers preview_open of another Environment's view without this browser", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({ link: declared });
+      yield* host.registered;
+
+      expect(yield* invoke(host.broker, "open", { url: foreignView })).toEqual({
+        available: true,
+        visible: true,
+        tabId: foreignId,
+        url: null,
+        title: null,
+        loading: false,
+        view: foreignView,
+        message: `Tab ${foreignId} is in the browser of another Environment (browser.vm-02.acme.lazurio.io), not of this one. The person sees it in the right panel. This Environment's preview tools cannot drive it: work in it with agent-browser on that Environment, over SSH.`,
+      });
+      // A person's own Environment is another one too; background work is not brought to the
+      // front, and a reused or named tab does not change the answer.
+      const personalId = "F".repeat(32);
+      const personal = `https://browser.jana.lazurio.io/t/${personalId}`;
+      expect(
+        yield* invoke(host.broker, "open", { url: personal, open: false, reuseExistingTab: false }),
+      ).toMatchObject({
+        tabId: personalId,
+        visible: false,
+        view: personal,
+        message: expect.stringContaining("without coming to the front"),
+      });
+      expect(
+        yield* invoke(host.broker, "open", { url: foreignView }, { tabId: personalId }),
+      ).toMatchObject({ tabId: foreignId, visible: true });
+
+      // Neither this Environment's browser nor its lazurio command was asked.
+      expect(host.browser.connections).toHaveLength(0);
+      expect(host.runs).toEqual([{ command: lazurio, args: ["browser", "link", "--json"] }]);
+    }),
+  ),
+);
+
+it.effect("refuses to drive another Environment's tab, and preview_open comes back here", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({
+        link: declared,
+        window: () => {
+          host.browser.addPage(threadWindow, "https://example.test/");
+          return windowAnswer(threadWindow, true);
+        },
+      });
+      yield* host.registered;
+      yield* invoke(host.broker, "open", { url: foreignView });
+
+      // Named, or as the session's current tab, which the broker took from the answer.
+      for (const [operation, input, tabId] of [
+        ["snapshot", {}, foreignId],
+        ["snapshot", {}, undefined],
+        ["click", { locator: "text=Go" }, undefined],
+        ["evaluate", { expression: "document.title" }, foreignId],
+        ["status", {}, undefined],
+        ["navigate", { url: "https://example.test/" }, foreignId],
+        ["resize", { mode: "fill" }, undefined],
+        ["open", {}, foreignId],
+      ] as const) {
+        const error = yield* invoke<void>(
+          host.broker,
+          operation,
+          input,
+          tabId === undefined ? {} : { tabId },
+        ).pipe(Effect.flip);
+        expect([operation, tabId, error]).toEqual([
+          operation,
+          tabId,
+          expect.any(PreviewAutomationExecutionError),
+        ]);
+        expect(error.message).toBe(
+          `Preview automation ${operation} failed: Tab ${foreignId} is in the browser of another Environment (browser.vm-02.acme.lazurio.io), which this Environment's preview tools cannot drive. Work in it with agent-browser on that Environment, over SSH, or call preview_open without tabId to work in this Environment's browser.`,
+        );
+      }
+      expect(host.browser.connections).toHaveLength(0);
+
+      // preview_open without a tab works in this Environment's browser again: the thread's window.
+      expect(yield* invoke(host.broker, "open", {})).toMatchObject({ tabId: threadWindow });
+      yield* invoke(host.broker, "snapshot", {});
+      expect(host.browser.pages.get(threadWindow)?.log).toEqual([
+        "snapshot started",
+        "snapshot done",
+      ]);
+      // Its tab does not load another Environment's view, which would sign this browser in there.
+      const navigation = yield* invoke<void>(host.broker, "navigate", { url: foreignView }).pipe(
+        Effect.flip,
+      );
+      expect(navigation).toBeInstanceOf(PreviewAutomationExecutionError);
+      expect(navigation.message).toContain(
+        `${foreignView} is a tab of another Environment's browser (browser.vm-02.acme.lazurio.io), which this Environment's browser does not load.`,
+      );
+      expect(host.browser.pages.get(threadWindow)?.log).toEqual([
+        "snapshot started",
+        "snapshot done",
+      ]);
+    }),
+  ),
+);
+
+/** An Environment that declares its own view on a Lazurio origin. */
+const declaredOnLazurio: CliAnswer = {
+  code: 0,
+  stdout: JSON.stringify({
+    kind: "browser-link",
+    session: null,
+    link: "https://browser.vm-01.acme.lazurio.io/",
+  }),
+};
+
+it.effect("opens a view of this Environment's own browser here, as before", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const ownView = `https://browser.vm-01.acme.lazurio.io/t/${personTab}`;
+      const host = yield* startHost({
+        link: declaredOnLazurio,
+        window: () => {
+          host.browser.addPage(threadWindow, ownView);
+          return windowAnswer(threadWindow, true);
+        },
+      });
+      yield* host.registered;
+
+      const answer = yield* invoke(host.broker, "open", { url: ownView });
+      expect(answer).toMatchObject({ tabId: threadWindow, url: ownView });
+      expect(answer).not.toHaveProperty("message");
+      expect(host.runs.filter((run) => run.args[1] === "window")).toHaveLength(1);
+    }),
+  ),
+);
+
+it.effect("hands the agent the other Environment's view and what to do there", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({ link: declared });
+      yield* host.registered;
+      const toolkit = yield* PreviewStandardToolkit.pipe(
+        Effect.provide(PreviewStandardToolkitHandlersLive),
+      );
+
+      // What the MCP server sends as the tool's structured content and text (McpServer.toolkit).
+      const { encodedResult } = yield* toolkit
+        .handle("preview_open", { url: foreignView })
+        .pipe(
+          Stream.unwrap,
+          Stream.run(Sink.last()),
+          Effect.flatMap(Effect.fromOption),
+          Effect.provideService(McpInvocationContext.McpInvocationContext, scopeOf(threadId)),
+          Effect.provideService(PreviewAutomationBroker.PreviewAutomationBroker, host.broker),
+        );
+
+      expect(encodedResult).toMatchObject({
+        tabId: foreignId,
+        visible: true,
+        view: foreignView,
+        message: expect.stringContaining("work in it with agent-browser on that Environment"),
+      });
     }),
   ),
 );

@@ -68,7 +68,13 @@ const PreviewOpenTool = browserTool(
     description:
       "Initialize a collaborative browser tab and open its thread-bound inline preview by default. Set open=false for background-only automation. Pass tabId to reuse a specific existing tab, set reuseExistingTab=false to create another tab, or omit both to use this agent session's current tab.",
     parameters: PreviewAutomationOpenInput,
-    success: PreviewAutomationStatus,
+    // Lazurio overlay (plan DEV-6646): the Environment browser host answers another Lazurio
+    // Environment's view with that view and what to do instead (apps/server/src/lazurio).
+    success: Schema.Struct({
+      ...PreviewAutomationStatus.fields,
+      view: Schema.optional(Schema.String),
+      message: Schema.optional(Schema.String),
+    }),
     failure: PreviewAutomationError,
     dependencies,
   })
