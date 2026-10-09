@@ -24,9 +24,15 @@ import {
 } from "../rightPanelStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { agentBrowserSessionName } from "./agentBrowserSession";
-import { type BrowserUseTracker, type ThreadActivity, trackBrowserUse } from "./browserUse";
+import {
+  type BrowserUseTracker,
+  type OpenedTab,
+  type ThreadActivity,
+  trackBrowserUse,
+} from "./browserUse";
 import type { LazurioBrowserView } from "./browserView";
 import {
+  type EnvironmentBrowserTab,
   environmentBrowserLink,
   environmentBrowserTab,
   fetchEnvironmentBrowser,
@@ -148,6 +154,45 @@ const showsEnvironmentBrowser = (threadRef: ScopedThreadRef) =>
   "environment-browser";
 
 /**
+ * Lazurio/t3code#48: the tab a completed preview_open answered with joins the panel, in front
+ * when preview_open showed it to the person (`front`), else behind the surface in view. Another
+ * Environment's view is that Environment's tab. Any other tab is one of this Environment's view,
+ * which the Environment is asked for; the thread's own window is the thread's own tab. Bringing a
+ * tab to the front is automatic: a choice the person made since the call completed wins.
+ */
+function showOpenedTab(
+  threadRef: ScopedThreadRef,
+  opened: OpenedTab,
+  front: boolean,
+  inView: { readonly current: string | null },
+): void {
+  const revision = useRightPanelStore.getState().getUserActionRevision(threadRef);
+  const show = (tab: EnvironmentBrowserTab) => {
+    const store = useRightPanelStore.getState();
+    if (!front) store.openEnvironmentBrowserTab(threadRef, tab.view, true);
+    else
+      store.openProactive(
+        threadRef,
+        { id: tab.id, kind: "environment-browser", view: tab.view },
+        revision,
+      );
+  };
+  const foreign = foreignTabAt(opened.view);
+  if (foreign !== null) {
+    if (foreign.environment.targetId === opened.tabId) show(foreign);
+    return;
+  }
+  const threadKey = scopedThreadKey(threadRef);
+  void askEnvironment(threadRef.threadId).then((own) => {
+    if (own === null || viewOrigin === null || inView.current !== threadKey) return;
+    const tab = environmentBrowserTab(`${viewOrigin}/t/${opened.tabId}`, window.location.origin);
+    if (tab === null) return;
+    if (environmentBrowserTab(own.view)?.id !== tab.id) show(tab);
+    else if (front) useRightPanelStore.getState().openProactive(threadRef, OWN_TAB, revision);
+  });
+}
+
+/**
  * Lazurio overlay (root decision 0191, plan DEV-6646): the chat brings the Environment browser
  * into the right panel. When the agent of the thread in view starts to use the browser
  * (browserUse.ts) and the Environment offers it, the panel opens on the thread's own tab, the
@@ -156,8 +201,10 @@ const showsEnvironmentBrowser = (threadRef: ScopedThreadRef) =>
  * the panel or picks another surface sees it open again at the agent's next browser call, so the
  * person sees where the agent works; a choice the person makes while the Environment is asked wins
  * over the opening. Where the panel is a sheet over the chat (`inlinePanel` false), it does not
- * open by itself: it would cover the chat and take the composer's focus. A plain click on a link
- * in the chat to one remote tab of this Environment's view, or of another Lazurio Environment's,
+ * open by itself: it would cover the chat and take the composer's focus. The tab a completed
+ * preview_open answered with joins the panel as well (showOpenedTab), and a call that opens
+ * another Environment's view leaves this Environment's browser alone. A plain click on a link in
+ * the chat to one remote tab of this Environment's view, or of another Lazurio Environment's,
  * opens that tab in the panel instead of a new browser tab.
  */
 export function useLazurioEnvironmentBrowserFromChat(input: {
@@ -181,8 +228,17 @@ export function useLazurioEnvironmentBrowserFromChat(input: {
       return;
     }
     const threadKey = scopedThreadKey(threadRef);
-    const look = trackBrowserUse(tracker.current, threadKey, activities, live);
+    const look = trackBrowserUse(
+      tracker.current,
+      threadKey,
+      activities,
+      live,
+      (url) => foreignTabAt(url) !== null,
+    );
     tracker.current = look.tracker;
+    for (const opened of look.opened) {
+      showOpenedTab(threadRef, opened, opened.visible && inlinePanel, inView);
+    }
     if (!look.used || !inlinePanel || asking.current === threadKey) return;
     if (showsEnvironmentBrowser(threadRef)) return;
     const revision = useRightPanelStore.getState().getUserActionRevision(threadRef);

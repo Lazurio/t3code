@@ -457,6 +457,188 @@ describe("the chat and the Environment browser", () => {
     }
   });
 
+  // A call of preview_open as Codex reports it: the call's arguments, and once it completes the
+  // tab the server keeps for clients (`previewTab`; its result is cut to one line).
+  const at = (second: number) => `2026-10-08T10:00:${String(second).padStart(2, "0")}.000Z`;
+  const previewOpen = (
+    id: string,
+    second: number,
+    options: {
+      readonly call?: string;
+      readonly args?: Record<string, unknown>;
+      readonly tab?: { readonly tabId: string; readonly visible: boolean; readonly view?: string };
+    } = {},
+  ): ThreadActivity => ({
+    id,
+    kind: options.tab === undefined ? "tool.started" : "tool.completed",
+    turnId: "turn-1",
+    createdAt: at(second),
+    payload: {
+      itemType: "mcp_tool_call",
+      status: options.tab === undefined ? "inProgress" : "completed",
+      toolCallId: options.call ?? id,
+      title: "t3-code · preview_open",
+      ...(options.tab === undefined ? {} : { previewTab: options.tab }),
+      data: {
+        item: {
+          type: "mcpToolCall",
+          server: "t3-code",
+          tool: "preview_open",
+          arguments: options.args ?? {},
+        },
+      },
+    },
+  });
+  const tabAt = (target: string) =>
+    ({
+      id: `environment-browser:${target}`,
+      kind: "environment-browser",
+      view: `${viewOrigin}/t/${target}`,
+    }) as const;
+  const own = { id: "environment-browser", kind: "environment-browser" } as const;
+
+  it("brings the tab a completed preview_open answered with to the front (#48)", async () => {
+    const fetch = vi.fn(async () => answer());
+    vi.stubGlobal("fetch", fetch);
+    const [window1, window2] = ["C1".padEnd(32, "C"), "C2".padEnd(32, "C")];
+    const newWindow = { reuseExistingTab: false, url: "https://example.com/" };
+    // A call that completed before the thread was in view opens nothing.
+    const history = [previewOpen("old", 1, { tab: { tabId: window2, visible: true } })];
+    await showChat({ activities: history });
+    await settle();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(panel().isOpen).toBe(false);
+
+    // The agent opens another window: as it starts, the thread's own tab; once it answers, its
+    // own window comes to the front.
+    const started = [...history, previewOpen("start", 2, { call: "new", args: newWindow })];
+    await showChat({ activities: started });
+    await settle();
+    expect(panel()).toEqual({ isOpen: true, activeSurfaceId: own.id, surfaces: [own] });
+    const answered = [
+      ...started,
+      previewOpen("done", 3, {
+        call: "new",
+        args: newWindow,
+        tab: { tabId: window1, visible: true },
+      }),
+    ];
+    await showChat({ activities: answered });
+    await settle();
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: tabAt(window1).id,
+      surfaces: [own, tabAt(window1)],
+    });
+    expect(useRightPanelStore.getState().getUserActionRevision(threadA)).toBe(0);
+
+    // Background work joins the panel behind the tab in view.
+    const background = [
+      ...answered,
+      previewOpen("bg", 4, { args: { open: false }, tab: { tabId: window2, visible: false } }),
+    ];
+    await showChat({ activities: background });
+    await settle();
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: tabAt(window1).id,
+      surfaces: [own, tabAt(window1), tabAt(window2)],
+    });
+
+    // The thread's own window is the thread's own tab.
+    const ownWindow = ownTab.slice(ownTab.lastIndexOf("/") + 1);
+    await showChat({
+      activities: [
+        ...background,
+        previewOpen("again", 5, { tab: { tabId: ownWindow, visible: true } }),
+      ],
+    });
+    await settle();
+    expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: own.id });
+    expect(panel().surfaces).toHaveLength(3);
+  });
+
+  it("brings no tab to the front over the person's choice or over the chat", async () => {
+    const asked: Array<() => void> = [];
+    const fetch = vi.fn(
+      () => new Promise<Response>((resolve) => asked.push(() => resolve(answer()))),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const window1 = "C1".padEnd(32, "C");
+    await showChat({ activities: [] });
+    await showChat({
+      activities: [previewOpen("done", 1, { tab: { tabId: window1, visible: true } })],
+    });
+    // The person picks the files while the Environment is asked.
+    act(() => useRightPanelStore.getState().open(threadA, "files"));
+    expect(fetch).toHaveBeenCalled();
+    for (const respond of asked) respond();
+    await settle();
+    expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: "files" });
+    expect(panel().surfaces.map((surface) => surface.id)).not.toContain(tabAt(window1).id);
+
+    // Where the panel is a sheet over the chat, another Environment's tab joins it closed.
+    act(() => useRightPanelStore.getState().close(threadA));
+    await showChat({
+      activities: [
+        previewOpen("done", 1, { tab: { tabId: window1, visible: true } }),
+        previewOpen("foreign", 2, {
+          args: { url: foreignView },
+          tab: { tabId: foreignId, visible: true, view: foreignView },
+        }),
+      ],
+      inlinePanel: false,
+    });
+    await settle();
+    expect(panel()).toMatchObject({ isOpen: false, activeSurfaceId: "files" });
+    expect(panel().surfaces).toContainEqual(foreignTab);
+  });
+
+  it("opens another Environment's tab from preview_open without this Environment's browser", async () => {
+    const fetch = vi.fn(async () => answer());
+    vi.stubGlobal("fetch", fetch);
+    const call = { call: "foreign", args: { url: foreignView } };
+    await showChat({ activities: [] });
+    // Starting a call at another Environment's view does not use this Environment's browser.
+    const started = [previewOpen("start", 1, call)];
+    await showChat({ activities: started });
+    await settle();
+    expect(panel().isOpen).toBe(false);
+    await showChat({
+      activities: [
+        ...started,
+        previewOpen("done", 2, {
+          ...call,
+          tab: { tabId: foreignId, visible: true, view: foreignView },
+        }),
+      ],
+    });
+    await settle();
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: foreignTab.id,
+      surfaces: [foreignTab],
+    });
+    // A view that names another tab than the answer is not taken.
+    act(() => useRightPanelStore.getState().close(threadA));
+    await showChat({
+      activities: [
+        ...started,
+        previewOpen("done", 2, {
+          ...call,
+          tab: { tabId: foreignId, visible: true, view: foreignView },
+        }),
+        previewOpen("odd", 3, {
+          args: { url: foreignView },
+          tab: { tabId: "0".repeat(32), visible: true, view: foreignView },
+        }),
+      ],
+    });
+    await settle();
+    expect(panel().isOpen).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("opens a link to another Environment's tab in the panel on a plain click only", async () => {
     function ForeignChat() {
       useLazurioEnvironmentBrowserFromChat({

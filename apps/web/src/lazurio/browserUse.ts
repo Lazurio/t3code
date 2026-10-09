@@ -8,8 +8,11 @@
  * is a `tool.started`, any `tool.updated` and a `tool.completed`, each with the provider's id of
  * the call (`toolCallId`) in its payload. The agent uses the browser in a call of T3's browser
  * tools that works with a page, a command that runs agent-browser on a page, or a command that
- * runs `lazurio browser window`. Nothing here reads a page or the browser.
+ * runs `lazurio browser window`. A completed preview_open also names the tab it answered with,
+ * which the server keeps for clients as `previewTab`. Nothing here reads a page or the browser.
  */
+
+import { normalizePreviewUrl } from "@t3tools/shared/preview";
 
 /** What the overlay reads of a thread's activity (OrchestrationThreadActivity). */
 export interface ThreadActivity {
@@ -44,16 +47,65 @@ const T3_TOOL = /^(?:mcp__)?(?:(?:t3-code|t3_code|t3code)(?:__|[_.:/]|\s*·\s*))
 /**
  * Whether a tool call activity shows the agent using the Environment browser on a page. A call
  * whose command is not known yet (Claude Code streams it after the call starts) is not, until an
- * activity of the call has it.
+ * activity of the call has it. A call of T3's browser tools at another Environment's view
+ * (`isForeignView`) is not either: it uses that Environment's browser, and the tab its
+ * preview_open answers with is that Environment's (openedTabOf).
  */
-export function isBrowserUse(activity: Pick<ThreadActivity, "kind" | "payload">): boolean {
+export function isBrowserUse(
+  activity: Pick<ThreadActivity, "kind" | "payload">,
+  isForeignView: (url: string) => boolean = () => false,
+): boolean {
   if (!TOOL_CALL_KINDS.has(activity.kind)) return false;
   const payload = asRecord(activity.payload);
   if (payload === null) return false;
-  if (toolNames(payload).some((name) => PAGE_TOOLS.has(name))) return true;
+  if (toolNames(payload).some((name) => PAGE_TOOLS.has(name))) {
+    const url = urlArgumentOf(payload);
+    return url === null || !isForeignView(url);
+  }
   if (payload.itemType !== "command_execution") return false;
   const command = commandOf(payload);
   return command !== null && commandUsesBrowser(command);
+}
+
+/** The tab a completed preview_open answered with (the server's `previewTab`). */
+export interface OpenedTab {
+  /** A DevTools target id of the Environment browser, or of another Environment's. */
+  readonly tabId: string;
+  /** Whether preview_open showed it to the person: unless it asked for background work. */
+  readonly visible: boolean;
+  /** Another Environment's view of the tab, which the host answers such a tab with; else null. */
+  readonly view: string | null;
+}
+
+/** The tab of an activity that completes a call of preview_open, or null for any other. */
+export function openedTabOf(activity: Pick<ThreadActivity, "kind" | "payload">): OpenedTab | null {
+  if (activity.kind !== "tool.completed") return null;
+  const payload = asRecord(activity.payload);
+  if (payload === null || payload.status === "failed" || payload.status === "declined") {
+    return null;
+  }
+  if (!toolNames(payload).includes("preview_open")) return null;
+  const tab = asRecord(payload.previewTab);
+  if (typeof tab?.tabId !== "string" || tab.tabId === "" || typeof tab.visible !== "boolean") {
+    return null;
+  }
+  return {
+    tabId: tab.tabId,
+    visible: tab.visible,
+    view: typeof tab.view === "string" ? tab.view : null,
+  };
+}
+
+/** The page a call of T3's browser tools names: Codex's arguments, Claude Code's input. */
+function urlArgumentOf(payload: Record<string, unknown>): string | null {
+  const data = asRecord(payload.data);
+  const url = asRecord(asRecord(data?.item)?.arguments)?.url ?? asRecord(data?.input)?.url;
+  if (typeof url !== "string") return null;
+  try {
+    return normalizePreviewUrl(url);
+  } catch {
+    return null;
+  }
 }
 
 function toolNames(payload: Record<string, unknown>): string[] {
@@ -464,6 +516,8 @@ export interface BrowserUseTracker {
   readonly atNewest: ReadonlySet<string>;
   /** The tool calls that counted as browser use already. */
   readonly calls: ReadonlySet<string>;
+  /** The preview_open calls whose tab was taken in already. */
+  readonly openedCalls: ReadonlySet<string>;
 }
 
 /**
@@ -473,19 +527,27 @@ export interface BrowserUseTracker {
  * and so does every look while it is not `live` (its history loading or catching up), so that
  * opening a thread, a reload or the backlog that loads with it never counts. An activity is new
  * when it is newer than everything taken in, so older history that loads later (an earlier page)
- * does not count either.
+ * does not count either. `opened` are the tabs that new completed calls of preview_open answered
+ * with (openedTabOf), each call's once, under the same rules.
  */
 export function trackBrowserUse(
   tracker: BrowserUseTracker | null,
   threadKey: string,
   activities: ReadonlyArray<ThreadActivity>,
   live: boolean,
-): { readonly tracker: BrowserUseTracker; readonly used: boolean } {
+  isForeignView?: (url: string) => boolean,
+): {
+  readonly tracker: BrowserUseTracker;
+  readonly used: boolean;
+  readonly opened: ReadonlyArray<OpenedTab>;
+} {
   const before = tracker?.threadKey === threadKey ? tracker : null;
   let newest = before?.newest ?? null;
   let atNewest = before?.atNewest ?? new Set<string>();
   let calls = before?.calls ?? new Set<string>();
+  let openedCalls = before?.openedCalls ?? new Set<string>();
   let used = false;
+  const opened: OpenedTab[] = [];
   for (const activity of activities) {
     const isNew =
       before !== null &&
@@ -500,11 +562,16 @@ export function trackBrowserUse(
     }
     if (!isNew || !live) continue;
     const call = toolCallOf(activity);
-    if (calls.has(call) || !isBrowserUse(activity)) continue;
+    const tab = openedCalls.has(call) ? null : openedTabOf(activity);
+    if (tab !== null) {
+      openedCalls = new Set(openedCalls).add(call);
+      opened.push(tab);
+    }
+    if (calls.has(call) || !isBrowserUse(activity, isForeignView)) continue;
     calls = new Set(calls).add(call);
     used = true;
   }
-  return { tracker: { threadKey, newest, atNewest, calls }, used };
+  return { tracker: { threadKey, newest, atNewest, calls, openedCalls }, used, opened };
 }
 
 /** The tool call an activity belongs to: the provider's id of the call in its turn, else itself. */

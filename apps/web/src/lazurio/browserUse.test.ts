@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   commandUsesBrowser,
   isBrowserUse,
+  openedTabOf,
   trackBrowserUse,
   type BrowserUseTracker,
   type ThreadActivity,
@@ -259,6 +260,125 @@ describe("an activity that uses the browser", () => {
       expect([name, isBrowserUse(value)]).toEqual([name, false]);
     }
   });
+
+  it("is no call of T3's browser tools at another Environment's view", () => {
+    const foreign = `https://browser.vm-02.acme.lazurio.io/t/${"f".repeat(32)}`;
+    const isForeignView = (url: string) => url === foreign;
+    const call = (tool: string, input?: unknown) =>
+      activity(tool, {
+        itemType: "mcp_tool_call",
+        data: {
+          toolName: `mcp__t3-code__${tool}`,
+          ...(input === undefined ? {} : { input }),
+        },
+      });
+    // Codex names the call's arguments as it starts; Claude Code streams its input.
+    const codex = activity("codex", {
+      itemType: "mcp_tool_call",
+      title: "t3-code · preview_open",
+      data: { item: { server: "t3-code", tool: "preview_open", arguments: { url: foreign } } },
+    });
+    expect(isBrowserUse(codex, isForeignView)).toBe(false);
+    expect(isBrowserUse(call("preview_navigate", { url: foreign }), isForeignView)).toBe(false);
+    // Without a scheme, as the tools take it.
+    expect(isBrowserUse(call("preview_open", { url: foreign.slice(8) }), isForeignView)).toBe(
+      false,
+    );
+    // This Environment's pages, a call without a page, and an input not streamed yet.
+    for (const input of [{ url: "https://example.com/" }, { url: 42 }, {}, undefined]) {
+      expect([input, isBrowserUse(call("preview_open", input), isForeignView)]).toEqual([
+        input,
+        true,
+      ]);
+    }
+    expect(isBrowserUse(codex)).toBe(true);
+  });
+});
+
+describe("the tab a completed preview_open answered with", () => {
+  const tabId = "C1CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+  const foreignId = "fedcba9876543210".repeat(2);
+  const foreignView = `https://browser.vm-02.acme.lazurio.io/t/${foreignId}`;
+  // What clients get of a completed call: its result cut to one line, and the tab the server
+  // keeps for them (`previewTab`).
+  const codex = (previewTab: unknown, kind = "tool.completed", status = "completed") =>
+    activity(
+      "codex",
+      {
+        itemType: "mcp_tool_call",
+        status,
+        title: "t3-code · preview_open",
+        toolCallId: "call-1",
+        previewTab,
+        data: {
+          item: {
+            type: "mcpToolCall",
+            id: "call-1",
+            server: "t3-code",
+            tool: "preview_open",
+            status,
+            arguments: { url: "https://example.com/", reuseExistingTab: false },
+            result: { content: '{"available":true,"visible":true,"tabId":"C1CCCCCCCCCCCC…' },
+          },
+        },
+      },
+      kind,
+    );
+  const claude = (previewTab: unknown, tool = "preview_open") =>
+    activity(
+      "claude",
+      {
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "Open browser preview",
+        toolCallId: "toolu_1",
+        previewTab,
+        data: {
+          toolName: `mcp__t3-code__${tool}`,
+          input: { url: foreignView, open: false },
+          result: { content: `{"available":true,"visible":false,"tabId":"${foreignId}"…` },
+        },
+      },
+      "tool.completed",
+    );
+
+  it("is read from Codex's and Claude Code's completed calls", () => {
+    expect(openedTabOf(codex({ tabId, visible: true }))).toEqual({
+      tabId,
+      visible: true,
+      view: null,
+    });
+    expect(openedTabOf(claude({ tabId: foreignId, visible: false, view: foreignView }))).toEqual({
+      tabId: foreignId,
+      visible: false,
+      view: foreignView,
+    });
+  });
+
+  it("is in no other activity", () => {
+    const tab = { tabId, visible: true };
+    for (const [name, value] of [
+      ["started", codex(tab, "tool.started")],
+      ["going on", codex(tab, "tool.updated")],
+      ["failed", codex(tab, "tool.completed", "failed")],
+      ["declined", codex(tab, "tool.completed", "declined")],
+      ["another tool", claude(tab, "preview_navigate")],
+      [
+        "another server",
+        activity(
+          "x",
+          { previewTab: tab, data: { toolName: "mcp__other__preview_open" } },
+          "tool.completed",
+        ),
+      ],
+      ["no tab", codex(undefined)],
+      ["an empty tab", codex({ tabId: "", visible: true })],
+      ["no visibility", codex({ tabId })],
+      ["a tab that is text", codex(JSON.stringify(tab))],
+    ] as const) {
+      expect([name, openedTabOf(value)]).toEqual([name, null]);
+    }
+  });
 });
 
 describe("the browser use of the thread in view", () => {
@@ -352,6 +472,43 @@ describe("the browser use of the thread in view", () => {
   it("counts a new call that shares the newest activity's millisecond", () => {
     const shown = look(null, [other("a", 7)]);
     expect(look(shown.tracker, [other("a", 7), browse("b", 7)]).used).toBe(true);
+  });
+
+  it("takes in the tab of each new completed preview_open once, never one of the backlog", () => {
+    const opened = (id: string, second: number, call: string, tabId: string) => ({
+      ...activity(
+        id,
+        {
+          itemType: "mcp_tool_call",
+          status: "completed",
+          toolCallId: call,
+          previewTab: { tabId, visible: true },
+          data: { toolName: "mcp__t3-code__preview_open", input: {} },
+        },
+        "tool.completed",
+      ),
+      createdAt: at(second),
+    });
+    const [a, b] = ["A".repeat(32), "B".repeat(32)];
+    // A thread that loads shows calls that completed before: none opens its tab.
+    const loading = look(null, [], false);
+    const backlog = look(loading.tracker, [opened("a", 1, "call-a", a)], false);
+    expect(backlog.opened).toEqual([]);
+    const live = look(backlog.tracker, [opened("a", 1, "call-a", a)]);
+    expect(live.opened).toEqual([]);
+    expect(look(null, [opened("a", 1, "call-a", a)]).opened).toEqual([]);
+
+    // A call that completes now opens its tab, once.
+    const history = [opened("a", 1, "call-a", a)];
+    const next = look(live.tracker, [...history, opened("b", 2, "call-b", b)]);
+    expect(next.opened).toEqual([{ tabId: b, visible: true, view: null }]);
+    expect(next.used).toBe(true);
+    expect(look(next.tracker, [...history, opened("b", 2, "call-b", b)]).opened).toEqual([]);
+    // Another row of the same call does not open it again.
+    expect(
+      look(next.tracker, [...history, opened("b", 2, "call-b", b), opened("b2", 3, "call-b", b)])
+        .opened,
+    ).toEqual([]);
   });
 
   it("counts a call that started in the backlog and goes on live", () => {
