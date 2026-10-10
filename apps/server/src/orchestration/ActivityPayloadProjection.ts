@@ -292,17 +292,34 @@ function projectPreviewToolMetadata(data: Record<string, unknown>, status: unkno
     }
     output = page;
   }
+  // Lazurio overlay (plan DEV-6646): the tab preview_open answered with, whether the person was
+  // shown it, and another Environment's view of it, for the web's right panel (apps/web/src/lazurio).
+  const previewTab =
+    name.endsWith("preview_open") &&
+    typeof page?.tabId === "string" &&
+    page.tabId.length <= 128 &&
+    typeof page.visible === "boolean"
+      ? {
+          previewTab: {
+            tabId: page.tabId,
+            visible: page.visible,
+            ...(typeof page.view === "string" && page.view.length <= 4096
+              ? { view: page.view }
+              : {}),
+          },
+        }
+      : {};
   const rawUrl = asTrimmedString(
     asRecord(page?.toolIcon)?.pageUrl ??
       (/preview_(?:open|navigate|status|snapshot)$/.test(name) ? page?.url : undefined),
   );
-  if (!rawUrl || rawUrl.length > 4096) return {};
+  if (!rawUrl || rawUrl.length > 4096) return previewTab;
   try {
     const url = new URL(rawUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return {};
-    return { toolIcon: { _tag: "website", pageUrl: url.href } };
+    if (url.protocol !== "http:" && url.protocol !== "https:") return previewTab;
+    return { ...previewTab, toolIcon: { _tag: "website", pageUrl: url.href } };
   } catch {
-    return {};
+    return previewTab;
   }
 }
 
