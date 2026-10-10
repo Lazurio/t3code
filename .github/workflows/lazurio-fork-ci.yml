@@ -101,6 +101,11 @@ jobs:
             # DEV-6646). The parser of a view's address is a copy of the server's, whose Environment
             # browser host answers preview_open of such a view.
             apps/web/src/lazurio/browserView.ts
+            # Upstream 410793042 (#17730), backported: the right panel's tabs reorder by dragging.
+            # It goes at the 0.0.46 refresh, where upstream owns it. Its seams in ChatView.tsx,
+            # RightPanelTabs.tsx and rightPanelStore.ts are listed above.
+            apps/web/src/rightPanelStore.test.ts
+            apps/web/src/routes/_chat.pull-requests.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps/(web|mobile|desktop)|packages)/' |
