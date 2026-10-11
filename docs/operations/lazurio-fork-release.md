@@ -381,6 +381,18 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   Lišta pohledu s nabídkou nové záložky funguje dál. Novou záložku ze stránky ve
   skryté záložce panelu (typicky práci agenta) panel přidá na pozadí a zobrazený
   povrch nepřepne.
+- **Nová záložka (+ Browser).** Upstream „+ → Browser“ přidá záložku
+  prohlížeče. Overlay otevře nejdřív vlastní záložku vlákna. Když už v panelu
+  je, otevře pokaždé novou vzdálenou záložku: povrch
+  `environment-browser:new:<uuid>` s holým originem pohledu `https://<host>/`.
+  Tam pohled otevře člověku nové okno prohlížeče Environmentu. Environment ho
+  zavře 30 s poté, co ho nikdo nesleduje (F39). Pohled pak přejde na jeho
+  `/t/<id>` a ohlásí ho v `lazurio-browser:info` (`view`). Panel si tu
+  vzdálenou záložku zapamatuje pod stejným povrchem (`{id, kind, view: …/t/<id>}`)
+  a rám znovu nenačítá. Rám si drží adresu, se kterou se připojil, a Reload
+  načte už zapamatovanou. Odkaz na tutéž vzdálenou záložku přepne na tento
+  povrch místo druhé záložky. Origin pohledu zná panel z odpovědi
+  `/.lazurio/browser.json` pro vlastní záložku vlákna.
 - **Záložka jiného Environmentu.** Je nezaměnitelně označená: barevný okraj a
   hlavička s obrázkem Organizace z GitHubu
   (`https://github.com/<org-or-login>.png?size=32`, jinak její iniciála) a

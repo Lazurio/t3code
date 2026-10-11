@@ -20,6 +20,7 @@ import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import {
   type RightPanelSurface,
   selectActiveRightPanel,
+  selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -34,6 +35,7 @@ import type { LazurioBrowserView } from "./browserView";
 import {
   type EnvironmentBrowserTab,
   environmentBrowserLink,
+  environmentBrowserNewTabView,
   environmentBrowserTab,
   fetchEnvironmentBrowser,
   foreignEnvironmentBrowserTab,
@@ -130,8 +132,19 @@ export function useLazurioEnvironmentBrowser(
       current = false;
     };
   }, [panelOpen, threadId]);
+  // Upstream's "+ Browser" adds a browser tab. Here the first is the thread's own tab, and once
+  // that is in the panel each one is a new remote tab of the view (root decision 0191 point 12).
   const open = useCallback(() => {
-    if (threadRef !== null) useRightPanelStore.getState().open(threadRef, "environment-browser");
+    if (threadRef === null) return;
+    const store = useRightPanelStore.getState();
+    const ownTabShown = selectThreadRightPanelState(store.byThreadKey, threadRef).surfaces.some(
+      (surface) => surface.id === "environment-browser",
+    );
+    if (ownTabShown && viewOrigin !== null) {
+      store.openEnvironmentBrowserNewTab(threadRef, `${viewOrigin}/`);
+    } else {
+      store.open(threadRef, "environment-browser");
+    }
   }, [threadRef]);
   const threadKey = threadRef === null ? null : scopedThreadKey(threadRef);
   const titles = useTabTitles((state) =>
@@ -357,11 +370,12 @@ export function LazurioRightPanelSurfaces(props: {
 /**
  * An Environment browser tab of the right panel: the view of one remote tab in a frame. The
  * thread's own tab is asked of the Environment each time its frame mounts and again on Reload;
- * a tab that a page opened frames its own view, and Reload loads it again. The frame tells the
- * panel its tab's title, and a tab its page opens becomes a new tab of the panel, as in the
- * person's own browser (root decision 0191 point 12): in front when the page is the one in view,
- * and behind it when the page is in a hidden tab, so that a tab an agent opens there does not
- * take the person's place. The gateway's sign-in page cannot render in a frame once the sign-in
+ * a tab that a page opened frames its own view, and Reload loads it again. A new tab the person
+ * adds frames the view's bare origin, where the view opens a remote tab, and keeps that tab once
+ * the view tells it, without loading the frame again. The frame tells the panel its tab's title,
+ * and a tab its page opens becomes a new tab of the panel, as in the person's own browser (root
+ * decision 0191 point 12): in front when the page is the one in view, and behind it when the
+ * page is in a hidden tab, so that a tab an agent opens there does not take the person's place. The gateway's sign-in page cannot render in a frame once the sign-in
  * has expired, so the view also opens in a new tab. Another Lazurio Environment's tab is marked
  * as that Environment's: a coloured border, and its Organization's picture and name in the head.
  * Where its view does not come up (no session at that Environment's gateway, whose sign-in cannot
@@ -393,12 +407,18 @@ function LazurioEnvironmentBrowser(props: {
     };
   }, [tabView, threadId, request]);
   // The frame's address; undefined while the Environment is being asked.
+  const newTab = tabView !== null && environmentBrowserNewTabView(tabView) !== null;
   const view =
     tabView !== null
-      ? (environmentBrowserTab(tabView, window.location.origin)?.view ?? null)
+      ? (environmentBrowserTab(tabView, window.location.origin)?.view ??
+        environmentBrowserNewTabView(tabView, window.location.origin))
       : answer?.threadId === threadId && answer.request === request
         ? answer.view
         : undefined;
+  // The address this frame mounted with. A new tab that settles on its remote tab keeps its frame,
+  // which the view moved there itself; Reload loads the settled view.
+  const [mountedView] = useState(view);
+  const frameView = request === 0 && mountedView ? mountedView : view;
 
   // The requests whose frame told its tab (its view came up), fired load, or ran out of time.
   const [cameUp, setCameUp] = useState<number | null>(null);
@@ -416,6 +436,11 @@ function LazurioEnvironmentBrowser(props: {
       if (message?.type === "info") {
         setCameUp(request);
         rememberTitle(scopedThreadKey(threadRef), surface.id, message.title);
+        if (newTab && message.tab !== null) {
+          useRightPanelStore
+            .getState()
+            .settleEnvironmentBrowserTab(threadRef, surface.id, message.tab.view);
+        }
       } else if (message?.type === "new-tab") {
         useRightPanelStore
           .getState()
@@ -424,7 +449,7 @@ function LazurioEnvironmentBrowser(props: {
     };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [view, threadRef, surface.id, shown, request]);
+  }, [view, threadRef, surface.id, shown, request, newTab]);
 
   // Another Environment's view tells its tab soon after its page loads, or it never came up.
   const isForeign = foreign !== null;
@@ -494,7 +519,7 @@ function LazurioEnvironmentBrowser(props: {
           <iframe
             key={request}
             ref={frame}
-            src={view}
+            src={frameView ?? view}
             title={label ?? "Environment browser"}
             className="min-h-0 w-full flex-1 border-0"
             allow="clipboard-read; clipboard-write; fullscreen"

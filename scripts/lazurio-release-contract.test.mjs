@@ -804,3 +804,34 @@ NodeTest.test("another Environment's tabs and agent-opened tabs reach the panel"
   NodeAssert.equal(component.match(/<iframe\n/g)?.length, 1);
   NodeAssert.match(component, /\n\s+referrerPolicy="origin"\n/);
 });
+
+NodeTest.test("the panel's + Browser adds a new remote tab through its seams", async () => {
+  const [chatView, component, store] = await Promise.all(
+    [
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+      "apps/web/src/rightPanelStore.ts",
+    ].map(read),
+  );
+  // Upstream's + Browser reaches the overlay where the Environment offers its browser.
+  NodeAssert.match(
+    chatView,
+    /onAddBrowser=\{\n\s+environmentBrowser\.available \? environmentBrowser\.open : \(\) => createBrowserSurface\(\)\n\s+\}/,
+  );
+  // The thread's own tab first, then the view's bare origin, where the view opens a remote tab.
+  NodeAssert.match(
+    component,
+    /store\.openEnvironmentBrowserNewTab\(threadRef, `\$\{viewOrigin\}\/`\);/,
+  );
+  // The new tab keeps the remote tab its view tells, under the same surface and frame.
+  NodeAssert.match(
+    component,
+    /\.settleEnvironmentBrowserTab\(threadRef, surface\.id, message\.tab\.view\);/,
+  );
+  NodeAssert.match(component, /const \[mountedView\] = useState\(view\);/);
+  NodeAssert.match(
+    store,
+    /openEnvironmentBrowserNewTab: \(ref, view\) =>\n\s+set\(\(state\) => \{\n\s+const newTab = environmentBrowserNewTabView\(view\);/,
+  );
+  NodeAssert.match(store, /settleEnvironmentBrowserTab: \(ref, surfaceId, view\) =>/);
+});

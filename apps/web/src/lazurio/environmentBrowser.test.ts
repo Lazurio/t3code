@@ -11,6 +11,7 @@ import {
 import { agentBrowserSessionName } from "./agentBrowserSession";
 import {
   environmentBrowserLink,
+  environmentBrowserNewTabView,
   environmentBrowserTab,
   fetchEnvironmentBrowser,
   foreignEnvironmentBrowserTab,
@@ -189,6 +190,30 @@ describe("a tab of the panel", () => {
   });
 });
 
+describe("the view's new tab", () => {
+  it("is the view's bare origin, where the view opens a remote tab", () => {
+    expect(environmentBrowserNewTabView(`${viewOrigin}/`, origin)).toBe(`${viewOrigin}/`);
+    expect(environmentBrowserNewTabView(viewOrigin, origin)).toBe(`${viewOrigin}/`);
+  });
+
+  it("is no new tab at any other address", () => {
+    for (const address of [
+      tabView,
+      `${viewOrigin}/?x=1`,
+      `${viewOrigin}/?`,
+      `${viewOrigin}/#top`,
+      `${viewOrigin}/t/`,
+      viewOrigin.replace("https:", "http:") + "/",
+      "https://user@browser.vm-01.example.lazurio.io/",
+      `${origin}/`,
+      "not a URL",
+      null,
+    ]) {
+      expect(environmentBrowserNewTabView(address, origin)).toBeNull();
+    }
+  });
+});
+
 describe("a link in the chat", () => {
   it("opens in the panel when it is one remote tab of the view the Environment named", () => {
     expect(environmentBrowserLink(tabView, origin, viewOrigin)).toEqual({
@@ -343,13 +368,16 @@ describe("a message of the framed view", () => {
   });
 
   it("tells its tab's title, or else the page's host", () => {
+    const shown = { id: `environment-browser:${view.slice(-32)}`, view };
     expect(readEnvironmentBrowserMessage(message(info), frame, view)).toEqual({
       type: "info",
       title: "Docs",
+      tab: shown,
     });
     expect(readEnvironmentBrowserMessage(message({ ...info, title: " " }), frame, view)).toEqual({
       type: "info",
       title: "example.com",
+      tab: shown,
     });
     expect(
       readEnvironmentBrowserMessage(
@@ -357,7 +385,27 @@ describe("a message of the framed view", () => {
         frame,
         view,
       ),
-    ).toEqual({ type: "info", title: null });
+    ).toEqual({ type: "info", title: null, tab: shown });
+  });
+
+  it("names the remote tab it shows, on the view's own origin only", () => {
+    // The view's new tab tells the tab it moved to.
+    expect(
+      readEnvironmentBrowserMessage(message({ ...info, view: tabView }), frame, `${viewOrigin}/`),
+    ).toMatchObject({
+      type: "info",
+      tab: { id: `environment-browser:${targetId}`, view: tabView },
+    });
+    for (const named of [
+      undefined,
+      `${viewOrigin}/`,
+      `https://browser.vm-02.example.lazurio.io/t/${targetId}`,
+      `${tabView}?x=1`,
+    ]) {
+      expect(
+        readEnvironmentBrowserMessage(message({ ...info, view: named }), frame, `${viewOrigin}/`),
+      ).toMatchObject({ type: "info", tab: null });
+    }
   });
 
   it("opens a page's new tab on the view's own origin", () => {
@@ -493,6 +541,77 @@ describe("the surface", () => {
     }
     expect(useRightPanelStore.getState().byThreadKey).toEqual({});
     expect(store.getUserActionRevision(ref)).toBe(0);
+  });
+
+  it("adds the person's new tab as a tab of its own each time, in front with the panel open", () => {
+    const store = useRightPanelStore.getState();
+    store.open(ref, "environment-browser");
+    store.openEnvironmentBrowserNewTab(ref, `${viewOrigin}/`);
+    store.openEnvironmentBrowserNewTab(ref, `${viewOrigin}/`);
+    const [own, first, second] = panel().surfaces;
+    expect(own).toEqual(surface);
+    for (const added of [first, second]) {
+      expect(added).toMatchObject({ kind: "environment-browser", view: `${viewOrigin}/` });
+      expect(added?.id).toMatch(/^environment-browser:new:/);
+    }
+    expect(first?.id).not.toBe(second?.id);
+    expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: second?.id });
+    expect(store.getUserActionRevision(ref)).toBe(3);
+    // Only the view's bare origin is a new tab.
+    store.openEnvironmentBrowserNewTab(ref, tabView);
+    store.openEnvironmentBrowserNewTab(ref, `${viewOrigin}/?x=1`);
+    expect(panel().surfaces).toHaveLength(3);
+  });
+
+  it("keeps a new tab by the remote tab its view tells, under the same surface", () => {
+    const store = useRightPanelStore.getState();
+    store.openEnvironmentBrowserNewTab(ref, `${viewOrigin}/`);
+    const added = panel().surfaces[0]!;
+    const revision = store.getUserActionRevision(ref);
+    store.settleEnvironmentBrowserTab(ref, added.id, tabView);
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: added.id,
+      surfaces: [{ id: added.id, kind: "environment-browser", view: tabView }],
+    });
+    expect(store.getUserActionRevision(ref)).toBe(revision);
+    // A link to that remote tab shows the same surface, not a second one.
+    store.open(ref, "files");
+    store.openEnvironmentBrowserTab(ref, tabView);
+    expect(panel()).toMatchObject({ activeSurfaceId: added.id });
+    expect(panel().surfaces).toHaveLength(2);
+  });
+
+  it("settles a new tab once, on its own view's origin, and never onto a tab already open", () => {
+    const store = useRightPanelStore.getState();
+    store.open(ref, "environment-browser");
+    store.openEnvironmentBrowserNewTab(ref, `${viewOrigin}/`);
+    const added = panel().surfaces[1]!;
+    const unchanged = () => panel().surfaces;
+    const before = unchanged();
+    // Another surface, another origin, or not one remote tab.
+    store.settleEnvironmentBrowserTab(ref, surface.id, tabView);
+    store.settleEnvironmentBrowserTab(
+      ref,
+      added.id,
+      `https://browser.vm-02.example.lazurio.io/t/${targetId}`,
+    );
+    store.settleEnvironmentBrowserTab(ref, added.id, `${viewOrigin}/`);
+    expect(unchanged()).toEqual(before);
+    // A remote tab the panel shows already.
+    store.openEnvironmentBrowserTab(ref, tabView, true);
+    const withTab = unchanged();
+    store.settleEnvironmentBrowserTab(ref, added.id, tabView);
+    expect(unchanged()).toEqual(withTab);
+    // Once settled, it keeps that remote tab.
+    const other = `${viewOrigin}/t/${"fedcba9876543210".repeat(2)}`;
+    store.settleEnvironmentBrowserTab(ref, added.id, other);
+    store.settleEnvironmentBrowserTab(ref, added.id, `${viewOrigin}/t/${"00".repeat(16)}`);
+    expect(unchanged().find((entry) => entry.id === added.id)).toEqual({
+      id: added.id,
+      kind: "environment-browser",
+      view: other,
+    });
   });
 
   it("survives preview reconciliation, which drops browser tabs the server no longer has", () => {

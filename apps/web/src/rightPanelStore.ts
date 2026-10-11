@@ -17,8 +17,9 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { environmentBrowserTab } from "./lazurio/environmentBrowser";
+import { environmentBrowserNewTabView, environmentBrowserTab } from "./lazurio/environmentBrowser";
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -91,7 +92,8 @@ export type RightPanelSurface =
   | { id: "agents"; kind: "agents" }
   /** The Environment browser's view of the thread's own tab, which the Environment names on open. */
   | { id: "environment-browser"; kind: "environment-browser" }
-  /** Another tab of the Environment browser, one a page opened, at the view of that one tab. */
+  /** Another tab of the Environment browser at the view of that one tab: one a page or the agent
+   *  opened, or the person's new tab, at the view's bare origin until it settles on its tab. */
   | { id: `environment-browser:${string}`; kind: "environment-browser"; view: string };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
@@ -151,6 +153,19 @@ interface RightPanelStoreState {
    * hidden frame or the agent's background work; it is selected only where nothing is.
    */
   openEnvironmentBrowserTab: (ref: ScopedThreadRef, view: string, automatic?: boolean) => void;
+  /**
+   * Lazurio overlay: a new remote tab of the Environment browser, the view's new tab at `view`
+   * (`https://<view host>/`), in front with the panel open; any other address is ignored. Each
+   * call is a tab of its own, kept by its remote tab once its frame tells it
+   * (settleEnvironmentBrowserTab).
+   */
+  openEnvironmentBrowserNewTab: (ref: ScopedThreadRef, view: string) => void;
+  /**
+   * Lazurio overlay: the new tab `surfaceId` keeps the remote tab its view moved to, at `view`
+   * (`https://<view host>/t/<target id>`), under the same surface, so its frame does not load
+   * again. Ignored for any other surface or address, and when the panel shows that tab already.
+   */
+  settleEnvironmentBrowserTab: (ref: ScopedThreadRef, surfaceId: string, view: string) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
@@ -587,14 +602,55 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           return (automatic ? automaticUpdate : userAction)(
             state,
             scopedThreadKey(ref),
-            (current) =>
-              automatic
+            (current) => {
+              // A new tab of the panel that settled on this remote tab shows it already.
+              const shown =
+                current.surfaces.find((entry) => "view" in entry && entry.view === tab.view) ??
+                surface;
+              return automatic
                 ? {
-                    ...upsertSurface(current, surface, current.activeSurfaceId === null),
+                    ...upsertSurface(current, shown, current.activeSurfaceId === null),
                     isOpen: current.isOpen,
                   }
-                : upsertSurface(current, surface),
+                : upsertSurface(current, shown);
+            },
           );
+        }),
+      openEnvironmentBrowserNewTab: (ref, view) =>
+        set((state) => {
+          const newTab = environmentBrowserNewTabView(view);
+          if (newTab === null) return state;
+          const surface = {
+            id: `environment-browser:new:${randomUUID()}`,
+            kind: "environment-browser",
+            view: newTab,
+          } as const;
+          return userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, surface),
+          );
+        }),
+      settleEnvironmentBrowserTab: (ref, surfaceId, view) =>
+        set((state) => {
+          const tab = environmentBrowserTab(view);
+          if (tab === null) return state;
+          return automaticUpdate(state, scopedThreadKey(ref), (current) => {
+            const newTab = current.surfaces.find((entry) => entry.id === surfaceId);
+            if (
+              newTab?.kind !== "environment-browser" ||
+              !("view" in newTab) ||
+              environmentBrowserNewTabView(newTab.view) === null ||
+              !tab.view.startsWith(newTab.view) ||
+              current.surfaces.some((entry) => "view" in entry && entry.view === tab.view)
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              surfaces: current.surfaces.map((entry) =>
+                entry.id === surfaceId ? { ...newTab, view: tab.view } : entry,
+              ),
+            };
+          });
         }),
       openPullRequest: (ref, target) =>
         set((state) =>
