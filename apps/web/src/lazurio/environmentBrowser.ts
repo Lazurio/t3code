@@ -108,6 +108,25 @@ export function environmentBrowserTab(
 }
 
 /**
+ * The view's address for a new remote tab, `https://<view host>/`, or null for any other address.
+ * There the view opens a new tab of the Environment browser for the person, which the Environment
+ * closes once nobody views it (LazurioPlatform F39), moves to that tab's `/t/<target id>` and
+ * tells it to the panel, which then keeps the tab by that view (readEnvironmentBrowserMessage).
+ * The same rules as for one tab: https:, no credentials, query or fragment, not `pageOrigin`.
+ */
+export function environmentBrowserNewTabView(view: unknown, pageOrigin?: string): string | null {
+  if (typeof view !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(view);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.href !== `${url.origin}/`) return null;
+  return url.origin === pageOrigin ? null : url.href;
+}
+
+/**
  * The panel tab that a link in the chat opens instead of a new browser tab: the view of one remote
  * tab (environmentBrowserTab) on the origin of this Environment's view, as the Environment named it
  * at /.lazurio/browser.json. Any other address, or a view not named yet, is left to the browser.
@@ -192,12 +211,14 @@ export function isPlainPrimaryClick(
   );
 }
 
-/** What the view in a panel frame says (LazurioPlatform F39): its tab's title, or a new tab. */
+/** What the view in a panel frame says (LazurioPlatform F39): its tab (title and view), or a page's new tab. */
 export type EnvironmentBrowserMessage =
   | {
       readonly type: "info";
       /** The page's title, else its host; null for a page with neither, such as a new tab. */
       readonly title: string | null;
+      /** The remote tab the view shows, on the view's own origin; null when it names none. */
+      readonly tab: EnvironmentBrowserTab | null;
     }
   | { readonly type: "new-tab"; readonly tab: EnvironmentBrowserTab };
 
@@ -219,7 +240,12 @@ export function readEnvironmentBrowserMessage(
   if (message.type === "lazurio-browser:info") {
     const { title, url } = message;
     if (typeof title !== "string" || typeof url !== "string") return null;
-    return { type: "info", title: title.trim() || hostOf(url) };
+    const tab = environmentBrowserTab(message.view);
+    return {
+      type: "info",
+      title: title.trim() || hostOf(url),
+      tab: tab !== null && originOf(tab.view) === origin ? tab : null,
+    };
   }
   if (message.type === "lazurio-browser:new-tab") {
     const tab = environmentBrowserTab(message.view);

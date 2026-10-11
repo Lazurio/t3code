@@ -14,6 +14,7 @@ import {
 import type { ThreadActivity } from "./browserUse";
 import {
   LazurioRightPanelSurfaces,
+  useLazurioEnvironmentBrowser,
   useLazurioEnvironmentBrowserFromChat,
 } from "./LazurioEnvironmentBrowser";
 
@@ -155,6 +156,40 @@ describe("the panel's Environment browser frames", () => {
     });
   });
 
+  it("frame a new tab at the view's bare origin and keep that frame once the view tells its tab", async () => {
+    const key = scopedThreadKey(threadA);
+    const added = {
+      id: "environment-browser:new:1",
+      kind: "environment-browser",
+      view: `${viewOrigin}/`,
+    } as const;
+    useRightPanelStore.setState({
+      byThreadKey: { [key]: { isOpen: true, activeSurfaceId: added.id, surfaces: [added] } },
+    });
+    await showPanel(threadA, [added], added.id);
+    const frame = frameOf(added);
+    // The view opened a remote tab, moved to its address and tells it.
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "lazurio-browser:info", url: "about:blank", title: "", view: opened.view },
+          origin: viewOrigin,
+          source: frame.contentWindow,
+        }),
+      );
+    });
+    const settled = { ...added, view: opened.view };
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA).surfaces,
+    ).toEqual([settled]);
+    // The settled tab keeps its frame, which the view already moved; nothing loads again.
+    await showPanel(threadA, [settled], settled.id);
+    expect(container.querySelectorAll("iframe")).toHaveLength(1);
+    expect(container.querySelector("iframe")).toBe(frame);
+    expect(frame.getAttribute("src")).toBe(`${viewOrigin}/`);
+    expect(container.querySelector('a[target="_blank"]')?.getAttribute("href")).toBe(opened.view);
+  });
+
   it("leave the desktop app's panel as it is", async () => {
     vi.stubGlobal("desktopBridge", { preview: {} });
     await showPanel(threadA, [first, files], files.id);
@@ -172,6 +207,52 @@ const foreignTab = {
   kind: "environment-browser",
   view: foreignView,
 } as const;
+
+describe("the panel's + Browser", () => {
+  const ownTab = `${viewOrigin}/t/${"8A3F0C2D4E5B6A79".repeat(2)}`;
+  // What the Environment answers at /.lazurio/browser.json on this page's origin.
+  const answer = () => {
+    const body = JSON.stringify({ available: true, view: ownTab, session: null });
+    const response = new Response(body, { headers: { "content-type": "application/json" } });
+    Object.defineProperty(response, "url", {
+      value: `${window.location.origin}/.lazurio/browser.json`,
+    });
+    return response;
+  };
+  const panel = () =>
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA);
+
+  it("opens the thread's own tab first, then a new remote tab of the view each time", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => answer()),
+    );
+    function Panel() {
+      const browser = useLazurioEnvironmentBrowser(threadA, true);
+      return (
+        <button type="button" disabled={!browser.available} onClick={browser.open}>
+          Browser
+        </button>
+      );
+    }
+    await act(async () => root.render(<Panel />));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const button = container.querySelector("button");
+    if (button === null || button.disabled) throw new Error("The Environment offered no browser");
+    const press = () => act(() => button.click());
+
+    press();
+    expect(panel().surfaces).toEqual([{ id: "environment-browser", kind: "environment-browser" }]);
+    press();
+    press();
+    const [, first, second] = panel().surfaces;
+    for (const tab of [first, second]) {
+      expect(tab).toMatchObject({ kind: "environment-browser", view: `${viewOrigin}/` });
+    }
+    expect(second?.id).not.toBe(first?.id);
+    expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: second?.id });
+  });
+});
 
 describe("another Environment's browser in the panel", () => {
   const signInNotice = "Sign in to the Environment browser of Acme · vm-02";
