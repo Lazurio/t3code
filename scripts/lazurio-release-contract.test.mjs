@@ -1,6 +1,7 @@
 // Contract for the Lazurio distribution files. Run with:
 //   node --test scripts/lazurio-release-contract.test.mjs
 import * as NodeAssert from "node:assert/strict";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeTest from "node:test";
 
@@ -19,12 +20,13 @@ const environmentBrowserOverlay = [
   "apps/web/src/components/RightPanelTabs.tsx",
   "apps/web/src/lazurio/LazurioEnvironmentBrowser.test.tsx",
   "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
-  "apps/web/src/lazurio/agentBrowserSession.ts",
-  "apps/web/src/lazurio/browserUse.test.ts",
-  "apps/web/src/lazurio/browserUse.ts",
+  "apps/web/src/lazurio/LazurioNewTab.test.tsx",
+  "apps/web/src/lazurio/LazurioNewTab.tsx",
   "apps/web/src/lazurio/browserView.ts",
   "apps/web/src/lazurio/environmentBrowser.test.ts",
   "apps/web/src/lazurio/environmentBrowser.ts",
+  "apps/web/src/lazurio/threadTabs.test.ts",
+  "apps/web/src/lazurio/threadTabs.ts",
   "apps/web/src/rightPanelStore.ts",
 ];
 const [release, archives, ci, dockerfile, dockerignore, docs, updateSource] = await Promise.all([
@@ -427,183 +429,147 @@ NodeTest.test(
   },
 );
 
-// The web asks the Environment for the view of the thread's session. packages/shared's export
-// map is upstream-hot, so the server and the web each have a copy of the name; one function.
-NodeTest.test("the server and the web name a thread's agent-browser session alike", async () => {
-  const [server, web] = await Promise.all([
-    import("../apps/server/src/lazurio/agentBrowserSession.ts"),
-    import("../apps/web/src/lazurio/agentBrowserSession.ts"),
-  ]);
-  for (const threadId of [
-    "4a1f9c2e-7b3d-4e5f-8a6b-9c0d1e2f3a4b",
-    "thread.with:colons/and/slashes",
-    "vlákno-č",
-    "emoji-\u{1F642}",
-    "x".repeat(100),
-    `import:codex-${"w".repeat(58)}:019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a70`,
-    `import:codex-${"w".repeat(58)}:f64cccd6-59c8-42a7-aa0e-319969aeccc9`,
-    `import:codex-${"w".repeat(58)}:3c4a8834-35dc-418d-a6dd-d8d1934ab83f`,
-    "",
-  ]) {
-    const name = server.agentBrowserSessionName(threadId);
-    NodeAssert.equal(web.agentBrowserSessionName(threadId), name, threadId);
-    // agent-browser's grammar and its dashboard's 64 characters.
-    NodeAssert.match(name, /^t3-[A-Za-z0-9_-]{0,61}$/, threadId);
-  }
-  NodeAssert.equal(
-    web.agentBrowserSessionName.toString(),
-    server.agentBrowserSessionName.toString(),
-  );
-  // The pair whose 32-bit suffixes once collided gets two sessions on both sides.
-  const pair = [
-    `import:codex-${"w".repeat(58)}:f64cccd6-59c8-42a7-aa0e-319969aeccc9`,
-    `import:codex-${"w".repeat(58)}:3c4a8834-35dc-418d-a6dd-d8d1934ab83f`,
-  ];
-  NodeAssert.notEqual(
-    server.agentBrowserSessionName(pair[0]),
-    server.agentBrowserSessionName(pair[1]),
-  );
-});
+// The web client has no browser: on a Lazurio Environment the right panel shows the thread's tabs
+// of the Environment browser, each the view of one remote tab in a frame, from the list T3 Code's
+// server keeps in the thread's holder file (LazurioPlatform F47, task 501).
+NodeTest.test(
+  "the right panel shows the thread's Environment browser tabs through its seams",
+  async () => {
+    const [store, tabs, chatView, view, component, threadTabs] = await Promise.all(
+      [
+        "apps/web/src/rightPanelStore.ts",
+        "apps/web/src/components/RightPanelTabs.tsx",
+        "apps/web/src/components/ChatView.tsx",
+        "apps/web/src/lazurio/environmentBrowser.ts",
+        "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+        "apps/web/src/lazurio/threadTabs.ts",
+      ].map(read),
+    );
+    // A surface kind of its own: preview reconciliation drops preview tabs without a server tab.
+    // One member: this Environment's tab by its id only, another Environment's with its view.
+    NodeAssert.match(
+      store,
+      /\| \{ id: `environment-browser:\$\{string\}`; kind: "environment-browser"; view\?: string \};/,
+    );
+    NodeAssert.equal(store.match(/kind: "environment-browser"/g)?.length, 1);
+    // The overlay's kind opens Nová karta, the same id the overlay's new tabs have.
+    NodeAssert.match(
+      store,
+      /case "environment-browser":\n(?:\s*\/\/[^\n]*\n)?\s+return \{ id: `environment-browser:new-tab:\$\{randomUUID\(\)\}`, kind \};/,
+    );
+    NodeAssert.match(threadTabs, /const NEW_TAB_PREFIX = "environment-browser:new-tab:";/);
+    // One generic store action, through upstream's own automatic or user updates; no other overlay
+    // action, and no import of the overlay in the store.
+    NodeAssert.match(
+      store,
+      /lazurio: \(ref, automatic, update\) =>\n\s+set\(\(state\) =>\s+\(automatic \? automaticUpdate : userAction\)\(state, scopedThreadKey\(ref\), update\),?\s+\),/,
+    );
+    NodeAssert.doesNotMatch(store, /openEnvironmentBrowser|settleEnvironmentBrowser|\.\/lazurio\//);
+    // The strip's title, icon and tooltip come from the overlay, its hook is one call.
+    NodeAssert.match(tabs, /^import \* as Lazurio from "~\/lazurio\/LazurioEnvironmentBrowser";$/m);
+    NodeAssert.match(
+      tabs,
+      /case "environment-browser":\n\s+return Lazurio\.surfaceTitle\(surface\);/,
+    );
+    NodeAssert.match(
+      tabs,
+      /case "environment-browser":\n\s+return <Lazurio\.SurfaceIcon surface=\{surface\} \/>;/,
+    );
+    NodeAssert.match(tabs, /\n {2}const lazurio = Lazurio\.useRightPanel\(addSurfaceActions\);\n/);
+    NodeAssert.match(
+      tabs,
+      /\) : \(\n\s+lazurio\.tooltip\(surface, title\)\n\s+\)\}\n\s+<\/TooltipPopup>/,
+    );
+    NodeAssert.doesNotMatch(tabs, /environmentBrowserTitles|previewBridge \? browserDefaults/);
+    // ChatView: one hook call, and upstream's surface in view wrapped once beside the frames.
+    NodeAssert.equal(chatView.match(/useLazurioThreadTabs\(/g)?.length, 1);
+    NodeAssert.match(
+      chatView,
+      /useLazurioThreadTabs\(activeThreadRef, \{ inlinePanel: !shouldUseRightPanelSheet \}\);/,
+    );
+    NodeAssert.match(chatView, /const rightPanelActiveContent = activeThreadRef \? \(/);
+    NodeAssert.match(
+      chatView,
+      /const rightPanelContent = activeThreadRef \? \(\n\s+<LazurioRightPanelSurfaces\n\s+threadRef=\{activeThreadRef\}\n\s+surfaces=\{renderedRightPanelSurfaces\}\n\s+activeSurfaceId=\{renderedRightPanelSurface\?\.id \?\? null\}\n\s+>\n\s+\{rightPanelActiveContent\}/,
+    );
+    NodeAssert.equal(chatView.match(/\{rightPanelContent\}/g)?.length, 2);
+    NodeAssert.doesNotMatch(chatView, /environmentBrowser\.|kind === "environment-browser"/);
+    NodeAssert.equal(
+      chatView.match(/browserAvailable=\{isPreviewSupportedInRuntime\(\)\}/g)?.length,
+      2,
+    );
+    // Mounted while the panel shows the thread, one per thread and tab; a hidden one keeps its size
+    // (visibility, never display: the view sizes its remote window to its page area, F39 point 3).
+    NodeAssert.match(component, /if \(isPreviewSupportedInRuntime\(\)\) return props\.children;/);
+    NodeAssert.match(component, /props\.surfaces\.filter\(isEnvironmentBrowserSurface\)\.map\(/);
+    NodeAssert.match(component, /key=\{`\$\{threadKey\}:\$\{surface\.id\}`\}/);
+    NodeAssert.match(component, /!shown && "invisible"/);
+    NodeAssert.match(component, /inert=\{!shown\}/);
+    NodeAssert.doesNotMatch(component, /"hidden"|\bhidden=|display: ?"?none/);
+    NodeAssert.match(
+      component,
+      /threadRef\.environmentId === primaryEnvironmentId &&\n\s+!isPreviewSupportedInRuntime\(\)/,
+    );
+    // The list comes from this page's own server, the holds go there too, never elsewhere.
+    NodeAssert.match(threadTabs, /export const THREAD_TABS_ROUTE = "\/api\/lazurio\/thread-tabs";/);
+    NodeAssert.match(
+      component,
+      /new EventSource\(\n\s+`\$\{THREAD_TABS_ROUTE\}\/events\?threadId=\$\{encodeURIComponent\(threadRef\.threadId\)\}`,/,
+    );
+    NodeAssert.match(threadTabs, /window\.fetch\(`\$\{THREAD_TABS_ROUTE\}\/\$\{action\}`, \{/);
+    NodeAssert.match(threadTabs, /credentials: "same-origin"/);
+    NodeAssert.match(threadTabs, /redirect: "error"/);
+    // A frame of this Environment's tab is the server's view origin and the tab's id; no address of
+    // it is stored, and a framed view is never on this page's origin.
+    NodeAssert.match(component, /`\$\{snapshot\.viewOrigin\}\/t\/\$\{tabId\}`/);
+    NodeAssert.match(threadTabs, /!viewOrigin\.startsWith\("https:\/\/"\)/);
+    NodeAssert.match(view, /if \(url\.origin === pageOrigin\) return null;/);
+    for (const source of [view, component, threadTabs]) {
+      NodeAssert.doesNotMatch(source, /localStorage|sessionStorage|persist\(|ClientSettings/);
+    }
+    // The frame, and the way out of it when the gateway's sign-in cannot render in a frame.
+    NodeAssert.match(component, /allow="clipboard-read; clipboard-write; fullscreen"/);
+    NodeAssert.match(
+      component,
+      /sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"/,
+    );
+    NodeAssert.match(component, /<a href=\{view\} target="_blank" rel="noopener" \/>/);
+    // Only the panel's own frame, on its view's origin, is heard (unit tests in src/lazurio).
+    NodeAssert.match(
+      component,
+      /readEnvironmentBrowserMessage\(\n\s+event,\n\s+frame\.current\?\.contentWindow \?\? null,/,
+    );
+    NodeAssert.match(view, /if \(frame === null \|\| event\.source !== frame\) return null;/);
+    NodeAssert.match(view, /if \(origin === null \|\| event\.origin !== origin\) return null;/);
+    NodeAssert.match(view, /message\.type === "lazurio-browser:closed"/);
+    for (const file of environmentBrowserOverlay) {
+      NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
+    }
+    for (const retired of ["browserUse", "agentBrowserSession"]) {
+      NodeAssert.doesNotMatch(ci, new RegExp(`apps/web/src/lazurio/${retired}`), retired);
+    }
+    NodeAssert.match(
+      ci,
+      /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio\n/,
+    );
+  },
+);
 
-// The web client has no browser: without the desktop preview, the right panel's Browser frames
-// the Environment browser's view that the Environment names at /.lazurio/browser.json, and a tab
-// that a page opens there becomes another tab of the panel (root decision 0191 point 12).
-NodeTest.test("the Environment browser keeps its seams and stores only a page's tabs", async () => {
-  const [store, tabs, chatView, view, component] = await Promise.all(
+// Plan DEV-6646, task 501: the panel opens by itself only on the server's reveal of a tab an agent
+// opened (preview_open, a new window of the thread's agent-browser session), and a plain click on a
+// link in the chat to one remote tab opens that tab there. The seams are ChatView's one hook call,
+// openProactive's surface type and the chat's timeline rows, which upstream marks with
+// data-timeline-root; a rebuild that loses one fails here.
+NodeTest.test("the panel opens on an agent's tab through its seams", async () => {
+  const [store, timeline, component, threadTabs, host, tabsService] = await Promise.all(
     [
-      "apps/web/src/rightPanelStore.ts",
-      "apps/web/src/components/RightPanelTabs.tsx",
-      "apps/web/src/components/ChatView.tsx",
-      "apps/web/src/lazurio/environmentBrowser.ts",
-      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
-    ].map(read),
-  );
-  // A surface kind of its own: preview reconciliation drops preview tabs without a server tab.
-  NodeAssert.match(store, /\| \{ id: "environment-browser"; kind: "environment-browser" \}/);
-  NodeAssert.match(
-    store,
-    /\| \{ id: `environment-browser:\$\{string\}`; kind: "environment-browser"; view: string \}/,
-  );
-  NodeAssert.match(
-    store,
-    /case "environment-browser":\n\s+return \{ id: "environment-browser", kind \};/,
-  );
-  // A page's tab joins the panel only at the view of exactly one remote tab.
-  NodeAssert.match(
-    store,
-    /openEnvironmentBrowserTab: \(ref, view, automatic = false\) =>\n\s+set\(\(state\) => \{\n\s+const tab = environmentBrowserTab\(view\);\n\s+if \(tab === null\) return state;/,
-  );
-  NodeAssert.match(
-    tabs,
-    /case "environment-browser":\n\s+return environmentBrowserTitles\?\.\[surface\.id\] \?\? "Browser";/,
-  );
-  NodeAssert.match(
-    tabs,
-    /const browserProfiles = previewBridge \? browserDefaults\.profiles : \[\];/,
-  );
-  // The desktop preview stays first; the Environment browser only where the Environment offers it.
-  NodeAssert.equal(
-    chatView.match(
-      /browserAvailable=\{isPreviewSupportedInRuntime\(\) \|\| environmentBrowser\.available\}/g,
-    )?.length,
-    2,
-  );
-  NodeAssert.equal(
-    chatView.match(
-      /environmentBrowser\.available \? environmentBrowser\.open : \(\) => createBrowserSurface\(\)/g,
-    )?.length,
-    2,
-  );
-  NodeAssert.equal(
-    chatView.match(/environmentBrowserTitles=\{environmentBrowser\.titles\}/g)?.length,
-    2,
-  );
-  // Every Environment browser tab of the thread keeps its frame beside the surface in view: the
-  // panel's content is upstream's surface in view wrapped once, and both panels show it.
-  NodeAssert.match(chatView, /const rightPanelActiveContent = activeThreadRef \? \(/);
-  NodeAssert.match(
-    chatView,
-    /const rightPanelContent = activeThreadRef \? \(\n\s+<LazurioRightPanelSurfaces\n\s+threadRef=\{activeThreadRef\}\n\s+surfaces=\{renderedRightPanelSurfaces\}\n\s+activeSurfaceId=\{renderedRightPanelSurface\?\.id \?\? null\}\n\s+>\n\s+\{rightPanelActiveContent\}/,
-  );
-  NodeAssert.equal(chatView.match(/\{rightPanelContent\}/g)?.length, 2);
-  NodeAssert.doesNotMatch(chatView, /kind === "environment-browser"/);
-  // Mounted while the panel shows the thread, one per thread and tab; a hidden one keeps its size
-  // (visibility, never display: the view sizes its remote window to its page area, F39 point 3).
-  NodeAssert.match(component, /if \(isPreviewSupportedInRuntime\(\)\) return props\.children;/);
-  NodeAssert.match(component, /props\.surfaces\.filter\(isEnvironmentBrowserSurface\)\.map\(/);
-  NodeAssert.match(component, /key=\{`\$\{threadKey\}:\$\{surface\.id\}`\}/);
-  NodeAssert.match(component, /!shown && "invisible"/);
-  NodeAssert.match(component, /inert=\{!shown\}/);
-  NodeAssert.doesNotMatch(component, /"hidden"|\bhidden=|display: ?"?none/);
-  NodeAssert.match(
-    component,
-    /threadRef\.environmentId === primaryEnvironmentId &&\n\s+!isPreviewSupportedInRuntime\(\)/,
-  );
-  // The view only from this origin's /.lazurio/browser.json, and only at an https: URL.
-  NodeAssert.match(view, /const BROWSER_VIEW_PATH = "\/\.lazurio\/browser\.json";/);
-  NodeAssert.match(view, /new URL\(BROWSER_VIEW_PATH, origin\)/);
-  NodeAssert.match(
-    view,
-    /if \(response\.status !== 200 \|\| new URL\(response\.url\)\.origin !== url\.origin\)/,
-  );
-  NodeAssert.match(view, /credentials: "same-origin"/);
-  NodeAssert.match(view, /redirect: "error"/);
-  NodeAssert.match(view, /cache: "no-store"/);
-  NodeAssert.match(view, /if \(viewUrl\.protocol !== "https:"\) return null;/);
-  // allow-same-origin confines the framed view only while it is on another origin.
-  NodeAssert.match(view, /if \(viewUrl\.origin === pageOrigin\) return null;/);
-  NodeAssert.match(
-    component,
-    /fetchEnvironmentBrowser\(agentBrowserSessionName\(threadId\), window\.location\.origin,/,
-  );
-  // The frame, and the way out of it when the gateway's sign-in cannot render in a frame.
-  NodeAssert.match(component, /allow="clipboard-read; clipboard-write; fullscreen"/);
-  NodeAssert.match(
-    component,
-    /sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"/,
-  );
-  NodeAssert.match(component, /<a href=\{view\} target="_blank" rel="noopener" \/>/);
-  // Only the panel's own frame, on its view's origin, is heard (unit tests in src/lazurio).
-  NodeAssert.match(
-    component,
-    /readEnvironmentBrowserMessage\(\n\s+event,\n\s+frame\.current\?\.contentWindow \?\? null,/,
-  );
-  NodeAssert.match(view, /if \(frame === null \|\| event\.source !== frame\) return null;/);
-  NodeAssert.match(view, /if \(origin === null \|\| event\.origin !== origin\) return null;/);
-  // The thread's own view is asked for each time and never stored; the panel keeps only a
-  // page's tab (rightPanelStore.ts), whose address names one remote tab and carries nothing else.
-  for (const source of [view, component]) {
-    NodeAssert.doesNotMatch(source, /localStorage|sessionStorage|persist\(|ClientSettings/);
-  }
-  for (const file of environmentBrowserOverlay) {
-    NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
-  }
-  NodeAssert.match(
-    ci,
-    /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio\n/,
-  );
-});
-
-// Plan DEV-6646: the right panel opens on the Environment browser when the thread's agent starts
-// to use it, and a plain click on a link in the chat to one of its remote tabs opens that tab
-// there. The seams are one hook call in ChatView.tsx, openProactive's surface type and the chat's
-// timeline rows, which upstream marks with data-timeline-root; a rebuild that loses one fails here.
-NodeTest.test("the chat opens the Environment browser in the panel through its seams", async () => {
-  const [chatView, store, timeline, component, host] = await Promise.all(
-    [
-      "apps/web/src/components/ChatView.tsx",
       "apps/web/src/rightPanelStore.ts",
       "apps/web/src/components/chat/MessagesTimeline.tsx",
       "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+      "apps/web/src/lazurio/threadTabs.ts",
       "apps/server/src/lazurio/environmentBrowser.ts",
+      "apps/server/src/lazurio/threadTabs.ts",
     ].map(read),
-  );
-  // Every activity of the thread in view, live only once its history has loaded, and never where
-  // the panel is a sheet over the chat.
-  NodeAssert.equal(chatView.match(/useLazurioEnvironmentBrowserFromChat\(/g)?.length, 1);
-  NodeAssert.match(
-    chatView,
-    /useLazurioEnvironmentBrowserFromChat\(\{\n\s+threadRef: activeThreadRef,\n\s+activities: threadActivities,\n\s+live: threadSyncPhase === null,\n\s+inlinePanel: !shouldUseRightPanelSheet,\n\s+\}\);/,
   );
   // The app opens it, not the person: an automatic update, refused once the person chose.
   NodeAssert.match(
@@ -611,26 +577,65 @@ NodeTest.test("the chat opens the Environment browser in the panel through its s
     /openProactive: \([^]*?\{ kind: "diff" \| "pull-request" \| "pull-requests" \| "environment-browser" \}/,
   );
   NodeAssert.match(
-    component,
-    /useRightPanelStore\.getState\(\)\.openProactive\(threadRef, OWN_TAB, revision\);/,
+    threadTabs,
+    /\.openProactive\(threadRef, \{ id: tabSurfaceId\(tabId\), kind: "environment-browser" \}, revision\);/,
   );
-  // Links in the chat's timeline rows, before the chat's own handlers, on a plain click only, to
-  // the view the Environment named.
+  NodeAssert.match(threadTabs, /if \(!sync\.inlinePanel\) return;/);
+  // Links in the chat's timeline rows, before the chat's own handlers, on a plain click only.
   NodeAssert.match(timeline, /data-timeline-root="true"/);
   NodeAssert.match(component, /const CHAT_ROW = "\[data-timeline-root\]";/);
   NodeAssert.match(component, /document\.addEventListener\("click", openInPanel, true\);/);
   NodeAssert.match(component, /if \(!isPlainPrimaryClick\(event\)/);
   NodeAssert.match(
-    component,
-    /environmentBrowserLink\(link\.href, window\.location\.origin, viewOrigin\)/,
+    threadTabs,
+    /environmentBrowserLink\(href, window\.location\.origin, snapshot\.viewOrigin\)/,
   );
-  // The host says the tab is visible once preview_open revealed it, unless it asked for
-  // background work.
+  // The host records every tab preview_open opens or adopts in the thread's strip, revealed unless
+  // it asked for background work; the service records a new binding of the thread's session too.
   NodeAssert.match(
     host,
     /const reveals = \(input: PreviewAutomationOpenInput\) => \(input\.open \?\? input\.show\) !== false;/,
   );
   NodeAssert.match(host, /yield\* adopt\(request\.threadId, targetId, reveals\(input\)\);/);
+  NodeAssert.match(host, /Effect\.andThen\(threadTabs\.record\(threadId, targetId, revealed\)\)/);
+  NodeAssert.match(
+    tabsService,
+    /if \(threadId !== null\) await record\(threadId, binding\.targetId, true\);/,
+  );
+});
+
+// Task 501: a thread's tabs live in its holder file, which the view's hub reads, and the web reaches
+// them through an overlay route with its own prefix, authenticated like T3 Code's routes, with
+// upstream's preview scopes, its event stream never compressed or buffered.
+NodeTest.test("a thread's tabs live in its holder file behind an overlay route", async () => {
+  const [route, service, holders, overlay] = await Promise.all(
+    [
+      "apps/server/src/lazurio/threadTabsRoute.ts",
+      "apps/server/src/lazurio/threadTabs.ts",
+      "apps/server/src/lazurio/holders.ts",
+      "apps/server/src/lazurio/overlay.ts",
+    ].map(read),
+  );
+  NodeAssert.match(route, /export const THREAD_TABS_ROUTE = "\/api\/lazurio\/thread-tabs";/);
+  NodeAssert.match(route, /serverAuth\s*\.authenticateHttpRequest\(request\)/);
+  NodeAssert.doesNotMatch(route, /authenticateWebSocketUpgrade|authenticateMediaRequest/);
+  NodeAssert.match(route, /read: requiredScopeForRpcMethod\(WS_METHODS\.previewList\),/);
+  NodeAssert.match(route, /hold: requiredScopeForRpcMethod\(WS_METHODS\.previewOpen\),/);
+  NodeAssert.match(route, /release: requiredScopeForRpcMethod\(WS_METHODS\.previewClose\),/);
+  NodeAssert.match(
+    route,
+    /headers: \{ "cache-control": "no-cache, no-transform", "x-accel-buffering": "no" \}/,
+  );
+  // The holder file is the Platform's, copied with its source named and its vectors tested.
+  NodeAssert.match(holders, /src\/browser\/people\/holds\.ts` at 49d54c9/);
+  NodeAssert.match(service, /export const MAX_THREAD_TABS = 128;/);
+  NodeAssert.match(service, /holderFileText\(/);
+  // T3 Code never closes a tab of the browser: the service has no browser connection at all.
+  NodeAssert.doesNotMatch(
+    service,
+    /connectEnvironmentBrowser|Target\.closeTarget|agent-browser.*close/,
+  );
+  NodeAssert.match(overlay, /Layer\.mergeAll\(EnvironmentBrowser\.layer, ThreadTabsRoute\.layer\)/);
 });
 
 // Plan DEV-6646: T3's browser tools drive the Environment browser. The host is server overlay
@@ -651,12 +656,11 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
         "apps/server/src/lazurio/environmentBrowserPage.ts",
       ].map(read),
     );
-  // The host shares the routes' one preview broker.
+  // The overlay's one layer shares the routes' one preview broker.
   const routes = server.slice(server.indexOf("export const makeRoutesLayer"));
-  const seam = routes.indexOf(
-    "LazurioEnvironmentBrowser.layer.pipe(Layer.provide(ProcessRunner.layer)),",
-  );
-  NodeAssert.ok(seam > 0, "makeRoutesLayer must start the Environment browser host");
+  const seam = routes.indexOf("LazurioOverlay.layer.pipe(Layer.provide(ProcessRunner.layer)),");
+  NodeAssert.ok(seam > 0, "makeRoutesLayer must start the server overlay");
+  NodeAssert.equal(server.match(/LazurioOverlay/g)?.length, 2);
   NodeAssert.ok(seam < routes.indexOf("Layer.provide(PreviewAutomationBroker.layer)"));
   // A preferred host takes new work before any desktop; only an explicit tab's owner outranks it.
   NodeAssert.match(
@@ -738,23 +742,22 @@ NodeTest.test("the server and the web read a Lazurio browser view's address alik
   }
 });
 
-// The seams are lines in upstream files: preview_open's result schema, the activity projection
-// that keeps preview_open's tab for clients (Lazurio/t3code#48), and the panel store; a rebuild
-// on a new upstream tag that loses one fails here.
+// The seams are lines in upstream files: preview_open's result schema and the panel store. The
+// activity projection is upstream's again: the server tells the web of the tabs itself (task 501).
 NodeTest.test("another Environment's tabs and agent-opened tabs reach the panel", async () => {
-  const [host, tools, projection, component, store] = await Promise.all(
+  const [host, tools, component, threadTabs] = await Promise.all(
     [
       "apps/server/src/lazurio/environmentBrowser.ts",
       "apps/server/src/mcp/toolkits/preview/tools.ts",
-      "apps/server/src/orchestration/ActivityPayloadProjection.ts",
       "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
-      "apps/web/src/rightPanelStore.ts",
+      "apps/web/src/lazurio/threadTabs.ts",
     ].map(read),
   );
-  // Another Environment's view is answered before this browser, the CLI or a tab is touched.
+  // Another Environment's view is answered before this browser, the CLI or a tab is touched, and
+  // goes to the thread's devices as a live event, never into a holder file.
   const open = host.slice(host.indexOf("const open = (request: PreviewAutomationRequest"));
   const answer = open.indexOf(
-    "if (foreign !== undefined) return yield* foreignOpen(foreign, reveals(input));",
+    "return yield* foreignOpen(request.threadId, foreign, reveals(input));",
   );
   NodeAssert.ok(answer > 0, "preview_open must answer another Environment's view");
   for (const step of ["yield* liveTab(", "yield* newWindow(", "yield* threadWindow("]) {
@@ -762,9 +765,16 @@ NodeTest.test("another Environment's tabs and agent-opened tabs reach the panel"
   }
   NodeAssert.match(
     host,
+    /threadTabs\.foreign\(threadId, \{ tabId: view\.targetId, view: view\.view \}, visible\)/,
+  );
+  NodeAssert.match(
+    host,
     /return view !== null && view\.origin !== ownViewOrigin \? view : undefined;/,
   );
-  NodeAssert.match(host, /ownViewOrigin = viewOriginOf\(declaration\.value\.link\);/);
+  NodeAssert.match(
+    host,
+    /ownViewOrigin = viewOriginOf\(declaration\.value\.link\);\n\s+yield\* threadTabs\.declare\(ownViewOrigin\);/,
+  );
   // Any other operation on such a tab fails with the host's advice, which reaches the agent.
   NodeAssert.match(host, /if \(requested !== undefined\) yield\* notForeign\(requested\);/);
   NodeAssert.match(
@@ -776,62 +786,48 @@ NodeTest.test("another Environment's tabs and agent-opened tabs reach the panel"
     tools,
     /success: Schema\.Struct\(\{\n\s+\.\.\.PreviewAutomationStatus\.fields,\n\s+view: Schema\.optional\(Schema\.String\),\n\s+message: Schema\.optional\(Schema\.String\),\n\s+\}\),/,
   );
-  // Clients get the tab preview_open answered with, though its result is cut to one line.
-  NodeAssert.match(
-    projection,
-    /name\.endsWith\("preview_open"\) &&[^]*?previewTab: \{\n\s+tabId: page\.tabId,\n\s+visible: page\.visible,/,
+  // The activity projection is upstream's, byte for byte.
+  const upstreamSha = /UPSTREAM_SHA: ([0-9a-f]{40})/.exec(ci)?.[1];
+  NodeAssert.ok(upstreamSha);
+  NodeAssert.doesNotThrow(() =>
+    NodeChildProcess.execFileSync("git", [
+      "diff",
+      "--quiet",
+      upstreamSha,
+      "--",
+      "apps/server/src/orchestration/ActivityPayloadProjection.ts",
+    ]),
   );
+  // The web keeps of another Environment's tab only its id and view, and frames T3 by the origin
+  // its request names (LazurioPlatform).
   NodeAssert.match(
-    projection,
-    /return \{ \.\.\.previewTab, toolIcon: \{ _tag: "website", pageUrl: url\.href \} \};/,
+    threadTabs,
+    /id: tab\.id,\n\s+kind: "environment-browser",\n\s+view: tab\.view,/,
   );
-  // The web shows that tab, takes links to other Environments' tabs, and keeps of every such tab
-  // only its id and view.
-  NodeAssert.match(
-    component,
-    /showOpenedTab\(threadRef, opened, opened\.visible && inlinePanel, inView\);/,
-  );
-  NodeAssert.match(
-    component,
-    /environmentBrowserLink\(link\.href, window\.location\.origin, viewOrigin\) \?\?\n\s+foreignTabAt\(link\.href\);/,
-  );
-  NodeAssert.match(component, /\{ id: tab\.id, kind: "environment-browser", view: tab\.view \}/);
-  NodeAssert.match(
-    store,
-    /openEnvironmentBrowserTab: \(ref, view, automatic = false\) =>\n\s+set\(\(state\) => \{\n\s+const tab = environmentBrowserTab\(view\);/,
-  );
-  // Another Environment's view frames T3 by the origin its request names (LazurioPlatform).
   NodeAssert.equal(component.match(/<iframe\n/g)?.length, 1);
   NodeAssert.match(component, /\n\s+referrerPolicy="origin"\n/);
 });
 
-NodeTest.test("the panel's + Browser adds a new remote tab through its seams", async () => {
-  const [chatView, component, store] = await Promise.all(
-    [
-      "apps/web/src/components/ChatView.tsx",
-      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
-      "apps/web/src/rightPanelStore.ts",
-    ].map(read),
+// Task 501: "+" and the empty panel open Nová karta where the Environment's shell defines its
+// element; elsewhere upstream's menu and empty state stay. The seams are RightPanelTabs's hook call
+// and its two conditionals.
+NodeTest.test('"+" and the empty panel open Nová karta through their seams', async () => {
+  const [tabs, newTab] = await Promise.all(
+    ["apps/web/src/components/RightPanelTabs.tsx", "apps/web/src/lazurio/LazurioNewTab.tsx"].map(
+      read,
+    ),
   );
-  // Upstream's + Browser reaches the overlay where the Environment offers its browser.
   NodeAssert.match(
-    chatView,
-    /onAddBrowser=\{\n\s+environmentBrowser\.available \? environmentBrowser\.open : \(\) => createBrowserSurface\(\)\n\s+\}/,
+    tabs,
+    /\{props\.surfaces\.length > 0 && lazurio\.newTab \? <Lazurio\.NewTabButton \/> : null\}\n\s+\{props\.surfaces\.length > 0 && !lazurio\.newTab \? \(\n\s+<Menu open=\{addSurfaceMenuOpen\}/,
   );
-  // The thread's own tab first, then the view's bare origin, where the view opens a remote tab.
   NodeAssert.match(
-    component,
-    /store\.openEnvironmentBrowserNewTab\(threadRef, `\$\{viewOrigin\}\/`\);/,
+    tabs,
+    /\{props\.activeSurfaceId === null && lazurio\.newTab \? \(\n\s+<Lazurio\.NewTab \/>\n\s+\) : props\.activeSurfaceId === null \? \(\n\s+<RightPanelEmptyState/,
   );
-  // The new tab keeps the remote tab its view tells, under the same surface and frame.
-  NodeAssert.match(
-    component,
-    /\.settleEnvironmentBrowserTab\(threadRef, surface\.id, message\.tab\.view\);/,
-  );
-  NodeAssert.match(component, /const \[mountedView\] = useState\(view\);/);
-  NodeAssert.match(
-    store,
-    /openEnvironmentBrowserNewTab: \(ref, view\) =>\n\s+set\(\(state\) => \{\n\s+const newTab = environmentBrowserNewTabView\(view\);/,
-  );
-  NodeAssert.match(store, /settleEnvironmentBrowserTab: \(ref, surfaceId, view\) =>/);
+  // The element by its name, its tools upstream's own actions without Browser, its choice in place.
+  NodeAssert.match(newTab, /export const NEW_TAB_ELEMENT = "lazurio-new-tab";/);
+  NodeAssert.match(newTab, /action\.available && action\.label !== "Browser"/);
+  NodeAssert.match(newTab, /customElements\s*\.whenDefined\(NEW_TAB_ELEMENT\)/);
+  NodeAssert.doesNotMatch(newTab, /focus-address|focusAddress|\blang:/);
 });
