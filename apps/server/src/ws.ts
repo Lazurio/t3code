@@ -2091,6 +2091,10 @@ const makeWsRpcLayer = (
             environment,
             auth,
             cwd: config.cwd,
+            ...(config.lazurioFolder === undefined ? {} : { lazurioFolder: config.lazurioFolder }),
+            ...(config.lazurioToolsUrl === undefined
+              ? {}
+              : { lazurioToolsUrl: config.lazurioToolsUrl }),
             keybindingsConfigPath: config.keybindingsConfigPath,
             keybindings: keybindingsConfig.keybindings,
             issues: keybindingsConfig.issues,

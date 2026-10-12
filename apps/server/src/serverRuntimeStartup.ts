@@ -33,6 +33,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as ServerConfig from "./config.ts";
+import { ensureManagedFolderProject } from "./lazurio/managedFolderStartup.ts";
 import { flushCompileCache } from "./compileCache.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -205,7 +206,7 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
   let bootstrapProjectCreated = false;
   let bootstrapThreadCreated = false;
 
-  if (serverConfig.autoBootstrapProjectFromCwd) {
+  if (serverConfig.autoBootstrapProjectFromCwd && serverConfig.lazurioFolder === undefined) {
     const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
     const defaultModelSelection =
       settings.defaultModelSelection ?? getAutoBootstrapThreadModelSelection();
@@ -972,11 +973,15 @@ export const make = (options?: StartupOptions) =>
       yield* Effect.logDebug("startup phase: syncing clean projects");
       yield* runStartupPhase("projects.auto-pull", syncAutoPullProjects);
 
+      const managedWelcome = yield* runStartupPhase(
+        "lazurio.project",
+        ensureManagedFolderProject.pipe(Effect.provideService(Crypto.Crypto, crypto)),
+      );
       const welcomeBase = yield* resolveWelcomeBase;
       const environment = yield* serverEnvironment.getDescriptor;
       yield* Effect.logDebug("startup phase: preparing welcome payload");
 
-      if (serverConfig.autoBootstrapProjectFromCwd) {
+      if (serverConfig.autoBootstrapProjectFromCwd && serverConfig.lazurioFolder === undefined) {
         yield* forkParked(
           runStartupPhase(
             "welcome.autobootstrap",
@@ -1054,7 +1059,11 @@ export const make = (options?: StartupOptions) =>
           payload: {
             environment,
             ...welcomeBase,
-            bootstrapStatus: serverConfig.autoBootstrapProjectFromCwd ? "pending" : "complete",
+            ...managedWelcome,
+            bootstrapStatus:
+              serverConfig.autoBootstrapProjectFromCwd && serverConfig.lazurioFolder === undefined
+                ? "pending"
+                : "complete",
           },
         }),
       );

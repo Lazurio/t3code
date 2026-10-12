@@ -54,6 +54,7 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
+import { ensureManagedFolderProject } from "../../lazurio/managedFolderStartup.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
@@ -63,13 +64,24 @@ const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(val
 function makeOrchestrationLayer(
   databasePath?: string,
   repositoryIdentityResolver?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"],
+  lazurioFolder?: string,
 ) {
   const persistence = databasePath
     ? makeSqlitePersistenceLive(databasePath)
     : SqlitePersistenceMemory;
-  const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-    prefix: "t3-orchestration-engine-test-",
-  });
+  const ServerConfigLayer = Layer.effect(
+    ServerConfig,
+    Effect.service(ServerConfig).pipe(
+      Effect.map((config) => ({
+        ...config,
+        ...(lazurioFolder === undefined ? {} : { lazurioFolder }),
+      })),
+    ),
+  ).pipe(
+    Layer.provide(
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-orchestration-engine-test-" }),
+    ),
+  );
   return Layer.mergeAll(
     OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
@@ -130,6 +142,127 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
+  it("adopts an existing Folder project on restart and retains other project history", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "managed-upgrade-"));
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    const folder = "/workspace/Lazurio";
+    const previous = await createOrchestrationSystem(databasePath);
+    try {
+      for (const [name, path] of [
+        ["folder", folder],
+        ["history", "/old/repository"],
+      ] as const) {
+        await previous.run(
+          previous.engine.dispatch({
+            type: "project.create",
+            commandId: CommandId.make(name),
+            projectId: ProjectId.make(name),
+            title: name,
+            workspaceRoot: path,
+            createdAt: now(),
+          }),
+        );
+      }
+    } finally {
+      await previous.dispose();
+    }
+    const runtime = ManagedRuntime.make(makeOrchestrationLayer(databasePath, undefined, folder));
+    try {
+      const adopted = await runtime.runPromise(ensureManagedFolderProject);
+      expect(adopted.bootstrapProjectId).toBe("folder");
+      expect(adopted.bootstrapProjectCreated).toBe(false);
+      await runtime.runPromise(ensureManagedFolderProject);
+      const snapshot = await runtime.runPromise(
+        Effect.service(ProjectionSnapshotQuery).pipe(
+          Effect.flatMap((query) => query.getSnapshot()),
+        ),
+      );
+      expect(snapshot.projects).toHaveLength(2);
+      expect(snapshot.projects.find((p) => p.id === "history")?.workspaceRoot).toBe(
+        "/old/repository",
+      );
+    } finally {
+      await runtime.dispose();
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("managed startup adopts or creates one native project and the engine enforces its entry context", async () => {
+    const folder = "/tmp/managed-lazurio";
+    const runtime = ManagedRuntime.make(makeOrchestrationLayer(undefined, undefined, folder));
+    try {
+      const ensure = ensureManagedFolderProject;
+      const first = await runtime.runPromise(ensure);
+      const second = await runtime.runPromise(ensure);
+      expect(first.bootstrapProjectCreated).toBe(true);
+      expect(second).toEqual({ ...first, bootstrapProjectCreated: false });
+      const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+      const snapshot = await runtime.runPromise(
+        Effect.service(ProjectionSnapshotQuery).pipe(
+          Effect.flatMap((query) => query.getSnapshot()),
+        ),
+      );
+      expect(snapshot.projects).toHaveLength(1);
+      expect(snapshot.projects[0]?.workspaceRoot).toBe(folder);
+      const id = first.bootstrapProjectId!;
+      const dispatch = (command: OrchestrationCommand) =>
+        runtime.runPromise(engine.dispatch(command));
+      await expect(
+        dispatch({
+          type: "project.create",
+          commandId: CommandId.make("other-root"),
+          projectId: ProjectId.make("other"),
+          title: "Other",
+          workspaceRoot: `${folder}/organizations/example`,
+          createdAt: now(),
+        }),
+      ).rejects.toThrow("Lazurio");
+      await expect(
+        dispatch({
+          type: "project.meta.update",
+          commandId: CommandId.make("retarget"),
+          projectId: id,
+          workspaceRoot: "/tmp/other",
+        }),
+      ).rejects.toThrow("retarget");
+      await expect(
+        dispatch({ type: "project.delete", commandId: CommandId.make("delete"), projectId: id }),
+      ).rejects.toThrow("cannot be removed");
+      const thread = {
+        type: "thread.create" as const,
+        commandId: CommandId.make("root-thread"),
+        threadId: ThreadId.make("root-thread"),
+        projectId: id,
+        title: "New thread",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" },
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        createdAt: now(),
+      };
+      await dispatch(thread);
+      await expect(
+        dispatch({
+          ...thread,
+          commandId: CommandId.make("worktree-thread"),
+          threadId: ThreadId.make("worktree-thread"),
+          worktreePath: "/tmp/worktree",
+        }),
+      ).rejects.toThrow("Lazurio");
+      await expect(
+        dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make("move-thread"),
+          threadId: thread.threadId,
+          worktreePath: "/tmp/worktree",
+        }),
+      ).rejects.toThrow("Lazurio");
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it.each(["running", "stopped"] as const)(
     "sends async answers with a %s session and rejects old duplicate replies",
     async (status) => {
@@ -473,6 +606,7 @@ describe("OrchestrationEngine", () => {
       Layer.provide(ThreadBackgroundLiveness.layer),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
+      Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-engine-managed-" })),
       Layer.provideMerge(NodeServices.layer),
     );
 
@@ -1628,6 +1762,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(RepositoryIdentityResolver.layer),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-engine-managed-" })),
         Layer.provide(NodeServices.layer),
       ),
     );
@@ -1777,6 +1912,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(RepositoryIdentityResolver.layer),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-engine-managed-" })),
         Layer.provide(NodeServices.layer),
       ),
     );

@@ -89,6 +89,9 @@ export class ServerConfig extends Context.Service<
     /** Canonical HTTPS browser origin of a reverse-proxied server (`T3CODE_EXTERNAL_ORIGIN`). */
     readonly externalOrigin?: URL | undefined;
     readonly cwd: string;
+    /** Opt-in hosted Folder entry contract, declared by Machines. */
+    readonly lazurioFolder?: string;
+    readonly lazurioToolsUrl?: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;
     readonly devUrl: URL | undefined;

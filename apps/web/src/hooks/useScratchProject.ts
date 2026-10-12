@@ -39,7 +39,8 @@ export function useScratchProject() {
   const scratchWorkspaceRootFor = useCallback(
     (environmentId: EnvironmentId | null): string | null => {
       const environment = environments.find((entry) => entry.environmentId === environmentId);
-      return environment?.connection.phase === "connected"
+      return environment?.connection.phase === "connected" &&
+        environment.serverConfig?.lazurioFolder === undefined
         ? (environment.serverConfig?.scratchWorkspaceRoot ?? null)
         : null;
     },

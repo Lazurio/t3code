@@ -11,6 +11,7 @@ import {
   ServerSettings,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
+import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
@@ -260,6 +261,16 @@ function translateLegacyProjectOverridePatch(
     ...rest,
     projectSettingsOverrides: Object.fromEntries(entries),
   } as ServerSettingsPatch;
+}
+
+export function reconcileRecommendedModel(
+  current: ServerSettings,
+  selection: NonNullable<ServerSettings["defaultModelSelection"]>,
+): ServerSettings {
+  return current.defaultModelSelection === null ||
+    Equal.equals(current.defaultModelSelection, current.lazurioManagedModelSelection)
+    ? { ...current, defaultModelSelection: selection, lazurioManagedModelSelection: selection }
+    : current;
 }
 
 export function applyServerSettingsPatch(

@@ -4716,7 +4716,11 @@ export default function Sidebar() {
                   </ComboboxPopup>
                 </Combobox>
               }
-              onNewProject={openAddProjectCommandPalette}
+              onNewProject={
+                [...serverConfigs.values()].some((config) => config.lazurioFolder === undefined)
+                  ? openAddProjectCommandPalette
+                  : undefined
+              }
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
