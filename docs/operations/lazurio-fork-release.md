@@ -467,12 +467,16 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   `rel=noopener`) na tutéž URL: přihlašovací stránka brány se po vypršení
   přihlášení v rámu nevykreslí.
 - **Archivace a smazání.** Archivace i smazání vlákna smaže jeho soubor
-  držitele (i nečitelný) a démonovi sezení agent-browser vlákna pošle SIGTERM:
-  jen živému procesu z `<socket dir>/t3-<id>.pid`, jehož `/proc/<pid>/cmdline`
-  je agent-browser, nikdy znovu použitému pid. Démon připojeného prohlížeče se
-  odpojí, žádnou záložku nezavře a smaže svůj `.pid`, takže vazba pro hub
-  přestane počítat; `agent-browser close` se nevolá, protože by démona nejdřív
-  spustil. T3 nikdy nezavírá záložku sám: záložka, kterou drží Apps nebo jiné
+  držitele (i nečitelný) a démona sezení agent-browser vlákna požádá o
+  ukončení na jeho vlastním socketu `<socket dir>/t3-<id>.sock`
+  (`__agent_browser_internal_shutdown`, které posílá i CLI agent-browseru před
+  restartem démona). Žádnému procesu nepošle signál podle pid, takže zastaralý
+  `.pid`, jehož číslo má teď jiný proces nebo démon jiného sezení, nic
+  nezastaví (LazurioPlatform#348). Když na socketu nikdo neposlouchá, démon
+  neběží. Démon připojeného prohlížeče se odpojí, žádnou záložku nezavře a
+  smaže svůj `.pid`, takže vazba pro hub přestane počítat. Příkaz
+  `agent-browser close` se nevolá, protože by démona nejdřív spustil.
+  T3 nikdy nezavírá záložku sám: záložka, kterou drží Apps nebo jiné
   vlákno nebo ji někdo sleduje, žije dál, jiná skončí po 8 s milosti hubu.
   Obnovení z archivu nic nevrátí. Podržení a archivace jdou jednou frontou
   zápisů a podržení se těsně před zápisem znovu ujistí, že vlákno žije a není

@@ -17,12 +17,14 @@
  * parseHolderRecords, replaceOwnerFile, processAlive and `watchDirectories` (the Platform's
  * `watchHolds`). holders.test.ts runs the Platform's vectors, so a drift between the copies fails
  * there. Added here: the hub's rule for a daemon that runs (`daemonWorking`, from `readHolds`),
- * the bindings of agent-browser's sessions, and the stop of a thread's daemon.
+ * the bindings of agent-browser's sessions, and the stop of a thread's daemon (the Platform's
+ * `stopSessionDaemon`, over the session's socket).
  */
 
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 
 /** A strip's name is a file name: agent-browser's session alphabet, as T3
@@ -355,43 +357,105 @@ export async function readSessionBindings(
   return bindings;
 }
 
-/** What the daemon stop needs of the host: overridable in tests (a fake process table). */
+/** What a session's daemon answered on its socket: nothing listens there (`absent`), a reply
+ * line, or no reply in time. */
+export type DaemonAnswer =
+  | Readonly<{ kind: "absent" }>
+  | Readonly<{ kind: "reply"; line: string }>
+  | Readonly<{ kind: "no-answer" }>;
+
+/** What the daemon stop and the bindings need of the host: overridable in tests. */
 export type DaemonSeams = Readonly<{
   alive?: (pid: number) => boolean;
-  /** `/proc/<pid>/cmdline`, NUL-separated. */
-  commandLine?: (pid: number) => Promise<string>;
-  terminate?: (pid: number) => void;
   read?: (path: string) => Promise<string>;
+  /** Sends one command line to a socket and answers the reply line. */
+  ask?: (socketPath: string, line: string) => Promise<DaemonAnswer>;
+  /** Whether a file is still there, polled while the daemon exits. */
+  exists?: (path: string) => Promise<boolean>;
+  exitWithinMs?: number;
 }>;
 
-/** The daemon is agent-browser's own executable, re-run with AGENT_BROWSER_DAEMON=1 and no
- * arguments (agent-browser `cli/src/connection.rs`), so its command line names agent-browser. */
-const namesAgentBrowser = (commandLine: string) =>
-  /^agent-browser(?:[-_.][A-Za-z0-9_.-]*)?$/.test(
-    NodePath.basename(commandLine.split("\0")[0] ?? ""),
+/** agent-browser's own graceful shutdown of a session's daemon, as its CLI sends it before
+ * restarting a daemon (`request_graceful_daemon_shutdown` in agent-browser
+ * `cli/src/connection.rs`): the daemon runs its close, which only disconnects from a browser it
+ * did not launch, answers and exits, removing its `.pid`. The Platform's
+ * `agentBrowserShutdownAction`. */
+export const agentBrowserShutdownAction = "__agent_browser_internal_shutdown";
+
+const daemonAnswerMs = 5_000;
+const maxDaemonReplyBytes = 64 * 1024;
+
+/** One command line to a Unix socket and its reply line. Nothing listening (no socket, a stale
+ * one) is `absent`; no reply within 5 s is `no-answer`. The Platform's `askDaemonSocket`. */
+export function askDaemonSocket(socketPath: string, line: string): Promise<DaemonAnswer> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let connected = false;
+    let buffer = "";
+    const socket = NodeNet.createConnection({ path: socketPath });
+    const done = (answer: DaemonAnswer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(answer);
+    };
+    const timer = setTimeout(() => done({ kind: "no-answer" }), daemonAnswerMs);
+    socket.on("connect", () => {
+      connected = true;
+      socket.write(line);
+    });
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      const end = buffer.indexOf("\n");
+      if (end >= 0) done({ kind: "reply", line: buffer.slice(0, end) });
+      else if (buffer.length > maxDaemonReplyBytes) done({ kind: "no-answer" });
+    });
+    socket.on("end", () =>
+      done(buffer === "" ? { kind: "no-answer" } : { kind: "reply", line: buffer }),
+    );
+    socket.on("error", () => done(connected ? { kind: "no-answer" } : { kind: "absent" }));
+  });
+}
+
+const fileExists = (path: string) =>
+  NodeFSP.access(path).then(
+    () => true,
+    () => false,
   );
 
 /**
- * Stops a session's agent-browser daemon: SIGTERM to the process its `.pid` names, only when
- * that is a well-formed id of a live process whose command line is agent-browser's. On SIGTERM
- * the daemon of an attached browser disconnects without closing a tab and removes its `.pid`, so
- * its binding no longer counts for the hub. Never `agent-browser close`, which first spawns a
- * daemon when none runs. Resolves what happened; a failed signal is thrown.
+ * Stops a session's agent-browser daemon: asks it on that session's own socket
+ * (`<socket dir>/<session>.sock`) to shut down, then waits up to 5 s for its `.pid` to go. The
+ * daemon of an attached browser disconnects without closing a tab, so its binding no longer
+ * counts for the hub. Nothing is signalled by a process id: a stale `.pid` whose number another
+ * process now has, even another session's daemon, is never touched (LazurioPlatform#348). Never
+ * `agent-browser close`, which first starts a daemon when none runs. `none`: nothing listens on
+ * the session's socket; `failed`: the daemon did not answer or refused. The Platform's
+ * `stopSessionDaemon`.
  */
 export async function stopSessionDaemon(
   socketDirectory: string,
   session: string,
   seams: DaemonSeams = {},
-): Promise<"stopped" | "none" | "not-agent-browser"> {
+): Promise<"stopped" | "none" | "failed"> {
   if (!isStrip(session)) return "none";
-  const pidText = await fileText(NodePath.join(socketDirectory, `${session}.pid`), seams.read);
-  const pid = pidText === null ? null : daemonProcessId(pidText);
-  if (pid === null || !(seams.alive ?? processAlive)(pid)) return "none";
-  const commandLine = await (
-    seams.commandLine ?? ((id) => NodeFSP.readFile(`/proc/${id}/cmdline`, "utf8"))
-  )(pid).catch(() => "");
-  if (!namesAgentBrowser(commandLine)) return "not-agent-browser";
-  (seams.terminate ?? ((id) => process.kill(id, "SIGTERM")))(pid);
+  const answer = await (seams.ask ?? askDaemonSocket)(
+    NodePath.join(socketDirectory, `${session}.sock`),
+    `${JSON.stringify({ id: "lazurio-browser-done", action: agentBrowserShutdownAction })}\n`,
+  );
+  if (answer.kind === "absent") return "none";
+  if (answer.kind === "no-answer") return "failed";
+  let success = false;
+  try {
+    success = (JSON.parse(answer.line) as { success?: unknown } | null)?.success === true;
+  } catch {}
+  if (!success) return "failed";
+  const exists = seams.exists ?? fileExists;
+  const pid = NodePath.join(socketDirectory, `${session}.pid`);
+  const deadline = Date.now() + (seams.exitWithinMs ?? daemonAnswerMs);
+  while ((await exists(pid)) && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 100));
   return "stopped";
 }
 

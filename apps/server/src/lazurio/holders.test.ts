@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - the holder files are real files in a temporary runtime directory, and the watch is the operating system's.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
@@ -408,53 +410,62 @@ describe("T3 Code's holder files", () => {
 });
 
 describe("stopping a thread's agent-browser daemon", () => {
-  const setup = async (pid: string | null) => {
+  // LazurioPlatform#348: the stop goes to the session's own socket and never signals a process
+  // id, so a stale .pid whose number another session's daemon (or any process named
+  // agent-browser) has now is never touched.
+  it("asks only the session's own daemon, on its socket, and signals no process", async () => {
     const sockets = await temporary("holders-daemon-");
-    if (pid !== null) await NodeFSP.writeFile(NodePath.join(sockets, "t3-a.pid"), pid);
-    const terminated: number[] = [];
-    return { sockets, terminated, terminate: (target: number) => terminated.push(target) };
-  };
-
-  it("sends SIGTERM only to a live agent-browser process", async () => {
-    const { sockets, terminated, terminate } = await setup("4242\n");
-    const commandLine = async () => "/home/u/.local/bin/agent-browser-linux-x64\0";
-    expect(
-      await stopSessionDaemon(sockets, "t3-a", { alive: () => true, commandLine, terminate }),
-    ).toBe("stopped");
-    expect(terminated).toEqual([4242]);
+    const heard: Record<string, string[]> = { "t3-a": [], "t3-b": [] };
+    const servers: NodeNet.Server[] = [];
+    const daemon = (session: "t3-a" | "t3-b") =>
+      new Promise<void>((resolve) => {
+        const server = NodeNet.createServer((socket) => {
+          socket.on("data", async (chunk) => {
+            const line = chunk.toString("utf8").trim();
+            heard[session]?.push(line);
+            const { id } = JSON.parse(line) as { id: string };
+            socket.write(`${JSON.stringify({ id, success: true, data: { closed: true } })}\n`);
+            await NodeFSP.rm(NodePath.join(sockets, `${session}.pid`), { force: true });
+          });
+        });
+        servers.push(server);
+        server.listen(NodePath.join(sockets, `${session}.sock`), () => resolve());
+      });
+    // A live process named agent-browser whose id t3-a's stale .pid names.
+    const named = NodePath.join(sockets, "agent-browser");
+    await NodeFSP.symlink("/bin/sleep", named);
+    const sleeper = NodeChildProcess.spawn(named, ["30"], { stdio: "ignore" });
+    try {
+      expect(await stopSessionDaemon(sockets, "t3-a")).toBe("none");
+      await NodeFSP.writeFile(NodePath.join(sockets, "t3-a.pid"), `${sleeper.pid}\n`);
+      await daemon("t3-b");
+      expect(await stopSessionDaemon(sockets, "t3-a")).toBe("none");
+      expect(heard["t3-b"]).toEqual([]);
+      expect(sleeper.exitCode).toBeNull();
+      expect(sleeper.signalCode).toBeNull();
+      // A socket file nobody listens on is no daemon either.
+      await NodeFSP.writeFile(NodePath.join(sockets, "t3-c.sock"), "");
+      expect(await stopSessionDaemon(sockets, "t3-c")).toBe("none");
+      // t3-a's own daemon: one shutdown line, then its .pid is gone.
+      await daemon("t3-a");
+      expect(await stopSessionDaemon(sockets, "t3-a")).toBe("stopped");
+      expect(heard["t3-a"]?.map((line) => JSON.parse(line))).toEqual([
+        { id: "lazurio-browser-done", action: "__agent_browser_internal_shutdown" },
+      ]);
+      await expect(NodeFSP.access(NodePath.join(sockets, "t3-a.pid"))).rejects.toThrow();
+      expect(sleeper.signalCode).toBeNull();
+    } finally {
+      sleeper.kill();
+      for (const server of servers) server.close();
+    }
   });
 
-  it("never signals a reused pid, an ended one or an unclear one", async () => {
-    const reused = await setup("4242");
-    expect(
-      await stopSessionDaemon(reused.sockets, "t3-a", {
-        alive: () => true,
-        commandLine: async () => "/usr/bin/python3\0server.py\0",
-        terminate: reused.terminate,
-      }),
-    ).toBe("not-agent-browser");
-    expect(reused.terminated).toEqual([]);
-    for (const [pid, alive] of [
-      ["4242", false],
-      ["1", true],
-      ["", true],
-      ["x", true],
-    ] as const) {
-      const fixture = await setup(pid);
-      expect(
-        await stopSessionDaemon(fixture.sockets, "t3-a", {
-          alive: () => alive,
-          commandLine: async () => "agent-browser\0",
-          terminate: fixture.terminate,
-        }),
-      ).toBe("none");
-      expect(fixture.terminated).toEqual([]);
-    }
-    // No .pid: no daemon runs.
-    const none = await setup(null);
-    expect(await stopSessionDaemon(none.sockets, "t3-a", { terminate: none.terminate })).toBe(
-      "none",
-    );
-    expect(none.terminated).toEqual([]);
+  it("a daemon that refuses or does not answer is a failure that changes nothing", async () => {
+    const sockets = await temporary("holders-daemon-");
+    const refusing = { ask: async () => ({ kind: "reply", line: '{"success":false}' }) as const };
+    expect(await stopSessionDaemon(sockets, "t3-a", refusing)).toBe("failed");
+    const silent = { ask: async () => ({ kind: "no-answer" }) as const };
+    expect(await stopSessionDaemon(sockets, "t3-a", silent)).toBe("failed");
+    expect(await stopSessionDaemon(sockets, "../t3-a")).toBe("none");
   });
 });
