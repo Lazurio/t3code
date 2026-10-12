@@ -460,12 +460,19 @@ describe("stopping a thread's agent-browser daemon", () => {
     }
   });
 
-  it("a daemon that refuses or does not answer is a failure that changes nothing", async () => {
+  it("is stopped only once the .pid is gone: a refusal changes nothing, a lost answer or a lingering daemon is unconfirmed", async () => {
     const sockets = await temporary("holders-daemon-");
     const refusing = { ask: async () => ({ kind: "reply", line: '{"success":false}' }) as const };
-    expect(await stopSessionDaemon(sockets, "t3-a", refusing)).toBe("failed");
+    expect(await stopSessionDaemon(sockets, "t3-a", refusing)).toBe("refused");
     const silent = { ask: async () => ({ kind: "no-answer" }) as const };
-    expect(await stopSessionDaemon(sockets, "t3-a", silent)).toBe("failed");
+    expect(await stopSessionDaemon(sockets, "t3-a", silent)).toBe("unconfirmed");
+    // Acknowledged, but the daemon has not exited: it may still hold the tab.
+    await NodeFSP.writeFile(NodePath.join(sockets, "t3-a.pid"), "4242\n");
+    const lingering = {
+      ask: async () => ({ kind: "reply", line: '{"success":true}' }) as const,
+      exitWithinMs: 150,
+    };
+    expect(await stopSessionDaemon(sockets, "t3-a", lingering)).toBe("unconfirmed");
     expect(await stopSessionDaemon(sockets, "../t3-a")).toBe("none");
   });
 });

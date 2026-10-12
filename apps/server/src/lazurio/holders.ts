@@ -430,32 +430,37 @@ const fileExists = (path: string) =>
  * daemon of an attached browser disconnects without closing a tab, so its binding no longer
  * counts for the hub. Nothing is signalled by a process id: a stale `.pid` whose number another
  * process now has, even another session's daemon, is never touched (LazurioPlatform#348). Never
- * `agent-browser close`, which first starts a daemon when none runs. `none`: nothing listens on
- * the session's socket; `failed`: the daemon did not answer or refused. The Platform's
- * `stopSessionDaemon`.
+ * `agent-browser close`, which first starts a daemon when none runs. `stopped`: the daemon
+ * answered and its `.pid` is gone; `none`: nothing listens on the session's socket; `refused`:
+ * the daemon answered that it did not shut down; `unconfirmed`: no answer after the command went
+ * out, or the `.pid` still there after the wait, so the daemon may still hold the tab. The
+ * Platform's `stopSessionDaemon`.
  */
 export async function stopSessionDaemon(
   socketDirectory: string,
   session: string,
   seams: DaemonSeams = {},
-): Promise<"stopped" | "none" | "failed"> {
+): Promise<"stopped" | "none" | "refused" | "unconfirmed"> {
   if (!isStrip(session)) return "none";
   const answer = await (seams.ask ?? askDaemonSocket)(
     NodePath.join(socketDirectory, `${session}.sock`),
     `${JSON.stringify({ id: "lazurio-browser-done", action: agentBrowserShutdownAction })}\n`,
   );
   if (answer.kind === "absent") return "none";
-  if (answer.kind === "no-answer") return "failed";
+  // The command went out: the daemon may have taken it even if its answer was lost.
+  if (answer.kind === "no-answer") return "unconfirmed";
   let success = false;
   try {
     success = (JSON.parse(answer.line) as { success?: unknown } | null)?.success === true;
   } catch {}
-  if (!success) return "failed";
+  if (!success) return "refused";
   const exists = seams.exists ?? fileExists;
   const pid = NodePath.join(socketDirectory, `${session}.pid`);
   const deadline = Date.now() + (seams.exitWithinMs ?? daemonAnswerMs);
-  while ((await exists(pid)) && Date.now() < deadline)
+  while (await exists(pid)) {
+    if (Date.now() >= deadline) return "unconfirmed";
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
   return "stopped";
 }
 

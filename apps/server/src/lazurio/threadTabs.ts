@@ -465,7 +465,8 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     if (seams.socketDirectory === undefined) return;
     try {
       const outcome = await stopSessionDaemon(seams.socketDirectory, session, seams.daemon);
-      if (outcome === "failed") log("thread-tabs-daemon-stop-failed", { session });
+      if (outcome === "refused" || outcome === "unconfirmed")
+        log("thread-tabs-daemon-stop-failed", { session, outcome });
     } catch (error) {
       log("thread-tabs-daemon-stop-failed", { session, cause: String(error) });
     }
