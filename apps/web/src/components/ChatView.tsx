@@ -198,8 +198,7 @@ import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import { BrowserSettingsReadError } from "../browser/openFileInPreview";
 import {
   LazurioRightPanelSurfaces,
-  useLazurioEnvironmentBrowser,
-  useLazurioEnvironmentBrowserFromChat,
+  useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
@@ -2060,7 +2059,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
-  const environmentBrowser = useLazurioEnvironmentBrowser(activeThreadRef, rightPanelOpen);
+  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio).
+  useLazurioThreadTabs(activeThreadRef, { inlinePanel: !shouldUseRightPanelSheet });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
@@ -2893,13 +2893,6 @@ export default function ChatView(props: ChatViewProps) {
     conversationProviderStatus.supportsConversationRollback !== false;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
-  // Lazurio overlay: the chat opens the Environment browser in the panel (apps/web/src/lazurio).
-  useLazurioEnvironmentBrowserFromChat({
-    threadRef: activeThreadRef,
-    activities: threadActivities,
-    live: threadSyncPhase === null,
-    inlinePanel: !shouldUseRightPanelSheet,
-  });
   const latestCheckpointCompletedAt = activeThread?.checkpoints.at(-1)?.completedAt ?? null;
   const workspaceMutationId = useMemo(() => {
     const activityId = latestWorkspaceMutationId(threadActivities);
@@ -10305,7 +10298,6 @@ export default function ChatView(props: ChatViewProps) {
           desktopByTabId={activePreviewState.desktopByTabId}
           previewRuntimeTabId={resolvePreviewRuntimeTabId}
           terminalLabelsById={activeTerminalLabelsById}
-          environmentBrowserTitles={environmentBrowser.titles}
           onActivate={activateRightPanelSurface}
           onCloseSurface={closeRightPanelSurface}
           onRenameDevice={(surfaceId, title) => {
@@ -10317,9 +10309,7 @@ export default function ChatView(props: ChatViewProps) {
           onCloseAllSurfaces={closeAllRightPanelSurfaces}
           onMoveSurface={moveRightPanelSurface}
           onCopyFilePath={copyRightPanelFilePath}
-          onAddBrowser={
-            environmentBrowser.available ? environmentBrowser.open : () => createBrowserSurface()
-          }
+          onAddBrowser={() => createBrowserSurface()}
           onAddBrowserInProfile={createBrowserSurface}
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
@@ -10328,7 +10318,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurface}
           onAddAgents={addAgentsSurface}
           onAddDevice={addDeviceSurface}
-          browserAvailable={isPreviewSupportedInRuntime() || environmentBrowser.available}
+          browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
@@ -10366,7 +10356,6 @@ export default function ChatView(props: ChatViewProps) {
             desktopByTabId={activePreviewState.desktopByTabId}
             previewRuntimeTabId={resolvePreviewRuntimeTabId}
             terminalLabelsById={activeTerminalLabelsById}
-            environmentBrowserTitles={environmentBrowser.titles}
             onActivate={activateRightPanelSurface}
             onCloseSurface={closeRightPanelSurface}
             onRenameDevice={(surfaceId, title) => {
@@ -10378,9 +10367,7 @@ export default function ChatView(props: ChatViewProps) {
             onCloseAllSurfaces={closeAllRightPanelSurfaces}
             onMoveSurface={moveRightPanelSurface}
             onCopyFilePath={copyRightPanelFilePath}
-            onAddBrowser={
-              environmentBrowser.available ? environmentBrowser.open : () => createBrowserSurface()
-            }
+            onAddBrowser={() => createBrowserSurface()}
             onAddBrowserInProfile={createBrowserSurface}
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
@@ -10389,7 +10376,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequests={addPullRequestsSurface}
             onAddAgents={addAgentsSurface}
             onAddDevice={addDeviceSurface}
-            browserAvailable={isPreviewSupportedInRuntime() || environmentBrowser.available}
+            browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
