@@ -383,6 +383,16 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   když je Nová karta vidět a fokus je v dokumentu T3; v rámu je předává stránka.
   Bez elementu (starší Platforma) zůstává upstream nabídka i prázdný stav a
   Browser je ve webu nedostupný.
+- **Rozepsané vlákno** (Lazurio/t3code#53, varianta, kterou Matěj zvolil
+  2026-10-12). Koncept ještě není vlákno serveru: proud záložek by odpověděl
+  404, který EventSource znovu nezkouší, a koncept si po první zprávě nechá
+  stejný ref vlákna. Proto koncept proud neotevře a jeho prázdný panel zůstane
+  upstream, jen místo „Only available in the desktop app.“ řekne pod seznamem
+  i jako důvod u řádku Browser „Prohlížeč Environmentu bude k dispozici po
+  první zprávě.“ Jakmile ho ChatView přestane označovat za koncept, proud se
+  otevře a panel ukáže Novou kartu. Kde server o jiném vlákně řekl, že
+  Environment prohlížeč nemá, zůstane upstream řádek. Menu „+“ při jiných
+  otevřených površích konceptu nechává u Browser upstream důvod.
 - **× pustí záložku jen pro toto vlákno.** ×, prostřední tlačítko i Zavřít,
   Zavřít ostatní, Zavřít vpravo a Zavřít vše pošlou release. Jeden toast (i pro
   Zavřít vše) řekne podle snímku, co se stane: pracuje-li v záložce agent,
@@ -478,8 +488,9 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
 Upstream soubory overlay mění jen ve švech: `rightPanelStore.ts` (druh
 povrchu, jeden člen povrchu, Nová karta jako jeho singleton, druh v
 `openProactive` a jedna obecná akce `lazurio`), `RightPanelTabs.tsx` (jedno
-volání háčku, „+“ a prázdný stav za podmínkou Nové karty, název, ikona a tooltip
-záložky), `ChatView.tsx` (jedno volání háčku a obal, který drží rámy vedle
+volání háčku, „+“ a prázdný stav za podmínkou Nové karty, řádek prázdného stavu
+na konceptu, název, ikona a tooltip záložky), `ChatView.tsx` (jedno volání háčku
+s příznakem konceptu a obal, který drží rámy vedle
 povrchu v popředí), `ProviderService.ts` (jedno volání), `server.ts` (jedna
 vrstva overlaye vedle MCP serveru), `PreviewAutomationBroker.ts` (preferovaný
 host a jeho přednost i před dřívějším přiřazením desktopu, jeho 60 s pro `open`
@@ -680,7 +691,8 @@ t3code.service && systemctl --user start t3code.service` (#25).
    záložkou vlákna; nástroj otevře povrch T3; druhé zařízení ukáže stejné
    záložky; × s Vrátit a sdílená záložka proti Launchpadu; `preview_open` i
    `lazurio browser window` agenta ukážou své okno; archivace ukončí jen záložky
-   toho vlákna, po 8 s; SSE projde bránou Environmentu.
+   toho vlákna, po 8 s; SSE projde bránou Environmentu; nové vlákno před první
+   zprávou ukáže větu o prohlížeči a po ní Novou kartu bez obnovení stránky.
 
 4. **Stable a tlačítko Update.** Stable vydej ze stejného commitu až po
    zeleném canary a výslovném souhlasu Admina. Canary Mašiny vrať z preview
