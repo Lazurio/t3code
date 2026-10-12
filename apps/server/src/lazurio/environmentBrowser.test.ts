@@ -186,6 +186,12 @@ const startHost = (cli: { link: CliAnswer; window?: (args: ReadonlyArray<string>
       readonly tabId: string;
       readonly reveal: boolean;
     }> = [];
+    const foreignShown: Array<{
+      readonly threadId: ThreadId;
+      readonly tabId: string;
+      readonly view: string;
+      readonly reveal: boolean;
+    }> = [];
     const declarations: Array<string | undefined> = [];
     const threadTabs = ThreadTabs.ThreadTabs.of({
       read: () => Effect.die("unused"),
@@ -195,7 +201,8 @@ const startHost = (cli: { link: CliAnswer; window?: (args: ReadonlyArray<string>
       declare: (viewOrigin) => Effect.sync(() => declarations.push(viewOrigin)),
       record: (thread, tabId, reveal) =>
         Effect.sync(() => recorded.push({ threadId: thread, tabId, reveal })),
-      foreign: () => Effect.void,
+      foreign: (thread, tab, reveal) =>
+        Effect.sync(() => foreignShown.push({ threadId: thread, ...tab, reveal })),
     });
     const delivered: Array<PreviewAutomationOperation> = [];
     const deliveryWaiters: Array<{
@@ -276,6 +283,7 @@ const startHost = (cli: { link: CliAnswer; window?: (args: ReadonlyArray<string>
       registrations,
       reported,
       recorded,
+      foreignShown,
       declarations,
       setLink: (answer: CliAnswer) => {
         cli.link = answer;
@@ -639,7 +647,13 @@ it.effect("answers preview_open of another Environment's view without this brows
       // Neither this Environment's browser nor its lazurio command was asked.
       expect(host.browser.connections).toHaveLength(0);
       expect(host.runs).toEqual([{ command: lazurio, args: ["browser", "link", "--json"] }]);
-      // No holder file records another Environment's tab.
+      // The thread's devices are told of each tab, live; no holder file records another
+      // Environment's tab.
+      expect(host.foreignShown).toEqual([
+        { threadId, tabId: foreignId, view: foreignView, reveal: true },
+        { threadId, tabId: personalId, view: personal, reveal: false },
+        { threadId, tabId: foreignId, view: foreignView, reveal: true },
+      ]);
       expect(host.recorded).toEqual([]);
       // The host's declaration is the strips' too.
       expect(host.declarations).toEqual(["https://browser.example.test"]);
