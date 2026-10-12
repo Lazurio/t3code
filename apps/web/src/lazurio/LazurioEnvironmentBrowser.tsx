@@ -1,7 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ExternalLink, Globe2, LogIn, Plus, Users } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createElement, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -21,10 +21,9 @@ import { usePrimaryEnvironmentId } from "../state/environments";
 import type { LazurioBrowserView } from "./browserView";
 import {
   foreignEnvironmentBrowserTab,
-  foreignEnvironmentIcon,
-  foreignEnvironmentLabel,
   isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
+  viewEnvironmentId,
 } from "./environmentBrowser";
 import { NewTabSurface, type SurfaceAction, useNewTab, useNewTabDefined } from "./LazurioNewTab";
 import {
@@ -219,21 +218,29 @@ export function useLazurioThreadTabs(
 const FOREIGN_VIEW_AFTER_LOAD_MS = 4_000;
 const FOREIGN_VIEW_MS = 15_000;
 
-/** The GitHub picture of the Organization or person whose Environment it is, else its initial. */
-function EnvironmentOwnerPicture(props: { readonly environment: LazurioBrowserView }) {
-  const [failed, setFailed] = useState(false);
-  return failed ? (
-    <span className="flex size-4 shrink-0 items-center justify-center rounded-sm bg-warning font-semibold text-3xs text-white">
-      {props.environment.owner.charAt(0).toUpperCase()}
-    </span>
-  ) : (
-    <img
-      src={foreignEnvironmentIcon(props.environment)}
-      alt=""
-      referrerPolicy="no-referrer"
-      className="size-4 shrink-0 rounded-sm"
-      onError={() => setFailed(true)}
-    />
+/** The shell's element that names an Environment as its switcher does (LazurioPlatform F39,
+ * addendum of 2026-10-12). */
+export const ENVIRONMENT_ELEMENT = "lazurio-environment";
+
+/** Another Environment's view, said without naming it: what the head shows until the shell knows
+ * that Environment, and where the Environment's Platform predates the element. */
+const anotherEnvironment = (czech: boolean) =>
+  czech ? "Prohlížeč jiného Environmentu" : "Another Environment's browser";
+
+/** Another Environment's name in the panel's head: the shell's `<lazurio-environment>`, which
+ * shows its children until the page's shell knows that Environment. */
+function ForeignEnvironmentName(props: {
+  readonly environment: LazurioBrowserView;
+  readonly czech: boolean;
+}) {
+  return createElement(
+    ENVIRONMENT_ELEMENT,
+    {
+      environment: viewEnvironmentId(props.environment),
+      lang: props.czech ? "cs" : "en",
+      className: "min-w-0 flex-1 truncate font-medium text-warning-foreground text-xs",
+    },
+    anotherEnvironment(props.czech),
   );
 }
 
@@ -466,7 +473,7 @@ function LazurioEnvironmentBrowser(props: {
   }, [isForeign, view, request, loaded, cameUp]);
   const signIn = isForeign && Boolean(view) && late === request && cameUp !== request;
   const czech = prefersCzech();
-  const label = foreign === null ? null : foreignEnvironmentLabel(foreign.environment, czech);
+  const title = foreign === null ? "Environment browser" : anotherEnvironment(czech);
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", isForeign && "border-2 border-warning")}>
@@ -477,21 +484,13 @@ function LazurioEnvironmentBrowser(props: {
         )}
       >
         {foreign === null ? (
-          <Globe2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <>
+            <Globe2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">{title}</span>
+          </>
         ) : (
-          <EnvironmentOwnerPicture
-            key={foreign.environment.owner}
-            environment={foreign.environment}
-          />
+          <ForeignEnvironmentName environment={foreign.environment} czech={czech} />
         )}
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-xs",
-            isForeign ? "font-medium text-warning-foreground" : "text-muted-foreground",
-          )}
-        >
-          {label ?? "Environment browser"}
-        </span>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -526,7 +525,7 @@ function LazurioEnvironmentBrowser(props: {
             key={request}
             ref={frame}
             src={view}
-            title={label ?? "Environment browser"}
+            title={title}
             className="min-h-0 w-full flex-1 border-0"
             allow="clipboard-read; clipboard-write; fullscreen"
             // oxlint-disable-next-line react/iframe-missing-sandbox -- the view is never on this page's origin (environmentBrowser.ts), so allow-same-origin keeps it to its own.
@@ -535,7 +534,7 @@ function LazurioEnvironmentBrowser(props: {
             referrerPolicy="origin"
             onLoad={() => setLoaded(request)}
           />
-          {signIn && label !== null ? (
+          {signIn && foreign !== null ? (
             <div className="absolute inset-0 flex bg-background">
               <Empty size="compact">
                 <EmptyMedia variant="icon">
@@ -544,8 +543,8 @@ function LazurioEnvironmentBrowser(props: {
                 <EmptyHeader>
                   <EmptyTitle>
                     {czech
-                      ? `Přihlas se do prohlížeče Environmentu ${label}`
-                      : `Sign in to the Environment browser of ${label}`}
+                      ? "Přihlas se do prohlížeče tohoto Environmentu"
+                      : "Sign in to this Environment's browser"}
                   </EmptyTitle>
                   <EmptyDescription>
                     {czech
