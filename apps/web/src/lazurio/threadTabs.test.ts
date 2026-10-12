@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { toastManager } from "../components/ui/toast";
 import {
   type RightPanelSurface,
+  selectActiveRightPanelSurface,
   selectThreadRightPanelState,
   type ThreadRightPanelState,
   useRightPanelStore,
@@ -21,6 +22,7 @@ import {
   newTabSurface,
   parseThreadTabsAnswer,
   placesOf,
+  receiveForeign,
   receiveSnapshot,
   reconcileThreadTabs,
   resetThreadTabs,
@@ -138,6 +140,25 @@ describe("the strip from the server's list", () => {
     });
   });
 
+  it("selects the first tab where nothing is selected, so the panel never opens on Nová karta beside them", () => {
+    expect(
+      reconcile({ isOpen: false, activeSurfaceId: null, surfaces: [] }, [id(1), id(2)]),
+    ).toEqual({ isOpen: false, activeSurfaceId: tab(1).id, surfaces: [tab(1), tab(2)] });
+    // A panel stored with tabs and no selection takes one even when the list brings nothing new.
+    const unselected = { isOpen: true, activeSurfaceId: null, surfaces: [tab(1)] };
+    expect(reconcile(unselected, [id(1)])).toEqual({ ...unselected, activeSurfaceId: tab(1).id });
+    // An empty strip stays as it is.
+    const empty = { isOpen: true, activeSurfaceId: null, surfaces: [] };
+    expect(reconcile(empty, [])).toBe(empty);
+  });
+
+  it("selects another Environment's tab the server announces where nothing is selected", () => {
+    setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
+    receiveSnapshot(threadA, snapshot([]));
+    receiveForeign(threadA, { tabId: "ab".repeat(16), view: foreign.view });
+    expect(panel()).toEqual({ isOpen: true, activeSurfaceId: foreign.id, surfaces: [foreign] });
+  });
+
   it("drops this Environment's unlisted tabs and keeps pending ones, Nová karta and other Environments' tabs", () => {
     const newTab = newTabSurface();
     const state = {
@@ -248,6 +269,22 @@ describe("reveals", () => {
     syncOf(threadA).inlinePanel = true;
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:2" } }]));
     expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
+  });
+
+  it("leave the agent's tab of a thread that comes into view selected, for the panel the person opens", () => {
+    // The agent opened the page while the thread was out of view (or before a reload): its
+    // reveal is in the first snapshot, a baseline, so the panel does not open by itself...
+    syncOf(threadA).inlinePanel = true;
+    receiveSnapshot(
+      threadA,
+      snapshot([{ tabId: id(1), agent: true, revealRequest: { id: "epoch-1:1" } }]),
+    );
+    expect(panel()).toEqual({ isOpen: false, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
+    // ...and when the person opens it, it shows the agent's page, not Nová karta.
+    useRightPanelStore.getState().toggleVisibility(threadA);
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, threadA),
+    ).toEqual(tab(1));
   });
 
   it("give way to a choice the person made since the snapshot came", () => {

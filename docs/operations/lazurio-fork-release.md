@@ -355,7 +355,11 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   servíruje, sleduje stránka seznam vlákna a každé zařízení srovná svůj pás s
   tímtéž seznamem. Nové záložky přidá na konec v pořadí souboru a neotevře jimi
   zavřený panel; kde už záložku ukazuje, zůstává volbou zařízení (záložky jde
-  přetahovat, i povrchy overlaye). Povrch je `environment-browser:<ID>` (id
+  přetahovat, i povrchy overlaye). Kde není vybraný žádný povrch, nebo vybraný
+  zmizel, vybere první záložku prohlížeče jako upstream srovnání svého
+  prohlížeče, takže se panel otevře na ní, a ne na prázdné Nové kartě vedle
+  záložek, jejichž rámy by nenačetl (vlákno přijde do zobrazení až po tom, co
+  agent stránku otevřel). Povrch je `environment-browser:<ID>` (id
   velkými písmeny) bez adresy; rám ukazuje `<origin pohledu>/t/<ID>` s originem
   ze snímku. Jen záložka jiného Environmentu má uloženou adresu (`view`). Čekající
   podržení srovnání nezahodí, pozůstatky lazurio.7 (vlastní záložka vlákna, nové

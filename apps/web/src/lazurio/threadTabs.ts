@@ -154,7 +154,10 @@ export function parseForeignTab(value: unknown): ForeignTab | null {
  * `kept` (pending holds, tabs the device keeps itself) has. Every other Environment browser
  * surface goes, lazurio.7's included (its own tab and its new tabs at the view's bare origin).
  * Listed tabs without a surface are added at the end, in the list's order, without opening a
- * closed panel. An active surface that went falls back as upstream's reconciliation does.
+ * closed panel. Where nothing is selected, or the selected surface went, the first Environment
+ * browser tab is selected, as upstream's reconciliation does for its browser: the panel never
+ * opens on the empty Nová karta beside tabs of the strip whose frames it would not load (a thread
+ * that comes into view after its agent opened a page, whose first snapshot reveals nothing).
  */
 export function reconcileThreadTabs(
   current: ThreadRightPanelState,
@@ -181,20 +184,18 @@ export function reconcileThreadTabs(
       id: tabSurfaceId(tabId),
       kind: "environment-browser",
     }));
-  if (added.length === 0 && surfaces.length === current.surfaces.length) return current;
   const next = [...surfaces, ...added];
-  const activeStillExists = next.some((surface) => surface.id === current.activeSurfaceId);
-  return {
-    ...current,
-    surfaces: next,
-    activeSurfaceId: activeStillExists
-      ? current.activeSurfaceId
-      : current.activeSurfaceId === null
-        ? null
-        : (next.find((surface) => surface.kind === "environment-browser")?.id ??
-          next[0]?.id ??
-          null),
-  };
+  const activeSurfaceId = next.some((surface) => surface.id === current.activeSurfaceId)
+    ? current.activeSurfaceId
+    : (next.find((surface) => surface.kind === "environment-browser")?.id ?? next[0]?.id ?? null);
+  if (
+    added.length === 0 &&
+    surfaces.length === current.surfaces.length &&
+    activeSurfaceId === current.activeSurfaceId
+  ) {
+    return current;
+  }
+  return { ...current, surfaces: next, activeSurfaceId };
 }
 
 /** What the panel has seen of the server's reveal requests, per run of the server (`epoch`). */
@@ -428,7 +429,9 @@ const panelOf = (threadRef: ScopedThreadRef) =>
 const hasSurface = (threadRef: ScopedThreadRef, surfaceId: string) =>
   panelOf(threadRef).surfaces.some((surface) => surface.id === surfaceId);
 
-/** Adds a surface, in front with the panel open, or behind the surface in view. */
+/** Adds a surface, in front with the panel open, or behind the surface in view. Where nothing is
+ * selected it is the one selected, as in the strip after the server's list, and a closed panel
+ * stays closed. */
 function withSurface(
   current: ThreadRightPanelState,
   surface: EnvironmentBrowserSurface,
@@ -439,11 +442,7 @@ function withSurface(
     : [...current.surfaces, surface];
   return front
     ? { ...current, isOpen: true, surfaces, activeSurfaceId: surface.id }
-    : {
-        ...current,
-        surfaces,
-        activeSurfaceId: current.activeSurfaceId ?? (current.isOpen ? null : surface.id),
-      };
+    : { ...current, surfaces, activeSurfaceId: current.activeSurfaceId ?? surface.id };
 }
 
 /** Removes a surface the way upstream closes one: the neighbour comes to the front. */
