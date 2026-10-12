@@ -433,18 +433,21 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   starší snímek ji nevrátí (bez Vrátit, záložka už není). Záložka panelu ukazuje
   místo „Browser“ titulek, který pohled hlásí (jinak host adresy stránky);
   titulky žijí jen v paměti stránky.
-- **Záložka jiného Environmentu.** Je nezaměnitelně označená: barevný okraj a
-  hlavička s obrázkem Organizace z GitHubu
-  (`https://github.com/<org-or-login>.png?size=32`, jinak její iniciála) a
-  jménem `<Org> · <environment>`, tedy label před `lazurio.io` s velkým prvním
-  písmenem a label za `browser.` (například `Acme · vm-01`). Osobní Environment
-  je `Osobní · <login>`, anglicky `Personal · <login>`; jazyk volí overlay jako
+- **Záložka jiného Environmentu.** Je nezaměnitelně označená barevným okrajem
+  a hlavičkou, která ten Environment jmenuje prvkem shellu
+  `<lazurio-environment environment="<id>" lang>` (LazurioPlatform F39, dodatek
+  z 2026-10-12): stejným jménem, znakem a řádkem „pro koho“ jako přepínač jeho
+  aplikací, ze stavu shellu této stránky. Id je host pohledu mezi `browser.` a
+  `.lazurio.io` (`viewEnvironmentId`, například `vm-01.acme` nebo `jana`).
+  Vlastní pravidlo pojmenování fork nemá. Dokud shell stránky ten Environment
+  nezná, a na Platformě bez prvku, ukáže hlavička jen „Prohlížeč jiného
+  Environmentu“; přesné jméno má pod ní lišta pohledu. Jazyk volí overlay jako
   pohled sám, podle jazyka prohlížeče (`cs`). Rám posílá
   `referrerPolicy="origin"`, podle kterého pohled jiného Environmentu dovolí
   zarámování T3 nebo Launchpadu (změna LazurioPlatform). Když pohled do 4 s od
   načtení rámu (15 s, když se nenačte) neohlásí svou záložku, typicky bez
-  sezení v bráně toho Environmentu, ukáže panel „Přihlas se do prohlížeče
-  Environmentu <label>“ s otevřením pohledu v nové záložce a Reload: přihlašovací
+  sezení v bráně toho Environmentu, ukáže panel „Přihlas se do prohlížeče tohoto
+  Environmentu“ s otevřením pohledu v nové záložce a Reload: přihlašovací
   stránka Lazuria se v rámu nevykreslí. „Open in new tab“ v hlavičce zůstává.
 - **Rámy zůstávají připojené.** Dokud pravý panel ukazuje vlákno, má každá jeho
   záložka prohlížeče Environmentu svůj rám připojený, i když je vpředu jiná
