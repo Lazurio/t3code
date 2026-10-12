@@ -643,7 +643,10 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
     service,
     /connectEnvironmentBrowser|Target\.closeTarget|agent-browser.*close/,
   );
-  NodeAssert.match(overlay, /Layer\.mergeAll\(EnvironmentBrowser\.layer, ThreadTabsRoute\.layer\)/);
+  NodeAssert.match(
+    overlay,
+    /Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,?\s*\)/,
+  );
 });
 
 // Plan DEV-6646: T3's browser tools drive the Environment browser. The host is server overlay

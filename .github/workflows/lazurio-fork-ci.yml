@@ -53,6 +53,7 @@ jobs:
           # the exact files below. Each one is a reviewed decision; every other
           # path under those roots fails.
           allowed_upstream_changes=(
+            # Managed Folder entry uses the shared native project and settings paths.
             apps/web/src/hooks/useScratchProject.ts
             apps/web/src/components/sidebar/SidebarThreadHeader.tsx
             apps/web/src/components/Sidebar.tsx
@@ -169,7 +170,11 @@ jobs:
 
       - name: Test the Lazurio server overlay
         working-directory: apps/server
-        run: pnpm exec vp test run src/lazurio src/orchestration/Layers/OrchestrationEngine.test.ts src/serverSettings.test.ts src/vcs/VcsProvisioningService.test.ts
+        run: pnpm exec vp test run src/lazurio
+
+      - name: Test native managed Folder and preference boundaries
+        working-directory: apps/server
+        run: pnpm exec vp test run src/orchestration/Layers/OrchestrationEngine.test.ts src/serverSettings.test.ts src/vcs/VcsProvisioningService.test.ts
 
       - name: Test the Lazurio web overlay
         working-directory: apps/web
