@@ -476,6 +476,13 @@ NodeTest.test(
       /case "environment-browser":\n\s+return <Lazurio\.SurfaceIcon surface=\{surface\} \/>;/,
     );
     NodeAssert.match(tabs, /\n {2}const lazurio = Lazurio\.useRightPanel\(addSurfaceActions\);\n/);
+    // The empty panel's line on a draft: the Browser row's reason and one line under the list.
+    NodeAssert.match(tabs, /browserNote=\{lazurio\.browserNote\}/);
+    NodeAssert.match(
+      tabs,
+      /disabledReason: props\.browserNote \?\? SURFACE_UNAVAILABLE_HINTS\.browser,/,
+    );
+    NodeAssert.equal(tabs.match(/props\.browserNote/g)?.length, 3);
     NodeAssert.match(
       tabs,
       /\) : \(\n\s+lazurio\.tooltip\(surface, title\)\n\s+\)\}\n\s+<\/TooltipPopup>/,
@@ -483,9 +490,10 @@ NodeTest.test(
     NodeAssert.doesNotMatch(tabs, /environmentBrowserTitles|previewBridge \? browserDefaults/);
     // ChatView: one hook call, and upstream's surface in view wrapped once beside the frames.
     NodeAssert.equal(chatView.match(/useLazurioThreadTabs\(/g)?.length, 1);
+    // A draft opens no stream until its first message makes it a thread (Lazurio/t3code#53).
     NodeAssert.match(
       chatView,
-      /useLazurioThreadTabs\(activeThreadRef, \{ inlinePanel: !shouldUseRightPanelSheet \}\);/,
+      /useLazurioThreadTabs\(activeThreadRef, \{\n\s+inlinePanel: !shouldUseRightPanelSheet,\n\s+draft: !isServerThread,\n\s+\}\);/,
     );
     NodeAssert.match(chatView, /const rightPanelActiveContent = activeThreadRef \? \(/);
     NodeAssert.match(
