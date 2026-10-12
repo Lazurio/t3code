@@ -310,12 +310,16 @@ interface ThreadTabsState {
   readonly titles: Readonly<Record<string, string>>;
   /** The thread the chat shows, whose panel may show Nová karta. */
   readonly inView: ScopedThreadRef | null;
+  /** The draft the chat shows: no thread of the server yet, so it has no tabs until its first
+   * message (Lazurio/t3code#53). */
+  readonly draftInView: ScopedThreadRef | null;
 }
 
 export const useThreadTabsStore = create<ThreadTabsState>(() => ({
   snapshots: {},
   titles: {},
   inView: null,
+  draftInView: null,
 }));
 
 export function rememberTitle(surfaceId: string, title: string | null): void {
@@ -382,7 +386,7 @@ export function syncOf(threadRef: ScopedThreadRef): ThreadTabsSync {
 /** Tests start from nothing. */
 export function resetThreadTabs(): void {
   syncs.clear();
-  useThreadTabsStore.setState({ snapshots: {}, titles: {}, inView: null });
+  useThreadTabsStore.setState({ snapshots: {}, titles: {}, inView: null, draftInView: null });
 }
 
 export type PostOutcome =
@@ -531,6 +535,25 @@ export function leaveThreadTabs(threadRef: ScopedThreadRef): void {
     useThreadTabsStore.setState({ inView: null });
   }
 }
+
+/** A draft comes into view: the panel says that the Environment browser comes with the first
+ * message, instead of upstream's desktop-only line. */
+export function enterDraft(threadRef: ScopedThreadRef): void {
+  useThreadTabsStore.setState({ draftInView: threadRef });
+}
+
+export function leaveDraft(threadRef: ScopedThreadRef): void {
+  const draft = useThreadTabsStore.getState().draftInView;
+  if (draft !== null && scopedThreadKey(draft) === scopedThreadKey(threadRef)) {
+    useThreadTabsStore.setState({ draftInView: null });
+  }
+}
+
+/** The empty panel's line on a draft (Lazurio/t3code#53, Matěj chose the line on 2026-10-12). */
+export const draftBrowserNote = (czech: boolean) =>
+  czech
+    ? "Prohlížeč Environmentu bude k dispozici po první zprávě."
+    : "The Environment browser comes with the first message.";
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 

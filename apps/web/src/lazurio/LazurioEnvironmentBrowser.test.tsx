@@ -348,8 +348,15 @@ describe("another Environment's browser in the panel", () => {
 });
 
 describe("the chat's hook", () => {
-  function Chat(props: { readonly threadRef: ScopedThreadRef; readonly inlinePanel?: boolean }) {
-    useLazurioThreadTabs(props.threadRef, { inlinePanel: props.inlinePanel ?? true });
+  function Chat(props: {
+    readonly threadRef: ScopedThreadRef;
+    readonly inlinePanel?: boolean;
+    readonly draft?: boolean;
+  }) {
+    useLazurioThreadTabs(props.threadRef, {
+      inlinePanel: props.inlinePanel ?? true,
+      draft: props.draft ?? false,
+    });
     return (
       <div data-timeline-root="true">
         <a href={viewOf(7)}>The agent's tab</a>
@@ -381,6 +388,25 @@ describe("the chat's hook", () => {
     await act(async () => root.render(<p>Elsewhere</p>));
     expect(source.closed).toBe(true);
     expect(useThreadTabsStore.getState().inView).toBeNull();
+  });
+
+  it("opens no stream for a draft, and follows the thread once its first message makes it one", async () => {
+    // The draft keeps its ref when it becomes a thread (ChatView's promotion is data-driven).
+    await act(async () => root.render(<Chat threadRef={threadA} draft />));
+    expect(FakeEventSource.instances).toHaveLength(0);
+    expect(useThreadTabsStore.getState().draftInView).toEqual(threadA);
+    expect(useThreadTabsStore.getState().inView).toBeNull();
+    await act(async () => root.render(<Chat threadRef={threadA} draft={false} />));
+    expect(stream().url).toBe("/api/lazurio/thread-tabs/events?threadId=thread-A");
+    expect(useThreadTabsStore.getState().draftInView).toBeNull();
+    expect(useThreadTabsStore.getState().inView).toEqual(threadA);
+    stream().emit("snapshot", snapshot([{ tabId: id(1) }]));
+    expect(panel().surfaces).toEqual([tab(1)]);
+    // Another draft in view takes the line; leaving it clears it.
+    await act(async () => root.render(<Chat threadRef={threadB} draft />));
+    expect(useThreadTabsStore.getState().draftInView).toEqual(threadB);
+    await act(async () => root.render(<p>Elsewhere</p>));
+    expect(useThreadTabsStore.getState().draftInView).toBeNull();
   });
 
   it("asks nothing for a thread of another environment, or in the desktop app", async () => {
