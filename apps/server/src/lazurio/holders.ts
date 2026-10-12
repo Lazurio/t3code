@@ -385,8 +385,14 @@ export const agentBrowserShutdownAction = "__agent_browser_internal_shutdown";
 const daemonAnswerMs = 5_000;
 const maxDaemonReplyBytes = 64 * 1024;
 
+/** Connection errors that prove nothing listens on a socket path: no file, a socket nobody
+ * listens on (Linux), a file that is no socket (macOS). Anything else, a permission above all,
+ * proves nothing. */
+const absentSocketCodes = new Set(["ENOENT", "ECONNREFUSED", "ENOTSOCK"]);
+
 /** One command line to a Unix socket and its reply line. Nothing listening (no socket, a stale
- * one) is `absent`; no reply within 5 s is `no-answer`. The Platform's `askDaemonSocket`. */
+ * one) is `absent`; no reply within 5 s, or a socket that cannot be reached for any other reason,
+ * is `no-answer`. The Platform's `askDaemonSocket`. */
 export function askDaemonSocket(socketPath: string, line: string): Promise<DaemonAnswer> {
   return new Promise((resolve) => {
     let settled = false;
@@ -414,14 +420,25 @@ export function askDaemonSocket(socketPath: string, line: string): Promise<Daemo
     socket.on("end", () =>
       done(buffer === "" ? { kind: "no-answer" } : { kind: "reply", line: buffer }),
     );
-    socket.on("error", () => done(connected ? { kind: "no-answer" } : { kind: "absent" }));
+    socket.on("error", (error: NodeJS.ErrnoException) =>
+      done(
+        !connected && absentSocketCodes.has(error.code ?? "")
+          ? { kind: "absent" }
+          : { kind: "no-answer" },
+      ),
+    );
   });
 }
 
+/** Whether a file is there: only "no such file" is gone; any other failure is thrown, since it
+ * proves nothing. */
 const fileExists = (path: string) =>
   NodeFSP.access(path).then(
     () => true,
-    () => false,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    },
   );
 
 /**
@@ -457,11 +474,13 @@ export async function stopSessionDaemon(
   const exists = seams.exists ?? fileExists;
   const pid = NodePath.join(socketDirectory, `${session}.pid`);
   const deadline = Date.now() + (seams.exitWithinMs ?? daemonAnswerMs);
-  while (await exists(pid)) {
-    if (Date.now() >= deadline) return "unconfirmed";
+  for (;;) {
+    // Only a .pid proven gone counts; one that cannot be checked is not.
+    const present = await exists(pid).catch(() => null);
+    if (present === false) return "stopped";
+    if (present === null || Date.now() >= deadline) return "unconfirmed";
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  return "stopped";
 }
 
 /** Calls `changed` whenever something in one of the directories changes.
