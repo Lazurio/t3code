@@ -6,15 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import { toastManager } from "../components/ui/toast";
 import {
+  type RightPanelSurface,
   selectThreadRightPanelState,
   type ThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
 import {
+  chooseTab,
   closeToastText,
   freshReveals,
   holdTab,
+  isNewTabSurface,
   letGoOfTabs,
+  newTabSurface,
   parseThreadTabsAnswer,
   placesOf,
   receiveSnapshot,
@@ -134,13 +138,20 @@ describe("the strip from the server's list", () => {
     });
   });
 
-  it("drops this Environment's unlisted tabs and keeps pending ones and other Environments' tabs", () => {
+  it("drops this Environment's unlisted tabs and keeps pending ones, Nová karta and other Environments' tabs", () => {
+    const newTab = newTabSurface();
     const state = {
       isOpen: true,
       activeSurfaceId: files.id,
-      surfaces: [tab(1), files, foreign, tab(2), tab(3)],
+      surfaces: [tab(1), files, newTab, foreign, tab(2), tab(3)],
     };
-    expect(reconcile(state, [id(1)], [id(3)]).surfaces).toEqual([tab(1), files, foreign, tab(3)]);
+    expect(reconcile(state, [id(1)], [id(3)]).surfaces).toEqual([
+      tab(1),
+      files,
+      newTab,
+      foreign,
+      tab(3),
+    ]);
   });
 
   it("drops lazurio.7's leftovers: the thread's own tab, the bare-origin new tabs and stored views", () => {
@@ -499,6 +510,41 @@ describe("the shared hint", () => {
       ),
     ).toBe("Docs · pracuje tu agent · sdílená, je i v Apps");
     expect(tabTooltip("Docs", undefined, false)).toBe("Docs");
+  });
+});
+
+describe("Nová karta's surface", () => {
+  it("is what the store opens for the overlay's kind", () => {
+    useRightPanelStore.getState().open(threadA, "environment-browser");
+    const [surface] = panel().surfaces as RightPanelSurface[];
+    expect(surface !== undefined && isNewTabSurface(surface)).toBe(true);
+    expect(isNewTabSurface(newTabSurface())).toBe(true);
+    expect(isNewTabSurface(tab(1))).toBe(false);
+  });
+
+  it("holds a page in Nová karta's place, and brings a tab the strip has to the front instead", async () => {
+    const newTab = newTabSurface();
+    setPanel({ isOpen: true, activeSurfaceId: newTab.id, surfaces: [files, newTab, tab(2)] });
+    chooseTab(threadA, newTab.id, id(1));
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: tab(1).id,
+      surfaces: [files, tab(1), tab(2)],
+    });
+    const another = newTabSurface();
+    useRightPanelStore.getState().lazurio(threadA, false, (current) => ({
+      ...current,
+      surfaces: [...current.surfaces, another],
+      activeSurfaceId: another.id,
+    }));
+    chooseTab(threadA, another.id, id(2));
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: tab(2).id,
+      surfaces: [files, tab(1), tab(2)],
+    });
+    await settled();
+    expect(posted.map((entry) => entry.action)).toEqual(["hold", "hold"]);
   });
 });
 

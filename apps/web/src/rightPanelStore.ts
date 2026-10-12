@@ -90,7 +90,7 @@ export type RightPanelSurface =
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: "agents"; kind: "agents" }
   /** Lazurio overlay: a remote tab of the Environment browser, `view` only for another
-   *  Environment's (apps/web/src/lazurio/threadTabs.ts). */
+   *  Environment's, or Nová karta (apps/web/src/lazurio/threadTabs.ts). */
   | { id: `environment-browser:${string}`; kind: "environment-browser"; view?: string };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
@@ -211,7 +211,7 @@ const singletonSurface = (
     case "device":
       return { id: "device", kind };
     case "environment-browser":
-      // Lazurio overlay: a new tab of the strip each time (lazurio/threadTabs.ts).
+      // Lazurio overlay: Nová karta, a new tab of the strip each time (lazurio/threadTabs.ts).
       return { id: `environment-browser:new-tab:${randomUUID()}`, kind };
   }
 };

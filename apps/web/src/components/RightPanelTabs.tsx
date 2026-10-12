@@ -1009,7 +1009,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddDevice,
     },
   ] as const;
-  const lazurio = Lazurio.useRightPanel();
+  const lazurio = Lazurio.useRightPanel(addSurfaceActions);
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -1342,7 +1342,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 );
               })}
             </SortableTabList>
-            {props.surfaces.length > 0 ? (
+            {props.surfaces.length > 0 && lazurio.newTab ? <Lazurio.NewTabButton /> : null}
+            {props.surfaces.length > 0 && !lazurio.newTab ? (
               <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
                 <MenuTrigger
                   render={
@@ -1488,7 +1489,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         ) : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
-        {props.activeSurfaceId === null ? (
+        {props.activeSurfaceId === null && lazurio.newTab ? (
+          <Lazurio.NewTab />
+        ) : props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}
             onAddBrowserInProfile={props.onAddBrowserInProfile}

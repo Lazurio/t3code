@@ -6,13 +6,14 @@
  * (`/api/lazurio/thread-tabs/events`, apps/server/src/lazurio/threadTabsRoute.ts). Every device
  * reconciles its strip to that list: the same tabs everywhere, new ones appended in the list's
  * order, and where a device already shows a tab stays its own choice (it may drag it). A person
- * holds a tab by a page's new tab or by a link in the chat (POST hold), and lets go of it with ×
- * (POST release, with Vrátit for a while). An agent's tab reaches
+ * holds a tab by choosing it in Nová karta, by a page's new tab, or by a link in the chat (POST
+ * hold), and lets go of it with × (POST release, with Vrátit for a while). An agent's tab reaches
  * the strip from the server, which also asks to reveal it; the panel then opens on it.
  *
  * This module is the pure part (the reconciliation, the reveals, the words) and the client state
  * (the last snapshot per thread, the pending holds, the titles the frames report); the hooks, the
- * frames and the strip's title, icon and tooltip are in LazurioEnvironmentBrowser.tsx.
+ * frames and the strip's title, icon and tooltip are in LazurioEnvironmentBrowser.tsx, Nová karta
+ * in LazurioNewTab.tsx.
  */
 
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -20,6 +21,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
+import { randomUUID } from "../lib/utils";
 import {
   type RightPanelSurface,
   selectThreadRightPanelState,
@@ -65,6 +67,7 @@ export type EnvironmentBrowserSurface = Extract<RightPanelSurface, { kind: "envi
 
 const TARGET_ID = /^[0-9A-F]{32}$/;
 const TAB_SURFACE = /^environment-browser:([0-9A-F]{32})$/;
+const NEW_TAB_PREFIX = "environment-browser:new-tab:";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -85,6 +88,14 @@ export function tabIdOfSurface(surface: RightPanelSurface): string | null {
   if (surface.kind !== "environment-browser" || "view" in surface) return null;
   return TAB_SURFACE.exec(surface.id)?.[1] ?? null;
 }
+
+/** A new Nová karta tab of the strip (rightPanelStore.ts names its singleton the same way). */
+export function newTabSurface(): EnvironmentBrowserSurface {
+  return { id: `${NEW_TAB_PREFIX}${randomUUID()}`, kind: "environment-browser" };
+}
+
+export const isNewTabSurface = (surface: RightPanelSurface) =>
+  surface.kind === "environment-browser" && surface.id.startsWith(NEW_TAB_PREFIX);
 
 /** The server's answer, read field by field; null for anything that is not one. */
 export function parseThreadTabsAnswer(value: unknown): ThreadTabsAnswer | null {
@@ -138,8 +149,8 @@ export function parseForeignTab(value: unknown): ForeignTab | null {
 }
 
 /**
- * The strip after the server's list: every surface of another kind stays, so do another
- * Environment's tabs (each device's own) and this Environment's tabs that the list or
+ * The strip after the server's list: every surface of another kind stays, so do Nová karta tabs,
+ * another Environment's tabs (each device's own) and this Environment's tabs that the list or
  * `kept` (pending holds, tabs the device keeps itself) has. Every other Environment browser
  * surface goes, lazurio.7's included (its own tab and its new tabs at the view's bare origin).
  * Listed tabs without a surface are added at the end, in the list's order, without opening a
@@ -156,7 +167,7 @@ export function reconcileThreadTabs(
   const listed = input.listed.map((tabId) => tabId.toUpperCase());
   const stays = new Set([...listed, ...input.kept]);
   const surfaces = current.surfaces.filter((surface) => {
-    if (surface.kind !== "environment-browser") return true;
+    if (surface.kind !== "environment-browser" || isNewTabSurface(surface)) return true;
     if ("view" in surface && surface.view !== undefined) {
       return originOf(surface.view) !== input.viewOrigin;
     }
@@ -297,7 +308,7 @@ interface ThreadTabsState {
   readonly snapshots: Readonly<Record<string, ThreadTabsSnapshot | null>>;
   /** The titles the frames report, by surface id: a remote tab's title is the same everywhere. */
   readonly titles: Readonly<Record<string, string>>;
-  /** The thread the chat shows. */
+  /** The thread the chat shows, whose panel may show Nová karta. */
   readonly inView: ScopedThreadRef | null;
 }
 
@@ -532,7 +543,7 @@ function intend(sync: ThreadTabsSync, tab: string): () => boolean {
 }
 
 /**
- * The thread holds `tabId` (a page's new tab, a link, Vrátit). Until the
+ * The thread holds `tabId` (a choice in Nová karta, a page's new tab, a link, Vrátit). Until the
  * POST answers, the tab is pending and the strip keeps it. A network failure or a 5xx is retried
  * with a growing pause while the tab is in the strip; a refusal (the thread is gone, or has as many
  * tabs as it may) leaves it as the device's own, which ends 30 s after its last viewer (F39).
@@ -764,4 +775,27 @@ export function openLinkInPanel(threadRef: ScopedThreadRef, href: string): boole
     return true;
   }
   return showForeignTab(threadRef, href, true);
+}
+
+/** Nová karta became a page or a tab of the Environment: that tab takes its place, held. A tab
+ * the strip has already comes to the front instead. `newTabId` null is the empty panel's. */
+export function chooseTab(
+  threadRef: ScopedThreadRef,
+  newTabId: string | null,
+  tabId: string,
+): void {
+  const surface: EnvironmentBrowserSurface = {
+    id: tabSurfaceId(tabId),
+    kind: "environment-browser",
+  };
+  useRightPanelStore.getState().lazurio(threadRef, false, (current) => {
+    const existing = current.surfaces.some((entry) => entry.id === surface.id);
+    const surfaces = existing
+      ? current.surfaces.filter((entry) => entry.id !== newTabId)
+      : newTabId !== null && current.surfaces.some((entry) => entry.id === newTabId)
+        ? current.surfaces.map((entry) => (entry.id === newTabId ? surface : entry))
+        : [...current.surfaces, surface];
+    return { ...current, isOpen: true, surfaces, activeSurfaceId: surface.id };
+  });
+  holdTab(threadRef, tabId);
 }
