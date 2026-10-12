@@ -59,6 +59,8 @@ const authLayer = EnvironmentAuth.layer.pipe(
 const lifecycleLayer = Layer.succeed(
   ThreadLifecycle,
   ThreadLifecycle.of({
+    ready: Effect.void,
+    events: Stream.never,
     liveThread: (threadId) =>
       Effect.succeed(
         threadId === threadA ? Option.some({ id: threadA, title: "Web" }) : Option.none(),

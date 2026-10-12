@@ -40,7 +40,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-async function world(options: { readonly declared?: boolean } = {}) {
+async function world(options: { readonly declared?: boolean; readonly ready?: boolean } = {}) {
   const runtime = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "thread-tabs-"));
   cleanups.push(() => NodeFSP.rm(runtime, { recursive: true, force: true }));
   const holders = holderDirectory({ XDG_RUNTIME_DIR: runtime })!;
@@ -54,10 +54,20 @@ async function world(options: { readonly declared?: boolean } = {}) {
   const listReads: number[] = [];
   /** The fake process table: pid → command line. */
   const processes = new Map<number, string>();
+  const terminated: number[] = [];
   const logs: string[] = [];
   const watched: Array<ReadonlyArray<string | undefined>> = [];
   let retries = 0;
   let changed: () => void = () => undefined;
+  /** Reads of a live thread wait here while the test holds them back (`holdLiveReads`). */
+  let liveGate: { readonly open: Promise<void>; readonly reached: () => void } | null = null;
+  let markReady = () => {};
+  const ready =
+    options.ready === false
+      ? new Promise<void>((resolve) => {
+          markReady = resolve;
+        })
+      : Promise.resolve();
   const make = () =>
     createThreadTabs({
       runtimeDirectory: runtime,
@@ -65,16 +75,29 @@ async function world(options: { readonly declared?: boolean } = {}) {
       epoch: "epoch-1",
       bootClock: async () => clock,
       liveThread: async (threadId) => {
+        const gate = liveGate;
+        if (gate !== null) {
+          gate.reached();
+          await gate.open;
+        }
         const title = threads.get(threadId);
         return title === undefined ? null : { id: threadId as never, title };
       },
       liveThreads: async () =>
         [...threads].map(([threadId, title]) => ({ id: threadId as never, title })),
+      ready,
       readFile: async (path) => {
         if (path === listPath) listReads.push(listReads.length);
         return NodeFSP.readFile(path, "utf8");
       },
-      daemon: { alive: (pid) => processes.has(pid) },
+      daemon: {
+        alive: (pid) => processes.has(pid),
+        commandLine: async (pid) => processes.get(pid) ?? "",
+        terminate: (pid) => {
+          terminated.push(pid);
+          processes.delete(pid);
+        },
+      },
       watch: (directories, onChange) => {
         watched.push(directories);
         changed = onChange;
@@ -98,7 +121,7 @@ async function world(options: { readonly declared?: boolean } = {}) {
     core.declare(viewOrigin);
     await core.settled();
   };
-  if (options.declared !== false) await declare();
+  if (options.declared !== false && options.ready !== false) await declare();
   const fileOf = (strip: string) => NodePath.join(holders, `${strip}.json`);
   return {
     runtime,
@@ -109,10 +132,32 @@ async function world(options: { readonly declared?: boolean } = {}) {
     events,
     threads,
     processes,
+    terminated,
     logs,
     watched,
     listReads,
     declare,
+    markReady,
+    /** Holds the next reads of a live thread back: `reading` settles once one waits, `release`
+     * lets them through. */
+    holdLiveReads: () => {
+      let release = () => {};
+      let reached = () => {};
+      const reading = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const open = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      liveGate = { open, reached };
+      return {
+        reading,
+        release: () => {
+          liveGate = null;
+          release();
+        },
+      };
+    },
     retries: () => retries,
     changed: () => changed(),
     fileOf,
@@ -421,11 +466,16 @@ describe("holds and releases", () => {
     expect((JSON.parse(text) as { label: string }).label).toHaveLength(200);
   });
 
-  it("an unknown thread takes no hold", async () => {
+  it("an unknown or retired thread takes no hold", async () => {
     const w = await world();
     await expect(w.core.hold("5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6", id(1))).rejects.toMatchObject({
       reason: "thread-not-found",
     });
+    await w.core.lifecycle({ type: "retired", threadId: threadA });
+    await expect(w.core.hold(threadA, id(1))).rejects.toMatchObject({ reason: "thread-not-found" });
+    await expect(w.core.read(threadA)).rejects.toMatchObject({ reason: "thread-not-found" });
+    await w.core.record(threadA, id(2), true);
+    expect(await w.stored()).toBeNull();
   });
 
   it("a release of the last id removes the file; a tab not held is released already", async () => {
@@ -438,6 +488,135 @@ describe("holds and releases", () => {
     await expect(w.core.release(threadA, "nope")).rejects.toMatchObject({
       reason: "invalid-request",
     });
+  });
+
+  it("a title change rewrites only an existing file's label", async () => {
+    const w = await world();
+    await w.core.hold(threadA, id(1));
+    await w.core.lifecycle({ type: "titled", threadId: threadA, title: "Web shop" });
+    expect(JSON.parse(await NodeFSP.readFile(w.fileOf(stripA), "utf8")).label).toBe("Web shop");
+    await w.core.lifecycle({ type: "titled", threadId: threadB, title: "Docs v2" });
+    expect(await w.stored(stripB)).toBeNull();
+  });
+});
+
+describe("archive and delete", () => {
+  it("removes the thread's file and stops only its live agent-browser daemon, never a reused pid", async () => {
+    const w = await world();
+    await w.core.hold(threadA, id(1));
+    await w.core.hold(threadB, id(2));
+    await w.bind(stripA, id(1), 4242);
+    await w.bind(stripB, id(2), 4343);
+    w.processes.set(4242, "/home/u/.local/bin/agent-browser\0");
+    w.processes.set(4343, "/usr/bin/vim\0notes.txt\0");
+    await w.core.lifecycle({ type: "retired", threadId: threadA });
+    expect(await w.stored()).toBeNull();
+    expect(w.terminated).toEqual([4242]);
+    expect(tabIds(w.lastSnapshot())).toEqual([]);
+    // The pid in B's .pid is another program now: nothing is killed.
+    await w.core.lifecycle({ type: "retired", threadId: threadB });
+    expect(w.terminated).toEqual([4242]);
+    expect(w.logs).toContain("thread-tabs-daemon-not-agent-browser");
+  });
+
+  it("closes no tab itself: a tab another file holds stays held there", async () => {
+    const w = await world();
+    await w.storeFile("launchpad", "Launchpad", [{ id: id(1), recordedAt: at(90) }]);
+    await w.core.hold(threadA, id(1));
+    await w.core.lifecycle({ type: "retired", threadId: threadA });
+    expect(await w.stored("launchpad")).toEqual([{ id: id(1), recordedAt: at(90) }]);
+  });
+
+  it("an unarchive brings nothing back but lets the thread hold again", async () => {
+    const w = await world();
+    await w.core.hold(threadA, id(1));
+    await w.core.lifecycle({ type: "retired", threadId: threadA });
+    await w.core.lifecycle({ type: "restored", threadId: threadA });
+    expect(tabIds(await w.core.read(threadA))).toEqual([]);
+    await w.core.hold(threadA, id(2));
+    expect(tabIds(await w.core.read(threadA))).toEqual([id(2)]);
+  });
+
+  it("removes even a file it cannot read", async () => {
+    const w = await world();
+    await NodeFSP.mkdir(w.holders, { recursive: true });
+    await NodeFSP.writeFile(w.fileOf(stripA), "{");
+    await w.core.lifecycle({ type: "retired", threadId: threadA });
+    expect(await w.stored()).toBeNull();
+  });
+
+  it("wins over a person's hold whose thread read was still under way: nothing is written back", async () => {
+    const w = await world();
+    await w.core.hold(threadA, id(1));
+    const read = w.holdLiveReads();
+    const holding = w.core.hold(threadA, id(2));
+    await read.reading;
+    // The projection still shows the thread; only the archive's mark stops the write.
+    const retiring = w.core.lifecycle({ type: "retired", threadId: threadA });
+    read.release();
+    await expect(holding).rejects.toMatchObject({ reason: "thread-not-found" });
+    await retiring;
+    await w.core.settled();
+    expect(await w.stored()).toBeNull();
+  });
+
+  it("wins over an agent's tab whose thread read was still under way, without a warning", async () => {
+    const w = await world();
+    await w.core.hold(threadA, id(1));
+    const read = w.holdLiveReads();
+    const recording = w.core.record(threadA, id(3), true);
+    await read.reading;
+    const retiring = w.core.lifecycle({ type: "retired", threadId: threadA });
+    read.release();
+    await recording;
+    await retiring;
+    await w.core.settled();
+    expect(await w.stored()).toBeNull();
+    expect(w.logs).not.toContain("thread-tabs-record-failed");
+  });
+});
+
+describe("the startup sweep", () => {
+  it("removes files and stops daemons of no live thread; names outside t3- are never touched", async () => {
+    const w = await world({ declared: false });
+    const gone = "5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6";
+    const stripGone = agentBrowserSessionName(gone);
+    const stripDaemon = agentBrowserSessionName("7d6c5b4a-3928-4170-8e6f-5d4c3b2a1908");
+    await w.storeFile(stripGone, "Archived", [{ id: id(1), recordedAt: at(50) }]);
+    await w.bind(stripGone, id(1), 5001);
+    await w.bind(stripDaemon, id(2), 5002);
+    await w.bind("codex-1", id(3), 5003);
+    await w.storeFile("launchpad", "Launchpad", [{ id: id(4), recordedAt: at(50) }]);
+    await w.storeFile(stripA, "Web", [
+      { id: id(5), recordedAt: at(50) },
+      { id: id(6), recordedAt: at(50) },
+    ]);
+    for (const pid of [5001, 5002, 5003]) w.processes.set(pid, "agent-browser\0");
+    await w.list([id(4), id(6)], at(100));
+    await w.declare();
+    expect(await w.stored(stripGone)).toBeNull();
+    expect(w.terminated.sort()).toEqual([5001, 5002]);
+    expect(await w.stored("launchpad")).toEqual([{ id: id(4), recordedAt: at(50) }]);
+    // Live threads' files are kept and reconciled.
+    expect(await w.stored()).toEqual([{ id: id(6), recordedAt: at(50) }]);
+  });
+
+  it("waits for the projection to catch up before it reads which threads live", async () => {
+    const w = await world({ ready: false });
+    await w.storeFile(stripA, "Web", [{ id: id(1), recordedAt: at(50) }]);
+    w.core.declare(viewOrigin);
+    w.threads.clear();
+    let read = false;
+    const reading = w.core.read(threadA).then(
+      () => (read = true),
+      () => (read = true),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(read).toBe(false);
+    w.threads.set(threadA, "Web");
+    w.markReady();
+    await reading;
+    expect(await w.stored()).toEqual([{ id: id(1), recordedAt: at(50) }]);
   });
 });
 
@@ -470,13 +649,17 @@ describe("tabs an agent opens", () => {
     expect(snapshot.tabs[0]?.revealRequest).toBeDefined();
   });
 
-  it("a binding unchanged after a release is not recorded again", async () => {
+  it("a binding unchanged after a release is not recorded again; a retired thread's is ignored", async () => {
     const w = await world();
     await w.bind(stripA, id(3));
     await w.core.refresh();
     await w.core.release(threadA, id(3));
     await w.core.refresh();
     expect(await w.stored()).toBeNull();
+    await w.core.lifecycle({ type: "retired", threadId: threadB });
+    await w.bind(stripB, id(4));
+    await w.core.refresh();
+    expect(await w.stored(stripB)).toBeNull();
   });
 
   it("another Environment's tab goes to the thread's subscribers only, live", async () => {
