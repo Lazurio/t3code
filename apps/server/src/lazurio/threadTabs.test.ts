@@ -54,7 +54,9 @@ async function world(options: { readonly declared?: boolean; readonly ready?: bo
   const listReads: number[] = [];
   /** The fake process table: pid → command line. */
   const processes = new Map<number, string>();
-  const terminated: number[] = [];
+  /** Sessions whose agent-browser daemon listens on its socket, and those asked to stop. */
+  const listening = new Set<string>();
+  const stopped: string[] = [];
   const logs: string[] = [];
   const watched: Array<ReadonlyArray<string | undefined>> = [];
   let retries = 0;
@@ -92,10 +94,13 @@ async function world(options: { readonly declared?: boolean; readonly ready?: bo
       },
       daemon: {
         alive: (pid) => processes.has(pid),
-        commandLine: async (pid) => processes.get(pid) ?? "",
-        terminate: (pid) => {
-          terminated.push(pid);
-          processes.delete(pid);
+        ask: async (socketPath) => {
+          const session = NodePath.basename(socketPath, ".sock");
+          if (!listening.has(session)) return { kind: "absent" };
+          listening.delete(session);
+          stopped.push(session);
+          await NodeFSP.rm(NodePath.join(sockets, `${session}.pid`), { force: true });
+          return { kind: "reply", line: '{"success":true}' };
         },
       },
       watch: (directories, onChange) => {
@@ -132,7 +137,8 @@ async function world(options: { readonly declared?: boolean; readonly ready?: bo
     events,
     threads,
     processes,
-    terminated,
+    listening,
+    stopped,
     logs,
     watched,
     listReads,
@@ -501,22 +507,25 @@ describe("holds and releases", () => {
 });
 
 describe("archive and delete", () => {
-  it("removes the thread's file and stops only its live agent-browser daemon, never a reused pid", async () => {
+  it("removes the thread's file and asks only its own agent-browser daemon to stop, on its socket", async () => {
     const w = await world();
     await w.core.hold(threadA, id(1));
     await w.core.hold(threadB, id(2));
     await w.bind(stripA, id(1), 4242);
     await w.bind(stripB, id(2), 4343);
     w.processes.set(4242, "/home/u/.local/bin/agent-browser\0");
-    w.processes.set(4343, "/usr/bin/vim\0notes.txt\0");
+    // B's .pid is stale: its number is another live agent-browser's, and nothing listens on B's
+    // socket.
+    w.processes.set(4343, "/home/u/.local/bin/agent-browser\0");
+    w.listening.add(stripA);
     await w.core.lifecycle({ type: "retired", threadId: threadA });
     expect(await w.stored()).toBeNull();
-    expect(w.terminated).toEqual([4242]);
+    expect(w.stopped).toEqual([stripA]);
     expect(tabIds(w.lastSnapshot())).toEqual([]);
-    // The pid in B's .pid is another program now: nothing is killed.
     await w.core.lifecycle({ type: "retired", threadId: threadB });
-    expect(w.terminated).toEqual([4242]);
-    expect(w.logs).toContain("thread-tabs-daemon-not-agent-browser");
+    expect(w.stopped).toEqual([stripA]);
+    expect(w.processes.has(4343)).toBe(true);
+    expect(w.logs).not.toContain("thread-tabs-daemon-stop-failed");
   });
 
   it("closes no tab itself: a tab another file holds stays held there", async () => {
@@ -592,10 +601,11 @@ describe("the startup sweep", () => {
       { id: id(6), recordedAt: at(50) },
     ]);
     for (const pid of [5001, 5002, 5003]) w.processes.set(pid, "agent-browser\0");
+    for (const session of [stripGone, stripDaemon, "codex-1"]) w.listening.add(session);
     await w.list([id(4), id(6)], at(100));
     await w.declare();
     expect(await w.stored(stripGone)).toBeNull();
-    expect(w.terminated.sort()).toEqual([5001, 5002]);
+    expect(w.stopped.toSorted()).toEqual([stripGone, stripDaemon].toSorted());
     expect(await w.stored("launchpad")).toEqual([{ id: id(4), recordedAt: at(50) }]);
     // Live threads' files are kept and reconciled.
     expect(await w.stored()).toEqual([{ id: id(6), recordedAt: at(50) }]);

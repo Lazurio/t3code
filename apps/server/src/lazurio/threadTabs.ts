@@ -465,7 +465,7 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     if (seams.socketDirectory === undefined) return;
     try {
       const outcome = await stopSessionDaemon(seams.socketDirectory, session, seams.daemon);
-      if (outcome === "not-agent-browser") log("thread-tabs-daemon-not-agent-browser", { session });
+      if (outcome === "failed") log("thread-tabs-daemon-stop-failed", { session });
     } catch (error) {
       log("thread-tabs-daemon-stop-failed", { session, cause: String(error) });
     }
