@@ -543,12 +543,12 @@ function LazurioEnvironmentBrowser(props: {
                 <EmptyHeader>
                   <EmptyTitle>
                     {czech
-                      ? "Přihlas se do prohlížeče tohoto Environmentu"
+                      ? "Přihlaste se do prohlížeče tohoto Environmentu"
                       : "Sign in to this Environment's browser"}
                   </EmptyTitle>
                   <EmptyDescription>
                     {czech
-                      ? "Přihlášení se otevře jen v samostatné záložce. Přihlas se tam a pak načti znovu."
+                      ? "Přihlášení se otevře jen v samostatné záložce. Přihlaste se tam a pak načtěte znovu."
                       : "Its sign-in opens only in a tab of its own. Sign in there, then reload."}
                   </EmptyDescription>
                 </EmptyHeader>
