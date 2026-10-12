@@ -78,25 +78,21 @@ jobs:
             apps/web/index.html
             apps/web/src/components/AppSidebarLayout.tsx
             # The Environment browser (root decision 0191, plan DEV-6646): the web client has no
-            # browser, so on a Lazurio Environment the right panel's Browser frames the view the
-            # Environment names at /.lazurio/browser.json, and a tab a page opens there becomes
-            # another tab of the panel. A surface kind of its own, its tabs and their titles, no
-            # desktop profile choice without the desktop preview, and the seam in ChatView.tsx
-            # (listed above) that enables Browser and keeps each tab's frame beside the surface
-            # in view.
+            # browser, so on a Lazurio Environment the right panel shows the thread's tabs of the
+            # Environment browser, each the view of one remote tab in a frame. The server keeps a
+            # thread's tabs and streams them; every device reconciles its strip to that list, and
+            # a tab a page opens, a link in the chat or Vrátit holds a tab. A surface kind of its
+            # own with its title, icon and tooltip in RightPanelTabs.tsx, one generic store action,
+            # and ChatView.tsx's one hook call and the wrapper that keeps each tab's frame beside
+            # the surface in view (listed above).
             apps/web/src/components/RightPanelTabs.tsx
             apps/web/src/lazurio/LazurioEnvironmentBrowser.test.tsx
             apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx
-            apps/web/src/lazurio/agentBrowserSession.ts
             apps/web/src/lazurio/environmentBrowser.test.ts
             apps/web/src/lazurio/environmentBrowser.ts
+            apps/web/src/lazurio/threadTabs.test.ts
+            apps/web/src/lazurio/threadTabs.ts
             apps/web/src/rightPanelStore.ts
-            # The right panel opens on the Environment browser when the thread's agent starts to
-            # use it, which these read from the thread's activities (plan DEV-6646). The seams are
-            # a hook call in ChatView.tsx and openProactive's surface type in rightPanelStore.ts
-            # (both listed above).
-            apps/web/src/lazurio/browserUse.test.ts
-            apps/web/src/lazurio/browserUse.ts
             # Another Lazurio Environment's view opens as a marked tab of the right panel (plan
             # DEV-6646). The parser of a view's address is a copy of the server's, whose Environment
             # browser host answers preview_open of such a view.

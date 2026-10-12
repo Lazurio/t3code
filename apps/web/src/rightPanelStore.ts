@@ -17,7 +17,6 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { environmentBrowserNewTabView, environmentBrowserTab } from "./lazurio/environmentBrowser";
 import { resolveStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
 
@@ -90,11 +89,9 @@ export type RightPanelSurface =
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: "agents"; kind: "agents" }
-  /** The Environment browser's view of the thread's own tab, which the Environment names on open. */
-  | { id: "environment-browser"; kind: "environment-browser" }
-  /** Another tab of the Environment browser at the view of that one tab: one a page or the agent
-   *  opened, or the person's new tab, at the view's bare origin until it settles on its tab. */
-  | { id: `environment-browser:${string}`; kind: "environment-browser"; view: string };
+  /** Lazurio overlay: a remote tab of the Environment browser, `view` only for another
+   *  Environment's (apps/web/src/lazurio/threadTabs.ts). */
+  | { id: `environment-browser:${string}`; kind: "environment-browser"; view?: string };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -135,7 +132,7 @@ interface RightPanelStoreState {
     ref: ScopedThreadRef,
     surface: Extract<
       RightPanelSurface,
-      // Lazurio overlay: the Environment browser when the agent uses it (apps/web/src/lazurio).
+      // Lazurio overlay: an Environment browser tab an agent revealed (lazurio/threadTabs.ts).
       { kind: "diff" | "pull-request" | "pull-requests" | "environment-browser" }
     >,
     expectedUserActionRevision: number,
@@ -147,25 +144,12 @@ interface RightPanelStoreState {
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
-  /**
-   * Lazurio overlay: a tab of the Environment browser at `view`; any other address is ignored.
-   * `automatic` adds it behind the surface in view without opening the panel, for a page in a
-   * hidden frame or the agent's background work; it is selected only where nothing is.
-   */
-  openEnvironmentBrowserTab: (ref: ScopedThreadRef, view: string, automatic?: boolean) => void;
-  /**
-   * Lazurio overlay: a new remote tab of the Environment browser, the view's new tab at `view`
-   * (`https://<view host>/`), in front with the panel open; any other address is ignored. Each
-   * call is a tab of its own, kept by its remote tab once its frame tells it
-   * (settleEnvironmentBrowserTab).
-   */
-  openEnvironmentBrowserNewTab: (ref: ScopedThreadRef, view: string) => void;
-  /**
-   * Lazurio overlay: the new tab `surfaceId` keeps the remote tab its view moved to, at `view`
-   * (`https://<view host>/t/<target id>`), under the same surface, so its frame does not load
-   * again. Ignored for any other surface or address, and when the panel shows that tab already.
-   */
-  settleEnvironmentBrowserTab: (ref: ScopedThreadRef, surfaceId: string, view: string) => void;
+  /** Lazurio overlay: a pure update of the thread's panel, the person's or automatic. */
+  lazurio: (
+    ref: ScopedThreadRef,
+    automatic: boolean,
+    update: (current: ThreadRightPanelState) => ThreadRightPanelState,
+  ) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
@@ -227,7 +211,8 @@ const singletonSurface = (
     case "device":
       return { id: "device", kind };
     case "environment-browser":
-      return { id: "environment-browser", kind };
+      // Lazurio overlay: a new tab of the strip each time (lazurio/threadTabs.ts).
+      return { id: `environment-browser:new-tab:${randomUUID()}`, kind };
   }
 };
 
@@ -595,64 +580,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return upsertSurface({ ...current, surfaces: withoutPlaceholder }, surface);
           }),
         ),
-      openEnvironmentBrowserTab: (ref, view, automatic = false) =>
-        set((state) => {
-          const tab = environmentBrowserTab(view);
-          if (tab === null) return state;
-          const surface = { id: tab.id, kind: "environment-browser", view: tab.view } as const;
-          return (automatic ? automaticUpdate : userAction)(
-            state,
-            scopedThreadKey(ref),
-            (current) => {
-              // A new tab of the panel that settled on this remote tab shows it already.
-              const shown =
-                current.surfaces.find((entry) => "view" in entry && entry.view === tab.view) ??
-                surface;
-              return automatic
-                ? {
-                    ...upsertSurface(current, shown, current.activeSurfaceId === null),
-                    isOpen: current.isOpen,
-                  }
-                : upsertSurface(current, shown);
-            },
-          );
-        }),
-      openEnvironmentBrowserNewTab: (ref, view) =>
-        set((state) => {
-          const newTab = environmentBrowserNewTabView(view);
-          if (newTab === null) return state;
-          const surface = {
-            id: `environment-browser:new:${randomUUID()}`,
-            kind: "environment-browser",
-            view: newTab,
-          } as const;
-          return userAction(state, scopedThreadKey(ref), (current) =>
-            upsertSurface(current, surface),
-          );
-        }),
-      settleEnvironmentBrowserTab: (ref, surfaceId, view) =>
-        set((state) => {
-          const tab = environmentBrowserTab(view);
-          if (tab === null) return state;
-          return automaticUpdate(state, scopedThreadKey(ref), (current) => {
-            const newTab = current.surfaces.find((entry) => entry.id === surfaceId);
-            if (
-              newTab?.kind !== "environment-browser" ||
-              !("view" in newTab) ||
-              environmentBrowserNewTabView(newTab.view) === null ||
-              !tab.view.startsWith(newTab.view) ||
-              current.surfaces.some((entry) => "view" in entry && entry.view === tab.view)
-            ) {
-              return current;
-            }
-            return {
-              ...current,
-              surfaces: current.surfaces.map((entry) =>
-                entry.id === surfaceId ? { ...newTab, view: tab.view } : entry,
-              ),
-            };
-          });
-        }),
+      lazurio: (ref, automatic, update) =>
+        set((state) =>
+          (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), update),
+        ),
       openPullRequest: (ref, target) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {

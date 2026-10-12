@@ -1,8 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { ExternalLink, Globe2, LogIn } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { create } from "zustand";
+import { ExternalLink, Globe2, LogIn, Users } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -17,59 +16,46 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
-import {
-  type RightPanelSurface,
-  selectActiveRightPanel,
-  selectThreadRightPanelState,
-  useRightPanelStore,
-} from "../rightPanelStore";
+import { type RightPanelSurface, useRightPanelStore } from "../rightPanelStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { agentBrowserSessionName } from "./agentBrowserSession";
-import {
-  type BrowserUseTracker,
-  type OpenedTab,
-  type ThreadActivity,
-  trackBrowserUse,
-} from "./browserUse";
 import type { LazurioBrowserView } from "./browserView";
 import {
-  type EnvironmentBrowserTab,
-  environmentBrowserLink,
-  environmentBrowserNewTabView,
-  environmentBrowserTab,
-  fetchEnvironmentBrowser,
   foreignEnvironmentBrowserTab,
   foreignEnvironmentIcon,
   foreignEnvironmentLabel,
   isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
 } from "./environmentBrowser";
-
-/**
- * The origin of this Environment's view, from the last answer that named a view: where the links
- * to its tabs lead. Page memory only, like the answers themselves.
- */
-let viewOrigin: string | null = null;
-
-const askEnvironment = (threadId: string) =>
-  fetchEnvironmentBrowser(agentBrowserSessionName(threadId), window.location.origin, (url, init) =>
-    window.fetch(url, init),
-  ).then((view) => {
-    if (view !== null) viewOrigin = new URL(view.view).origin;
-    return view;
-  });
-
-/** Another Lazurio Environment's tab at `address`, seen from this page (environmentBrowser.ts). */
-const foreignTabAt = (address: unknown) =>
-  foreignEnvironmentBrowserTab(address, window.location.origin, viewOrigin);
-
-/** The overlay's words are Czech where the person's browser is, as in the Environment's view. */
-const prefersCzech = () => navigator.language.toLowerCase().startsWith("cs");
+import {
+  type ClosedTabs,
+  type EnvironmentBrowserSurface,
+  enterThreadTabs,
+  leaveThreadTabs,
+  letGoOfTabs,
+  openLinkInPanel,
+  parseForeignTab,
+  parseThreadTabsAnswer,
+  placesOf,
+  prefersCzech,
+  receiveForeign,
+  receiveSnapshot,
+  rememberTitle,
+  showForeignTab,
+  showOwnTab,
+  syncOf,
+  tabEnded,
+  tabIdOfSurface,
+  tabSurfaceId,
+  tabTooltip,
+  type ThreadTab,
+  THREAD_TABS_ROUTE,
+  useThreadTabsStore,
+} from "./threadTabs";
 
 /**
  * The thread where the Environment browser can serve it, else null: a thread of this page's own
  * environment, in the web client. The desktop app keeps its own browser, and a thread of another
- * environment has its window in that environment's browser.
+ * environment has its tabs in that environment's browser.
  */
 function useEnvironmentBrowserThread(threadRef: ScopedThreadRef | null): ScopedThreadRef | null {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -80,217 +66,131 @@ function useEnvironmentBrowserThread(threadRef: ScopedThreadRef | null): ScopedT
     : null;
 }
 
-type TabTitles = Readonly<Record<string, string>>;
-const NO_TITLES: TabTitles = {};
-
-/**
- * The titles the panel's Environment browser tabs last reported, by thread key and surface id.
- * Session only: a frame reports its tab's title again whenever it connects.
- */
-const useTabTitles = create<{ readonly byThreadKey: Readonly<Record<string, TabTitles>> }>(() => ({
-  byThreadKey: {},
-}));
-
-function rememberTitle(threadKey: string, surfaceId: string, title: string | null): void {
-  useTabTitles.setState((state) => {
-    const titles = state.byThreadKey[threadKey] ?? NO_TITLES;
-    if ((titles[surfaceId] ?? null) === title) return state;
-    const { [surfaceId]: _previous, ...others } = titles;
-    return {
-      byThreadKey: {
-        ...state.byThreadKey,
-        [threadKey]: title === null ? others : { ...others, [surfaceId]: title },
-      },
-    };
-  });
-}
-
-/**
- * Lazurio overlay (root decision 0191, plan DEV-6646): whether the right panel's Browser opens
- * the Environment browser for this thread, and how. The desktop app keeps its own browser, and
- * only threads of this page's own environment have their window in its browser, so anywhere
- * else this is never available and the Browser stays upstream's. The Environment is asked again
- * whenever the panel opens or the thread changes; until it answers, the Browser stays disabled.
- * `titles` are what the thread's Environment browser tabs report, by surface id.
- */
-export function useLazurioEnvironmentBrowser(
-  threadRef: ScopedThreadRef | null,
-  panelOpen: boolean,
-): { readonly available: boolean; readonly open: () => void; readonly titles: TabTitles } {
-  const threadId = useEnvironmentBrowserThread(threadRef)?.threadId ?? null;
-  const [answer, setAnswer] = useState<{
-    readonly threadId: string;
-    readonly available: boolean;
-  } | null>(null);
-  useEffect(() => {
-    if (threadId === null || !panelOpen) return;
-    let current = true;
-    void askEnvironment(threadId).then((view) => {
-      if (current) setAnswer({ threadId, available: view !== null });
-    });
-    return () => {
-      current = false;
-    };
-  }, [panelOpen, threadId]);
-  // Upstream's "+ Browser" adds a browser tab. Here the first is the thread's own tab, and once
-  // that is in the panel each one is a new remote tab of the view (root decision 0191 point 12).
-  const open = useCallback(() => {
-    if (threadRef === null) return;
-    const store = useRightPanelStore.getState();
-    const ownTabShown = selectThreadRightPanelState(store.byThreadKey, threadRef).surfaces.some(
-      (surface) => surface.id === "environment-browser",
-    );
-    if (ownTabShown && viewOrigin !== null) {
-      store.openEnvironmentBrowserNewTab(threadRef, `${viewOrigin}/`);
-    } else {
-      store.open(threadRef, "environment-browser");
-    }
-  }, [threadRef]);
-  const threadKey = threadRef === null ? null : scopedThreadKey(threadRef);
-  const titles = useTabTitles((state) =>
-    threadKey === null ? NO_TITLES : (state.byThreadKey[threadKey] ?? NO_TITLES),
-  );
-  return {
-    available: threadId !== null && answer?.threadId === threadId && answer.available,
-    open,
-    titles,
-  };
-}
-
-/** The thread's own tab, the surface a person picks as Browser. */
-const OWN_TAB = { id: "environment-browser", kind: "environment-browser" } as const;
 /** A row of the chat's timeline: a message, or the work the agent did. */
 const CHAT_ROW = "[data-timeline-root]";
 
-const showsEnvironmentBrowser = (threadRef: ScopedThreadRef) =>
-  selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef) ===
-  "environment-browser";
+const parseData = (data: unknown) => {
+  try {
+    return JSON.parse(String(data)) as unknown;
+  } catch {
+    return null;
+  }
+};
 
 /**
- * Lazurio/t3code#48: the tab a completed preview_open answered with joins the panel, in front
- * when preview_open showed it to the person (`front`), else behind the surface in view. Another
- * Environment's view is that Environment's tab. Any other tab is one of this Environment's view,
- * which the Environment is asked for; the thread's own window is the thread's own tab. Bringing a
- * tab to the front is automatic: a choice the person made since the call completed wins.
+ * The person's × in the strip: a tab of this Environment that leaves the panel while the thread's
+ * last list still has it (or its hold is pending) was closed by the person, whichever way (×,
+ * middle click, Close others, to the right, all), so the thread lets go of it. A tab the list lost
+ * or that ended in its view leaves without a word. One store change after another in the same task
+ * (upstream's Close all closes one surface at a time) is one batch and one toast.
  */
-function showOpenedTab(
-  threadRef: ScopedThreadRef,
-  opened: OpenedTab,
-  front: boolean,
-  inView: { readonly current: string | null },
-): void {
-  const revision = useRightPanelStore.getState().getUserActionRevision(threadRef);
-  const show = (tab: EnvironmentBrowserTab) => {
-    const store = useRightPanelStore.getState();
-    if (!front) store.openEnvironmentBrowserTab(threadRef, tab.view, true);
-    else
-      store.openProactive(
-        threadRef,
-        { id: tab.id, kind: "environment-browser", view: tab.view },
-        revision,
-      );
-  };
-  const foreign = foreignTabAt(opened.view);
-  if (foreign !== null) {
-    if (foreign.environment.targetId === opened.tabId) show(foreign);
-    return;
-  }
-  const threadKey = scopedThreadKey(threadRef);
-  void askEnvironment(threadRef.threadId).then((own) => {
-    if (own === null || viewOrigin === null || inView.current !== threadKey) return;
-    const tab = environmentBrowserTab(`${viewOrigin}/t/${opened.tabId}`, window.location.origin);
-    if (tab === null) return;
-    if (environmentBrowserTab(own.view)?.id !== tab.id) show(tab);
-    else if (front) useRightPanelStore.getState().openProactive(threadRef, OWN_TAB, revision);
+function watchClosedTabs(threadRef: ScopedThreadRef): () => void {
+  const key = scopedThreadKey(threadRef);
+  let batch: {
+    original: readonly RightPanelSurface[];
+    closed: EnvironmentBrowserSurface[];
+    activeBefore: string | null;
+    openBefore: boolean;
+  } | null = null;
+  return useRightPanelStore.subscribe((state, previous) => {
+    const before = previous.byThreadKey[key];
+    const after = state.byThreadKey[key];
+    if (before === undefined || before === after) return;
+    const sync = syncOf(threadRef);
+    const snapshot = useThreadTabsStore.getState().snapshots[key];
+    const listed = new Set(snapshot?.tabs.map((tab) => tab.tabId) ?? []);
+    const remaining = new Set((after?.surfaces ?? []).map((surface) => surface.id));
+    const closed = before.surfaces.filter((surface): surface is EnvironmentBrowserSurface => {
+      if (remaining.has(surface.id)) return false;
+      const tab = tabIdOfSurface(surface);
+      if (tab === null || sync.ended.has(tab) || sync.released.has(tab)) return false;
+      return listed.has(tab) || sync.pending.has(tab);
+    });
+    if (closed.length === 0) return;
+    if (batch === null) {
+      const started = {
+        original: before.surfaces,
+        closed: [] as EnvironmentBrowserSurface[],
+        activeBefore: before.activeSurfaceId,
+        openBefore: before.isOpen,
+      };
+      batch = started;
+      queueMicrotask(() => {
+        batch = null;
+        const tabs: ClosedTabs = {
+          surfaces: started.closed.map((surface) => ({
+            surface,
+            index: started.original.findIndex((entry) => entry.id === surface.id),
+          })),
+          activeBefore: started.activeBefore,
+          openBefore: started.openBefore,
+        };
+        letGoOfTabs(threadRef, tabs);
+      });
+    }
+    batch.closed.push(...closed);
   });
 }
 
 /**
- * Lazurio overlay (root decision 0191, plan DEV-6646): the chat brings the Environment browser
- * into the right panel. When the agent of the thread in view starts to use the browser
- * (browserUse.ts) and the Environment offers it, the panel opens on the thread's own tab, the
- * surface a person picks by hand, unless it shows the Environment browser already. Only activities
- * that arrive while the thread is in view and `live` count, never its history. A person who closes
- * the panel or picks another surface sees it open again at the agent's next browser call, so the
- * person sees where the agent works; a choice the person makes while the Environment is asked wins
- * over the opening. Where the panel is a sheet over the chat (`inlinePanel` false), it does not
- * open by itself: it would cover the chat and take the composer's focus. The tab a completed
- * preview_open answered with joins the panel as well (showOpenedTab), and a call that opens
- * another Environment's view leaves this Environment's browser alone. A plain click on a link in
- * the chat to one remote tab of this Environment's view, or of another Lazurio Environment's,
- * opens that tab in the panel instead of a new browser tab.
+ * Lazurio overlay (plan DEV-6646, task 501): ChatView's one hook. While a thread of this page's
+ * own environment is in view, its strip follows the server's list of the thread's tabs (an event
+ * stream, threadTabs.ts), and a new reveal request opens the inline panel on its tab (never where
+ * the panel is a sheet over the chat, `inlinePanel` false). A tab the person closes in the strip is
+ * let go of with Vrátit; a plain click on a link in the chat to one remote tab, of this
+ * Environment's view or of another Lazurio Environment's, opens it in the panel instead of a new
+ * browser tab, and the thread holds a tab of this Environment's.
  */
-export function useLazurioEnvironmentBrowserFromChat(input: {
-  readonly threadRef: ScopedThreadRef | null;
-  readonly activities: ReadonlyArray<ThreadActivity>;
-  /** False while the thread's history loads or catches up. */
-  readonly live: boolean;
-  /** False where the right panel is a sheet over the chat. */
-  readonly inlinePanel: boolean;
-}): void {
-  const { activities, live, inlinePanel } = input;
-  const threadRef = useEnvironmentBrowserThread(input.threadRef);
-  const tracker = useRef<BrowserUseTracker | null>(null);
-  // The key of the thread in view, and of the thread whose Environment is being asked.
-  const inView = useRef<string | null>(null);
-  const asking = useRef<string | null>(null);
+export function useLazurioThreadTabs(
+  input: ScopedThreadRef | null,
+  options: { readonly inlinePanel: boolean },
+): void {
+  const threadRef = useEnvironmentBrowserThread(input);
+  const { inlinePanel } = options;
 
+  // Before the stream's effect, so a thread that comes into view has its panel's kind already.
   useEffect(() => {
-    if (threadRef === null) {
-      tracker.current = null;
-      return;
-    }
-    const threadKey = scopedThreadKey(threadRef);
-    const look = trackBrowserUse(
-      tracker.current,
-      threadKey,
-      activities,
-      live,
-      (url) => foreignTabAt(url) !== null,
-    );
-    tracker.current = look.tracker;
-    for (const opened of look.opened) {
-      showOpenedTab(threadRef, opened, opened.visible && inlinePanel, inView);
-    }
-    if (!look.used || !inlinePanel || asking.current === threadKey) return;
-    if (showsEnvironmentBrowser(threadRef)) return;
-    const revision = useRightPanelStore.getState().getUserActionRevision(threadRef);
-    asking.current = threadKey;
-    void askEnvironment(threadRef.threadId).then((view) => {
-      if (asking.current === threadKey) asking.current = null;
-      if (view === null || inView.current !== threadKey || showsEnvironmentBrowser(threadRef)) {
-        return;
-      }
-      useRightPanelStore.getState().openProactive(threadRef, OWN_TAB, revision);
-    });
-  }, [activities, inlinePanel, live, threadRef]);
+    if (threadRef !== null) syncOf(threadRef).inlinePanel = inlinePanel;
+  }, [threadRef, inlinePanel]);
 
   useEffect(() => {
     if (threadRef === null) return;
-    inView.current = scopedThreadKey(threadRef);
+    enterThreadTabs(threadRef);
+    const events = new EventSource(
+      `${THREAD_TABS_ROUTE}/events?threadId=${encodeURIComponent(threadRef.threadId)}`,
+    );
+    events.addEventListener("snapshot", (event) => {
+      const answer = parseThreadTabsAnswer(parseData(event.data));
+      if (answer !== null) receiveSnapshot(threadRef, answer);
+    });
+    events.addEventListener("foreign", (event) => {
+      const tab = parseForeignTab(parseData(event.data));
+      if (tab !== null) receiveForeign(threadRef, tab);
+    });
+    const stopWatching = watchClosedTabs(threadRef);
+    return () => {
+      events.close();
+      stopWatching();
+      leaveThreadTabs(threadRef);
+    };
+  }, [threadRef]);
+
+  useEffect(() => {
+    if (threadRef === null) return;
     const openInPanel = (event: MouseEvent) => {
       if (!isPlainPrimaryClick(event) || !(event.target instanceof Element)) return;
       const link = event.target.closest("a[href]");
       if (!(link instanceof HTMLAnchorElement) || link.closest(CHAT_ROW) === null) return;
-      const tab =
-        environmentBrowserLink(link.href, window.location.origin, viewOrigin) ??
-        foreignTabAt(link.href);
-      if (tab === null) return;
-      // The panel takes this click: no new browser tab, and no link handling of the chat's own.
+      if (!openLinkInPanel(threadRef, link.href)) return;
+      // The panel took this click: no new browser tab, and no link handling of the chat's own.
       event.preventDefault();
       event.stopPropagation();
-      useRightPanelStore.getState().openEnvironmentBrowserTab(threadRef, tab.view);
     };
     // Capturing on the document runs before the chat's own handlers of the link.
     document.addEventListener("click", openInPanel, true);
-    return () => {
-      inView.current = null;
-      document.removeEventListener("click", openInPanel, true);
-    };
+    return () => document.removeEventListener("click", openInPanel, true);
   }, [threadRef]);
 }
-
-type EnvironmentBrowserSurface = Extract<RightPanelSurface, { kind: "environment-browser" }>;
 
 /**
  * How long another Environment's view has to tell its tab: after its page loaded, and in all. A
@@ -324,14 +224,12 @@ const isEnvironmentBrowserSurface = (
 
 /**
  * The right panel's content on the web: the surface in view (`children`) and every Environment
- * browser tab of the thread, each in a frame of its own that stays mounted while the panel
- * shows the thread. A frame that unmounts drops its tab's viewer, and the Environment closes a
- * tab a page opened 30 s after its last viewer leaves (LazurioPlatform F39 point 9), so only
- * closing the panel, closing the tab or leaving the thread may end it. The frames share one
- * grid cell with the surface in view, and only the active tab's frame is visible. A hidden
- * frame keeps its size (visibility, not display): the view sizes its remote window to its own
- * page area, so a frame without one would shrink the window, the agent's tab included. The
- * desktop app has its own browser and keeps upstream's panel.
+ * browser tab of the thread, each in a frame of its own that stays mounted while the panel shows
+ * the thread, for instant switching. The frames share one grid cell with the surface in view, and
+ * only the active tab's frame is visible. A hidden frame keeps its size (visibility, not display):
+ * the view sizes its remote window to its own page area, so a frame without one would shrink the
+ * window, the agent's tab included. The desktop app has its own browser and keeps upstream's
+ * panel.
  */
 export function LazurioRightPanelSurfaces(props: {
   readonly threadRef: ScopedThreadRef;
@@ -368,18 +266,96 @@ export function LazurioRightPanelSurfaces(props: {
 }
 
 /**
- * An Environment browser tab of the right panel: the view of one remote tab in a frame. The
- * thread's own tab is asked of the Environment each time its frame mounts and again on Reload;
- * a tab that a page opened frames its own view, and Reload loads it again. A new tab the person
- * adds frames the view's bare origin, where the view opens a remote tab, and keeps that tab once
- * the view tells it, without loading the frame again. The frame tells the panel its tab's title,
- * and a tab its page opens becomes a new tab of the panel, as in the person's own browser (root
- * decision 0191 point 12): in front when the page is the one in view, and behind it when the
- * page is in a hidden tab, so that a tab an agent opens there does not take the person's place. The gateway's sign-in page cannot render in a frame once the sign-in
- * has expired, so the view also opens in a new tab. Another Lazurio Environment's tab is marked
- * as that Environment's: a coloured border, and its Organization's picture and name in the head.
- * Where its view does not come up (no session at that Environment's gateway, whose sign-in cannot
- * render in a frame), the panel asks the person to sign in there.
+ * RightPanelTabs's one hook: the strip's tooltip of an Environment browser tab, which names the
+ * other places that hold it and an agent at work. It follows the reported titles and the server's
+ * facts, so the strip's titles and tooltips are current.
+ */
+export function useRightPanel() {
+  const snapshot = useThreadTabsStore((state) =>
+    state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)],
+  );
+  useThreadTabsStore((state) => state.titles);
+  const czech = prefersCzech();
+  return {
+    tooltip: (surface: RightPanelSurface, title: string) =>
+      surface.kind === "environment-browser"
+        ? tabTooltip(
+            title,
+            snapshot?.tabs.find((tab) => tabSurfaceId(tab.tabId) === surface.id),
+            czech,
+          )
+        : title,
+  };
+}
+
+/** The strip's title of an Environment browser tab: what its frame reported. */
+export function surfaceTitle(surface: EnvironmentBrowserSurface): string {
+  return useThreadTabsStore.getState().titles[surface.id] ?? "Browser";
+}
+
+const tabOfInView =
+  (surfaceId: string) => (state: ReturnType<typeof useThreadTabsStore.getState>) => {
+    const snapshot =
+      state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)];
+    return snapshot?.tabs.find((tab) => tabSurfaceId(tab.tabId) === surfaceId);
+  };
+
+/** The strip's icon of an Environment browser tab, marked while an agent works in it or another
+ * place holds it too. */
+export function SurfaceIcon({ surface }: { readonly surface: EnvironmentBrowserSurface }) {
+  const tab: ThreadTab | undefined = useThreadTabsStore(tabOfInView(surface.id));
+  const shared = tab !== undefined && tab.alsoHeldBy.length > 0;
+  return (
+    <span className="relative inline-flex shrink-0">
+      <Globe2 className="size-3 shrink-0" />
+      {tab?.agent || shared ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute -top-0.5 -right-0.5 size-1.5 rounded-full",
+            tab?.agent ? "bg-info" : "bg-muted-foreground",
+          )}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/** A shared tab, said discreetly under the view's bar (wireframe HostPanel `SharedLine`). */
+function SharedLine(props: { readonly threadRef: ScopedThreadRef; readonly tabId: string }) {
+  const tab = useThreadTabsStore((state) =>
+    state.snapshots[scopedThreadKey(props.threadRef)]?.tabs.find(
+      (entry) => entry.tabId === props.tabId,
+    ),
+  );
+  if (tab === undefined || tab.alsoHeldBy.length === 0) return null;
+  const czech = prefersCzech();
+  return (
+    <div
+      role="note"
+      className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-background px-2 py-1 text-muted-foreground text-xs"
+    >
+      <Users aria-hidden className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate">
+        <strong className="font-medium text-foreground">
+          {czech ? "Sdílená záložka" : "Shared tab"}
+        </strong>{" "}
+        · {czech ? "je i" : "also"} {placesOf(tab.alsoHeldBy, czech)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * An Environment browser tab of the right panel: the view of one remote tab in a frame. A tab of
+ * this Environment frames `<viewOrigin>/t/<id>`, the server's view origin, so no address of it is
+ * stored. The frame tells the panel its tab's title; a tab its page opens becomes a new tab of the
+ * panel, in front when the page is the one in view and behind it when the page is hidden, and the
+ * thread holds it; a tab that ended leaves the panel (root decision 0191 point 12, F47 point 6).
+ * The gateway's sign-in page cannot render in a frame once the sign-in has expired, so the view
+ * also opens in a new tab. Another Lazurio Environment's tab is marked as that Environment's: a
+ * coloured border, and its Organization's picture and name in the head. Where its view does not
+ * come up (no session at that Environment's gateway), the panel asks the person to sign in there.
  */
 function LazurioEnvironmentBrowser(props: {
   readonly threadRef: ScopedThreadRef;
@@ -387,44 +363,33 @@ function LazurioEnvironmentBrowser(props: {
   readonly shown: boolean;
 }) {
   const { threadRef, surface, shown } = props;
-  const threadId = threadRef.threadId;
-  const tabView = "view" in surface ? surface.view : null;
-  const foreign = tabView === null ? null : foreignTabAt(tabView);
-  const [request, setRequest] = useState(0);
-  const [answer, setAnswer] = useState<{
-    readonly threadId: string;
-    readonly request: number;
-    readonly view: string | null;
-  } | null>(null);
-  useEffect(() => {
-    if (tabView !== null) return;
-    let current = true;
-    void askEnvironment(threadId).then((view) => {
-      if (current) setAnswer({ threadId, request, view: view?.view ?? null });
-    });
-    return () => {
-      current = false;
-    };
-  }, [tabView, threadId, request]);
-  // The frame's address; undefined while the Environment is being asked.
-  const newTab = tabView !== null && environmentBrowserNewTabView(tabView) !== null;
+  const snapshot = useThreadTabsStore((state) => state.snapshots[scopedThreadKey(threadRef)]);
+  const tabId = tabIdOfSurface(surface);
+  const foreign =
+    surface.view === undefined
+      ? null
+      : foreignEnvironmentBrowserTab(
+          surface.view,
+          window.location.origin,
+          snapshot?.viewOrigin ?? null,
+        );
+  // The frame's address; undefined until the server's first answer, null without a browser.
   const view =
-    tabView !== null
-      ? (environmentBrowserTab(tabView, window.location.origin)?.view ??
-        environmentBrowserNewTabView(tabView, window.location.origin))
-      : answer?.threadId === threadId && answer.request === request
-        ? answer.view
-        : undefined;
-  // The address this frame mounted with. A new tab that settles on its remote tab keeps its frame,
-  // which the view moved there itself; Reload loads the settled view.
-  const [mountedView] = useState(view);
-  const frameView = request === 0 && mountedView ? mountedView : view;
+    foreign !== null
+      ? foreign.view
+      : tabId !== null && snapshot !== undefined && snapshot !== null
+        ? `${snapshot.viewOrigin}/t/${tabId}`
+        : snapshot === null
+          ? null
+          : undefined;
+  const [request, setRequest] = useState(0);
 
   // The requests whose frame told its tab (its view came up), fired load, or ran out of time.
   const [cameUp, setCameUp] = useState<number | null>(null);
   const [loaded, setLoaded] = useState<number | null>(null);
   const [late, setLate] = useState<number | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
+  const isForeign = foreign !== null;
   useEffect(() => {
     if (!view) return;
     const listen = (event: MessageEvent) => {
@@ -435,24 +400,20 @@ function LazurioEnvironmentBrowser(props: {
       );
       if (message?.type === "info") {
         setCameUp(request);
-        rememberTitle(scopedThreadKey(threadRef), surface.id, message.title);
-        if (newTab && message.tab !== null) {
-          useRightPanelStore
-            .getState()
-            .settleEnvironmentBrowserTab(threadRef, surface.id, message.tab.view);
-        }
+        rememberTitle(surface.id, message.title);
       } else if (message?.type === "new-tab") {
-        useRightPanelStore
-          .getState()
-          .openEnvironmentBrowserTab(threadRef, message.tab.view, !shown);
+        const target = /\/t\/([0-9A-Fa-f]{32})$/.exec(message.tab.view)?.[1];
+        if (isForeign) showForeignTab(threadRef, message.tab.view, shown);
+        else if (target !== undefined) showOwnTab(threadRef, target, shown);
+      } else if (message?.type === "closed") {
+        tabEnded(threadRef, surface.id);
       }
     };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [view, threadRef, surface.id, shown, request, newTab]);
+  }, [view, threadRef, surface.id, shown, request, isForeign, frame]);
 
   // Another Environment's view tells its tab soon after its page loads, or it never came up.
-  const isForeign = foreign !== null;
   useEffect(() => {
     if (!isForeign || !view || cameUp === request) return;
     const wait = loaded === request ? FOREIGN_VIEW_AFTER_LOAD_MS : FOREIGN_VIEW_MS;
@@ -494,7 +455,7 @@ function LazurioEnvironmentBrowser(props: {
                 variant="ghost"
                 size="icon-xs"
                 aria-label="Reload"
-                disabled={view === undefined}
+                disabled={!view}
                 onClick={() => setRequest((value) => value + 1)}
               />
             }
@@ -514,12 +475,13 @@ function LazurioEnvironmentBrowser(props: {
           </Button>
         ) : null}
       </div>
+      {tabId !== null ? <SharedLine threadRef={threadRef} tabId={tabId} /> : null}
       {view ? (
         <div className="relative flex min-h-0 flex-1 flex-col">
           <iframe
             key={request}
             ref={frame}
-            src={frameView ?? view}
+            src={view}
             title={label ?? "Environment browser"}
             className="min-h-0 w-full flex-1 border-0"
             allow="clipboard-read; clipboard-write; fullscreen"
@@ -575,7 +537,7 @@ function LazurioEnvironmentBrowser(props: {
           <EmptyHeader>
             <EmptyTitle>Browser unavailable</EmptyTitle>
             <EmptyDescription>
-              This environment did not offer its browser. Reload to ask again.
+              This environment does not offer its browser now. Its tabs come back when it does.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

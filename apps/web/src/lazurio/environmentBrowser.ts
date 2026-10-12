@@ -1,79 +1,21 @@
 /**
- * Lazurio overlay (root decision 0191, plan DEV-6646): where the Environment browser's view is.
+ * Lazurio overlay (root decision 0191, plan DEV-6646): the addresses and messages of the
+ * Environment browser's view.
  *
  * The web client has no browser of its own. On a Lazurio Remote Environment one shared Chromium
  * runs on the Environment, the agents of every thread drive a window of their own in it through
  * the agent-browser CLI, and a person works along in the view on the Environment's gateway, where
- * `https://browser.<…>/t/<target id>` shows exactly one remote tab. The Environment's Launchpad
- * says which tab is the thread's own at `/.lazurio/browser.json` on this page's own origin, which
- * the gateway forwards behind the same sign-in. Anything but an available view at an absolute
- * https: URL means unavailable, and the right panel keeps upstream's disabled Browser. The
- * thread's own tab is asked for each time the browser opens; a tab that a page opens joins the
- * panel with the address of its view, which carries no token. Another Lazurio Environment's view
- * of a tab joins the panel the same way, marked as that Environment's.
+ * `https://browser.<…>/t/<target id>` shows exactly one remote tab. The thread's tabs and the
+ * origin of the view come from T3 Code's server (threadTabs.ts); a tab that a page opens, and
+ * another Lazurio Environment's view of a tab, join the panel by the address of that one tab,
+ * which carries no token. The frame runs the view's scripts in the view's own origin
+ * (allow-scripts with allow-same-origin), which keeps it out of this page only while that origin
+ * is another one, so the view is never framed on the page's origin.
  */
 
 import { lazurioBrowserView, type LazurioBrowserView } from "./browserView";
 
-export interface EnvironmentBrowserView {
-  /** The view, an absolute https: URL. */
-  readonly view: string;
-  /** The session whose window the view shows, or null for a view of every window. */
-  readonly session: string | null;
-}
-
-const BROWSER_VIEW_PATH = "/.lazurio/browser.json";
-// A view that has to start first answers within seconds; a hung answer must not keep the panel.
-const BROWSER_VIEW_TIMEOUT_MS = 10_000;
-
-/** The view of `session` from this origin's Environment, or null when it offers none. */
-export async function fetchEnvironmentBrowser(
-  session: string,
-  origin: string,
-  fetcher: (url: string, init: RequestInit) => Promise<Response>,
-  timeoutMs = BROWSER_VIEW_TIMEOUT_MS,
-): Promise<EnvironmentBrowserView | null> {
-  const url = new URL(BROWSER_VIEW_PATH, origin);
-  url.searchParams.set("session", session);
-  try {
-    const response = await fetcher(url.href, {
-      credentials: "same-origin",
-      redirect: "error",
-      cache: "no-store",
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (response.status !== 200 || new URL(response.url).origin !== url.origin) return null;
-    if (!(response.headers.get("content-type") ?? "").startsWith("application/json")) return null;
-    return readView(await response.json(), session, url.origin);
-  } catch {
-    return null;
-  }
-}
-
-function readView(
-  value: unknown,
-  session: string,
-  pageOrigin: string,
-): EnvironmentBrowserView | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const { available, view, session: viewSession = null } = value as Record<string, unknown>;
-  if (available !== true || typeof view !== "string") return null;
-  if (viewSession !== null && viewSession !== session) return null;
-  let viewUrl: URL;
-  try {
-    viewUrl = new URL(view);
-  } catch {
-    return null;
-  }
-  if (viewUrl.protocol !== "https:") return null;
-  // The frame runs the view's scripts in the view's own origin (allow-scripts with
-  // allow-same-origin), which keeps it out of this page only while that origin is another one.
-  if (viewUrl.origin === pageOrigin) return null;
-  return { view: viewUrl.href, session: viewSession };
-}
-
-/** A tab of the panel's Environment browser beside the thread's own: one remote tab. */
+/** A tab of the panel's Environment browser: one remote tab. */
 export interface EnvironmentBrowserTab {
   /** The panel surface, `environment-browser:<target id>`, so each remote tab is open once. */
   readonly id: `environment-browser:${string}`;
@@ -108,28 +50,9 @@ export function environmentBrowserTab(
 }
 
 /**
- * The view's address for a new remote tab, `https://<view host>/`, or null for any other address.
- * There the view opens a new tab of the Environment browser for the person, which the Environment
- * closes once nobody views it (LazurioPlatform F39), moves to that tab's `/t/<target id>` and
- * tells it to the panel, which then keeps the tab by that view (readEnvironmentBrowserMessage).
- * The same rules as for one tab: https:, no credentials, query or fragment, not `pageOrigin`.
- */
-export function environmentBrowserNewTabView(view: unknown, pageOrigin?: string): string | null {
-  if (typeof view !== "string") return null;
-  let url: URL;
-  try {
-    url = new URL(view);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" || url.href !== `${url.origin}/`) return null;
-  return url.origin === pageOrigin ? null : url.href;
-}
-
-/**
  * The panel tab that a link in the chat opens instead of a new browser tab: the view of one remote
- * tab (environmentBrowserTab) on the origin of this Environment's view, as the Environment named it
- * at /.lazurio/browser.json. Any other address, or a view not named yet, is left to the browser.
+ * tab (environmentBrowserTab) on the origin of this Environment's view, as T3 Code's server names
+ * it. Any other address, or a view not named yet, is left to the browser.
  */
 export function environmentBrowserLink(
   href: string,
@@ -211,7 +134,8 @@ export function isPlainPrimaryClick(
   );
 }
 
-/** What the view in a panel frame says (LazurioPlatform F39): its tab (title and view), or a page's new tab. */
+/** What the view in a panel frame says (LazurioPlatform F39, F47 point 6): its tab (title and
+ * view), a page's new tab, or that its tab ended. */
 export type EnvironmentBrowserMessage =
   | {
       readonly type: "info";
@@ -220,7 +144,8 @@ export type EnvironmentBrowserMessage =
       /** The remote tab the view shows, on the view's own origin; null when it names none. */
       readonly tab: EnvironmentBrowserTab | null;
     }
-  | { readonly type: "new-tab"; readonly tab: EnvironmentBrowserTab };
+  | { readonly type: "new-tab"; readonly tab: EnvironmentBrowserTab }
+  | { readonly type: "closed"; readonly tab: EnvironmentBrowserTab | null };
 
 /**
  * The message of the view that `frame` (the panel frame's window) shows at `view`, or null for
@@ -250,6 +175,10 @@ export function readEnvironmentBrowserMessage(
   if (message.type === "lazurio-browser:new-tab") {
     const tab = environmentBrowserTab(message.view);
     return tab !== null && originOf(tab.view) === origin ? { type: "new-tab", tab } : null;
+  }
+  if (message.type === "lazurio-browser:closed") {
+    const tab = environmentBrowserTab(message.view);
+    return { type: "closed", tab: tab !== null && originOf(tab.view) === origin ? tab : null };
   }
   return null;
 }
