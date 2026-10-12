@@ -475,4 +475,36 @@ describe("stopping a thread's agent-browser daemon", () => {
     expect(await stopSessionDaemon(sockets, "t3-a", lingering)).toBe("unconfirmed");
     expect(await stopSessionDaemon(sockets, "../t3-a")).toBe("none");
   });
+
+  // Pablo's review of #56: a failure that proves nothing is never "none" or "stopped".
+  it("a socket or a .pid that cannot be reached is unconfirmed, never none or stopped", async () => {
+    const sockets = await temporary("holders-daemon-");
+    const server = NodeNet.createServer(() => undefined);
+    await new Promise<void>((resolve) =>
+      server.listen(NodePath.join(sockets, "t3-a.sock"), () => resolve()),
+    );
+    try {
+      // A daemon listens, but its socket cannot be opened.
+      await NodeFSP.chmod(NodePath.join(sockets, "t3-a.sock"), 0o000);
+      expect(await stopSessionDaemon(sockets, "t3-a")).toBe("unconfirmed");
+    } finally {
+      server.close();
+    }
+    // Acknowledged, and the .pid's directory cannot be read: not proven gone.
+    const pidDirectory = await temporary("holders-pid-");
+    await NodeFSP.writeFile(NodePath.join(pidDirectory, "t3-a.pid"), "4242\n");
+    const acknowledged = {
+      ask: async () => {
+        await NodeFSP.chmod(pidDirectory, 0o000);
+        return { kind: "reply", line: '{"success":true}' } as const;
+      },
+      exitWithinMs: 150,
+    };
+    try {
+      expect(await stopSessionDaemon(pidDirectory, "t3-a", acknowledged)).toBe("unconfirmed");
+    } finally {
+      await NodeFSP.chmod(pidDirectory, 0o700);
+    }
+    expect(await NodeFSP.readFile(NodePath.join(pidDirectory, "t3-a.pid"), "utf8")).toBe("4242\n");
+  });
 });
