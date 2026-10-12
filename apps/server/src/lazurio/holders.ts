@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - The holder files are the Platform's, read and written as it does.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off - The holder files and the daemon's socket are the Platform's, read, written and asked outside the Effect runtime as it does.
 
 /**
  * Lazurio overlay (plan DEV-6646, task 501; LazurioPlatform decision F47 points 4 and 5): who
