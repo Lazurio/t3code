@@ -97,6 +97,12 @@ jobs:
             # DEV-6646). The parser of a view's address is a copy of the server's, whose Environment
             # browser host answers preview_open of such a view.
             apps/web/src/lazurio/browserView.ts
+            # A thread's tabs from the server and Nová karta behind "+" (LazurioPlatform F47 step 4,
+            # task 501): where the Environment's shell defines <lazurio-new-tab>, "+" and the empty
+            # panel open Nová karta with upstream's own "+" actions as its tools. The seams are one
+            # hook call and two conditionals in RightPanelTabs.tsx (listed above).
+            apps/web/src/lazurio/LazurioNewTab.test.tsx
+            apps/web/src/lazurio/LazurioNewTab.tsx
             # Upstream 410793042 (#17730), backported: the right panel's tabs reorder by dragging.
             # It goes at the 0.0.46 refresh, where upstream owns it. Its seams in ChatView.tsx,
             # RightPanelTabs.tsx and rightPanelStore.ts are listed above.

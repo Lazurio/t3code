@@ -1,6 +1,6 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { ExternalLink, Globe2, LogIn, Users } from "lucide-react";
+import { ExternalLink, Globe2, LogIn, Plus, Users } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -26,10 +26,12 @@ import {
   isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
 } from "./environmentBrowser";
+import { NewTabSurface, type SurfaceAction, useNewTab } from "./LazurioNewTab";
 import {
   type ClosedTabs,
   type EnvironmentBrowserSurface,
   enterThreadTabs,
+  isNewTabSurface,
   leaveThreadTabs,
   letGoOfTabs,
   openLinkInPanel,
@@ -51,6 +53,9 @@ import {
   THREAD_TABS_ROUTE,
   useThreadTabsStore,
 } from "./threadTabs";
+
+// RightPanelTabs reaches the overlay through this one module: Nová karta is LazurioNewTab.tsx's.
+export { NewTab, NewTabButton } from "./LazurioNewTab";
 
 /**
  * The thread where the Environment browser can serve it, else null: a thread of this page's own
@@ -228,8 +233,8 @@ const isEnvironmentBrowserSurface = (
  * the thread, for instant switching. The frames share one grid cell with the surface in view, and
  * only the active tab's frame is visible. A hidden frame keeps its size (visibility, not display):
  * the view sizes its remote window to its own page area, so a frame without one would shrink the
- * window, the agent's tab included. The desktop app has its own browser and keeps upstream's
- * panel.
+ * window, the agent's tab included. A Nová karta tab shows only while it is in view. The desktop
+ * app has its own browser and keeps upstream's panel.
  */
 export function LazurioRightPanelSurfaces(props: {
   readonly threadRef: ScopedThreadRef;
@@ -244,6 +249,16 @@ export function LazurioRightPanelSurfaces(props: {
       <div className="col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col">{props.children}</div>
       {props.surfaces.filter(isEnvironmentBrowserSurface).map((surface) => {
         const shown = surface.id === props.activeSurfaceId;
+        if (isNewTabSurface(surface)) {
+          return shown ? (
+            <div
+              key={`${threadKey}:${surface.id}`}
+              className="col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col"
+            >
+              <NewTabSurface threadRef={props.threadRef} surface={surface} />
+            </div>
+          ) : null;
+        }
         return (
           <div
             key={`${threadKey}:${surface.id}`}
@@ -266,19 +281,22 @@ export function LazurioRightPanelSurfaces(props: {
 }
 
 /**
- * RightPanelTabs's one hook: the strip's tooltip of an Environment browser tab, which names the
- * other places that hold it and an agent at work. It follows the reported titles and the server's
- * facts, so the strip's titles and tooltips are current.
+ * RightPanelTabs's one hook: whether "+" and the empty panel open Nová karta (`newTab`,
+ * LazurioNewTab.tsx), and the strip's tooltip of an Environment browser tab, which names the other
+ * places that hold it and an agent at work. It follows the reported titles and the server's facts,
+ * so the strip's titles and tooltips are current.
  */
-export function useRightPanel() {
+export function useRightPanel(actions: ReadonlyArray<SurfaceAction>) {
+  const newTab = useNewTab(actions);
   const snapshot = useThreadTabsStore((state) =>
     state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)],
   );
   useThreadTabsStore((state) => state.titles);
   const czech = prefersCzech();
   return {
+    newTab,
     tooltip: (surface: RightPanelSurface, title: string) =>
-      surface.kind === "environment-browser"
+      surface.kind === "environment-browser" && !isNewTabSurface(surface)
         ? tabTooltip(
             title,
             snapshot?.tabs.find((tab) => tabSurfaceId(tab.tabId) === surface.id),
@@ -288,8 +306,9 @@ export function useRightPanel() {
   };
 }
 
-/** The strip's title of an Environment browser tab: what its frame reported. */
+/** The strip's title of an Environment browser tab: what its frame reported, or Nová karta. */
 export function surfaceTitle(surface: EnvironmentBrowserSurface): string {
+  if (isNewTabSurface(surface)) return prefersCzech() ? "Nová karta" : "New tab";
   return useThreadTabsStore.getState().titles[surface.id] ?? "Browser";
 }
 
@@ -304,6 +323,7 @@ const tabOfInView =
  * place holds it too. */
 export function SurfaceIcon({ surface }: { readonly surface: EnvironmentBrowserSurface }) {
   const tab: ThreadTab | undefined = useThreadTabsStore(tabOfInView(surface.id));
+  if (isNewTabSurface(surface)) return <Plus className="size-3 shrink-0" />;
   const shared = tab !== undefined && tab.alsoHeldBy.length > 0;
   return (
     <span className="relative inline-flex shrink-0">
