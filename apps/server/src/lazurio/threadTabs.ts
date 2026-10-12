@@ -21,8 +21,10 @@
  * A tab enters a thread's strip when a person holds it (the web, threadTabsRoute.ts), when
  * preview_open opens or adopts it (environmentBrowser.ts `adopt`), and when the thread's own
  * agent-browser session binds another tab (`t3-<thread>.target`, watched as the hub watches it).
- * The service is off, answering `{available: false}`, without an absolute XDG_RUNTIME_DIR or
- * while the Environment does not declare its browser (the Environment browser host's declaration).
+ * Archiving or deleting a thread removes its file and stops its agent's daemon; at the start,
+ * files and daemons of threads that are no longer live go too. The service is off, answering
+ * `{available: false}`, without an absolute XDG_RUNTIME_DIR or while the Environment does not
+ * declare its browser (the Environment browser host's declaration).
  */
 
 import { ThreadId } from "@t3tools/contracts";
@@ -38,6 +40,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
+import { forkParked } from "../serverActivation.ts";
 import { agentBrowserSessionName } from "./agentBrowserSession.ts";
 import {
   agentBrowserSocketDirectory,
@@ -60,9 +63,10 @@ import {
   readSessionBindings,
   replaceOwnerFile,
   type SessionBinding,
+  stopSessionDaemon,
   watchDirectories,
 } from "./holders.ts";
-import { type LiveThread, ThreadLifecycle } from "./threadLifecycle.ts";
+import { type LiveThread, ThreadLifecycle, type ThreadLifecycleEvent } from "./threadLifecycle.ts";
 
 /** At most this many tabs per thread: a hold past it is refused, never one dropped to make room. */
 export const MAX_THREAD_TABS = 128;
@@ -145,6 +149,8 @@ export interface ThreadTabsCoreSeams {
   readonly liveThread: (threadId: string) => Promise<LiveThread | null>;
   /** Every live thread; rejects when they cannot be read. */
   readonly liveThreads: () => Promise<ReadonlyArray<LiveThread>>;
+  /** Settles once the projection has caught up (command readiness). */
+  readonly ready: Promise<void>;
   readonly readFile?: ((path: string) => Promise<string>) | undefined;
   readonly daemon?: DaemonSeams | undefined;
   readonly watch?: typeof watchDirectories | undefined;
@@ -167,6 +173,8 @@ export interface ThreadTabsCore {
     tab: { readonly tabId: string; readonly view: string },
     reveal: boolean,
   ) => void;
+  /** Archive, delete, unarchive and titles; never fails. */
+  readonly lifecycle: (event: ThreadLifecycleEvent) => Promise<void>;
   readonly subscribe: (threadId: string, listener: (event: ThreadTabsEvent) => void) => () => void;
   /** Reconciles, reads the other holders and the agents' bindings now (what the beat does). */
   readonly refresh: () => Promise<void>;
@@ -198,6 +206,8 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
 
   /** The last good read of each of T3 Code's holder files, by strip. */
   const index = new Map<string, Held>();
+  /** Strips of threads archived or deleted since the start: they take no hold. */
+  const retired = new Set<string>();
   const reveals = new Map<string, Map<string, string>>();
   /** Every holder file's holds, by tab: the other holders a snapshot names. */
   let holdsOf = new Map<string, TabHolder[]>();
@@ -311,9 +321,18 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     else index.set(strip, held);
   };
 
-  /** Holds `tab` for `strip`, reconciling first; a tab held already keeps its time. */
-  const holdTab = (strip: string, title: string, tab: string) =>
+  /**
+   * The live thread `threadId` holds `tab`, reconciling first; a tab held already keeps its time.
+   * The thread is read live and not retired inside the queue, and `retired` once more right before
+   * the write: an archive (`retire`) marks the strip first and removes its file through the same
+   * queue, so whichever of the two comes second sees the other, and an archived thread's file is
+   * never written back. Refused with thread-not-found otherwise.
+   */
+  const holdTab = (threadId: string, tab: string) =>
     serialized(async () => {
+      const strip = stripOf(threadId);
+      const live = retired.has(strip) ? null : await liveThreadOf(threadId);
+      if (live === null) throw refusal("thread-not-found");
       const held = await current(strip);
       const gone = letGo(held, await listAndBoot());
       for (const id of gone) held.tabs.delete(id);
@@ -323,7 +342,8 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
         held.tabs.set(tab, await seams.bootClock());
         changed = true;
       }
-      if (held.label === "") held.label = cutLabel(title);
+      if (held.label === "") held.label = cutLabel(live.title);
+      if (retired.has(strip)) throw refusal("thread-not-found");
       if (changed) await write(strip, held);
       forgetReveals(strip, gone);
       remember(strip, held);
@@ -441,6 +461,53 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     return threadId;
   }
 
+  async function stopDaemon(session: string): Promise<void> {
+    if (seams.socketDirectory === undefined) return;
+    try {
+      const outcome = await stopSessionDaemon(seams.socketDirectory, session, seams.daemon);
+      if (outcome === "not-agent-browser") log("thread-tabs-daemon-not-agent-browser", { session });
+    } catch (error) {
+      log("thread-tabs-daemon-stop-failed", { session, cause: String(error) });
+    }
+  }
+
+  /** Removes a strip's file even when it cannot be read: archive and delete let go of everything. */
+  async function removeFile(strip: string): Promise<void> {
+    try {
+      await NodeFSP.rm(holderPath(strip));
+    } catch (error) {
+      if (!isMissing(error)) log("thread-tabs-remove-failed", { strip, cause: String(error) });
+    }
+    index.delete(strip);
+    reveals.delete(strip);
+  }
+
+  /** At the start: files and daemons of threads that are no longer live, including those archived
+   * while T3 Code was down or before this release. Names outside `t3-` are never touched. */
+  async function sweep(): Promise<void> {
+    let live: ReadonlyArray<LiveThread>;
+    try {
+      live = await seams.liveThreads();
+    } catch {
+      log("thread-tabs-sweep-skipped", { reason: "threads-unreadable" });
+      return;
+    }
+    const liveStrips = new Set(live.map((thread) => stripOf(thread.id)));
+    for (const name of await directoryNames(holdersDirectory).catch(() => [])) {
+      if (!name.endsWith(".json")) continue;
+      const strip = name.slice(0, -".json".length);
+      if (!isThreadStrip(strip) || liveStrips.has(strip)) continue;
+      await removeFile(strip);
+      await stopDaemon(strip);
+    }
+    if (seams.socketDirectory === undefined) return;
+    for (const name of await directoryNames(seams.socketDirectory).catch(() => [])) {
+      if (!name.endsWith(".pid")) continue;
+      const session = name.slice(0, -".pid".length);
+      if (isThreadStrip(session) && !liveStrips.has(session)) await stopDaemon(session);
+    }
+  }
+
   const nextRevealId = () => `${seams.epoch}:${++revealCount}`;
   const reveal = (strip: string, tab: string) => {
     const own = reveals.get(strip) ?? new Map<string, string>();
@@ -534,14 +601,13 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     if (!available() || !isTargetId(tabId)) return;
     try {
       await loaded();
-      const strip = stripOf(threadId);
-      const live = await seams.liveThread(threadId);
-      if (live === null) return;
       const tab = tabId.toUpperCase();
-      await holdTab(strip, live.title, tab);
-      if (revealed) reveal(strip, tab);
+      await holdTab(threadId, tab);
+      if (revealed) reveal(stripOf(threadId), tab);
       publish();
     } catch (error) {
+      // A thread that is gone, or went meanwhile, records nothing: no warning for that.
+      if (isThreadTabsError(error) && error.reason === "thread-not-found") return;
       log("thread-tabs-record-failed", {
         reason: isThreadTabsError(error) ? error.reason : String(error),
       });
@@ -583,8 +649,10 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
   };
 
   async function start(): Promise<void> {
+    await seams.ready;
     if (stopped) return;
     await serialized(async () => {
+      await sweep();
       await reconcileAll();
       await readHolders();
       await readBindings(true);
@@ -602,6 +670,40 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     publish();
   }
 
+  async function retire(threadId: string): Promise<void> {
+    const strip = stripOf(threadId);
+    retired.add(strip);
+    for (const [session, cached] of threadOfSessionCache)
+      if (cached === threadId) threadOfSessionCache.delete(session);
+    // While the service is off, the next start's sweep lets go of it.
+    if (!available() || startup === undefined) return;
+    await startup;
+    await serialized(() => removeFile(strip));
+    await stopDaemon(strip);
+    publish();
+  }
+
+  /** A title becomes the label of the thread's file, only where the file exists. */
+  async function retitle(threadId: string, title: string): Promise<void> {
+    if (!available() || startup === undefined) return;
+    await startup;
+    const strip = stripOf(threadId);
+    await serialized(async () => {
+      let held: Held;
+      try {
+        held = await current(strip);
+      } catch {
+        log("thread-tabs-label-skipped", { strip });
+        return;
+      }
+      const label = cutLabel(title);
+      if (held.tabs.size === 0 || held.label === label) return;
+      held.label = label;
+      await write(strip, held);
+      remember(strip, held);
+    }).catch(() => log("thread-tabs-label-failed", { strip }));
+  }
+
   return {
     declare(origin) {
       viewOrigin = origin;
@@ -616,19 +718,18 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       if (!available()) return { available: false };
       await loaded();
       const strip = stripOf(threadId);
-      if ((await liveThreadOf(threadId)) === null) throw refusal("thread-not-found");
+      if (retired.has(strip) || (await liveThreadOf(threadId)) === null) {
+        throw refusal("thread-not-found");
+      }
       return snapshotFor(strip, threadId);
     },
     async hold(threadId, tabId) {
       if (!isTargetId(tabId)) throw refusal("invalid-request");
       if (!available()) throw refusal("unavailable");
       await loaded();
-      const strip = stripOf(threadId);
-      const live = await liveThreadOf(threadId);
-      if (live === null) throw refusal("thread-not-found");
-      await holdTab(strip, live.title, tabId.toUpperCase());
+      await holdTab(threadId, tabId.toUpperCase());
       publish();
-      return snapshotFor(strip, threadId);
+      return snapshotFor(stripOf(threadId), threadId);
     },
     async release(threadId, tabId) {
       if (!isTargetId(tabId)) throw refusal("invalid-request");
@@ -650,6 +751,15 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
         },
       };
       for (const { listener } of subscribers.get(stripOf(threadId)) ?? []) listener(event);
+    },
+    async lifecycle(event) {
+      try {
+        if (event.type === "retired") await retire(event.threadId);
+        else if (event.type === "restored") retired.delete(stripOf(event.threadId));
+        else await retitle(event.threadId, event.title);
+      } catch (error) {
+        log("thread-tabs-lifecycle-failed", { type: event.type, cause: String(error) });
+      }
     },
     subscribe(threadId, listener) {
       const strip = stripOf(threadId);
@@ -745,6 +855,10 @@ const make = Effect.gen(function* () {
   const context = yield* Effect.context<never>();
   const runPromise = Effect.runPromiseWith(context);
   const runFork = Effect.runForkWith(context);
+  let markReady = () => {};
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
   const core = createThreadTabs({
     runtimeDirectory,
     socketDirectory: agentBrowserSocketDirectory(env),
@@ -753,6 +867,7 @@ const make = Effect.gen(function* () {
     liveThread: (threadId) =>
       runPromise(lifecycle.liveThread(ThreadId.make(threadId)).pipe(Effect.map(Option.getOrNull))),
     liveThreads: () => runPromise(lifecycle.liveThreads),
+    ready,
     readFile: overrides.readFile,
     daemon: overrides.daemon,
     watch: overrides.watch,
@@ -763,6 +878,11 @@ const make = Effect.gen(function* () {
     },
   });
   yield* Effect.addFinalizer(() => Effect.promise(() => core.stop()));
+  // After command readiness, so the projection has caught up before the sweep reads it.
+  yield* forkParked(lifecycle.ready.pipe(Effect.andThen(Effect.sync(() => markReady()))));
+  yield* forkParked(
+    Stream.runForEach(lifecycle.events, (event) => Effect.promise(() => core.lifecycle(event))),
+  );
   const attempt = <A>(work: () => Promise<A>) => Effect.tryPromise({ try: work, catch: asError });
   return ThreadTabs.of({
     read: (threadId) => attempt(() => core.read(threadId)),

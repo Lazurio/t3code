@@ -3,7 +3,7 @@
  * line of `server.ts` joins into upstream's routes. The Environment browser host drives the
  * Environment browser for T3's browser tools (environmentBrowser.ts); each thread keeps its tabs
  * of that browser in its holder file (threadTabs.ts), which the web reaches through
- * threadTabsRoute.ts, and which reads the threads through threadLifecycle.ts.
+ * threadTabsRoute.ts, and archiving or deleting a thread lets go of them (threadLifecycle.ts).
  */
 
 import * as Layer from "effect/Layer";
