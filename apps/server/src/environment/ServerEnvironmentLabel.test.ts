@@ -74,13 +74,13 @@ describe("resolveServerEnvironmentLabel", () => {
           Layer.merge(
             withHostPlatform(TestLayer, "linux", "buildbox"),
             Layer.succeed(HostProcessEnvironment, {
-              T3CODE_ENVIRONMENT_LABEL: "  Iotor / Management  ",
+              T3CODE_ENVIRONMENT_LABEL: "  Acme / Management  ",
             }),
           ),
         ),
       );
 
-      expect(result).toBe("Iotor / Management");
+      expect(result).toBe("Acme / Management");
       expect(runMock).not.toHaveBeenCalled();
     }),
   );
