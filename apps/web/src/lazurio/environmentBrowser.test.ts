@@ -4,10 +4,9 @@ import {
   environmentBrowserLink,
   environmentBrowserTab,
   foreignEnvironmentBrowserTab,
-  foreignEnvironmentIcon,
-  foreignEnvironmentLabel,
   isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
+  viewEnvironmentId,
 } from "./environmentBrowser";
 
 const origin = "https://t3code.vm-01.example.lazurio.io";
@@ -177,24 +176,16 @@ describe("another Lazurio Environment's tab", () => {
     }
   });
 
-  it("is named by its Organization and Environment, or as the person's own", () => {
-    const named = (address: string, czech: boolean) => {
+  it("hands the shell the id of its Environment, the view's host between browser. and lazurio.io", () => {
+    const idOf = (address: string) => {
       const tab = tabOf(address);
       if (tab === null) throw new Error(`${address} is no other Environment's tab`);
-      return foreignEnvironmentLabel(tab.environment, czech);
+      return viewEnvironmentId(tab.environment);
     };
-    expect(named(organization, true)).toBe("Acme · vm-02");
-    expect(named(organization, false)).toBe("Acme · vm-02");
-    expect(named(personal, true)).toBe("Osobní · jana");
-    expect(named(personal, false)).toBe("Personal · jana");
-    // More labels: the Organization is the one before lazurio.io, the Environment after browser.
-    expect(named(`https://browser.a.b.c.lazurio.io/t/${foreignId}`, false)).toBe("C · a");
-    expect(foreignEnvironmentIcon(tabOf(organization)!.environment)).toBe(
-      "https://github.com/acme.png?size=32",
-    );
-    expect(foreignEnvironmentIcon(tabOf(personal)!.environment)).toBe(
-      "https://github.com/jana.png?size=32",
-    );
+    expect(idOf(organization)).toBe("vm-02.acme");
+    expect(idOf(personal)).toBe("jana");
+    // The shell decides what an id names; the fork reads no Organization or Machine out of it.
+    expect(idOf(`https://browser.a.b.c.lazurio.io/t/${foreignId}`)).toBe("a.b.c");
   });
 });
 

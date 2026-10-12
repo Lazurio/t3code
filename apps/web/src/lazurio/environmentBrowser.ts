@@ -101,21 +101,13 @@ function parentDomainOf(origin: string): string | null {
 }
 
 /**
- * How the panel names another Environment: `<Org> · <environment>` for an Organization's,
- * `Osobní · <login>` or `Personal · <login>` for a person's own Environment.
+ * The id by which the Environment's shell names the Environment of a view: its view's host
+ * between `browser.` and `.lazurio.io` (`vm-02.acme`, or `jana` for a person's own). The panel
+ * hands it to the shell's `<lazurio-environment>`, which names that Environment as its switcher
+ * does (LazurioPlatform F39, addendum of 2026-10-12); the fork has no naming rule of its own.
  */
-export function foreignEnvironmentLabel(environment: LazurioBrowserView, czech: boolean): string {
-  const owner = environment.personal
-    ? czech
-      ? "Osobní"
-      : "Personal"
-    : `${environment.owner.charAt(0).toUpperCase()}${environment.owner.slice(1)}`;
-  return `${owner} · ${environment.environment}`;
-}
-
-/** The GitHub picture of the Organization, or of the person, whose Environment it is. */
-export const foreignEnvironmentIcon = (environment: LazurioBrowserView) =>
-  `https://github.com/${environment.owner}.png?size=32`;
+export const viewEnvironmentId = (environment: LazurioBrowserView): string =>
+  new URL(environment.origin).hostname.slice("browser.".length, -".lazurio.io".length);
 
 /** A plain primary click follows a link in place; modifiers or other buttons open it elsewhere. */
 export function isPlainPrimaryClick(

@@ -13,7 +13,11 @@ import {
   type ThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { LazurioRightPanelSurfaces, useLazurioThreadTabs } from "./LazurioEnvironmentBrowser";
+import {
+  ENVIRONMENT_ELEMENT,
+  LazurioRightPanelSurfaces,
+  useLazurioThreadTabs,
+} from "./LazurioEnvironmentBrowser";
 import {
   resetThreadTabs,
   syncOf,
@@ -294,22 +298,21 @@ describe("the panel's Environment browser frames", () => {
 });
 
 describe("another Environment's browser in the panel", () => {
-  const signInNotice = "Sign in to the Environment browser of Acme · vm-02";
+  const signInNotice = "Sign in to this Environment's browser";
 
-  it("frames it marked as that Environment's, telling it only this page's origin", async () => {
+  it("frames it marked as that Environment's, named by the shell, telling it only this page's origin", async () => {
     withSnapshot(snapshot([{ tabId: id(1) }]));
     await showPanel(threadA, [tab(1), foreignTab], foreignTab.id);
     expect(frameOf(foreignView).getAttribute("referrerpolicy")).toBe("origin");
-    expect(frameOf(foreignView).title).toBe("Acme · vm-02");
-    expect(container.textContent).toContain("Acme · vm-02");
-    const picture = container.querySelector<HTMLImageElement>(
-      'img[src="https://github.com/acme.png?size=32"]',
-    );
-    expect(picture?.getAttribute("referrerpolicy")).toBe("no-referrer");
-    act(() => {
-      picture?.dispatchEvent(new Event("error"));
-    });
-    expect(container.textContent).toContain("AAcme · vm-02");
+    expect(frameOf(foreignView).title).toBe("Another Environment's browser");
+    // The shell's element names it as that Environment's switcher does; until the shell knows it
+    // (or without the element), it says only that the browser is another Environment's.
+    const name = container.querySelector(ENVIRONMENT_ELEMENT);
+    expect(name?.getAttribute("environment")).toBe("vm-02.acme");
+    expect(name?.getAttribute("lang")).toBe("en");
+    expect(name?.textContent).toBe("Another Environment's browser");
+    expect(container.textContent).not.toContain("Acme · vm-02");
+    expect(container.querySelector("img")).toBeNull();
     expect(frameOf(viewOf(1)).title).toBe("Environment browser");
   });
 
