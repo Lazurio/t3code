@@ -9,7 +9,9 @@
  * The host registers with the preview broker as a preferred host and advertises every operation,
  * while the Environment declares its browser (`lazurio browser link --json`), asking again every
  * minute while it is not registered. A tab is a DevTools target id of the Environment browser.
- * Per thread, the host keeps in memory the tabs it opened or adopted and the current one.
+ * Per thread, the host keeps in memory the tabs it opened or adopted and the current one, and
+ * every tab it opens or adopts joins the thread's strip (threadTabs.ts), revealed to the person
+ * unless preview_open asks for background work.
  * preview_open without a tab reuses the current tab while it is open (the tool's contract), and a
  * thread without one gets its own window, the one `lazurio browser window` keeps bound to the
  * thread's agent-browser session, so T3's tools and agent-browser drive the same window and a
@@ -20,7 +22,8 @@
  * Another Environment's view of a tab (an agent working in that Environment over SSH) is never
  * loaded here: preview_open answers with that tab, which the person's right panel opens as the
  * other Environment's, and says to drive it with agent-browser on that Environment. Any other
- * operation on that tab fails with the same advice.
+ * operation on that tab fails with the same advice. The host's declaration of the browser is also
+ * the thread strips' (threadTabs.ts).
  */
 
 import {
@@ -65,6 +68,7 @@ import {
   ServerBrowserOperationError,
   toOperationError,
 } from "./environmentBrowserPage.ts";
+import * as ThreadTabs from "./threadTabs.ts";
 
 export const ENVIRONMENT_BROWSER_CLIENT_ID = "lazurio-environment-browser";
 
@@ -140,13 +144,13 @@ const NO_TAB: PreviewAutomationStatus = {
 };
 
 /**
- * `visible` says the person is shown the tab. The person's web T3 opens its right panel on the
- * thread's Environment browser when the thread's agent uses the browser
- * (apps/web/src/lazurio/browserUse.ts), so the thread's current tab is shown once preview_open
- * revealed it, while the tab stays open. preview_open reveals unless it asks for background work
- * (`open: false`, or the deprecated `show: false`; `open` wins, as in the desktop app), and the
- * thread's last preview_open decides. The host cannot see the person's screen: a panel the person
- * closed, or a client without the panel, still counts as shown.
+ * `visible` says the person is shown the tab. A tab preview_open reveals joins the thread's strip
+ * with a reveal request, on which the person's web T3 opens its right panel on that tab
+ * (threadTabs.ts, apps/web/src/lazurio/threadTabs.ts), so the thread's current tab is shown once
+ * preview_open revealed it, while the tab stays open. preview_open reveals unless it asks for
+ * background work (`open: false`, or the deprecated `show: false`; `open` wins, as in the desktop
+ * app), and the thread's last preview_open decides. The host cannot see the person's screen: a
+ * panel the person closed, or a client without the panel, still counts as shown.
  */
 const statusOf = (
   targetId: string,
@@ -214,6 +218,7 @@ export const make = Effect.gen(function* () {
   const runner = yield* ProcessRunner.ProcessRunner;
   const path = yield* Path.Path;
   const connect = yield* EnvironmentBrowserConnect;
+  const threadTabs = yield* ThreadTabs.ThreadTabs;
   const home = (yield* HostProcessEnvironment).HOME;
   const hostScope = yield* Effect.scope;
   const environmentId = yield* environment.getEnvironmentId;
@@ -304,6 +309,7 @@ export const make = Effect.gen(function* () {
           ),
         }),
   );
+  /** The thread's tab now: reported to the broker and recorded in the thread's strip. */
   const adopt = (threadId: ThreadId, targetId: string, revealed: boolean) =>
     Effect.suspend(() => {
       const thread = threads.get(threadId) ?? {
@@ -315,7 +321,7 @@ export const make = Effect.gen(function* () {
       thread.current = targetId;
       thread.revealed = revealed;
       threads.set(threadId, thread);
-      return reportLiveTabs;
+      return reportLiveTabs.pipe(Effect.andThen(threadTabs.record(threadId, targetId, revealed)));
     });
   /** Whether the person is shown the tab: the thread's current tab, once revealed (statusOf). */
   const shown = (threadId: ThreadId, targetId: string) => {
@@ -683,11 +689,16 @@ export const make = Effect.gen(function* () {
     }),
   );
   // Registered while the Environment declares its browser. The broker ends a host's stream when
-  // a request goes unanswered; the host then registers again.
+  // a request goes unanswered; the host then registers again. The threads' strips share the
+  // declaration: without one, or without a link, they answer unavailable.
   yield* Effect.gen(function* () {
     const declaration = yield* browserDeclaration;
-    if (Option.isNone(declaration)) return yield* Effect.sleep(DECLARATION_CHECK_INTERVAL);
+    if (Option.isNone(declaration)) {
+      yield* threadTabs.declare(undefined);
+      return yield* Effect.sleep(DECLARATION_CHECK_INTERVAL);
+    }
     ownViewOrigin = viewOriginOf(declaration.value.link);
+    yield* threadTabs.declare(ownViewOrigin);
     yield* Effect.exit(hostSession);
     yield* Effect.sleep(HOST_RECONNECT_DELAY);
   }).pipe(Effect.forever, Effect.forkIn(hostScope));

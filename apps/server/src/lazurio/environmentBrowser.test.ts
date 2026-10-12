@@ -31,6 +31,7 @@ import { PreviewStandardToolkit } from "../mcp/toolkits/preview/tools.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { agentBrowserSessionName } from "./agentBrowserSession.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
+import * as ThreadTabs from "./threadTabs.ts";
 import type {
   EnvironmentBrowserConnection,
   EnvironmentBrowserTab,
@@ -179,6 +180,23 @@ const startHost = (cli: { link: CliAnswer; window?: (args: ReadonlyArray<string>
     }> = [];
     let registered = yield* Deferred.make<void>();
     const reported: Array<PreviewAutomationHostFocus> = [];
+    // What the host tells the thread's strips (threadTabs.ts).
+    const recorded: Array<{
+      readonly threadId: ThreadId;
+      readonly tabId: string;
+      readonly reveal: boolean;
+    }> = [];
+    const declarations: Array<string | undefined> = [];
+    const threadTabs = ThreadTabs.ThreadTabs.of({
+      read: () => Effect.die("unused"),
+      hold: () => Effect.die("unused"),
+      release: () => Effect.die("unused"),
+      events: () => Stream.never,
+      declare: (viewOrigin) => Effect.sync(() => declarations.push(viewOrigin)),
+      record: (thread, tabId, reveal) =>
+        Effect.sync(() => recorded.push({ threadId: thread, tabId, reveal })),
+      foreign: () => Effect.void,
+    });
     const delivered: Array<PreviewAutomationOperation> = [];
     const deliveryWaiters: Array<{
       readonly operation: PreviewAutomationOperation;
@@ -249,6 +267,7 @@ const startHost = (cli: { link: CliAnswer; window?: (args: ReadonlyArray<string>
       Effect.provideService(ProcessRunner.ProcessRunner, runner),
       Effect.provideService(HostProcessEnvironment, { HOME: home }),
       Effect.provideService(EnvironmentBrowser.EnvironmentBrowserConnect, browser.connect),
+      Effect.provideService(ThreadTabs.ThreadTabs, threadTabs),
     );
     return {
       broker,
@@ -256,6 +275,8 @@ const startHost = (cli: { link: CliAnswer; window?: (args: ReadonlyArray<string>
       runs,
       registrations,
       reported,
+      recorded,
+      declarations,
       setLink: (answer: CliAnswer) => {
         cli.link = answer;
       },
@@ -445,6 +466,21 @@ it.effect(
           visible: false,
           tabId: null,
         });
+
+        // Every preview_open recorded the tab in the thread's strip, with a reveal unless it
+        // asked for background work: the strip, not the activities, opens the person's panel.
+        expect(host.recorded.map((entry) => entry.reveal)).toEqual([
+          false,
+          false,
+          true,
+          true,
+          true,
+          false,
+          true,
+        ]);
+        expect(new Set(host.recorded.map((entry) => `${entry.threadId}/${entry.tabId}`))).toEqual(
+          new Set([`${threadId}/${threadWindow}`]),
+        );
       }),
     ),
 );
@@ -603,6 +639,10 @@ it.effect("answers preview_open of another Environment's view without this brows
       // Neither this Environment's browser nor its lazurio command was asked.
       expect(host.browser.connections).toHaveLength(0);
       expect(host.runs).toEqual([{ command: lazurio, args: ["browser", "link", "--json"] }]);
+      // No holder file records another Environment's tab.
+      expect(host.recorded).toEqual([]);
+      // The host's declaration is the strips' too.
+      expect(host.declarations).toEqual(["https://browser.example.test"]);
     }),
   ),
 );
