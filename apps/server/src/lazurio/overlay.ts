@@ -6,6 +6,7 @@
  * threadTabsRoute.ts, and archiving or deleting a thread lets go of them (threadLifecycle.ts).
  */
 
+import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
 import * as Layer from "effect/Layer";
 
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
@@ -13,6 +14,8 @@ import * as ThreadLifecycle from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import * as ThreadTabsRoute from "./threadTabsRoute.ts";
 
-export const layer = Layer.mergeAll(EnvironmentBrowser.layer, ThreadTabsRoute.layer).pipe(
-  Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))),
-);
+export const layer = Layer.mergeAll(
+  EnvironmentBrowser.layer,
+  ThreadTabsRoute.layer,
+  ModelRecommendationRoute.layer,
+).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));

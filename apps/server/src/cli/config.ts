@@ -92,6 +92,14 @@ export const traceMaxFilesConfig = Config.Int("T3CODE_TRACE_MAX_FILES").pipe(
 );
 
 const EnvServerConfig = Config.all({
+  lazurioToolsUrl: Config.URL("T3CODE_LAZURIO_TOOLS_URL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  lazurioFolder: Config.String("T3CODE_LAZURIO_FOLDER").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   logLevel: Config.LogLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
   traceMinLevel: Config.LogLevel("T3CODE_TRACE_MIN_LEVEL").pipe(Config.withDefault("Info")),
   traceTimingEnabled: Config.Boolean("T3CODE_TRACE_TIMING_ENABLED").pipe(Config.withDefault(true)),
@@ -369,6 +377,50 @@ export const resolveServerConfig = (
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
     yield* fs.makeDirectory(cwd, { recursive: true });
+    const declaredFolder = env.lazurioFolder;
+    const lazurioFolder =
+      declaredFolder === undefined
+        ? undefined
+        : yield* Effect.gen(function* () {
+            if (!path.isAbsolute(declaredFolder))
+              return yield* Effect.fail(
+                new Config.ConfigError(
+                  new Schema.SchemaError(
+                    new SchemaIssue.InvalidValue({
+                      message: "T3CODE_LAZURIO_FOLDER must be an absolute existing directory.",
+                    }),
+                  ),
+                ),
+              );
+            const root = yield* fs.realPath(declaredFolder);
+            const info = yield* fs.stat(root);
+            if (info.type !== "Directory")
+              return yield* Effect.fail(
+                new Config.ConfigError(
+                  new Schema.SchemaError(
+                    new SchemaIssue.InvalidValue({
+                      message: "T3CODE_LAZURIO_FOLDER must be a directory.",
+                    }),
+                  ),
+                ),
+              );
+            return root;
+          });
+    if (
+      env.lazurioToolsUrl !== undefined &&
+      (env.lazurioToolsUrl.protocol !== "https:" ||
+        env.lazurioToolsUrl.username ||
+        env.lazurioToolsUrl.password)
+    )
+      return yield* Effect.fail(
+        new Config.ConfigError(
+          new Schema.SchemaError(
+            new SchemaIssue.InvalidValue({
+              message: "T3CODE_LAZURIO_TOOLS_URL must be an HTTPS URL without credentials.",
+            }),
+          ),
+        ),
+      );
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
     });
@@ -483,7 +535,11 @@ export const resolveServerConfig = (
       otelEnvironment: otel,
       mode,
       port,
-      cwd,
+      cwd: lazurioFolder ?? cwd,
+      ...(lazurioFolder === undefined ? {} : { lazurioFolder }),
+      ...(env.lazurioToolsUrl === undefined
+        ? {}
+        : { lazurioToolsUrl: env.lazurioToolsUrl.toString() }),
       baseDir,
       ...derivedPaths,
       serverTracePath,

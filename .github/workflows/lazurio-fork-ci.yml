@@ -53,6 +53,23 @@ jobs:
           # the exact files below. Each one is a reviewed decision; every other
           # path under those roots fails.
           allowed_upstream_changes=(
+            apps/web/src/hooks/useScratchProject.ts
+            apps/web/src/components/sidebar/SidebarThreadHeader.tsx
+            apps/web/src/components/Sidebar.tsx
+            apps/web/src/components/chat/DraftHeroHeadline.tsx
+            # Managed Lazurio Folder: server-owned start context and model recommendation.
+            apps/web/src/components/CommandPalette.tsx
+            apps/web/src/components/GitActionsControl.tsx
+            apps/web/src/components/onboarding/FirstRunGate.tsx
+            apps/web/src/hooks/useHandleNewThread.ts
+            apps/web/src/hooks/useHandleNewThread.test.ts
+            apps/web/src/routes/welcome.tsx
+            apps/web/src/lazurio/ManagedFolderWelcome.tsx
+            apps/web/src/lazurio/managedFolder.ts
+            apps/web/src/lazurio/managedFolder.test.ts
+            packages/contracts/src/server.ts
+            packages/contracts/src/settings.ts
+            packages/shared/src/serverSettings.ts
             # In-app update from the configured release channel; proposed upstream.
             apps/web/src/components/ChatView.tsx
             apps/web/src/components/chat/useAutoBalanceUpdateBanner.tsx
@@ -152,7 +169,7 @@ jobs:
 
       - name: Test the Lazurio server overlay
         working-directory: apps/server
-        run: pnpm exec vp test run src/lazurio
+        run: pnpm exec vp test run src/lazurio src/orchestration/Layers/OrchestrationEngine.test.ts src/serverSettings.test.ts src/vcs/VcsProvisioningService.test.ts
 
       - name: Test the Lazurio web overlay
         working-directory: apps/web

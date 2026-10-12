@@ -977,11 +977,17 @@ function OpenCommandPaletteDialog(props: {
   );
   const pickerProjects = useMemo(
     () =>
-      projectPickerEntries.map(({ group, targetProject }) => ({
-        ...targetProject,
-        displayName: group.displayName,
-      })),
-    [projectPickerEntries],
+      projectPickerEntries
+        .filter(({ targetProject }) => {
+          const folder = environments.find((e) => e.environmentId === targetProject.environmentId)
+            ?.serverConfig?.lazurioFolder;
+          return folder === undefined || targetProject.workspaceRoot === folder;
+        })
+        .map(({ group, targetProject }) => ({
+          ...targetProject,
+          displayName: group.displayName,
+        })),
+    [projectPickerEntries, environments],
   );
   const projectGroupByTargetKey = useMemo(
     () =>
@@ -996,7 +1002,11 @@ function OpenCommandPaletteDialog(props: {
 
   const addProjectEnvironmentOptions = useMemo(() => {
     const options = environments
-      .filter((environment) => canCreateProjectInEnvironment(environment.connection.phase))
+      .filter(
+        (environment) =>
+          environment.serverConfig?.lazurioFolder === undefined &&
+          canCreateProjectInEnvironment(environment.connection.phase),
+      )
       .map((environment): AddProjectEnvironmentOption => {
         const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
         return {
@@ -2056,35 +2066,36 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
-    kind: "action",
-    value: "action:add-project",
-    searchTerms: [
-      "add project",
-      "folder",
-      "directory",
-      "browse",
-      "clone",
-      "remote",
-      "repository",
-      "repo",
-      "git",
-      "github",
-      "gitlab",
-      "forgejo",
-      "bitbucket",
-      "azure",
-      "devops",
-      "url",
-      "environment",
-    ],
-    title: "Add project",
-    icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
-    keepOpen: true,
-    run: async () => {
-      openAddProjectFlow();
-    },
-  });
+  if (addProjectEnvironmentOptions.length > 0)
+    actionItems.push({
+      kind: "action",
+      value: "action:add-project",
+      searchTerms: [
+        "add project",
+        "folder",
+        "directory",
+        "browse",
+        "clone",
+        "remote",
+        "repository",
+        "repo",
+        "git",
+        "github",
+        "gitlab",
+        "forgejo",
+        "bitbucket",
+        "azure",
+        "devops",
+        "url",
+        "environment",
+      ],
+      title: "Add project",
+      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+      keepOpen: true,
+      run: async () => {
+        openAddProjectFlow();
+      },
+    });
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({

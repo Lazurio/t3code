@@ -1,3 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
+import { primaryServerConfigAtom } from "../state/server";
+import { ManagedFolderWelcome } from "../lazurio/ManagedFolderWelcome";
 import { createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -33,11 +36,20 @@ function WelcomeRouteView() {
   const isWelcomeRoute = useLocation({ select: (location) => location.pathname === "/welcome" });
   const [dismissed, setDismissed] = useState(false);
   const openNewThread = useNewThreadHandler();
+  const config = useAtomValue(primaryServerConfigAtom);
   // An authenticated gate means a primary server is serving this app —
   // desktop, `npx t3`, or a dev server — and that server is "this machine"
   // no matter what hostname the browser used. Only hosted-static has no
   // local server to offer.
   const localAvailable = authGateState.status === "authenticated";
+  if (config?.lazurioFolder !== undefined)
+    return (
+      <ManagedFolderWelcome
+        onDone={async (projectRef) => {
+          await openNewThread(projectRef, { replace: true });
+        }}
+      />
+    );
   return (
     <>
       <NoProjectsHero />

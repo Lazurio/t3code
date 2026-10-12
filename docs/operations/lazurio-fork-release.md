@@ -899,3 +899,23 @@ ostatních) a ručně spouštěný `lazurio-release.yml`.
 Do září 2026 vycházely jen OCI image pod tagy `lazurio-vX.Y.Z-rN`, bez CLI
 archivů. Tyto tagy a vydání zůstávají jako neměnný archiv. Launcher je
 ignoruje, protože tagy nezačínají na `v`. Nové verze je nepoužívají.
+
+## Managed Lazurio Folder contract
+
+`T3CODE_LAZURIO_FOLDER` selects the canonical existing Folder as the entry context.
+Startup adopts or creates its native project before readiness. Other projects and
+conversations remain history; new sessions start at the Folder root. This is not
+a filesystem sandbox. Without the variable, upstream behavior is unchanged.
+`T3CODE_LAZURIO_TOOLS_URL` points the managed welcome to the Environment's own
+agent sign-in page.
+
+Machines checks `t3 lazurio capabilities` for contract version 1 and invokes
+Platform's `lazurio chat defaults --apply` after Folder provisioning. Platform owns
+the recommendation; T3's settings service atomically preserves explicit user
+choices. `t3 lazurio model --base-dir <home>` reads metadata without mutation; its
+JSON argument reconciles only through the running service. Never use an offline
+settings or database edit as a deployment fallback. Release both owners together.
+
+The fork CI lists every changed upstream client/contract seam. During an upstream
+refresh, retain the managed startup, native command guard, and managed welcome
+consumer tests; the model selection itself is deliberately outside this fork.

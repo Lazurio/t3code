@@ -1,3 +1,4 @@
+import { managedFirstRunDecision } from "../../lazurio/managedFolder";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -125,31 +126,43 @@ export function FirstRunGate({
     threads,
   });
 
-  const { decision: nextDecision, persistCompletion } = hostedStatic
-    ? resolveHostedFirstRunDecision({
-        localEnvironmentDisabled: isLocalEnvironmentDisabled(),
-        hydrated,
-        completed: onboardingCompletedAt !== null,
-        catalogReady: environmentCatalogReady,
-        environmentCount: environments.length,
-      })
-    : resolveFirstRunDecision({
-        enabled,
-        hydrated,
-        completed: onboardingCompletedAt !== null,
-        bootstrapped,
-        authoritative: primaryShellLive,
-        workspaceAuthoritative: workspaceEvidenceLive,
-        workspaceProvenanceAuthoritative: isFirstRunWorkspaceProvenanceAuthoritative({
-          welcomeReceived: serverWelcome !== null,
-          bootstrapStatus: serverWelcome?.bootstrapStatus ?? null,
-        }),
-        catalogReady: environmentCatalogReady,
-        serverConfigAvailable: serverConfig !== null,
-        workspaceFresh,
-        projectCount: projects.length,
-        threadCount: threads.length,
-      });
+  const { decision: nextDecision, persistCompletion } =
+    serverConfig?.lazurioFolder !== undefined
+      ? managedFirstRunDecision({
+          hydrated,
+          live: primaryShellLive,
+          completed: onboardingCompletedAt !== null,
+          projectReady: projects.some(
+            (p) =>
+              p.environmentId === primaryEnvironmentId &&
+              p.workspaceRoot === serverConfig.lazurioFolder,
+          ),
+        })
+      : hostedStatic
+        ? resolveHostedFirstRunDecision({
+            localEnvironmentDisabled: isLocalEnvironmentDisabled(),
+            hydrated,
+            completed: onboardingCompletedAt !== null,
+            catalogReady: environmentCatalogReady,
+            environmentCount: environments.length,
+          })
+        : resolveFirstRunDecision({
+            enabled,
+            hydrated,
+            completed: onboardingCompletedAt !== null,
+            bootstrapped,
+            authoritative: primaryShellLive,
+            workspaceAuthoritative: workspaceEvidenceLive,
+            workspaceProvenanceAuthoritative: isFirstRunWorkspaceProvenanceAuthoritative({
+              welcomeReceived: serverWelcome !== null,
+              bootstrapStatus: serverWelcome?.bootstrapStatus ?? null,
+            }),
+            catalogReady: environmentCatalogReady,
+            serverConfigAvailable: serverConfig !== null,
+            workspaceFresh,
+            projectCount: projects.length,
+            threadCount: threads.length,
+          });
 
   useEffect(() => {
     if (decision === "wizard" || !hydrated) return;

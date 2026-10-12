@@ -1,3 +1,5 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ServerConfig } from "../config.ts";
 import { assert, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -74,7 +76,14 @@ it.effect("routes repository initialization through an explicit VCS driver kind"
     yield* provisioning.initRepository({ cwd: "/repo", kind: "git" });
 
     assert.deepStrictEqual(calls, ["git:/repo"]);
-  }).pipe(Effect.provide(testLayer));
+  }).pipe(
+    Effect.provide(
+      testLayer.pipe(
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-test-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
 });
 
 it.effect("defaults repository initialization to Git until callers choose a VCS kind", () => {
@@ -93,5 +102,12 @@ it.effect("defaults repository initialization to Git until callers choose a VCS 
     yield* provisioning.initRepository({ cwd: "/repo" });
 
     assert.deepStrictEqual(calls, ["default:/repo"]);
-  }).pipe(Effect.provide(testLayer));
+  }).pipe(
+    Effect.provide(
+      testLayer.pipe(
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-test-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
 });
