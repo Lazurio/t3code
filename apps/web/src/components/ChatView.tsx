@@ -2060,7 +2060,10 @@ export default function ChatView(props: ChatViewProps) {
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
   // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio).
-  useLazurioThreadTabs(activeThreadRef, { inlinePanel: !shouldUseRightPanelSheet });
+  useLazurioThreadTabs(activeThreadRef, {
+    inlinePanel: !shouldUseRightPanelSheet,
+    draft: !isServerThread,
+  });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(

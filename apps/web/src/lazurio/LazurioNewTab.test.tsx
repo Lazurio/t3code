@@ -43,6 +43,8 @@ const snapshot: ThreadTabsSnapshot = {
   viewOrigin,
   tabs: [],
 };
+/** The draft's line in English, jsdom's language. */
+const DRAFT_LINE = "The Environment browser comes with the first message.";
 const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA);
 const setPanel = (state: ThreadRightPanelState) =>
   useRightPanelStore.setState({ byThreadKey: { [scopedThreadKey(threadA)]: state } });
@@ -245,6 +247,14 @@ describe("without the shell's element", () => {
     expect(container.querySelector('[aria-label="Add panel surface"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="New tab"]')).toBeNull();
   });
+
+  it("keeps upstream's empty panel on a draft, without the Environment browser's line", async () => {
+    useThreadTabsStore.setState({ draftInView: threadA });
+    setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
+    await renderStrip();
+    expect(container.textContent).toContain("Open a surface");
+    expect(container.textContent).not.toContain(DRAFT_LINE);
+  });
 });
 
 describe("with the shell's element", () => {
@@ -260,6 +270,25 @@ describe("with the shell's element", () => {
     setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
     await renderStrip();
     expect(container.textContent).toContain("Open a surface");
+  });
+
+  it("says on a draft's empty panel that the Environment browser comes with its first message", async () => {
+    useThreadTabsStore.setState({ draftInView: threadA });
+    setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
+    await renderStrip();
+    expect(container.textContent).toContain("Open a surface");
+    expect(container.textContent).toContain(DRAFT_LINE);
+    expect(container.querySelector(NEW_TAB_ELEMENT)).toBeNull();
+    // Where the server said of another thread that this Environment has no browser, upstream's
+    // line stays.
+    useThreadTabsStore.setState({
+      snapshots: {
+        [scopedThreadKey(scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B")))]:
+          null,
+      },
+    });
+    await renderStrip();
+    expect(container.textContent).not.toContain(DRAFT_LINE);
   });
 
   it("shows Nová karta as the empty panel, with the thread's strip and upstream's tools", async () => {

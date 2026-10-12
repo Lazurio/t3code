@@ -351,6 +351,8 @@ function RightPanelEmptyState(props: {
   agentsAvailable: boolean;
   deviceAvailable: boolean;
   liveAgentCount: number;
+  /** Lazurio overlay: why the Environment browser is not here yet, instead of upstream's line. */
+  browserNote: string | null;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -361,7 +363,7 @@ function RightPanelEmptyState(props: {
       icon: Globe2,
       shortcut: "B",
       available: props.browserAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.browser,
+      disabledReason: props.browserNote ?? SURFACE_UNAVAILABLE_HINTS.browser,
       onClick: props.onAddBrowser,
       badgeCount: 0,
     },
@@ -616,6 +618,9 @@ function RightPanelEmptyState(props: {
             ),
           )}
         </div>
+        {props.browserNote === null ? null : (
+          <p className="mt-3 text-center text-muted-foreground text-xs">{props.browserNote}</p>
+        )}
       </div>
     </div>
   );
@@ -1512,6 +1517,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             agentsAvailable={props.agentsAvailable}
             deviceAvailable={props.deviceAvailable}
             liveAgentCount={props.liveAgentCount}
+            browserNote={lazurio.browserNote}
           />
         ) : (
           props.children

@@ -26,12 +26,15 @@ import {
   isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
 } from "./environmentBrowser";
-import { NewTabSurface, type SurfaceAction, useNewTab } from "./LazurioNewTab";
+import { NewTabSurface, type SurfaceAction, useNewTab, useNewTabDefined } from "./LazurioNewTab";
 import {
   type ClosedTabs,
+  draftBrowserNote,
   type EnvironmentBrowserSurface,
+  enterDraft,
   enterThreadTabs,
   isNewTabSurface,
+  leaveDraft,
   leaveThreadTabs,
   letGoOfTabs,
   openLinkInPanel,
@@ -145,13 +148,18 @@ function watchClosedTabs(threadRef: ScopedThreadRef): () => void {
  * let go of with Vrátit; a plain click on a link in the chat to one remote tab, of this
  * Environment's view or of another Lazurio Environment's, opens it in the panel instead of a new
  * browser tab, and the thread holds a tab of this Environment's.
+ *
+ * A draft is no thread of the server yet: its stream would answer 404, which an EventSource never
+ * retries, and the draft keeps its ref when its first message makes it a thread. So a draft opens
+ * no stream, its empty panel says the browser comes with the first message, and the stream opens
+ * when ChatView stops calling it a draft (Lazurio/t3code#53).
  */
 export function useLazurioThreadTabs(
   input: ScopedThreadRef | null,
-  options: { readonly inlinePanel: boolean },
+  options: { readonly inlinePanel: boolean; readonly draft: boolean },
 ): void {
   const threadRef = useEnvironmentBrowserThread(input);
-  const { inlinePanel } = options;
+  const { inlinePanel, draft } = options;
 
   // Before the stream's effect, so a thread that comes into view has its panel's kind already.
   useEffect(() => {
@@ -159,7 +167,13 @@ export function useLazurioThreadTabs(
   }, [threadRef, inlinePanel]);
 
   useEffect(() => {
-    if (threadRef === null) return;
+    if (threadRef === null || !draft) return;
+    enterDraft(threadRef);
+    return () => leaveDraft(threadRef);
+  }, [threadRef, draft]);
+
+  useEffect(() => {
+    if (threadRef === null || draft) return;
     enterThreadTabs(threadRef);
     const events = new EventSource(
       `${THREAD_TABS_ROUTE}/events?threadId=${encodeURIComponent(threadRef.threadId)}`,
@@ -178,7 +192,7 @@ export function useLazurioThreadTabs(
       stopWatching();
       leaveThreadTabs(threadRef);
     };
-  }, [threadRef]);
+  }, [threadRef, draft]);
 
   useEffect(() => {
     if (threadRef === null) return;
@@ -292,9 +306,19 @@ export function useRightPanel(actions: ReadonlyArray<SurfaceAction>) {
     state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)],
   );
   useThreadTabsStore((state) => state.titles);
+  // A draft on an Environment whose shell offers Nová karta, unless the server already said that
+  // this Environment has no browser for another thread.
+  const draftNote = useThreadTabsStore(
+    (state) =>
+      state.draftInView !== null &&
+      !Object.values(state.snapshots).some((answer) => answer === null),
+  );
+  const defined = useNewTabDefined();
   const czech = prefersCzech();
   return {
     newTab,
+    /** The empty panel's line about the Environment browser, or null for upstream's. */
+    browserNote: draftNote && defined ? draftBrowserNote(czech) : null,
     tooltip: (surface: RightPanelSurface, title: string) =>
       surface.kind === "environment-browser" && !isNewTabSurface(surface)
         ? tabTooltip(

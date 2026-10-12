@@ -120,6 +120,9 @@ if (typeof customElements !== "undefined") {
     .then(() => useNewTabStore.setState({ defined: true }));
 }
 
+/** Whether this page's shell defines Nová karta: the page is a Lazurio Environment's. */
+export const useNewTabDefined = () => useNewTabStore((state) => state.defined);
+
 /** Upstream's actions as RightPanelTabs last rendered them: each runs in Nová karta's place. */
 let publishedActions: ReadonlyArray<SurfaceAction> = [];
 
