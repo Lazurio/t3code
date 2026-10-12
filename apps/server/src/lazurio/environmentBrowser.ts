@@ -21,9 +21,9 @@
  * person sees, and recording is not available, so those are answered with what to do instead.
  * Another Environment's view of a tab (an agent working in that Environment over SSH) is never
  * loaded here: preview_open answers with that tab, which the person's right panel opens as the
- * other Environment's, and says to drive it with agent-browser on that Environment. Any other
- * operation on that tab fails with the same advice. The host's declaration of the browser is also
- * the thread strips' (threadTabs.ts).
+ * other Environment's (a live-only `foreign` event of the thread's strip), and says to drive it
+ * with agent-browser on that Environment. Any other operation on that tab fails with the same
+ * advice. The host's declaration of the browser is also the thread strips' (threadTabs.ts).
  */
 
 import {
@@ -283,9 +283,10 @@ export const make = Effect.gen(function* () {
     });
   /**
    * preview_open of another Environment's view touches neither this browser nor the thread's tabs:
-   * it answers with the other tab, which the person's right panel opens as that Environment's.
+   * it answers with the other tab, which the thread's devices add to the right panel as that
+   * Environment's, from a live-only event.
    */
-  const foreignOpen = (view: LazurioBrowserView, visible: boolean) =>
+  const foreignOpen = (threadId: ThreadId, view: LazurioBrowserView, visible: boolean) =>
     Effect.sync(() => {
       foreignTabs.set(view.targetId, view);
       return {
@@ -293,7 +294,11 @@ export const make = Effect.gen(function* () {
         view: view.view,
         message: foreignAnswer(view, visible),
       };
-    });
+    }).pipe(
+      Effect.tap(() =>
+        threadTabs.foreign(threadId, { tabId: view.targetId, view: view.view }, visible),
+      ),
+    );
 
   /** Like upstream's server host: explicit-tab routing finds the host that has the tab. */
   const reportLiveTabs = Effect.suspend(() =>
@@ -502,7 +507,8 @@ export const make = Effect.gen(function* () {
               catch: toOperationError,
             });
       const foreign = url === undefined ? undefined : foreignView(url);
-      if (foreign !== undefined) return yield* foreignOpen(foreign, reveals(input));
+      if (foreign !== undefined)
+        return yield* foreignOpen(request.threadId, foreign, reveals(input));
       const foreignHost = url === undefined ? undefined : foreignBrowserHost(url);
       if (url !== undefined && foreignHost !== undefined) {
         return yield* Effect.fail(foreignNavigation(url, foreignHost));
