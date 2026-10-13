@@ -41,10 +41,13 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     stageLabel,
     environmentIdentificationMode === "artwork",
   );
+  // Lazurio T3 Code (root decision 0200): its label stands beside the wordmark in every mode.
   const pillLabel =
-    environmentIdentificationMode === "pill"
-      ? resolveEnvironmentIdentificationPillLabel(stageLabel)
-      : null;
+    stageLabel === "Lazurio"
+      ? stageLabel
+      : environmentIdentificationMode === "pill"
+        ? resolveEnvironmentIdentificationPillLabel(stageLabel)
+        : null;
 
   return (
     // The titlebar row, not a padded SidebarHeader: it aligns to the window controls.

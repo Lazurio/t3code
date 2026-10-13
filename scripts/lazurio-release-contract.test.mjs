@@ -714,6 +714,77 @@ NodeTest.test("the Lazurio shell takes T3's sidebar colours through the colour r
   NodeAssert.deepEqual(users, ["components/AppSidebarLayout.tsx"]);
 });
 
+// Root decision 0200: in the app, T3 Code on a Lazurio Environment is "T3 Code (Lazurio)". The
+// distribution's builds have the stage label Lazurio where upstream's say Alpha, the label stands
+// beside the wordmark in the sidebar, and the page title, the splash and the web manifest say the
+// same. A preview (X.Y.Z-preview.YYYYMMDD.N) is a canary of the next stable release, not a
+// nightly. T3 Code's mark stays: the product name, the wordmark and the icons are upstream's.
+NodeTest.test("the app is T3 Code (Lazurio) and keeps T3 Code's mark", async () => {
+  const nameOverlay = [
+    "apps/web/index.html",
+    "apps/web/public/manifest.webmanifest",
+    "apps/web/src/branding.logic.ts",
+    "apps/web/src/branding.test.ts",
+    "apps/web/src/branding.ts",
+    "apps/web/src/components/sidebar/SidebarChrome.tsx",
+  ];
+  const [page, manifest, , , branding, chrome] = await Promise.all(nameOverlay.map(read));
+  NodeAssert.match(
+    branding,
+    /export const APP_BASE_NAME = injectedDesktopAppBranding\?\.baseName \?\? "T3 Code";/,
+  );
+  NodeAssert.match(branding, /\(import\.meta\.env\.DEV \? "Dev" : "Lazurio"\);/);
+  const logic = await import("../apps/web/src/branding.logic.ts");
+  for (const primaryServerVersion of ["0.0.45-lazurio.8", "0.0.45-preview.20261013.1", null]) {
+    NodeAssert.equal(
+      logic.resolveServerBackedAppDisplayName({
+        baseName: "T3 Code",
+        fallbackDisplayName: "T3 Code (Lazurio)",
+        fallbackStageLabel: "Lazurio",
+        primaryServerVersion,
+      }),
+      "T3 Code (Lazurio)",
+      String(primaryServerVersion),
+    );
+  }
+  // The label beside the wordmark, in the slot upstream gives its Dev and Nightly pills.
+  NodeAssert.match(
+    chrome,
+    /const pillLabel =\n\s+stageLabel === "Lazurio"\n\s+\? stageLabel\n\s+: environmentIdentificationMode === "pill"\n/,
+  );
+  NodeAssert.match(chrome, /data-environment-identification="pill"[^]*?\{pillLabel\}/);
+  NodeAssert.match(page, /<title>T3 Code \(Lazurio\)<\/title>/);
+  NodeAssert.match(
+    page,
+    /<div id="boot-shell-card" aria-label="T3 Code \(Lazurio\) splash screen">/,
+  );
+  NodeAssert.match(
+    page,
+    /<img id="boot-shell-logo" src="\/apple-touch-icon\.png" alt="T3 Code \(Lazurio\)" \/>/,
+  );
+  const webManifest = JSON.parse(manifest);
+  NodeAssert.equal(webManifest.name, "T3 Code (Lazurio)");
+  NodeAssert.equal(webManifest.short_name, "T3 Code");
+  // The mark is upstream's, byte for byte: the wordmark, the web client's icons and assets/.
+  const upstreamSha = /UPSTREAM_SHA: ([0-9a-f]{40})/.exec(ci)?.[1];
+  NodeAssert.ok(upstreamSha);
+  NodeAssert.doesNotThrow(() =>
+    NodeChildProcess.execFileSync("git", [
+      "diff",
+      "--quiet",
+      upstreamSha,
+      "--",
+      "apps/web/src/components/T3Wordmark.tsx",
+      "apps/web/public",
+      "assets",
+      ":(exclude)apps/web/public/manifest.webmanifest",
+    ]),
+  );
+  for (const file of nameOverlay) {
+    NodeAssert.ok(overlayMayChange(file), file);
+  }
+});
+
 // Root decision 0191 (plan DEV-6646): the agents of every thread drive a window of their own in
 // the Environment browser through the agent-browser CLI, which takes the session from
 // AGENT_BROWSER_SESSION. Every adapter spreads the provider session ProviderService records for a
