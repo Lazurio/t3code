@@ -306,7 +306,7 @@ function NewTabView(props: {
           <EmptyDescription>
             {czech
               ? "Nová karta se ukáže, až Environment nabídne svůj prohlížeč."
-              : "Nová karta shows once the Environment offers its browser."}
+              : "New tab shows once the Environment offers its browser."}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
