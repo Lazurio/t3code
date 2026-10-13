@@ -950,8 +950,9 @@ všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
 - stará vlákna po migraci databáze a restart služby se zachovanými daty;
 - oficiální desktop aplikace verze nové báze proti serveru.
 
-Kontrolu v prohlížeči (root rozhodnutí 0178) dělá Organization Admin;
-výsledek zapište do issue. Oprava během canary je běžný PR do `main`
+Kontrolu v prohlížeči (root rozhodnutí 0178) udělá ten, kdo preview
+připravil a nainstaloval, sám; Organization Admin ji pak na canary projde
+a přijme. Výsledek obou zapište do issue. Oprava během canary je běžný PR do `main`
 a další preview `.N+1`.
 
 ### 8. Stable a nasazení
