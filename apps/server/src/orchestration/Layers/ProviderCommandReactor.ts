@@ -722,7 +722,7 @@ const make = Effect.gen(function* () {
           provider: preferredProvider,
           method: "thread.turn.start",
           detail:
-            "This Environment starts agents in its Lazurio Folder. Start a new chat in the Lazurio project.",
+            "Agents in this Environment work in its Lazurio Folder. Start a new chat in the Lazurio project.",
         });
       }
     }

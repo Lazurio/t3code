@@ -53,7 +53,7 @@ export const make = Effect.gen(function* () {
           operation: "VcsProvisioningService.initRepository",
           kind: input.kind ?? "git",
           detail:
-            "The Lazurio Folder contains separate repositories and must not become a repository itself.",
+            "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.",
         });
     }
     const kind = yield* resolveRequestedKind(input.kind);

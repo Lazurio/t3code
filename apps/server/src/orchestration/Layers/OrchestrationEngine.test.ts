@@ -224,7 +224,7 @@ describe("OrchestrationEngine", () => {
           projectId: id,
           workspaceRoot: "/tmp/other",
         }),
-      ).rejects.toThrow("retarget");
+      ).rejects.toThrow("cannot point to another folder");
       await expect(
         dispatch({ type: "project.delete", commandId: CommandId.make("delete"), projectId: id }),
       ).rejects.toThrow("cannot be removed");
