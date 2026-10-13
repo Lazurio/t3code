@@ -133,10 +133,8 @@ Hostované proměnné a spravovaná složka platí, jen když jsou nastavené, a
 prohlížeč Environmentu a Nová karta se ukážou, jen když je Environment nabízí.
 Bez ohledu na to běží dvě věci: server pod launcherem kontroluje vydání svého
 kanálu (vypne to `T3CODE_UPDATE_CHECK_ENABLED=false`) a procesy poskytovatelů
-dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje. Známou odchylku
-spravované složky popisuje [Spravovaná složka
-Lazuria](#spravovaná-složka-lazuria). Řádek odeberte, jakmile upstream nabídne
-ekvivalent. Upstream soubory pod `apps/`, `packages/` a `scripts/` overlay mění
+dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje. Řádek odeberte, jakmile
+upstream nabídne ekvivalent. Upstream soubory pod `apps/`, `packages/` a `scripts/` overlay mění
 jen v přesných souborech z allowlistu `allowed_upstream_changes` v
 `lazurio-fork-ci.yml`. Allowlist je seskupený podle funkce, které soubor patří,
 a soubory, které mění víc funkcí, má v jedné skupině společných švů. Každý
@@ -419,10 +417,10 @@ služba nastavení T3 atomicky zachová výslovnou volbu uživatele.
 srovnává jen přes běžící službu. Offline úprava nastavení nebo databáze nikdy
 není náhradní cestou nasazení. T3 a Platformu vydávejte spolu.
 
-Bez proměnné se chování nemá měnit. Známá odchylka: paleta příkazů skryje „Add
-project“, když ho žádný Environment nepřijme, a sidebar skryje tlačítko nového
-projektu, dokud nemá konfiguraci žádného serveru. Upstream obojí ukazuje a z
-palety vede do Settings → Connections.
+Bez proměnné se chování nemění. „Add project“ zmizí z palety příkazů i ze
+sidebaru, jen když klient zná aspoň jeden Environment a každý z nich je
+spravovaný. Bez jakéhokoli Environmentu zůstává a z palety vede do Settings →
+Connections jako v upstreamu.
 
 Při přestavbě na nový upstream zachovejte testy spravovaného startu, nativní
 stráže příkazů a spravovaného uvítání; samotný výběr modelu je záměrně mimo

@@ -1,5 +1,6 @@
 "use client";
 
+import { everyEnvironmentManaged } from "../lazurio/managedFolder";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -2066,7 +2067,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (addProjectEnvironmentOptions.length > 0)
+  if (!everyEnvironmentManaged(environments))
     actionItems.push({
       kind: "action",
       value: "action:add-project",

@@ -1,3 +1,4 @@
+import { everyEnvironmentManaged } from "../lazurio/managedFolder";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
@@ -4717,9 +4718,7 @@ export default function Sidebar() {
                 </Combobox>
               }
               onNewProject={
-                [...serverConfigs.values()].some((config) => config.lazurioFolder === undefined)
-                  ? openAddProjectCommandPalette
-                  : undefined
+                everyEnvironmentManaged(environments) ? undefined : openAddProjectCommandPalette
               }
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
