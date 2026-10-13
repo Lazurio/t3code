@@ -337,6 +337,28 @@ describe("holds", () => {
     expect(panel().surfaces).toEqual([tab(1)]);
   });
 
+  it("stop retrying a failure that does not pass after about a minute, keeping the tab as the device's own", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warn = vi.spyOn(toastManager, "add");
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      answers.push(answerWith({ error: "unavailable" }, 503));
+    }
+    showOwnTab(threadA, id(1), true);
+    await settled();
+    for (const pause of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]) {
+      await vi.advanceTimersByTimeAsync(pause);
+      await settled();
+    }
+    expect(posted).toHaveLength(7);
+    expect(syncOf(threadA).pending.size).toBe(0);
+    expect(syncOf(threadA).local.has(id(1))).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await settled();
+    expect(posted).toHaveLength(7);
+    expect(panel().surfaces).toEqual([tab(1)]);
+  });
+
   it("do not retry a failed hold once × let go of the tab", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     answers.push(
