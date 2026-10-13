@@ -19,6 +19,7 @@ RUN npm install --global "pnpm@$PNPM_VERSION" --no-audit --no-fund \
     && node scripts/update-release-package-versions.ts "$PACKAGE_VERSION" \
     && pnpm exec vp run --filter @t3tools/web build \
     && pnpm exec vp run --filter t3 build \
+    && node scripts/apply-web-brand-assets.ts production apps/server/dist/client \
     && test -s /source/apps/server/dist/client/index.html \
     && pnpm --filter t3 deploy --prod --legacy --ignore-scripts /opt/lazurio-t3 \
     && node_pty_source="$(node -p "require.resolve('node-pty/package.json', { paths: ['/source/apps/server'] })")" \
@@ -51,6 +52,8 @@ LABEL org.opencontainers.image.source="https://github.com/Lazurio/t3code" \
       io.lazurio.t3code.upstream-base="$UPSTREAM_BASE"
 
 COPY --from=build /opt/lazurio-t3 /opt/lazurio-t3
+# T3 Code's MIT licence travels with every copy of it.
+COPY LICENSE /opt/lazurio-t3/LICENSE
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin t3code
 

@@ -260,6 +260,53 @@ NodeTest.test("image is root-served, non-root, and self-checks its terminal", ()
   NodeAssert.match(dockerfile, /CMD \["serve", "--host", "127\.0\.0\.1"\]/);
 });
 
+// T3 Code's MIT licence travels with every copy of it: the image and each CLI archive carry its
+// LICENSE beside the program. The web client they bundle wears upstream's production icons, not
+// the development ones the server build applies; CI compares both with the source files.
+NodeTest.test(
+  "the image and the archives carry T3 Code's licence and production icons",
+  async () => {
+    const brand = await import("./lib/brand-assets.ts");
+    const favicon = brand
+      .resolveWebIconOverrides("production", "apps/server/dist/client")
+      .find((icon) => icon.targetRelativePath === "apps/server/dist/client/favicon.ico");
+    NodeAssert.equal(favicon?.sourceRelativePath, "assets/prod/t3-black-web-favicon.ico");
+    const applyIcons = "node scripts/apply-web-brand-assets.ts production apps/server/dist/client";
+    // The image: the icons after the server build and before its deploy, the licence beside it.
+    const iconsInImage = dockerfile.indexOf(applyIcons);
+    NodeAssert.ok(dockerfile.indexOf("pnpm exec vp run --filter t3 build") < iconsInImage);
+    NodeAssert.ok(iconsInImage < dockerfile.indexOf("pnpm --filter t3 deploy"));
+    NodeAssert.match(dockerfile, /^COPY LICENSE \/opt\/lazurio-t3\/LICENSE$/m);
+    for (const source of [ci, release]) {
+      NodeAssert.match(source, /\/opt\/lazurio-t3\/LICENSE \| cmp - LICENSE/);
+      NodeAssert.match(
+        source,
+        /\/opt\/lazurio-t3\/dist\/client\/favicon\.ico \| cmp - assets\/prod\/t3-black-web-favicon\.ico/,
+      );
+    }
+    // The archives: the icons before packing, the licence appended beside the executable, and both
+    // checked before the smoke test.
+    const iconsInArchive = archives.indexOf(applyIcons);
+    NodeAssert.ok(archives.indexOf("vp run --filter t3 build") < iconsInArchive);
+    NodeAssert.ok(iconsInArchive < archives.indexOf("node scripts/build-cli-archive.ts"));
+    NodeAssert.match(
+      archives,
+      /tar -rf "release-cli\/\$stem\.tar" -C "\$RUNNER_TEMP\/cli-licence" "\$stem\/LICENSE"/,
+    );
+    NodeAssert.match(
+      archives,
+      /tar -xzOf "release-cli\/\$stem\.tar\.gz" "\$stem\/LICENSE" \| cmp - LICENSE/,
+    );
+    NodeAssert.match(
+      archives,
+      /"\$stem\/client\/favicon\.ico" \| cmp - assets\/prod\/t3-black-web-favicon\.ico/,
+    );
+    NodeAssert.ok(
+      archives.indexOf("| cmp - LICENSE") < archives.indexOf("node scripts/smoke-cli-archive.ts"),
+    );
+  },
+);
+
 NodeTest.test("T3 is served at the root; no mount path or branding overlay remains", () => {
   for (const source of [release, archives, ci, dockerfile]) {
     NodeAssert.doesNotMatch(source, /T3CODE_BASE_PATH|VITE_HOSTED_APP_NAME/);
