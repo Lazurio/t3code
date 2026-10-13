@@ -206,16 +206,13 @@ describe("a message of the framed view", () => {
   });
 
   it("tells its tab's title, or else the page's host", () => {
-    const shown = { id: `environment-browser:${view.slice(-32)}`, view };
     expect(readEnvironmentBrowserMessage(message(info), frame, view)).toEqual({
       type: "info",
       title: "Docs",
-      tab: shown,
     });
     expect(readEnvironmentBrowserMessage(message({ ...info, title: " " }), frame, view)).toEqual({
       type: "info",
       title: "example.com",
-      tab: shown,
     });
     expect(
       readEnvironmentBrowserMessage(
@@ -223,27 +220,7 @@ describe("a message of the framed view", () => {
         frame,
         view,
       ),
-    ).toEqual({ type: "info", title: null, tab: shown });
-  });
-
-  it("names the remote tab it shows, on the view's own origin only", () => {
-    // The view's new tab tells the tab it moved to.
-    expect(
-      readEnvironmentBrowserMessage(message({ ...info, view: tabView }), frame, `${viewOrigin}/`),
-    ).toMatchObject({
-      type: "info",
-      tab: { id: `environment-browser:${targetId}`, view: tabView },
-    });
-    for (const named of [
-      undefined,
-      `${viewOrigin}/`,
-      `https://browser.vm-02.example.lazurio.io/t/${targetId}`,
-      `${tabView}?x=1`,
-    ]) {
-      expect(
-        readEnvironmentBrowserMessage(message({ ...info, view: named }), frame, `${viewOrigin}/`),
-      ).toMatchObject({ type: "info", tab: null });
-    }
+    ).toEqual({ type: "info", title: null });
   });
 
   it("opens a page's new tab on the view's own origin", () => {
@@ -259,14 +236,11 @@ describe("a message of the framed view", () => {
 
   it("says that its tab ended, only from its own frame and the view's origin", () => {
     const closed = { type: "lazurio-browser:closed", view };
-    expect(readEnvironmentBrowserMessage(message(closed), frame, view)).toEqual({
-      type: "closed",
-      tab: { id: `environment-browser:${view.slice(-32)}`, view },
-    });
+    expect(readEnvironmentBrowserMessage(message(closed), frame, view)).toEqual({ type: "closed" });
     // The view it names is only a hint: the frame that says it ended is the tab.
     expect(
       readEnvironmentBrowserMessage(message({ ...closed, view: "about:blank" }), frame, view),
-    ).toEqual({ type: "closed", tab: null });
+    ).toEqual({ type: "closed" });
     expect(readEnvironmentBrowserMessage(message(closed, { source: {} }), frame, view)).toBeNull();
     expect(
       readEnvironmentBrowserMessage(

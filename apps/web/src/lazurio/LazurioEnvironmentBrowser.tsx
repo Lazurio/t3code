@@ -46,6 +46,7 @@ import {
   rememberTitle,
   showForeignTab,
   showOwnTab,
+  snapshotOf,
   syncOf,
   tabEnded,
   tabIdOfSurface,
@@ -105,7 +106,7 @@ function watchClosedTabs(threadRef: ScopedThreadRef): () => void {
     const after = state.byThreadKey[key];
     if (before === undefined || before === after) return;
     const sync = syncOf(threadRef);
-    const snapshot = useThreadTabsStore.getState().snapshots[key];
+    const snapshot = snapshotOf(threadRef);
     const listed = new Set(snapshot?.tabs.map((tab) => tab.tabId) ?? []);
     const remaining = new Set((after?.surfaces ?? []).map((surface) => surface.id));
     const closed = before.surfaces.filter((surface): surface is EnvironmentBrowserSurface => {
