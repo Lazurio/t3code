@@ -613,8 +613,9 @@ export const makeRoutesLayer = Layer.mergeAll(
     websocketRpcRouteLayer,
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
-  // Lazurio overlay (plan DEV-6646): T3's browser tools drive the Environment browser, and each
-  // thread keeps its tabs of it. It shares the routes' one preview broker, provided below.
+  // Lazurio overlay (plan DEV-6646): T3's browser tools drive the Environment browser, each thread
+  // keeps its tabs of it, and the Platform's recommended model reaches the managed Folder's
+  // settings. It shares the routes' one preview broker, provided below.
   LazurioOverlay.layer.pipe(Layer.provide(ProcessRunner.layer)),
   // Last, so no route layer can replace the server's one TracerDisabledWhen.
   untracedRequestsLayer,

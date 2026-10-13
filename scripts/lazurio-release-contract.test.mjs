@@ -983,7 +983,7 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
 // Plan DEV-6646: another Lazurio Environment's view of a tab, where an agent works over SSH. The
 // server's Environment browser host answers preview_open of such a view without loading it, and
 // the web opens it as a marked tab of the right panel. Both read a view's address with one
-// function, which each holds a copy of, as with the session name.
+// function, which each holds a copy of.
 NodeTest.test("the server and the web read a Lazurio browser view's address alike", async () => {
   const [server, web] = await Promise.all([
     import("../apps/server/src/lazurio/browserView.ts"),
