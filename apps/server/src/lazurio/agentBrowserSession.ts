@@ -4,11 +4,8 @@
  * On a Lazurio Environment the agents of every thread work in the Environment browser, one
  * Chromium on the Environment, through the agent-browser CLI, each thread in a window of its
  * own. The CLI takes its session from AGENT_BROWSER_SESSION, so every provider process T3 starts
- * for a thread carries the thread's name. The web client asks the Environment for the view of
- * the same session, so `apps/web/src/lazurio/agentBrowserSession.ts` holds a copy of
- * `agentBrowserSessionName`: sharing it through packages/shared would take an entry in that
- * package's export map, which upstream rewrites every few days. The release contract test keeps
- * the two copies equal.
+ * for a thread carries the thread's name. The same name is the thread's strip, whose holder file
+ * keeps its tabs (threadTabs.ts); the web client reaches them only through the server.
  */
 
 import * as NodeCrypto from "node:crypto";
@@ -21,8 +18,7 @@ const SESSION_NAME_LIMIT = 64;
 /** Hex digits of the id's SHA-256 kept in a cut or rewritten name. */
 const DIGEST_LENGTH = 32;
 
-/** SHA-256 of the UTF-8 bytes, as hex (node:crypto; the web copy computes the same with
- * @noble/hashes, and the release contract test compares the two). */
+/** SHA-256 of the UTF-8 bytes, as hex. */
 const sha256Hex = (value: string): string =>
   NodeCrypto.createHash("sha256").update(value, "utf8").digest("hex");
 

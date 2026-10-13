@@ -30,7 +30,8 @@ const TAB_VIEW_PATH = /^\/t\/([0-9A-Fa-f]{32})$/;
  * The panel tab whose view is at `view`, or null unless it is exactly
  * `https://<host>/t/<32 hex digits>`: no credentials, query or fragment, not even an empty one,
  * so an address the panel keeps names one remote tab and carries nothing else. Where it frames
- * the view, the panel also refuses its own origin (`pageOrigin`), as for the thread's own tab.
+ * the view, the panel also refuses its own origin (`pageOrigin`): the view is never framed on the
+ * page's origin.
  */
 export function environmentBrowserTab(
   view: unknown,
