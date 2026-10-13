@@ -56,14 +56,17 @@ jobs:
           allowed_upstream_changes=(
             # Shared seams, each with the hooks of several features below: the server's
             # CLI and runtime config (hosted settings, the managed Folder), index.html (the
-            # shell slot, the name in the app), ChatView.tsx (update notice, Environment
-            # browser, drag backport), RightPanelTabs.tsx and rightPanelStore.ts
+            # shell slot, the name in the app), main.tsx (the prepared prompt, and the
+            # import of the design system's light look, root decision 0200, whose one
+            # stylesheet is apps/web/src/lazurio/theme.css), ChatView.tsx (update notice,
+            # Environment browser, drag backport), RightPanelTabs.tsx and rightPanelStore.ts
             # (Environment browser, Nová karta, drag backport).
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
             apps/web/index.html
             apps/web/src/components/ChatView.tsx
             apps/web/src/components/RightPanelTabs.tsx
+            apps/web/src/main.tsx
             apps/web/src/rightPanelStore.ts
             # Hosted configuration: T3CODE_CLIENT_SESSION_TTL, T3CODE_EXTERNAL_ORIGIN (a
             # Secure __Host- cookie, cookie-authenticated requests only from that origin)
@@ -108,8 +111,8 @@ jobs:
             # these folders (Dockerfile.lazurio, the lazurio-* workflows, the runbook).
             scripts/lazurio-release-contract.test.mjs
             # Prepared prompt from the Lazurio shell by link (Lazurio/t3code#35): the link is
-            # taken off the address at boot and the chat layout opens it as an unsent draft.
-            apps/web/src/main.tsx
+            # taken off the address at boot (main.tsx, above) and the chat layout opens it as
+            # an unsent draft.
             apps/web/src/routes/_chat.tsx
             # The Lazurio shell slot (issue #33): the loader, the rail, the padding and
             # Buddy in index.html, and the column head at the top of the sidebar. The

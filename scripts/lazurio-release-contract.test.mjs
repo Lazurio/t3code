@@ -785,6 +785,159 @@ NodeTest.test("the app is T3 Code (Lazurio) and keeps T3 Code's mark", async () 
   }
 });
 
+// A stylesheet's top-level rules, each with its selector and the declarations directly in it;
+// comments and nested blocks (index.css's @variant, @layer and the like) are left out. Enough
+// for index.css and the overlay's theme.css, not a general CSS parser.
+function topLevelRules(css) {
+  const text = css.replace(/\/\*[^]*?\*\//g, "");
+  const rules = [];
+  let depth = 0;
+  let start = 0;
+  let own = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "{") {
+      if (depth === 0) {
+        // After any statement at-rule (@import, @custom-variant) that ends in a semicolon.
+        const prelude = text.slice(start, index);
+        const selector = prelude.slice(prelude.lastIndexOf(";") + 1);
+        rules.push({ selector: selector.trim().replace(/\s+/g, " ") });
+        own = "";
+      } else if (depth === 1) {
+        // The nested block's own prelude is not a declaration of this rule.
+        own = own.slice(0, Math.max(own.lastIndexOf(";"), own.lastIndexOf("}")) + 1);
+      }
+      depth += 1;
+      start = index + 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const rule = rules.at(-1);
+        rule.declarations = own
+          .split(";")
+          .map((declaration) => declaration.trim())
+          .filter((declaration) => declaration.length > 0)
+          .map((declaration) => {
+            const colon = declaration.indexOf(":");
+            return [declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim()];
+          });
+      }
+      if (depth === 1) own += ";";
+      start = index + 1;
+    } else if (depth === 1) {
+      own += character;
+    }
+  }
+  return rules;
+}
+
+// Root decision 0200, point 4: on a Lazurio Environment, T3 Code's standard light look takes the
+// design system's colours, type and radii. The Environment's shell declares the design system's
+// tokens (--lz-*) on the document's root and marks it data-lazurio-theme="light" (LazurioPlatform
+// F36's addendum of 2026-10-13); one overlay stylesheet maps them onto T3's raw tokens, only where
+// no theme is picked and the mode is light. T3 derives its --contrast-* tokens from the raw ones,
+// so the contrast setting keeps working; a picked theme and the dark mode keep T3's palettes; the
+// shell's colour roles (the test above) follow by themselves. Without the shell nothing matches.
+NodeTest.test("the design system's light look maps the shell's tokens onto T3's own", async () => {
+  const [main, theme, styles] = await Promise.all(
+    ["apps/web/src/main.tsx", "apps/web/src/lazurio/theme.css", "apps/web/src/index.css"].map(read),
+  );
+  // One import, right after T3's own stylesheet.
+  NodeAssert.match(main, /\nimport "\.\/index\.css";\nimport "\.\/lazurio\/theme\.css";\n/);
+  NodeAssert.equal(main.match(/theme\.css/g)?.length, 1);
+  NodeAssert.ok(overlayMayChange("apps/web/src/main.tsx"));
+  // Two rules, both behind the shell's mark and its value, outside a picked theme and dark mode:
+  // the document's root and the sidebar's palette scope, which the shell's rail joins.
+  const gate = ':root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark)';
+  const rules = topLevelRules(theme);
+  NodeAssert.deepEqual(
+    rules.map((rule) => rule.selector),
+    [gate, `${gate} [data-app-sidebar]`],
+  );
+  // The tokens T3 declares in those scopes in index.css: its root (and the font tokens of its
+  // @theme, which Tailwind emits on the root), and its sidebar palette scope.
+  const declared = (selectors) =>
+    new Set(
+      topLevelRules(styles)
+        .filter((rule) => selectors.includes(rule.selector))
+        .flatMap((rule) => rule.declarations.map(([name]) => name)),
+    );
+  const scopes = [declared([":root", "@theme"]), declared(["[data-app-sidebar]"])];
+  // The design system's tokens the mapping reads, each a name the shell's interface v1 promises
+  // (LazurioPlatform src/shell/interface.ts `declares`, kept by tests/shell-tokens.test.ts). The
+  // values are the design system's and arrive with the Platform; a new name needs the promise.
+  const promised = [
+    "--lz-accent",
+    "--lz-accent-button",
+    "--lz-accent-button-hover",
+    "--lz-danger",
+    "--lz-danger-bg",
+    "--lz-font-mono",
+    "--lz-font-sans",
+    "--lz-gray-100",
+    "--lz-gray-50",
+    "--lz-green-500",
+    "--lz-info",
+    "--lz-info-bg",
+    "--lz-ink",
+    "--lz-ink-muted",
+    "--lz-line",
+    "--lz-on-accent",
+    "--lz-paper",
+    "--lz-radius-sm",
+    "--lz-red-500",
+    "--lz-success",
+    "--lz-surface",
+    "--lz-warning",
+    "--lz-warning-bg",
+  ];
+  const used = new Set();
+  for (const [index, rule] of rules.entries()) {
+    const values = new Map(rule.declarations);
+    NodeAssert.equal(
+      values.size,
+      rule.declarations.length,
+      `${rule.selector}: one value per token`,
+    );
+    for (const [name, value] of rule.declarations) {
+      // T3's raw tokens only, never what T3 derives from them, a picked theme's roles, the shell's
+      // colour roles or the design system's own tokens.
+      NodeAssert.match(name, /^--[a-z][a-z0-9-]*$/, name);
+      NodeAssert.doesNotMatch(name, /^--(contrast|app-theme|lazurio|lz)-/, name);
+      NodeAssert.ok(scopes[index].has(name), `${name} is not declared in index.css's same scope`);
+      // No colour literal: a promised design system token, or no grain at all.
+      if (name === "--surface-grain") {
+        NodeAssert.equal(value, "none");
+        continue;
+      }
+      const token = /^var\((--lz-[a-z0-9-]+)\)$/.exec(value)?.[1];
+      NodeAssert.ok(token && promised.includes(token), `${name}: ${value}`);
+      used.add(token);
+    }
+    // The shell's switch: its active tab (row-active) never melts into its track.
+    NodeAssert.ok(values.has("--sidebar-row-active") && values.has("--sidebar-control-surface"));
+    NodeAssert.notEqual(
+      values.get("--sidebar-row-active"),
+      values.get("--sidebar-control-surface"),
+    );
+  }
+  NodeAssert.deepEqual([...used].toSorted(), promised.toSorted());
+  NodeAssert.doesNotMatch(
+    theme.replace(/\/\*[^]*?\*\//g, ""),
+    /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(|!important/i,
+  );
+  // Type, corners and texture: the design system's faces (the shell declares them), its control
+  // radius, and no grain.
+  const root = new Map(rules[0].declarations);
+  NodeAssert.equal(root.get("--font-sans"), "var(--lz-font-sans)");
+  NodeAssert.equal(root.get("--font-mono"), "var(--lz-font-mono)");
+  NodeAssert.equal(root.get("--control-radius"), "var(--lz-radius-sm)");
+  NodeAssert.equal(root.get("--surface-grain"), "none");
+  // A picked theme maps T3's roles on the same root, behind data-theme-id, which the gate leaves out.
+  NodeAssert.match(styles, /\nhtml\[data-theme-id\]:not\(\[data-theme-id=""\]\) \{\n/);
+  NodeAssert.match(styles, /\nhtml\[data-theme-id\] \[data-app-sidebar\] \{\n/);
+});
+
 // Root decision 0191 (plan DEV-6646): the agents of every thread drive a window of their own in
 // the Environment browser through the agent-browser CLI, which takes the session from
 // AGENT_BROWSER_SESSION. Every adapter spreads the provider session ProviderService records for a
