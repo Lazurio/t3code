@@ -544,8 +544,8 @@ rozhodnutí, která mění chování nebo kontrakt s Lazuriem, vyměňuje `main`
 a schvaluje vydání. Etapy 2–5 a 9 může za Stewarda udělat Task Agent (pro
 etapy 2–5 je [zadání](#zadání-pro-task-agenta) níž), výměnu `main` a vydání
 jen na výslovný pokyn vázaný na přesné SHA a verzi. Stav a rozhodnutí přestavby drží jedno
-issue v tomto repozitáři s názvem `Přestavba na upstream T3 Code vX.Y.Z`;
-runbook drží postup.
+issue v tomto repozitáři s názvem `Přestavba na upstream T3 Code vX.Y.Z`
+([šablona](#issue-přestavby)); runbook drží postup.
 
 Přestavuje se jen na stable tagu. Nightly ani preview buildy upstreamu
 (`vX.Y.Z-nightly.…`, `vX.Y.Z-preview.…`) ji nespouštějí: workflow vydání
@@ -573,7 +573,8 @@ tag a čas vydání), druhý `UPSTREAM_TAG` a `UPSTREAM_SHA`, na kterých `main`
 stojí. Odběr všech vydání upstreamu na GitHubu nestačí: upstream vydává
 několik nightly denně a stable se mezi nimi ztratí.
 
-Když je upstream novější, otevřete issue přestavby a převezměte ho. Začněte
+Když je upstream novější, založte issue přestavby ze
+[šablony](#issue-přestavby) a převezměte ho. Začněte
 hned: oficiální desktop a mobilní aplikace se na nové vydání brzy
 aktualizují, a když nové vydání mění orchestrační protokol, k serverům forku
 na staré bázi se nepřipojí (viz
@@ -967,6 +968,86 @@ a další preview `.N+1`.
   a sloupec „Upstream a přestavba“ podle upstream `main` toho dne. Změna jen
   v `docs/` pravidlo zachycení z etapy 6 neporuší.
 - **Issue přestavby** zavřete s odkazem na stable vydání a PR přestavby.
+
+### Issue přestavby
+
+Issue přestavby drží vstupy, stav etap a rozhodnutí. Šablona je níž mezi
+značkami `rebuild-issue`; issue z ní založíte takto (nahraďte `vX.Y.Z`):
+
+```bash
+gh api 'repos/Lazurio/t3code/contents/docs/operations/lazurio-fork-release.md?ref=main' \
+  -H 'Accept: application/vnd.github.raw' |
+  sed -n '/^<!-- rebuild-issue:start -->$/,/^<!-- rebuild-issue:end -->$/p' > /tmp/rebuild-issue.md
+gh issue create --repo Lazurio/t3code --title "Přestavba na upstream T3 Code vX.Y.Z" \
+  --body-file /tmp/rebuild-issue.md
+```
+
+Vstupy vyplňte hned, tabulky v etapách 2 a 5. Issue je veřejné.
+
+<!-- rebuild-issue:start -->
+
+Přestavba overlaye Lazuria na nové stabilní vydání upstream T3 Code. Postup
+a příkazy:
+[Nové stabilní vydání upstreamu](https://github.com/Lazurio/t3code/blob/main/docs/operations/lazurio-fork-release.md#nové-stabilní-vydání-upstreamu).
+Issue je veřejné: žádná jména klientských Organizací, lidí ani soukromých
+hostů, jen Environmenty a role.
+
+**Vstupy**
+
+- Nová báze: `vX.Y.Z` = `<SHA tagu>`
+- Stará báze: `<UPSTREAM_TAG>` = `<UPSTREAM_SHA>`; `main` = `<expected_old_main>`
+- Zachycení `main`: stable `v…-lazurio.N` = `<SHA>` (immutable)
+- Candidate: branch `lazurio/rebuild-vX.Y.Z`, PR #…, head `<candidate_head>`
+
+**Etapy**
+
+- [ ] 1. Sledování: issue je přiřazené Stewardovi a vstupy jsou vyplněné.
+- [ ] 2. Inventura a rozhodnutí: tabulka rozhodnutí je vyplněná a rozhodnutí,
+      která mění chování nebo kontrakt, mají schválení Organization Admina
+      (s citací zvolené možnosti).
+- [ ] 3. Přestavba candidate: jeden commit na řádek v pořadí Cílového stacku,
+      řádek 5 poslední.
+- [ ] 4. Kontrakt a stráže: `Lazurio Fork CI` je zelené na přesném headu PR;
+      posunuté piny kontraktního testu a změny allowlistu jsou v PR.
+- [ ] 5. Kompatibilita s Lazuriem: každá brána má zápis.
+- [ ] 6. Výměna `main`: zachycení je ověřené, `main` je vyměněný
+      (`expected_old_main` → `candidate_head`) a nové upstream workflow jsou
+      vypnuté.
+- [ ] 7. Náhled na canary: preview `X.Y.Z-preview.YYYYMMDD.N` prošlo na canary
+      Environmentu kontrolami i kontrolou v prohlížeči.
+- [ ] 8. Stable a nasazení: změny Platformy a Machines jsou nasazené, oznámení
+      lidem je venku, `X.Y.Z-lazurio.1` je vydané a Update z předchozího stable
+      je ověřený.
+- [ ] 9. Po vydání: návrhy upstreamu jsou podané, runbook je doplněný a issue
+      se zavírá.
+
+**Rozhodnutí po řádcích Overlaye**
+
+Jeden řádek na každý řádek tabulky Overlay. Rozhodnutí: ponechat, přestavět,
+zmenšit nebo odebrat; k tomu případně nabídnout upstreamu (s odkazem).
+
+| #   | Řádek                                     | Co upstream změnil v jeho souborech | Rozhodnutí | Zdůvodnění a dopad | Schválení |
+| --- | ----------------------------------------- | ----------------------------------- | ---------- | ------------------ | --------- |
+| 1   | `hosted: configurable client session TTL` |                                     |            |                    |           |
+
+**Brány kompatibility**
+
+| Brána                                          | Co se na nové bázi mění | Rozhodnutí a ověření |
+| ---------------------------------------------- | ----------------------- | -------------------- |
+| `t3 lazurio capabilities` a `t3 lazurio model` |                         |                      |
+| Kanál aktualizací a protokol launcheru         |                         |                      |
+| Párování a rozsahy sezení                      |                         |                      |
+| Databáze                                       |                         |                      |
+| Desktop a mobil (orchestrační protokol)        |                         |                      |
+| Kontrakt prohlížeče Environmentu               |                         |                      |
+| Slot shellu a vzhled design systému            |                         |                      |
+| Machines a Platforma                           |                         |                      |
+
+**Otevřené otázky a blokery**
+
+- …
+
+<!-- rebuild-issue:end -->
 
 ### Zadání pro Task Agenta
 
