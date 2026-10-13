@@ -535,10 +535,10 @@ describe("the shared hint", () => {
     const holders = [
       { strip: "launchpad", label: "Launchpad" },
       { strip: "t3-b", label: "Web shop" },
-      { strip: "mausbot", label: "Bot Henry" },
+      { strip: "mausbot", label: "Automate" },
     ];
-    expect(placesOf(holders, true)).toBe("v Apps, ve vlákně „Web shop“ a Bot Henry");
-    expect(placesOf(holders, false)).toBe("in Apps, in the thread “Web shop” and Bot Henry");
+    expect(placesOf(holders, true)).toBe("v Apps, ve vlákně „Web shop“ a Automate");
+    expect(placesOf(holders, false)).toBe("in Apps, in the thread “Web shop” and Automate");
     expect(
       tabTooltip(
         "Docs",

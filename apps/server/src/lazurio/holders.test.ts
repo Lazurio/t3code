@@ -476,7 +476,7 @@ describe("stopping a thread's agent-browser daemon", () => {
     expect(await stopSessionDaemon(sockets, "../t3-a")).toBe("none");
   });
 
-  // Pablo's review of #56: a failure that proves nothing is never "none" or "stopped".
+  // From the review of #56: a failure that proves nothing is never "none" or "stopped".
   it("a socket or a .pid that cannot be reached is unconfirmed, never none or stopped", async () => {
     const sockets = await temporary("holders-daemon-");
     const server = NodeNet.createServer(() => undefined);
