@@ -1,4 +1,4 @@
-import { managedFirstRunDecision } from "../../lazurio/managedFolder";
+import { useManagedFirstRunDecision } from "../../lazurio/ManagedFolderWelcome";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -126,43 +126,34 @@ export function FirstRunGate({
     threads,
   });
 
+  const upstreamDecision = hostedStatic
+    ? resolveHostedFirstRunDecision({
+        localEnvironmentDisabled: isLocalEnvironmentDisabled(),
+        hydrated,
+        completed: onboardingCompletedAt !== null,
+        catalogReady: environmentCatalogReady,
+        environmentCount: environments.length,
+      })
+    : resolveFirstRunDecision({
+        enabled,
+        hydrated,
+        completed: onboardingCompletedAt !== null,
+        bootstrapped,
+        authoritative: primaryShellLive,
+        workspaceAuthoritative: workspaceEvidenceLive,
+        workspaceProvenanceAuthoritative: isFirstRunWorkspaceProvenanceAuthoritative({
+          welcomeReceived: serverWelcome !== null,
+          bootstrapStatus: serverWelcome?.bootstrapStatus ?? null,
+        }),
+        catalogReady: environmentCatalogReady,
+        serverConfigAvailable: serverConfig !== null,
+        workspaceFresh,
+        projectCount: projects.length,
+        threadCount: threads.length,
+      });
+  // Lazurio (LazurioPlatform F51): a managed Environment decides its own first run.
   const { decision: nextDecision, persistCompletion } =
-    serverConfig?.lazurioFolder !== undefined
-      ? managedFirstRunDecision({
-          hydrated,
-          live: primaryShellLive,
-          completed: onboardingCompletedAt !== null,
-          projectReady: projects.some(
-            (p) =>
-              p.environmentId === primaryEnvironmentId &&
-              p.workspaceRoot === serverConfig.lazurioFolder,
-          ),
-        })
-      : hostedStatic
-        ? resolveHostedFirstRunDecision({
-            localEnvironmentDisabled: isLocalEnvironmentDisabled(),
-            hydrated,
-            completed: onboardingCompletedAt !== null,
-            catalogReady: environmentCatalogReady,
-            environmentCount: environments.length,
-          })
-        : resolveFirstRunDecision({
-            enabled,
-            hydrated,
-            completed: onboardingCompletedAt !== null,
-            bootstrapped,
-            authoritative: primaryShellLive,
-            workspaceAuthoritative: workspaceEvidenceLive,
-            workspaceProvenanceAuthoritative: isFirstRunWorkspaceProvenanceAuthoritative({
-              welcomeReceived: serverWelcome !== null,
-              bootstrapStatus: serverWelcome?.bootstrapStatus ?? null,
-            }),
-            catalogReady: environmentCatalogReady,
-            serverConfigAvailable: serverConfig !== null,
-            workspaceFresh,
-            projectCount: projects.length,
-            threadCount: threads.length,
-          });
+    useManagedFirstRunDecision(upstreamDecision);
 
   useEffect(() => {
     if (decision === "wizard" || !hydrated) return;

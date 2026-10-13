@@ -1,3 +1,4 @@
+import { managedNewThread } from "../lazurio/managedFolder";
 import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
@@ -78,21 +79,10 @@ export function useNewThreadHandler() {
       // up again and finding whichever draft it happens to hold.
     ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
       const projects = readProjects();
-      const managedFolder = environmentServerConfigs.get(projectRef.environmentId)?.lazurioFolder;
-      if (managedFolder !== undefined) {
-        const managedProject = projects.find(
-          (p) => p.environmentId === projectRef.environmentId && p.workspaceRoot === managedFolder,
-        );
-        if (!managedProject) return Promise.resolve(null);
-        projectRef = scopeProjectRef(managedProject.environmentId, managedProject.id);
-        options = {
-          ...options,
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
-          startFromOrigin: false,
-        };
-      }
+      // Lazurio (LazurioPlatform F51): a managed Environment starts every thread in its Folder.
+      const managed = managedNewThread(environmentServerConfigs, projects, projectRef, options);
+      if (managed === null) return Promise.resolve(null);
+      ({ projectRef, options } = managed);
       const targetServerSettings =
         environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
       const {
@@ -164,7 +154,6 @@ export function useNewThreadHandler() {
       // skipped entirely when a higher-priority source decides, and its
       // query atom caches per project after the first call.
       const resolveDefaultEnvMode = async (): Promise<DraftThreadEnvMode> => {
-        if (managedFolder !== undefined) return "local";
         const consultProjectFile =
           project !== undefined && projectSettings.settings.defaultThreadEnvMode === null;
         const projectFile = consultProjectFile
