@@ -184,6 +184,60 @@ NodeTest.test("CI is read-only and pins the exact upstream base", () => {
   );
 });
 
+// Fork CI tests what the overlay changes, derived from the diff against the exact upstream base: a
+// new seam's tests run without editing the workflow, however its steps are laid out. A fixed gate
+// keeps every test fork CI ran before the derivation, among them the directories whose tests import
+// overlay seams without being changed; a workflow edit that drops one of these paths fails here.
+const oldTestGate = [
+  "apps/server/src/auth",
+  "apps/server/src/cli/config.test.ts",
+  "apps/server/src/environment/ServerEnvironmentLabel.test.ts",
+  "apps/server/src/lazurio",
+  "apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts",
+  "apps/server/src/server.test.ts",
+  "apps/server/src/serverSettings.test.ts",
+  "apps/server/src/vcs/VcsProvisioningService.test.ts",
+  "apps/web/src/lazurio",
+];
+
+NodeTest.test(
+  "CI runs the tests of everything the overlay changes and of the fixed gate",
+  async () => {
+    NodeAssert.match(
+      ci,
+      /git diff --name-only --diff-filter=d "\$UPSTREAM_SHA\.\.HEAD" -- '\*\.ts' '\*\.tsx'/,
+    );
+    // Every test file the overlay adds or changes, and upstream's own test beside each file it changes.
+    NodeAssert.match(ci, /\*\.test\.ts \| \*\.test\.tsx\) echo "\$file" ;;/);
+    NodeAssert.match(
+      ci,
+      /for test in "\$\{file%\.\*\}\.test\.ts" "\$\{file%\.\*\}\.test\.tsx"; do/,
+    );
+    // Every test under each gate path, whatever the diff says; a path that is gone or holds no tests
+    // fails the step.
+    const gate = (/\n\s+gate=\(\n([^]*?)\n\s*\)\n/.exec(ci)?.[1] ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    for (const path of oldTestGate) {
+      NodeAssert.ok(gate.includes(path), `the test gate must keep ${path}`);
+    }
+    for (const path of gate) {
+      await NodeFSP.access(path);
+    }
+    NodeAssert.match(ci, /for path in "\$\{gate\[@\]\}"; do/);
+    NodeAssert.match(
+      ci,
+      /gated="\$\(git ls-files -- "\$path" \| grep -E '\\\.test\\\.tsx\?\$' \|\| true\)"/,
+    );
+    NodeAssert.match(ci, /if \[ -z "\$gated" \]; then[^]*?exit 1/);
+    // Each package runs its files with its own test script, and any failure fails the step.
+    NodeAssert.match(ci, /\(cd "\$package" && pnpm run test "\$\{files\[@\]\}"\) \|\| status=1/);
+    NodeAssert.match(ci, /exit "\$status"/);
+    NodeAssert.match(ci, /node --test scripts\/lazurio-release-contract\.test\.mjs/);
+  },
+);
+
 NodeTest.test("image is root-served, non-root, and self-checks its terminal", () => {
   NodeAssert.match(
     dockerfile,
@@ -281,7 +335,6 @@ NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", asyn
   for (const file of promptOverlay) {
     NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
   }
-  NodeAssert.match(ci, /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio/);
 });
 
 NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag", async () => {
@@ -422,10 +475,6 @@ NodeTest.test(
       /McpProviderSession\.setMcpProviderSession\(\n(?:\s*\/\/[^\n]*\n)?\s*withAgentBrowserSession\(\{\n\s*\.\.\.credential\.config,/,
     );
     NodeAssert.equal(providerService.match(/withAgentBrowserSession\(/g)?.length, 1);
-    NodeAssert.match(
-      ci,
-      /working-directory: apps\/server\n\s+run: pnpm exec vp test run src\/lazurio\n/,
-    );
   },
 );
 
@@ -556,10 +605,6 @@ NodeTest.test(
     for (const retired of ["browserUse", "agentBrowserSession"]) {
       NodeAssert.doesNotMatch(ci, new RegExp(`apps/web/src/lazurio/${retired}`), retired);
     }
-    NodeAssert.match(
-      ci,
-      /working-directory: apps\/web\n\s+run: pnpm exec vp test run src\/lazurio\n/,
-    );
   },
 );
 
@@ -710,10 +755,6 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
       /\.newContext\(|\.launch(?:PersistentContext)?\(|\.addInitScript\(|\.exposeBinding\(|\.exposeFunction\(|userAgent:|\.setExtraHTTPHeaders\(|\.emulateMedia\(/,
     );
   }
-  NodeAssert.match(
-    ci,
-    /working-directory: apps\/server\n\s+run: pnpm exec vp test run src\/lazurio\n/,
-  );
 });
 
 // Plan DEV-6646: another Lazurio Environment's view of a tab, where an agent works over SSH. The

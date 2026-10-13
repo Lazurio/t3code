@@ -159,26 +159,69 @@ jobs:
           pnpm exec vp run --filter t3 typecheck
           pnpm exec vp run --filter @t3tools/web typecheck
 
-      - name: Test hosted server configuration
-        working-directory: apps/server
+      # The tests come from the diff against the exact upstream base, so a new
+      # seam is tested without editing this step: every test file the overlay
+      # adds or changes, and upstream's own test beside every file it changes
+      # (X.ts → X.test.ts). Plus the fixed gate below, whatever the diff says.
+      # Each package runs its files with its own test script.
+      - name: Test what the overlay changes
         run: |
-          pnpm exec vp test run \
-            src/cli/config.test.ts \
-            src/auth \
-            src/environment/ServerEnvironmentLabel.test.ts
-          pnpm exec vp test run src/server.test.ts
-
-      - name: Test the Lazurio server overlay
-        working-directory: apps/server
-        run: pnpm exec vp test run src/lazurio
-
-      - name: Test native managed Folder and preference boundaries
-        working-directory: apps/server
-        run: pnpm exec vp test run src/orchestration/Layers/OrchestrationEngine.test.ts src/serverSettings.test.ts src/vcs/VcsProvisioningService.test.ts
-
-      - name: Test the Lazurio web overlay
-        working-directory: apps/web
-        run: pnpm exec vp test run src/lazurio
+          set -euo pipefail
+          # The fixed gate: every test under these paths runs. It keeps what fork CI
+          # always ran: the directories whose tests import overlay seams without
+          # being changed (src/auth: the external origin, the session TTL and the
+          # server config), both overlay folders, and the tests of the hosted
+          # configuration and the managed Folder. A path that is gone or holds no
+          # tests fails the step, so a rebuild reviews the gate.
+          gate=(
+            apps/server/src/auth
+            apps/server/src/cli/config.test.ts
+            apps/server/src/environment/ServerEnvironmentLabel.test.ts
+            apps/server/src/lazurio
+            apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts
+            apps/server/src/server.test.ts
+            apps/server/src/serverSettings.test.ts
+            apps/server/src/vcs/VcsProvisioningService.test.ts
+            apps/web/src/lazurio
+          )
+          tests="$RUNNER_TEMP/overlay-tests.tsv"
+          {
+            git diff --name-only --diff-filter=d "$UPSTREAM_SHA..HEAD" -- '*.ts' '*.tsx' |
+              while IFS= read -r file; do
+                case "$file" in
+                  *.test.ts | *.test.tsx) echo "$file" ;;
+                  *)
+                    for test in "${file%.*}.test.ts" "${file%.*}.test.tsx"; do
+                      if [ -f "$test" ]; then echo "$test"; fi
+                    done
+                    ;;
+                esac
+              done
+            for path in "${gate[@]}"; do
+              gated="$(git ls-files -- "$path" | grep -E '\.test\.tsx?$' || true)"
+              if [ -z "$gated" ]; then
+                echo "The test gate's $path is gone or holds no tests." >&2
+                exit 1
+              fi
+              echo "$gated"
+            done
+          } | sort -u |
+            while IFS= read -r test; do
+              package="$(dirname "$test")"
+              until [ -f "$package/package.json" ]; do package="$(dirname "$package")"; done
+              printf '%s\t%s\n' "$package" "${test#"$package"/}"
+            done > "$tests"
+          status=0
+          for package in $(cut -f1 "$tests" | sort -u); do
+            files=()
+            while IFS=$'\t' read -r owner test; do
+              if [ "$owner" = "$package" ]; then files+=("$test"); fi
+            done < "$tests"
+            echo "::group::$package: ${#files[@]} test files"
+            (cd "$package" && pnpm run test "${files[@]}") || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
 
       - name: Validate Lazurio release contract
         run: node --test scripts/lazurio-release-contract.test.mjs
