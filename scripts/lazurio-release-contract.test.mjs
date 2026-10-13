@@ -422,6 +422,138 @@ NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", asyn
   }
 });
 
+// LazurioPlatform F51: with T3CODE_LAZURIO_FOLDER, Chat starts in the Environment's Lazurio Folder.
+// Its code lives in apps/*/src/lazurio/; the upstream files keep only the hooks below, each a few
+// lines, so a rebuild on a new upstream tag that loses or moves one fails here. Without the
+// variable each hook leaves upstream's behaviour as it is (the overlay's own tests prove that).
+NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
+  const files = {
+    bin: "apps/server/src/bin.ts",
+    cliConfig: "apps/server/src/cli/config.ts",
+    engine: "apps/server/src/orchestration/Layers/OrchestrationEngine.ts",
+    reactor: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    vcs: "apps/server/src/vcs/VcsProvisioningService.ts",
+    startup: "apps/server/src/serverRuntimeStartup.ts",
+    settings: "apps/server/src/serverSettings.ts",
+    ws: "apps/server/src/ws.ts",
+    contractsServer: "packages/contracts/src/server.ts",
+    contractsSettings: "packages/contracts/src/settings.ts",
+    palette: "apps/web/src/components/CommandPalette.tsx",
+    sidebar: "apps/web/src/components/Sidebar.tsx",
+    sidebarHeader: "apps/web/src/components/sidebar/SidebarThreadHeader.tsx",
+    hero: "apps/web/src/components/chat/DraftHeroHeadline.tsx",
+    firstRun: "apps/web/src/components/onboarding/FirstRunGate.tsx",
+    newThread: "apps/web/src/hooks/useHandleNewThread.ts",
+    scratch: "apps/web/src/hooks/useScratchProject.ts",
+    gitActions: "apps/web/src/components/GitActionsControl.tsx",
+    welcome: "apps/web/src/routes/welcome.tsx",
+  };
+  const source = Object.fromEntries(
+    await Promise.all(Object.entries(files).map(async ([key, file]) => [key, await read(file)])),
+  );
+  const before = (text, first, second, message) => {
+    const at = text.indexOf(first);
+    NodeAssert.ok(at >= 0 && at < text.indexOf(second), message);
+  };
+
+  // Server: `t3 lazurio`, the config, the startup adoption and the guards.
+  NodeAssert.match(source.bin, /import \{ lazurioCommand \} from "\.\/lazurio\/cli\.ts";/);
+  NodeAssert.match(source.bin, /\n\s+lazurioCommand,\n/);
+  before(
+    source.cliConfig,
+    "const managedFolder = yield* resolveManagedFolderConfig;",
+    "ServerConfig.deriveServerPaths(baseDir, devUrl",
+    "the Folder is checked before the server's directories exist",
+  );
+  NodeAssert.match(source.cliConfig, /\n\s+\.\.\.managedFolder,\n\s+\};\n\n\s+return config;/);
+  NodeAssert.match(source.engine, /const lazurioCommandGuard = yield\* makeCommandGuard;/);
+  NodeAssert.match(
+    source.engine,
+    /yield\* lazurioCommandGuard\(envelope\.command, commandReadModel\);\n\s+const eventBase = yield\* decideOrchestrationCommand\(/,
+  );
+  NodeAssert.match(source.reactor, /const lazurioFolderGuard = yield\* makeFolderGuard;/);
+  before(
+    source.reactor,
+    "yield* lazurioFolderGuard.turnRefusal(effectiveCwd);",
+    ".startSession(threadId, {",
+    "an agent turn outside the Folder is refused before a session starts",
+  );
+  NodeAssert.match(source.vcs, /const lazurioFolderGuard = yield\* makeFolderGuard;/);
+  before(
+    source.vcs,
+    "yield* lazurioFolderGuard.repositoryRefusal(input.cwd);",
+    "driver.initRepository(input)",
+    "the Folder is refused before any driver initializes a repository",
+  );
+  NodeAssert.match(
+    source.startup,
+    /runStartupPhase\(\s*"lazurio\.project",\s*ensureManagedFolderProject\./,
+  );
+  NodeAssert.match(source.startup, /\.\.\.welcomeBase,\n\s+\.\.\.managedWelcome,\n/);
+  NodeAssert.doesNotMatch(source.startup, /lazurioFolder/);
+  NodeAssert.match(source.settings, /readonly reconcileRecommendedModel\?: \(/);
+  NodeAssert.match(source.settings, /\n\s+apply = applyServerSettingsPatch,\n/);
+  NodeAssert.match(source.settings, /const updated = apply\(current, patch\);/);
+  NodeAssert.match(source.ws, /\n\s+\.\.\.managedFolderClientConfig\(config\),\n/);
+  NodeAssert.match(
+    source.contractsServer,
+    /lazurioFolder: Schema\.optionalKey\(TrimmedNonEmptyString\),/,
+  );
+  NodeAssert.match(
+    source.contractsSettings,
+    /lazurioManagedModelSelection: Schema\.NullOr\(ModelSelection\)/,
+  );
+  NodeAssert.doesNotMatch(source.contractsSettings, /Compare-and-set/);
+
+  // Web: new threads start in the Folder, what leads elsewhere leaves only for a managed
+  // Environment, and the managed welcome sits behind upstream's route guard.
+  NodeAssert.match(
+    source.palette,
+    /\}\)\.filter\(offeredInProjectPicker\(environments\)\),\n\s+\[contextualProjectRef, environments, projectGroups\],/,
+  );
+  NodeAssert.match(
+    source.palette,
+    /\n\s+\.filter\(\(environment\) => environment\.serverConfig\?\.lazurioFolder === undefined\)\n/,
+  );
+  NodeAssert.match(
+    source.palette,
+    /if \(!everyEnvironmentManaged\(environments\)\) actionItems\.push\(addProjectItem\);/,
+  );
+  NodeAssert.match(
+    source.sidebar,
+    /onNewProject=\{\s*everyEnvironmentManaged\(environments\) \? undefined : openAddProjectCommandPalette\s*\}/,
+  );
+  NodeAssert.match(source.sidebarHeader, /\{onNewProject \? \(/);
+  NodeAssert.match(
+    source.hero,
+    /const projectSelector = managedFolder === undefined \? projectPicker : <span>Lazurio<\/span>;/,
+  );
+  NodeAssert.match(
+    source.firstRun,
+    /const \{ decision: nextDecision, persistCompletion \} =\s*useManagedFirstRunDecision\(upstreamDecision\);/,
+  );
+  NodeAssert.match(
+    source.newThread,
+    /const projects = readProjects\(\);\n(?:\s*\/\/[^\n]*\n)?\s*const managed = managedNewThread\(environmentServerConfigs, projects, projectRef, options\);\n\s*if \(managed === null\) return Promise\.resolve\(null\);\n\s*\(\{ projectRef, options \} = managed\);/,
+  );
+  NodeAssert.match(source.scratch, /environment\.serverConfig\?\.lazurioFolder === undefined/);
+  NodeAssert.match(
+    source.gitActions,
+    /if \(!gitCwd \|\| serverConfig\?\.lazurioFolder === gitCwd\) return null;/,
+  );
+  before(
+    source.welcome,
+    "const isWelcomeRoute = useLocation(",
+    "if (lazurioFolder !== undefined) return isWelcomeRoute ? <ManagedFolderWelcome /> : null;",
+    "the managed welcome follows upstream's welcome-route guard",
+  );
+
+  // Every file is the overlay's own or a reviewed allowlist entry.
+  for (const file of Object.values(files)) {
+    NodeAssert.ok(overlayMayChange(file), file);
+  }
+});
+
 NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag", async () => {
   const [page, layout, sidebarUi] = await Promise.all([
     read("apps/web/index.html"),
