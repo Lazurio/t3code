@@ -287,6 +287,10 @@ jobs:
             grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
           docker run --rm --network none "$IMAGE@$IMAGE_DIGEST" --version | \
             grep -Fx "t3 v$VERSION"
+          docker run --rm --network none --entrypoint cat "$IMAGE@$IMAGE_DIGEST" \
+            /opt/lazurio-t3/LICENSE | cmp - LICENSE
+          docker run --rm --network none --entrypoint cat "$IMAGE@$IMAGE_DIGEST" \
+            /opt/lazurio-t3/dist/client/favicon.ico | cmp - assets/prod/t3-black-web-favicon.ico
 
       - id: attest_image
         name: Attest the published OCI digest

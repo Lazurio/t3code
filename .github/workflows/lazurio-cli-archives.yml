@@ -90,6 +90,12 @@ jobs:
       - name: Build server and web client
         run: vp run --filter t3 build
 
+      # The server build bundles the web client with upstream's development
+      # icons; a release carries upstream's production ones, as upstream's own
+      # release build does.
+      - name: Apply upstream's production web icons
+        run: node scripts/apply-web-brand-assets.ts production apps/server/dist/client
+
       - name: Build resource monitor
         run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ matrix.rust_target }}"
 
@@ -118,6 +124,28 @@ jobs:
             --version "$VERSION" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
             --output-dir release-cli
+
+      # T3 Code's MIT licence travels with every copy of it. Upstream's archive
+      # has no place for it, so it is added beside the executable; the launcher
+      # and the install scripts unpack the archive whole.
+      - name: Add T3 Code's licence to the CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          stem="t3-$VERSION-${{ matrix.key }}"
+          mkdir -p "$RUNNER_TEMP/cli-licence/$stem"
+          cp LICENSE "$RUNNER_TEMP/cli-licence/$stem/LICENSE"
+          gzip -d "release-cli/$stem.tar.gz"
+          tar -rf "release-cli/$stem.tar" -C "$RUNNER_TEMP/cli-licence" "$stem/LICENSE"
+          gzip -n "release-cli/$stem.tar"
+
+      - name: Check the archive's licence and web icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          stem="t3-$VERSION-${{ matrix.key }}"
+          tar -xzOf "release-cli/$stem.tar.gz" "$stem/LICENSE" | cmp - LICENSE
+          tar -xzOf "release-cli/$stem.tar.gz" "$stem/client/favicon.ico" | cmp - assets/prod/t3-black-web-favicon.ico
 
       - name: Smoke-test CLI archive
         run: node scripts/smoke-cli-archive.ts --archive "release-cli/t3-$VERSION-${{ matrix.key }}.tar.gz" --expect-version "$VERSION"

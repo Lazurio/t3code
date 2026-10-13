@@ -293,6 +293,10 @@ jobs:
           docker image inspect lazurio/t3code:ci \
             --format '{{range .Config.Env}}{{println .}}{{end}}' | \
             grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
+          docker run --rm --network none --entrypoint cat lazurio/t3code:ci \
+            /opt/lazurio-t3/LICENSE | cmp - LICENSE
+          docker run --rm --network none --entrypoint cat lazurio/t3code:ci \
+            /opt/lazurio-t3/dist/client/favicon.ico | cmp - assets/prod/t3-black-web-favicon.ico
 
   # The same archive build and launcher install the release runs, under the
   # never-released version <upstream>-lazurio.0. Keep it in step with UPSTREAM_TAG.
