@@ -424,9 +424,14 @@ sidebaru, jen když klient zná aspoň jeden Environment a každý z nich je
 spravovaný. Bez jakéhokoli Environmentu zůstává a z palety vede do Settings →
 Connections jako v upstreamu.
 
+Kód spravované složky žije ve složkách overlaye (`apps/*/src/lazurio/`);
+upstream soubory nesou jen háčky o několika řádcích. Kontraktní test je hlídá
+(„the managed Lazurio Folder keeps its seams“) a `apps/server/src/lazurio/cli.test.ts`
+drží výstup `t3 lazurio capabilities` a `t3 lazurio model` bajt po bajtu.
+
 Při přestavbě na nový upstream zachovejte testy spravovaného startu, nativní
-stráže příkazů a spravovaného uvítání; samotný výběr modelu je záměrně mimo
-fork.
+stráže příkazů, stráže tahů agenta a spravovaného uvítání; samotný výběr
+modelu je záměrně mimo fork.
 
 ## Kdy vydávat
 
