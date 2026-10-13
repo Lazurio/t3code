@@ -162,6 +162,16 @@ NodeTest.test("a preview is a GitHub pre-release and never latest; stable is lat
   NodeAssert.doesNotMatch(release, /^\s+--latest \\$/m);
 });
 
+// The overlay changes T3 Code, so the notes of every release say it is a modified distribution of
+// the upstream tag it is built on, never vanilla upstream.
+NodeTest.test("release notes call the release a modified distribution of T3 Code", () => {
+  NodeAssert.match(
+    release,
+    /echo "T3 Code \$UPSTREAM_TAG with the Lazurio overlay: a modified distribution of upstream"/,
+  );
+  NodeAssert.doesNotMatch(release, /vanilla/i);
+});
+
 NodeTest.test("archives are built with upstream's own release steps", () => {
   NodeAssert.match(archives, /on:\n {2}workflow_call:/);
   NodeAssert.match(archives, /^permissions:\n {2}contents: read\n {2}id-token: none/m);
