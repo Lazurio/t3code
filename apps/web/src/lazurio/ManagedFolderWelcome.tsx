@@ -1,20 +1,26 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useState } from "react";
 import { Button } from "../components/ui/button";
+import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useCompleteOnboarding } from "../onboarding/firstRun";
 import { useProjects } from "../state/entities";
 import { primaryServerConfigAtom } from "../state/server";
 
-export function ManagedFolderWelcome({
-  onDone,
-}: {
-  onDone: (project: ScopedProjectRef) => Promise<void>;
-}) {
+/** The primary Environment's Lazurio Folder (LazurioPlatform F51), when it is managed. */
+export function usePrimaryLazurioFolder(): string | undefined {
+  return useAtomValue(primaryServerConfigAtom)?.lazurioFolder;
+}
+
+/**
+ * The managed Environment's welcome, in place of upstream's setup wizard: it names the Lazurio
+ * Folder, completes onboarding and opens a new chat in the Folder's project.
+ */
+export function ManagedFolderWelcome() {
   const config = useAtomValue(primaryServerConfigAtom);
   const projects = useProjects();
   const complete = useCompleteOnboarding();
+  const openNewThread = useNewThreadHandler();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const project = projects.find(
@@ -63,7 +69,11 @@ export function ManagedFolderWelcome({
             setBusy(true);
             setError(null);
             void complete()
-              .then(() => onDone(scopeProjectRef(project.environmentId, project.id)))
+              .then(() =>
+                openNewThread(scopeProjectRef(project.environmentId, project.id), {
+                  replace: true,
+                }),
+              )
               .catch(() => {
                 setError("Could not open Lazurio. Please try again.");
                 setBusy(false);
