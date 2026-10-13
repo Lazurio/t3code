@@ -565,7 +565,7 @@ export function leaveDraft(threadRef: ScopedThreadRef): void {
   }
 }
 
-/** The empty panel's line on a draft (Lazurio/t3code#53, Matěj chose the line on 2026-10-12). */
+/** The empty panel's line on a draft (Lazurio/t3code#53; the Admin chose it on 2026-10-12). */
 export const draftBrowserNote = (czech: boolean) =>
   czech
     ? "Prohlížeč Environmentu bude k dispozici po první zprávě."
