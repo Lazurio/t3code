@@ -672,6 +672,20 @@ describe("tabs an agent opens", () => {
     expect(await w.stored(stripB)).toBeNull();
   });
 
+  it("a session whose thread was not live yet is asked again when it binds anew", async () => {
+    const w = await world();
+    const threadC = "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a";
+    const stripC = agentBrowserSessionName(threadC);
+    await w.bind(stripC, id(5));
+    await w.core.refresh();
+    expect(await w.stored(stripC)).toBeNull();
+    // Its thread arrives (or comes back from the archive) and its session binds another tab.
+    w.threads.set(threadC, "Later");
+    await w.bind(stripC, id(6));
+    await w.core.refresh();
+    expect(await w.stored(stripC)).toMatchObject([{ id: id(6) }]);
+  });
+
   it("another Environment's tab goes to the thread's subscribers only, live", async () => {
     const w = await world();
     const other: ThreadTabsEvent[] = [];

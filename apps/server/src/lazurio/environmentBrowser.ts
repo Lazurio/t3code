@@ -84,6 +84,8 @@ const DECLARATION_CHECK_INTERVAL = Duration.seconds(60);
 /** Upstream's pause before a host registers again after the broker ended its stream. */
 const HOST_RECONNECT_DELAY = Duration.seconds(1);
 const LINK_CHECK_TIMEOUT = Duration.seconds(10);
+/** Other Environments' tabs the host remembers, so it never drives one in this browser. */
+const MAX_FOREIGN_TABS = 256;
 
 /**
  * `lazurio browser link --json` on an Environment that declares its browser. Its `link` is a new
@@ -204,7 +206,8 @@ const responseError = (error: ServerBrowserOperationError) => ({
   ...(error.detail === undefined ? {} : { detail: error.detail }),
 });
 
-interface ThreadTabs {
+/** What the host keeps of a thread's work in this browser. */
+interface HostThread {
   /** Tabs the thread opened or adopted, reported to the broker as its live tabs. */
   readonly tabs: Set<string>;
   current: string | undefined;
@@ -243,16 +246,21 @@ export const make = Effect.gen(function* () {
             Effect.orElseSucceed(() => Option.none()),
           );
 
-  const threads = new Map<ThreadId, ThreadTabs>();
+  const threads = new Map<ThreadId, HostThread>();
   let hostConnectionId: string | undefined;
   /** The origin of this Environment's own view, from its declaration. */
   let ownViewOrigin: string | undefined;
-  /** Tabs of other Environments' browsers that preview_open answered with, by target id. */
+  /** Tabs of other Environments' browsers that preview_open answered with, by target id, the
+   * latest last; only the latest MAX_FOREIGN_TABS are kept. */
   const foreignTabs = new Map<string, LazurioBrowserView>();
-  /**
-   * Another Environment's view of one remote tab: a Lazurio browser view on another origin than
-   * this Environment's. Without a declared origin, every Lazurio browser view is another's.
-   */
+  const rememberForeign = (view: LazurioBrowserView) => {
+    foreignTabs.delete(view.targetId);
+    foreignTabs.set(view.targetId, view);
+    for (const oldest of foreignTabs.keys()) {
+      if (foreignTabs.size <= MAX_FOREIGN_TABS) break;
+      foreignTabs.delete(oldest);
+    }
+  };
   /**
    * The host of another Environment's browser that `url` is in, whatever its path, query, fragment
    * or port: `browser.<labels>.lazurio.io` on another host than this Environment's view. This
@@ -271,6 +279,10 @@ export const make = Effect.gen(function* () {
       ? address.hostname
       : undefined;
   };
+  /**
+   * Another Environment's view of one remote tab: a Lazurio browser view on another origin than
+   * this Environment's. Without a declared origin, every Lazurio browser view is another's.
+   */
   const foreignView = (url: string) => {
     const view = lazurioBrowserView(url);
     return view !== null && view.origin !== ownViewOrigin ? view : undefined;
@@ -288,7 +300,7 @@ export const make = Effect.gen(function* () {
    */
   const foreignOpen = (threadId: ThreadId, view: LazurioBrowserView, visible: boolean) =>
     Effect.sync(() => {
-      foreignTabs.set(view.targetId, view);
+      rememberForeign(view);
       return {
         ...statusOf(view.targetId, { url: null, title: null, loading: false }, visible),
         view: view.view,
@@ -384,18 +396,26 @@ export const make = Effect.gen(function* () {
           tab === undefined ? Effect.as(forget(targetId), undefined) : Effect.succeed(targetId),
         );
 
-  const tabLocks = new Map<string, Semaphore.Semaphore>();
+  /** Each tab's lock while operations run or wait in it; the last one done removes it. */
+  const tabLocks = new Map<string, { readonly lock: Semaphore.Semaphore; users: number }>();
   /** One operation at a time per tab, in the order they arrive. */
   const oneAtATime =
     (targetId: string) =>
     <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.suspend(() => {
-        let lock = tabLocks.get(targetId);
-        if (lock === undefined) {
-          lock = Semaphore.makeUnsafe(1);
-          tabLocks.set(targetId, lock);
-        }
-        return lock.withPermits(1)(effect);
+        const entry = tabLocks.get(targetId) ?? { lock: Semaphore.makeUnsafe(1), users: 0 };
+        entry.users += 1;
+        tabLocks.set(targetId, entry);
+        return entry.lock
+          .withPermits(1)(effect)
+          .pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                entry.users -= 1;
+                if (entry.users === 0) tabLocks.delete(targetId);
+              }),
+            ),
+          );
       });
   /** The time left to answer in. None means the request was answered already, as timed out. */
   const timeLeft = (answerBy: number) =>

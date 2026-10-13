@@ -213,7 +213,7 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
   let working = new Set<string>();
   /** The tab each `t3-` session was last seen bound to: only another one is recorded. */
   const lastBound = new Map<string, string>();
-  const threadOfSessionCache = new Map<string, string | null>();
+  const threadOfSessionCache = new Map<string, string>();
   const subscribers = new Map<
     string,
     Set<{ readonly threadId: string; readonly listener: (event: ThreadTabsEvent) => void }>
@@ -435,7 +435,8 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
   }
 
   /** The live thread whose session is `session`: its id when the name is the id unchanged, else
-   * by the names of the live threads. Looked up once. */
+   * by the names of the live threads. A thread found is looked up once; a session of no live
+   * thread is asked again next time, since its thread may come back (unarchived) or arrive. */
   async function threadOfSession(session: string): Promise<string | null> {
     if (!isThreadStrip(session)) return null;
     const cached = threadOfSessionCache.get(session);
@@ -454,7 +455,7 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     } catch {
       return null;
     }
-    threadOfSessionCache.set(session, threadId);
+    if (threadId !== null) threadOfSessionCache.set(session, threadId);
     return threadId;
   }
 
