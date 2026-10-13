@@ -1,0 +1,86 @@
+/*
+ * Lazurio T3 Code: the design system's light look on a Lazurio Environment (root decision 0200).
+ *
+ * The Environment's shell (/.lazurio/shell.js, LazurioPlatform F36's addendum of 2026-10-13)
+ * declares the design system's tokens (--lz-*) on the document's root and marks it
+ * data-lazurio-theme="light". Here they become T3 Code's own raw tokens, for T3 Code's standard
+ * light look only: no theme picked (no data-theme-id) and not dark. A theme the person picks, the
+ * theme editor's preview and the dark mode keep T3 Code's palettes, the contrast setting keeps
+ * working because T3 derives its --contrast-* tokens from these, and a font chosen in Appearance
+ * still wins. Without the shell nothing here matches, and T3 Code looks as upstream.
+ *
+ * Only raw tokens that index.css declares in the same scope, only --lz-* names the shell promises,
+ * no colour literals. scripts/lazurio-release-contract.test.mjs keeps all of it.
+ */
+
+:root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark) {
+  --background: var(--lz-surface);
+  --foreground: var(--lz-ink);
+  --card: var(--lz-surface);
+  --card-foreground: var(--lz-ink);
+  --popover: var(--lz-surface);
+  --popover-foreground: var(--lz-ink);
+  /* Buttons are black. */
+  --primary: var(--lz-accent-button);
+  --primary-foreground: var(--lz-on-accent);
+  --message-action-hover: var(--lz-accent-button-hover);
+  --secondary: var(--lz-gray-50);
+  --secondary-foreground: var(--lz-ink);
+  --muted: var(--lz-gray-50);
+  --muted-foreground: var(--lz-ink-muted);
+  /* A selection is a quiet surface one step darker. */
+  --accent: var(--lz-gray-100);
+  --accent-foreground: var(--lz-ink);
+  --border: var(--lz-line);
+  --input: var(--lz-line);
+  /* Focus is neutral ink. */
+  --ring: var(--lz-ink);
+  --error: var(--lz-red-500);
+  --error-foreground: var(--lz-danger);
+  --error-surface: var(--lz-danger-bg);
+  --warning: var(--lz-warning);
+  --warning-foreground: var(--lz-warning);
+  --warning-surface: var(--lz-warning-bg);
+  --success: var(--lz-green-500);
+  --success-foreground: var(--lz-success);
+  /* Links and the update notice are the one blue. */
+  --info: var(--lz-accent);
+  --info-foreground: var(--lz-info);
+  --update: var(--lz-accent);
+  --update-foreground: var(--lz-info);
+  --update-surface: var(--lz-info-bg);
+  --sidebar: var(--lz-paper);
+  --sidebar-control-surface: var(--lz-gray-100);
+  --sidebar-row-hover: var(--lz-gray-50);
+  --sidebar-row-active: var(--lz-surface);
+  --sidebar-row-selected: var(--lz-gray-100);
+  /* The faces come from the shell. */
+  --font-sans: var(--lz-font-sans);
+  --font-mono: var(--lz-font-mono);
+  --control-radius: var(--lz-radius-sm);
+  --surface-grain: none;
+}
+
+/* T3 recomputes its sidebar's palette here; the shell's rail joins this scope, so it reads as one
+   paper surface with the sidebar. The switch's active tab (row-active) stays apart from its track
+   (control-surface). */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark) [data-app-sidebar] {
+  --background: var(--lz-paper);
+  --foreground: var(--lz-ink);
+  --card: var(--lz-surface);
+  --card-foreground: var(--lz-ink);
+  --accent: var(--lz-gray-100);
+  --accent-foreground: var(--lz-ink);
+  --muted: var(--lz-gray-50);
+  --muted-foreground: var(--lz-ink-muted);
+  --border: var(--lz-line);
+  --input: var(--lz-line);
+  --sidebar: var(--lz-paper);
+  --sidebar-foreground: var(--lz-ink);
+  --sidebar-muted-foreground: var(--lz-ink-muted);
+  --sidebar-control-surface: var(--lz-gray-100);
+  --sidebar-row-hover: var(--lz-gray-50);
+  --sidebar-row-active: var(--lz-surface);
+  --sidebar-row-selected: var(--lz-gray-100);
+  --sidebar-border: var(--lz-line);
+}
