@@ -346,8 +346,11 @@ se nikdy neodešle samo; odešle ho až člověk.
   neprázdným `text` do 16 KiB a absolutním `cwd`.
 - Otevře nové vlákno v projektu primárního environmentu s kořenem `cwd`.
   Když takový projekt není, přidá složku jako projekt, jako to dělá „Add
-  project“, ale bez zakládání složky. Text vloží do pole zprávy, nic
-  neodešle.
+  project“, ale bez zakládání složky. Ve spravovaném Environmentu
+  (`T3CODE_LAZURIO_FOLDER`) otevře vlákno vždy v projektu Lazurio a nic
+  nepřidává: nová vlákna tam začínají ve složce Lazuria a jiný projekt server
+  odmítne. `cwd` zadání Organizace leží uvnitř složky a text Organizaci
+  jmenuje. Text vloží do pole zprávy, nic neodešle.
 - Neznámé `id`, neúspěšný nebo přesměrovaný fetch, jiný tvar odpovědi nebo
   cizí origin nevloží nic. Člověk uvidí jen chybový toast „Could not open the
   prepared prompt“.

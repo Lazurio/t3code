@@ -119,6 +119,12 @@ export interface PromptDraftDependencies {
   readonly findProject: (cwd: string) => ScopedProjectRef | null;
   /** Adds `cwd` as a project of the primary environment, as "Add project" does. */
   readonly addProject: (cwd: string) => Promise<ScopedProjectRef | null>;
+  /**
+   * The primary environment's Lazurio Folder when it is managed (LazurioPlatform F51). Every new
+   * thread there starts in the Folder, which takes no other project, so the prompt opens in the
+   * Folder's project whatever its `cwd`, and nothing is added.
+   */
+  readonly lazurioFolder?: string | undefined;
   /** Opens a new thread draft in the project; null when another navigation overtook it. */
   readonly openThread: (projectRef: ScopedProjectRef) => Promise<{ draftId: DraftId } | null>;
   readonly setPrompt: (draftId: DraftId, text: string) => void;
@@ -128,7 +134,8 @@ const OPEN_ATTEMPTS = 3;
 
 /**
  * Opens the prompt a link named: a new thread in the project rooted at its
- * folder (added as a project when there is none), with the text in the
+ * folder (added as a project when there is none), or in a managed
+ * environment in its Lazurio Folder's project, with the text in the
  * composer, unsent.
  */
 export async function openPromptDraft(
@@ -139,7 +146,9 @@ export async function openPromptDraft(
   if (prompt === null) return "failed";
   try {
     const projectRef =
-      dependencies.findProject(prompt.cwd) ?? (await dependencies.addProject(prompt.cwd));
+      dependencies.lazurioFolder === undefined
+        ? (dependencies.findProject(prompt.cwd) ?? (await dependencies.addProject(prompt.cwd)))
+        : dependencies.findProject(dependencies.lazurioFolder);
     if (projectRef === null) return "failed";
     // The index route opens a draft of the latest project at the same time;
     // whichever navigation lands second makes the other one return null.
