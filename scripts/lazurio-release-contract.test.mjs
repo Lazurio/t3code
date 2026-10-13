@@ -741,17 +741,26 @@ NodeTest.test("the panel opens on an agent's tab through its seams", async () =>
 // them through an overlay route with its own prefix, authenticated like T3 Code's routes, with
 // upstream's preview scopes, its event stream never compressed or buffered.
 NodeTest.test("a thread's tabs live in its holder file behind an overlay route", async () => {
-  const [route, service, holders, overlay] = await Promise.all(
+  const [route, service, holders, overlay, routeAuth] = await Promise.all(
     [
       "apps/server/src/lazurio/threadTabsRoute.ts",
       "apps/server/src/lazurio/threadTabs.ts",
       "apps/server/src/lazurio/holders.ts",
       "apps/server/src/lazurio/overlay.ts",
+      "apps/server/src/lazurio/routeAuth.ts",
     ].map(read),
   );
   NodeAssert.match(route, /export const THREAD_TABS_ROUTE = "\/api\/lazurio\/thread-tabs";/);
-  NodeAssert.match(route, /serverAuth\s*\.authenticateHttpRequest\(request\)/);
-  NodeAssert.doesNotMatch(route, /authenticateWebSocketUpgrade|authenticateMediaRequest/);
+  // The overlay's routes authenticate as upstream's HTTP routes do, through one helper.
+  NodeAssert.match(
+    route,
+    /import \{ authenticateOverlayRoute as authenticate \} from "\.\/routeAuth\.ts";/,
+  );
+  NodeAssert.match(routeAuth, /serverAuth\.authenticateHttpRequest\(request\)/);
+  NodeAssert.match(routeAuth, /if \(!session\.scopes\.includes\(scope\)\)/);
+  for (const source of [route, routeAuth]) {
+    NodeAssert.doesNotMatch(source, /authenticateWebSocketUpgrade|authenticateMediaRequest/);
+  }
   NodeAssert.match(route, /read: requiredScopeForRpcMethod\(WS_METHODS\.previewList\),/);
   NodeAssert.match(route, /hold: requiredScopeForRpcMethod\(WS_METHODS\.previewOpen\),/);
   NodeAssert.match(route, /release: requiredScopeForRpcMethod\(WS_METHODS\.previewClose\),/);

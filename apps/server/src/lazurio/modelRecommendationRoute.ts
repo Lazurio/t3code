@@ -1,16 +1,25 @@
+/**
+ * Lazurio overlay (LazurioPlatform F51): `POST /api/lazurio/model-recommendation`, which
+ * `t3 lazurio model <selection-json>` (cli.ts) calls on the running service. The Platform supplies
+ * the recommendation; T3 owns reconciling it with the person's own choice and persisting both
+ * (modelRecommendation.ts). The scope is upstream's for writing settings.
+ *
+ * Answers `{"version": 1, "current", "lastManaged"}`; 400 for another body, 409 when the request
+ * names another Folder than this Environment's managed one, 503 when the settings service cannot
+ * reconcile (only its test layer).
+ */
 import { type ModelSelection, WS_METHODS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticateRawRouteWithScope } from "../http.ts";
-import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
-import { failEnvironmentInternal } from "../auth/http.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
 
-import { MODEL_RECOMMENDATION_ROUTE, ModelRecommendationRequest } from "./modelRecommendation.ts";
+import { failEnvironmentInternal } from "../auth/http.ts";
+import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
 import { ServerConfig } from "../config.ts";
-// Platform supplies product recommendations. T3 only owns reconciliation and
-// persistence of its own preference, including evidence of its last managed write.
+import { ServerSettingsService } from "../serverSettings.ts";
+import { MODEL_RECOMMENDATION_ROUTE, ModelRecommendationRequest } from "./modelRecommendation.ts";
+import { authenticateOverlayRoute } from "./routeAuth.ts";
+
 export const layer = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const settings = yield* ServerSettingsService;
@@ -28,9 +37,7 @@ export const layer = HttpRouter.use((router) =>
       "POST",
       MODEL_RECOMMENDATION_ROUTE,
       Effect.gen(function* () {
-        yield* authenticateRawRouteWithScope(
-          requiredScopeForRpcMethod(WS_METHODS.serverUpdateSettings),
-        );
+        yield* authenticateOverlayRoute(requiredScopeForRpcMethod(WS_METHODS.serverUpdateSettings));
         const selection = yield* HttpServerRequest.schemaBodyJson(ModelRecommendationRequest).pipe(
           Effect.option,
         );
@@ -41,6 +48,8 @@ export const layer = HttpRouter.use((router) =>
           );
         if (config.lazurioFolder === undefined || selection.value.folder !== config.lazurioFolder)
           return HttpServerResponse.jsonUnsafe({ error: "folder-mismatch" }, { status: 409 });
+        if (settings.reconcileRecommendedModel === undefined)
+          return HttpServerResponse.jsonUnsafe({ error: "unavailable" }, { status: 503 });
         return answer(
           yield* settings
             .reconcileRecommendedModel(selection.value.selection)

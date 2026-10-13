@@ -53,10 +53,10 @@ import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import {
   applyServerSettingsPatch,
-  reconcileRecommendedModel,
   deriveLegacyProjectOverrides,
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
+import { reconcileRecommendedModel } from "./lazurio/modelRecommendation.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
@@ -220,8 +220,11 @@ export class ServerSettingsService extends Context.Service<
       patch: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
-    /** Hosting recommendation: the same native writer preserves a custom default. */
-    readonly reconcileRecommendedModel: (
+    /**
+     * Lazurio overlay (LazurioPlatform F51): the Platform's recommended model, written by the same
+     * writer and atomically keeping a person's own choice. Only the server's own layer has it.
+     */
+    readonly reconcileRecommendedModel?: (
       selection: NonNullable<ServerSettings["defaultModelSelection"]>,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
@@ -265,13 +268,6 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
           Effect.map((currentSettings) => applyServerSettingsPatch(currentSettings, patch)),
           Effect.flatMap(normalizeServerSettings),
           Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
-          Effect.map(resolveTextGenerationProvider),
-        ),
-      reconcileRecommendedModel: (selection) =>
-        Ref.get(currentSettingsRef).pipe(
-          Effect.map((current) => reconcileRecommendedModel(current, selection)),
-          Effect.flatMap(normalizeServerSettings),
-          Effect.tap((next) => Ref.set(currentSettingsRef, next)),
           Effect.map(resolveTextGenerationProvider),
         ),
       streamChanges: Stream.empty,
@@ -1032,15 +1028,12 @@ const make = Effect.gen(function* () {
 
   const updateSettings = (
     patch: ServerSettingsPatch,
-    recommendation?: NonNullable<ServerSettings["defaultModelSelection"]>,
+    apply = applyServerSettingsPatch,
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
-        const updated =
-          recommendation === undefined
-            ? applyServerSettingsPatch(current, patch)
-            : reconcileRecommendedModel(current, recommendation);
+        const updated = apply(current, patch);
         const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>
@@ -1145,7 +1138,8 @@ const make = Effect.gen(function* () {
       Effect.map(resolveTextGenerationProvider),
     ),
     updateSettings,
-    reconcileRecommendedModel: (selection) => updateSettings({}, selection),
+    reconcileRecommendedModel: (selection) =>
+      updateSettings({}, (current) => reconcileRecommendedModel(current, selection)),
     get streamChanges() {
       return materializeChanges(Stream.fromPubSub(changesPubSub));
     },

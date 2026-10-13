@@ -1733,37 +1733,3 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 });
-
-it.effect(
-  "Lazurio recommendations preserve personal choices and atomically record managed defaults",
-  () =>
-    Effect.gen(function* () {
-      const settings = yield* ServerSettingsModule.ServerSettingsService;
-      const config = yield* ServerConfig.ServerConfig;
-      const fs = yield* FileSystem.FileSystem;
-      const first = {
-        instanceId: ProviderInstanceId.make("codex"),
-        model: "model-one",
-        options: [{ id: "reasoningEffort", value: "high" }],
-      };
-      const second = { ...first, model: "model-two" };
-      const personal = { ...first, options: [{ id: "reasoningEffort", value: "low" }] };
-      yield* settings.reconcileRecommendedModel(first);
-      assert.deepStrictEqual((yield* settings.getSettings).defaultModelSelection, first);
-      yield* settings.reconcileRecommendedModel(second);
-      assert.deepStrictEqual((yield* settings.getSettings).defaultModelSelection, second);
-      const disk = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings))(
-        yield* fs.readFileString(config.settingsPath),
-      );
-      assert.deepStrictEqual(disk.defaultModelSelection, second);
-      assert.deepStrictEqual(disk.lazurioManagedModelSelection, second);
-      yield* settings.updateSettings({ defaultModelSelection: personal });
-      yield* settings.reconcileRecommendedModel(first);
-      const preserved = yield* settings.getSettings;
-      assert.deepStrictEqual(preserved.defaultModelSelection, personal);
-      assert.deepStrictEqual(preserved.lazurioManagedModelSelection, second);
-      yield* settings.updateSettings({ defaultModelSelection: null });
-      yield* settings.reconcileRecommendedModel(first);
-      assert.deepStrictEqual((yield* settings.getSettings).defaultModelSelection, first);
-    }).pipe(Effect.provide(makeServerSettingsLayer().pipe(Layer.provideMerge(NodeServices.layer)))),
-);

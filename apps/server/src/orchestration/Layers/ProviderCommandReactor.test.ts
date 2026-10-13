@@ -188,6 +188,8 @@ describe("ProviderCommandReactor", () => {
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderServiceError>;
     readonly tryHandlePromptCommandEffect?: ProviderAuthService["Service"]["tryHandlePromptCommand"];
+    /** Lazurio overlay: a managed Environment whose Folder is the project's root. */
+    readonly lazurioFolder?: string;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -495,7 +497,15 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(Layer.mock(TerminalManager)({ closeIdle: closeIdleTerminals })),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(SqlitePersistenceMemory),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+      Layer.provideMerge(
+        Layer.effect(
+          ServerConfig,
+          Effect.map(ServerConfig, (config) => ({
+            ...config,
+            ...(input?.lazurioFolder === undefined ? {} : { lazurioFolder: input.lazurioFolder }),
+          })),
+        ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir))),
+      ),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
@@ -511,7 +521,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.make("cmd-project-create"),
         projectId: asProjectId("project-1"),
         title: "Provider Project",
-        workspaceRoot: "/tmp/provider-project",
+        workspaceRoot: input?.lazurioFolder ?? "/tmp/provider-project",
         defaultModelSelection: modelSelection,
         createdAt: now,
       }),
@@ -4500,4 +4510,70 @@ describe("ProviderCommandReactor", () => {
         expect(harness.closeIdleTerminals).toHaveBeenCalledTimes(1);
       }),
   );
+
+  describe("in a managed Lazurio Environment", () => {
+    const startTurn = (harness: Awaited<ReturnType<typeof createHarness>>, id: string) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-${id}`),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId(`user-message-${id}`),
+            role: "user",
+            text: "hello Lazurio",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+    const makeFolder = () => {
+      const parent = NodeFS.realpathSync(
+        NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3code-reactor-lazurio-")),
+      );
+      createdBaseDirs.add(parent);
+      const folder = NodePath.join(parent, "Lazurio");
+      NodeFS.mkdirSync(folder);
+      return folder;
+    };
+
+    it("starts an agent turn in the Lazurio Folder", async () => {
+      const folder = makeFolder();
+      const harness = await createHarness({ lazurioFolder: folder });
+      await startTurn(harness, "in-folder");
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({ cwd: folder });
+    });
+
+    it("refuses an agent turn whose workspace no longer resolves to the Lazurio Folder", async () => {
+      const folder = makeFolder();
+      const harness = await createHarness({ lazurioFolder: folder });
+      // The project still names the Folder, but on disk that path now leads somewhere else.
+      NodeFS.renameSync(folder, `${folder}-moved`);
+      NodeFS.symlinkSync(`${folder}-moved`, folder);
+      await startTurn(harness, "moved-folder");
+      await waitFor(async () => {
+        const thread = (await harness.readModel()).threads.find(
+          (entry) => entry.id === ThreadId.make("thread-1"),
+        );
+        return thread?.activities.some((a) => a.kind === "provider.turn.start.failed") ?? false;
+      });
+      expect(harness.startSession.mock.calls.length).toBe(0);
+      expect(harness.sendTurn.mock.calls.length).toBe(0);
+      const thread = (await harness.readModel()).threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      );
+      expect(
+        thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
+      ).toMatchObject({
+        payload: {
+          detail: expect.stringContaining(
+            "Agents in this Environment work in its Lazurio Folder. Start a new chat in the Lazurio project.",
+          ),
+        },
+      });
+    });
+  });
 });

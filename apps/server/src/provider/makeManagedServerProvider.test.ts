@@ -299,8 +299,6 @@ describe("makeManagedServerProvider", () => {
             start: Effect.void,
             ready: Effect.void,
             getSettings: Ref.get(serverSettingsRef),
-            reconcileRecommendedModel: () =>
-              Effect.die("unexpected recommendation in this fixture"),
             updateSettings: () => Effect.die(new Error("unused in this test")),
             streamChanges: Stream.empty,
             subscribeChanges: PubSub.subscribe(serverSettingsChanges).pipe(

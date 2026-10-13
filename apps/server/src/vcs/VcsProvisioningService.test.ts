@@ -3,6 +3,7 @@ import { ServerConfig } from "../config.ts";
 import { assert, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -111,3 +112,41 @@ it.effect("defaults repository initialization to Git until callers choose a VCS 
     ),
   );
 });
+
+it.effect("never makes a managed Environment's Lazurio Folder a repository", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const folder = yield* fs.realPath(
+      yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-lazurio-" }),
+    );
+    const repository = `${folder}/organizations/example`;
+    const calls: string[] = [];
+    const driver = makeDriver(calls);
+    const testLayer = VcsProvisioningService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          get: (kind) => (kind === "git" ? Effect.succeed(driver) : Effect.die("unexpected kind")),
+        }),
+      ),
+      Layer.provide(
+        Layer.effect(
+          ServerConfig,
+          Effect.map(ServerConfig, (config) => ({ ...config, lazurioFolder: folder })),
+        ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-test-" }))),
+      ),
+      Layer.provide(NodeServices.layer),
+    );
+
+    yield* Effect.gen(function* () {
+      const provisioning = yield* VcsProvisioningService.VcsProvisioningService;
+      const refused = yield* provisioning.initRepository({ cwd: folder }).pipe(Effect.flip);
+      if (refused._tag !== "VcsUnsupportedOperationError") return assert.fail(refused._tag);
+      assert.strictEqual(
+        refused.detail,
+        "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.",
+      );
+      yield* provisioning.initRepository({ cwd: repository });
+      assert.deepStrictEqual(calls, [`default:${repository}`]);
+    }).pipe(Effect.provide(testLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

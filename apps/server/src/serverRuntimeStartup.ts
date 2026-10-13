@@ -206,7 +206,7 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
   let bootstrapProjectCreated = false;
   let bootstrapThreadCreated = false;
 
-  if (serverConfig.autoBootstrapProjectFromCwd && serverConfig.lazurioFolder === undefined) {
+  if (serverConfig.autoBootstrapProjectFromCwd) {
     const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
     const defaultModelSelection =
       settings.defaultModelSelection ?? getAutoBootstrapThreadModelSelection();
@@ -981,7 +981,7 @@ export const make = (options?: StartupOptions) =>
       const environment = yield* serverEnvironment.getDescriptor;
       yield* Effect.logDebug("startup phase: preparing welcome payload");
 
-      if (serverConfig.autoBootstrapProjectFromCwd && serverConfig.lazurioFolder === undefined) {
+      if (serverConfig.autoBootstrapProjectFromCwd) {
         yield* forkParked(
           runStartupPhase(
             "welcome.autobootstrap",
@@ -1060,10 +1060,7 @@ export const make = (options?: StartupOptions) =>
             environment,
             ...welcomeBase,
             ...managedWelcome,
-            bootstrapStatus:
-              serverConfig.autoBootstrapProjectFromCwd && serverConfig.lazurioFolder === undefined
-                ? "pending"
-                : "complete",
+            bootstrapStatus: serverConfig.autoBootstrapProjectFromCwd ? "pending" : "complete",
           },
         }),
       );
