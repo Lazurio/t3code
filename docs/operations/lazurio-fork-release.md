@@ -94,7 +94,7 @@ nabídne normálně.
 | `lazurio: unsent prompt draft by link from the shell`                                           | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                                                                                                                                                                                                                                                                                  | retain: upstream nemá vstup pro koncept zprávy zvenku                                                                                    |
 | `feat(web): Lazurio shell slot`                                                                 | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                                                                                                                                                              | retain: upstream ekvivalent nemá                                                                                                         |
 | `feat(server): each thread's provider processes get its agent-browser session`                  | Každý proces poskytovatele, který T3 spustí pro vlákno, dostane `AGENT_BROWSER_SESSION=t3-<id vlákna>`: agenti vlákna pracují ve vlastním okně prohlížeče Environmentu (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                                                                                                                                                | retain: rozhodnutí 0191 / plán DEV-6646; upstream ekvivalent nemá                                                                        |
-| `feat(web): the right panel shows the thread's Environment browser tabs`                        | Webový klient nemá vlastní prohlížeč. Pravý panel ukazuje záložky prohlížeče Environmentu, které vlákno drží, podle seznamu serveru, na každém zařízení stejné; × záložku pro vlákno pustí s možností Vrátit a panel se sám otevře, když agent záložku ukáže (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                                                          | retain: rozhodnutí 0191, F47 / plán DEV-6646; webové UI nemá prohlížeč, tohle je zdokumentovaný minimální zásah do UI                    |
+| `feat(web): the right panel shows the thread's Environment browser tabs`                        | Webový klient nemá vlastní prohlížeč. Pravý panel ukazuje záložky prohlížeče Environmentu, které vlákno drží, podle seznamu serveru, na každém zařízení stejné. Nad pohledem není hlavička, jedinou lištou je lišta pohledu; menu záložky přidá Open in new tab a Reload. × záložku pro vlákno pustí s možností Vrátit a panel se sám otevře, když agent záložku ukáže (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                | retain: rozhodnutí 0191, F47 / plán DEV-6646; webové UI nemá prohlížeč, tohle je zdokumentovaný minimální zásah do UI                    |
 | `feat(server): T3's browser tools drive the Environment browser`                                | Nástroje prohlížeče T3 (`preview_open`, `preview_snapshot`, …) ovládají prohlížeč Environmentu i ve webovém T3 (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)). Záložku, kterou otevřou nebo převezmou, přidají do záložek vlákna a pohled jiného Environmentu pošlou webu jako živou událost. Spolu s ním porty z upstream 611132c1: preferovaný host v brokeru, vysvětlení chyb preferovaného hostitele, ARIA strom pro agenta, `playwright-core` vedle CLI bundlu a engine stránky. | retain: rozhodnutí 0191 / plán DEV-6646; na v0.0.46 porty odpadnou a upstream serverový prohlížeč se nasměruje na prohlížeč Environmentu |
 | `feat(server): a thread's Environment browser tabs live in its holder file`                     | Záložky vlákna žijí v jeho souboru držitele, který čte hub pohledu. Server je srovnává s hubovým seznamem živých záložek na hodinách bootu, podává je webu cestou `/api/lazurio/thread-tabs` se SSE a přidává do nich záložky z `preview_open` a z nové vazby sezení agent-browser vlákna (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                             | retain: F47 / plán DEV-6646; na 0.0.46 se přesune jen řádek v `server.ts`                                                                |
 | `feat(server): archiving or deleting a thread lets go of its tabs and stops its agent's daemon` | Archivace i smazání vlákna smaže jeho soubor držitele a zastaví démona agent-browser vlákna; při startu totéž pro vlákna, která už nežijí (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                                                                                                                                                                             | retain: rozhodnutí Matěje 2026-10-11 / F47; na 0.0.46 adaptér přejde na `OrchestratorV2`                                                 |
@@ -405,10 +405,10 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   její místo a podrží ji znovu (nový záznam), tedy uvnitř té milosti. Zavření
   poslední záložky zavře panel jako upstream. Novější záměr se záložkou (×,
   Vrátit, odkaz) zruší opakování staršího POST i účinek jeho odpovědi.
-- **Sdílená záložka.** Tooltip záložky a řádek pod lištou pohledu („Sdílená
-  záložka · je i v Apps a ve vlákně „…““) řeknou, kde dál je: pás `launchpad` je
-  „Apps“, `t3-*` vlákno se svým názvem, jiný pás jeho label; tooltip řekne i
-  „pracuje tu agent“. Česky, má-li prohlížeč češtinu, jinak anglicky.
+- **Sdílená záložka.** Šedá tečka u ikony záložky a její tooltip řeknou, že je
+  sdílená a kde dál je: pás `launchpad` je „Apps“, `t3-*` vlákno se svým názvem,
+  jiný pás jeho label; modrá tečka a tooltip řeknou „pracuje tu agent“. Řádek
+  pod lištou pohledu panel nemá. Česky, má-li prohlížeč češtinu, jinak anglicky.
 - **Odkaz do panelu.** Prostý klik levým tlačítkem na odkaz v chatu na jednu
   vzdálenou záložku tohoto Environmentu, přesně `https://<host>/t/<32 hex číslic>`
   na originu pohledu ze snímku vlákna, otevře záložku v pravém panelu jako povrch
@@ -437,22 +437,23 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   starší snímek ji nevrátí (bez Vrátit, záložka už není). Záložka panelu ukazuje
   místo „Browser“ titulek, který pohled hlásí (jinak host adresy stránky);
   titulky žijí jen v paměti stránky.
-- **Záložka jiného Environmentu.** Je nezaměnitelně označená barevným okrajem
-  a hlavičkou, která ten Environment jmenuje prvkem shellu
+- **Záložka jiného Environmentu.** Je nezaměnitelně označená barevným okrajem;
+  ten Environment jmenuje čip v liště jeho pohledu. Kde se pohled nenačte
+  (níže), jmenuje ho nad výzvou k přihlášení prvek shellu
   `<lazurio-environment environment="<id>" lang>` (LazurioPlatform F39, dodatek
   z 2026-10-12): stejným jménem, znakem a řádkem „pro koho“ jako přepínač jeho
   aplikací, ze stavu shellu této stránky. Id je host pohledu mezi `browser.` a
   `.lazurio.io` (`viewEnvironmentId`, například `vm-01.acme` nebo `jana`).
   Vlastní pravidlo pojmenování fork nemá. Dokud shell stránky ten Environment
-  nezná, a na Platformě bez prvku, ukáže hlavička jen „Prohlížeč jiného
-  Environmentu“; přesné jméno má pod ní lišta pohledu. Jazyk volí overlay jako
+  nezná, a na Platformě bez prvku, ukáže prvek jen „Prohlížeč jiného
+  Environmentu“. Jazyk volí overlay jako
   pohled sám, podle jazyka prohlížeče (`cs`). Rám posílá
   `referrerPolicy="origin"`, podle kterého pohled jiného Environmentu dovolí
   zarámování T3 nebo Launchpadu (změna LazurioPlatform). Když pohled do 4 s od
   načtení rámu (15 s, když se nenačte) neohlásí svou záložku, typicky bez
-  sezení v bráně toho Environmentu, ukáže panel „Přihlas se do prohlížeče tohoto
-  Environmentu“ s otevřením pohledu v nové záložce a Reload: přihlašovací
-  stránka Lazuria se v rámu nevykreslí. „Open in new tab“ v hlavičce zůstává.
+  sezení v bráně toho Environmentu, ukáže panel „Přihlaste se do prohlížeče
+  tohoto Environmentu“ s otevřením pohledu v nové záložce a Reload: přihlašovací
+  stránka Lazuria se v rámu nevykreslí. Pohled otevře v nové záložce i menu záložky.
 - **Rámy zůstávají připojené.** Dokud pravý panel ukazuje vlákno, má každá jeho
   záložka prohlížeče Environmentu svůj rám připojený, i když je vpředu jiná
   záložka nebo jiný povrch (diff, terminál, soubory), kvůli okamžitému
@@ -465,11 +466,24 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   je připojená, jen když je vpředu.
 - **Rám.** Pohled je v `<iframe>` s
   `allow="clipboard-read; clipboard-write; fullscreen"` a
-  `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"`.
+  `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"`.
   `allow-same-origin` nechá pohled v jeho vlastním originu, proto se pohled na
-  originu T3 odmítne. Hlavička má Reload a „Open in new tab“ (`target=_blank`,
-  `rel=noopener`) na tutéž URL: přihlašovací stránka brány se po vypršení
-  přihlášení v rámu nevykreslí.
+  originu T3 odmítne. Záložka, kterou pohled otevře sám (jeho „Otevřít
+  samostatně“), je díky `allow-popups-to-escape-sandbox` obyčejná záložka
+  prohlížeče, ne sandboxovaná, jako z rámu Nové karty Platformy
+  (`newTabFrameSandbox`).
+- **Bez hlavičky, s menu záložky** (schváleno 2026-10-13). Nad pohledem není
+  hlavička ani řádek o sdílené záložce: jedinou lištou je lišta pohledu, kterou
+  servíruje Platforma Environmentu (čip Environmentu, zpět, vpřed, obnovit,
+  adresa; od jejího příštího vydání i Kvalita obrazu a v rámu „Otevřít
+  samostatně“). Menu záložky v pásu (pravé tlačítko) má u záložky prohlížeče
+  Environmentu kromě Nové karty před upstream položkami Close, Close others,
+  Close to the right a Close all ještě „Open in new tab“ (pohled té záložky
+  v nové záložce prohlížeče, `noopener`) a „Reload“ (nový rám jejího pohledu,
+  i když záložka není vpředu); bez adresy pohledu jsou nedostupné. Jsou
+  anglicky jako ostatní položky toho upstream menu; plochy, které overlay
+  vlastní, mluví jazykem prohlížeče. Přihlašovací stránka brány se po vypršení
+  přihlášení v rámu nevykreslí: ven vede „Open in new tab“ z menu záložky.
 - **Archivace a smazání.** Archivace i smazání vlákna smaže jeho soubor
   držitele (i nečitelný) a démona sezení agent-browser vlákna požádá o
   ukončení na jeho vlastním socketu `<socket dir>/t3-<id>.sock`
@@ -500,7 +514,7 @@ Upstream soubory overlay mění jen ve švech: `rightPanelStore.ts` (druh
 povrchu, jeden člen povrchu, Nová karta jako jeho singleton, druh v
 `openProactive` a jedna obecná akce `lazurio`), `RightPanelTabs.tsx` (jedno
 volání háčku, „+“ a prázdný stav za podmínkou Nové karty, řádek prázdného stavu
-na konceptu, název, ikona a tooltip záložky), `ChatView.tsx` (jedno volání háčku
+na konceptu, název, ikona, tooltip a menu záložky), `ChatView.tsx` (jedno volání háčku
 s příznakem konceptu a obal, který drží rámy vedle
 povrchu v popředí), `ProviderService.ts` (jedno volání), `server.ts` (jedna
 vrstva overlaye vedle MCP serveru), `PreviewAutomationBroker.ts` (preferovaný
