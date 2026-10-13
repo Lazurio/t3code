@@ -194,6 +194,8 @@ NodeTest.test("archives are built with upstream's own release steps", () => {
 NodeTest.test("CI is read-only and pins the exact upstream base", () => {
   NodeAssert.match(ci, /^permissions:\n {2}contents: read\n {2}id-token: none/m);
   NodeAssert.match(ci, /name: Server and web compatibility/);
+  // The whole repository is linted with upstream's own script and rules (Lazurio/t3code#63).
+  NodeAssert.match(ci, /\n {8}run: pnpm run lint\n/);
   NodeAssert.match(ci, /UPSTREAM_TAG: v0\.0\.45/);
   NodeAssert.match(ci, /UPSTREAM_SHA: 6c8fed35dded9ff71c5b46807125457acbb76be6/);
   const upstreamVersion = /UPSTREAM_TAG: v(\S+)/.exec(ci)?.[1];

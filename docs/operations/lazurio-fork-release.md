@@ -514,8 +514,9 @@ změny.
 ## Testování před vydáním
 
 1. **CI.** `Lazurio Fork CI` na PR i na `main` musí být zelené. Běží v něm:
-   - hlídání upstream souborů (allowlist), kontrola formátu, typecheck serveru
-     a webu a kontraktní test;
+   - hlídání upstream souborů (allowlist), kontrola formátu, lint celého
+     repozitáře upstreamovým skriptem a pravidly (`pnpm run lint`), typecheck
+     serveru a webu a kontraktní test;
    - testy všeho, co overlay mění: každý testovací soubor, který overlay přidá
      nebo změní, a upstream test vedle každého souboru, který mění
      (`X.ts` → `X.test.ts`), každý balíček svým vlastním testovacím skriptem.
