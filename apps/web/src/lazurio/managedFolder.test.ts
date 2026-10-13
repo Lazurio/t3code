@@ -1,9 +1,19 @@
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { everyEnvironmentManaged, managedFirstRunDecision } from "./managedFolder";
+import {
+  everyEnvironmentManaged,
+  managedFirstRunDecision,
+  managedNewThread,
+  offeredInProjectPicker,
+} from "./managedFolder";
 
-const unmanaged = { serverConfig: {} };
-const managed = { serverConfig: { lazurioFolder: "/home/person/Lazurio" } };
-const loading = { serverConfig: null };
+const folder = "/home/person/Lazurio";
+const managedId = "environment-managed" as EnvironmentId;
+const otherId = "environment-other" as EnvironmentId;
+const unmanaged = { environmentId: otherId, serverConfig: {} };
+const managed = { environmentId: managedId, serverConfig: { lazurioFolder: folder } };
+const loading = { environmentId: otherId, serverConfig: null };
 
 describe("Add project in a managed Environment", () => {
   // The command palette and the sidebar show "Add project" exactly when this is false.
@@ -24,25 +34,87 @@ describe("Add project in a managed Environment", () => {
   });
 });
 
+describe("the project pickers", () => {
+  const offered = offeredInProjectPicker([managed, unmanaged]);
+  const entry = (environmentId: EnvironmentId, workspaceRoot: string) => ({
+    targetProject: { environmentId, workspaceRoot },
+  });
+
+  it("offer of a managed Environment only its Folder's project", () => {
+    expect(offered(entry(managedId, folder))).toBe(true);
+    expect(offered(entry(managedId, "/home/person/older-repository"))).toBe(false);
+  });
+
+  it("offer every project of any other Environment, as upstream", () => {
+    expect(offered(entry(otherId, "/home/person/repository"))).toBe(true);
+    expect(offeredInProjectPicker([])(entry(managedId, "/anywhere"))).toBe(true);
+  });
+});
+
+describe("a new thread", () => {
+  const folderProjectId = "project-folder" as ProjectId;
+  const projects = [
+    { id: "project-old" as ProjectId, environmentId: managedId, workspaceRoot: "/old/repository" },
+    { id: folderProjectId, environmentId: managedId, workspaceRoot: folder },
+  ];
+  const configs = new Map([
+    [managedId, { lazurioFolder: folder }],
+    [otherId, {}],
+  ]);
+  const worktree = {
+    branch: "feature",
+    worktreePath: "/tmp/worktree",
+    envMode: "worktree" as const,
+  };
+
+  it("goes where the caller asked without a managed Folder", () => {
+    const request = scopeProjectRef(otherId, "project-other" as ProjectId);
+    expect(managedNewThread(configs, projects, request, worktree)).toEqual({
+      projectRef: request,
+      options: worktree,
+    });
+  });
+
+  it("starts in a managed Environment's Folder project, in the Folder itself", () => {
+    const request = scopeProjectRef(managedId, "project-old" as ProjectId);
+    expect(managedNewThread(configs, projects, request, { ...worktree, replace: true })).toEqual({
+      projectRef: scopeProjectRef(managedId, folderProjectId),
+      options: {
+        branch: null,
+        worktreePath: null,
+        envMode: "local",
+        startFromOrigin: false,
+        replace: true,
+      },
+    });
+  });
+
+  it("waits while the Folder's project has not reached the web", () => {
+    const request = scopeProjectRef(managedId, "project-old" as ProjectId);
+    expect(managedNewThread(configs, projects.slice(0, 1), request, undefined)).toBeNull();
+  });
+});
+
 describe("managed first run", () => {
   it("waits for live server evidence of the native Folder project, even with saved onboarding", () => {
     for (const completed of [true, false]) {
       expect(
-        managedFirstRunDecision({ hydrated: true, live: false, projectReady: true, completed })
-          .decision,
+        managedFirstRunDecision({ hydrated: true, live: false, projectReady: true, completed }),
       ).toBe("pending");
       expect(
-        managedFirstRunDecision({ hydrated: true, live: true, projectReady: false, completed })
-          .decision,
+        managedFirstRunDecision({ hydrated: true, live: true, projectReady: false, completed }),
+      ).toBe("pending");
+      expect(
+        managedFirstRunDecision({ hydrated: false, live: true, projectReady: true, completed }),
       ).toBe("pending");
     }
   });
-  it("offers the Lazurio welcome once and then opens the app, never imports or silently completes", () => {
+  it("offers the Lazurio welcome once and then opens the app", () => {
     expect(
       managedFirstRunDecision({ hydrated: true, live: true, projectReady: true, completed: false }),
-    ).toEqual({ decision: "wizard", persistCompletion: false });
+    ).toBe("wizard");
     expect(
       managedFirstRunDecision({ hydrated: true, live: true, projectReady: true, completed: true }),
-    ).toEqual({ decision: "app", persistCompletion: false });
+    ).toBe("app");
   });
 });
