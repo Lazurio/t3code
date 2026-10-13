@@ -1,6 +1,6 @@
-# Lazurio hosted T3 Code image: the vanilla server and web client, served at the
-# root of its own hostname behind a TLS reverse proxy. See
-# docs/operations/lazurio-fork-release.md.
+# Lazurio hosted T3 Code image: T3 Code's server and web client with the Lazurio
+# overlay (a modified distribution), served at the root of its own hostname
+# behind a TLS reverse proxy. See docs/operations/lazurio-fork-release.md.
 ARG NODE_BASE_IMAGE
 
 FROM $NODE_BASE_IMAGE AS build

@@ -6,10 +6,11 @@ conversation and **Settings → Connections**. Update the machine named in that
 notice.
 
 A server running as a [background service](./background-service.md) also checks
-its own release train every few hours. When a newer release is out, every client
-connected to it, including the web app that server hosts, shows the same notice
-and updates it to that release. Set `T3CODE_UPDATE_CHECK_ENABLED=false` in the
-service's environment to turn the check off.
+its own release train every few hours; a preview build never checks. When a
+newer release is out, the web app that server hosts shows the same notice and
+updates it to that release. The official desktop and mobile apps do not show
+this notice. Set `T3CODE_UPDATE_CHECK_ENABLED=false` in the service's
+environment to turn the check off.
 
 ## Before you update
 
