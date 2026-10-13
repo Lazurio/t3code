@@ -39,6 +39,16 @@ const [release, archives, ci, dockerfile, dockerignore, docs, updateSource] = aw
   read("apps/server/src/cli/update.ts"),
 ]);
 
+// The guard in lazurio-fork-ci.yml: under apps/, packages/ and scripts/ the overlay changes only the
+// files on its allowlist and its own folders, apps/*/src/lazurio/, which pass whole.
+const overlayFolder = /^apps\/[^/]+\/src\/lazurio\//;
+const allowedUpstreamChanges = (/allowed_upstream_changes=\(\n([^]*?)\n\s*\)\n/.exec(ci)?.[1] ?? "")
+  .split("\n")
+  .map((line) => line.trim())
+  .filter((line) => line.length > 0 && !line.startsWith("#"));
+const overlayMayChange = (file) =>
+  overlayFolder.test(file) || allowedUpstreamChanges.includes(file);
+
 NodeTest.test("release is manual, gated, and never overwrites", () => {
   const triggers = release.slice(release.indexOf("\non:"), release.indexOf("\npermissions:"));
   NodeAssert.match(triggers, /workflow_dispatch:/);
@@ -176,7 +186,6 @@ NodeTest.test("CI is read-only and pins the exact upstream base", () => {
   NodeAssert.match(ci, /name: Server and web compatibility/);
   NodeAssert.match(ci, /UPSTREAM_TAG: v0\.0\.45/);
   NodeAssert.match(ci, /UPSTREAM_SHA: 6c8fed35dded9ff71c5b46807125457acbb76be6/);
-  NodeAssert.match(ci, /\^\(apps\/\(web\|mobile\|desktop\)\|packages\)\//);
   const upstreamVersion = /UPSTREAM_TAG: v(\S+)/.exec(ci)?.[1];
   NodeAssert.match(
     ci,
@@ -278,23 +287,40 @@ NodeTest.test("the image build context excludes local state and secrets", () => 
   }
 });
 
-NodeTest.test("the overlay may change only listed upstream client and shared files", async () => {
-  NodeAssert.match(ci, /grep -E '\^\(apps\/\(web\|mobile\|desktop\)\|packages\)\/'/);
+NodeTest.test("the overlay changes only listed upstream files and its own folders", async () => {
+  NodeAssert.match(ci, /grep -E '\^\(apps\|packages\|scripts\)\/'/);
+  NodeAssert.match(ci, /grep -vE '\^apps\/\[\^\/\]\+\/src\/lazurio\/'/);
   NodeAssert.match(ci, /grep -vxF -f <\(printf '%s\\n' "\$\{allowed_upstream_changes\[@\]\}"\)/);
   NodeAssert.match(ci, /if \[ -n "\$unexpected" \]; then[^]*?exit 1/);
   const list = /allowed_upstream_changes=\(\n([^]*?)\n\s*\)\n/.exec(ci)?.[1];
   NodeAssert.ok(list, "the guard must declare allowed_upstream_changes");
   const lines = list.split("\n").map((line) => line.trim());
   NodeAssert.match(lines[0] ?? "", /^# \S/, "the allowlist must open with a reason");
-  const entries = lines.filter((line) => line.length > 0 && !line.startsWith("#"));
-  NodeAssert.ok(entries.length > 0);
-  for (const entry of entries) {
-    // Exact files only: no globs, directories or patterns.
-    NodeAssert.match(entry, /^(apps\/(web|mobile|desktop)|packages)\/[\w./-]+\.[a-z]+$/, entry);
+  NodeAssert.ok(allowedUpstreamChanges.length > 0);
+  for (const entry of allowedUpstreamChanges) {
+    // Exact files only: no globs, directories or patterns, and none in the overlay's own folders.
+    NodeAssert.match(entry, /^(apps|packages|scripts)\/[\w./-]+\.[a-z0-9]+$/, entry);
     NodeAssert.doesNotMatch(entry, /[*?[\]{}]|\.\.|\/$/, entry);
+    NodeAssert.doesNotMatch(entry, overlayFolder, entry);
     await NodeFSP.access(entry);
   }
-  NodeAssert.equal(new Set(entries).size, entries.length, "allowlist entries must be unique");
+  NodeAssert.equal(
+    new Set(allowedUpstreamChanges).size,
+    allowedUpstreamChanges.length,
+    "allowlist entries must be unique",
+  );
+  // The overlay's own folders pass whole only because upstream has nothing there.
+  const upstreamSha = /UPSTREAM_SHA: ([0-9a-f]{40})/.exec(ci)?.[1];
+  NodeAssert.ok(upstreamSha);
+  const upstreamApps = NodeChildProcess.execFileSync(
+    "git",
+    ["ls-tree", "-r", "--name-only", upstreamSha, "--", "apps"],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  NodeAssert.deepEqual(
+    upstreamApps.split("\n").filter((file) => overlayFolder.test(file)),
+    [],
+  );
 });
 
 // Lazurio/t3code#35: the Lazurio shell opens Chat with a prompt id and an
@@ -331,9 +357,9 @@ NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", asyn
     NodeAssert.doesNotMatch(source, /turn\.start|startTurn|dispatchCommand|queuedMessage|onSend/);
   }
   NodeAssert.match(component, /\.setPrompt\(draftId, text\)/);
-  // Every overlay file is a reviewed allowlist entry.
+  // Every overlay file is the overlay's own or a reviewed allowlist entry.
   for (const file of promptOverlay) {
-    NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
+    NodeAssert.ok(overlayMayChange(file), file);
   }
 });
 
@@ -600,10 +626,7 @@ NodeTest.test(
     NodeAssert.match(view, /if \(origin === null \|\| event\.origin !== origin\) return null;/);
     NodeAssert.match(view, /message\.type === "lazurio-browser:closed"/);
     for (const file of environmentBrowserOverlay) {
-      NodeAssert.match(ci, new RegExp(`\\n {12}${file.replaceAll(".", "\\.")}\\n`), file);
-    }
-    for (const retired of ["browserUse", "agentBrowserSession"]) {
-      NodeAssert.doesNotMatch(ci, new RegExp(`apps/web/src/lazurio/${retired}`), retired);
+      NodeAssert.ok(overlayMayChange(file), file);
     }
   },
 );

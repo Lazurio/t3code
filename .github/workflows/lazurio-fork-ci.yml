@@ -48,45 +48,65 @@ jobs:
           git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD
           test "$(git rev-list --merges "$UPSTREAM_SHA..HEAD" --count)" = 0
 
-          # The overlay is server configuration plus Lazurio release files.
-          # Clients, shared packages and wire contracts stay upstream, except
-          # the exact files below. Each one is a reviewed decision; every other
-          # path under those roots fails.
+          # The overlay is the Lazurio release files plus seams in upstream T3 Code.
+          # Under apps/, packages/ and scripts/ it changes only the files below, each
+          # a reviewed decision, grouped by the feature that owns it; its own folders,
+          # apps/*/src/lazurio/, which upstream does not have, pass whole. Any other
+          # change there fails.
           allowed_upstream_changes=(
-            # Managed Folder entry uses the shared native project and settings paths.
-            apps/web/src/hooks/useScratchProject.ts
-            apps/web/src/components/sidebar/SidebarThreadHeader.tsx
-            apps/web/src/components/Sidebar.tsx
-            apps/web/src/components/chat/DraftHeroHeadline.tsx
-            # Managed Lazurio Folder: server-owned start context and model recommendation.
-            apps/web/src/components/CommandPalette.tsx
-            apps/web/src/components/GitActionsControl.tsx
-            apps/web/src/components/onboarding/FirstRunGate.tsx
-            apps/web/src/hooks/useHandleNewThread.ts
-            apps/web/src/hooks/useHandleNewThread.test.ts
-            apps/web/src/routes/welcome.tsx
-            apps/web/src/lazurio/ManagedFolderWelcome.tsx
-            apps/web/src/lazurio/managedFolder.ts
-            apps/web/src/lazurio/managedFolder.test.ts
-            packages/contracts/src/server.ts
-            packages/contracts/src/settings.ts
-            packages/shared/src/serverSettings.ts
-            # In-app update from the configured release channel; proposed upstream.
+            # Shared seams, each with the hooks of several features below: the server's
+            # CLI and runtime config (hosted settings, the managed Folder), ChatView.tsx
+            # (update notice, Environment browser, drag backport), RightPanelTabs.tsx and
+            # rightPanelStore.ts (Environment browser, Nová karta, drag backport).
+            apps/server/src/cli/config.ts
+            apps/server/src/config.ts
             apps/web/src/components/ChatView.tsx
+            apps/web/src/components/RightPanelTabs.tsx
+            apps/web/src/rightPanelStore.ts
+            # Hosted configuration: T3CODE_CLIENT_SESSION_TTL, T3CODE_EXTERNAL_ORIGIN (a
+            # Secure __Host- cookie, cookie-authenticated requests only from that origin)
+            # and T3CODE_ENVIRONMENT_LABEL. Unset, the server behaves as upstream.
+            apps/server/src/auth/EnvironmentAuth.test.ts
+            apps/server/src/auth/EnvironmentAuth.ts
+            apps/server/src/auth/EnvironmentAuthPolicy.test.ts
+            apps/server/src/auth/EnvironmentAuthPolicy.ts
+            apps/server/src/auth/SessionStore.test.ts
+            apps/server/src/auth/SessionStore.ts
+            apps/server/src/auth/http.ts
+            apps/server/src/auth/utils.ts
+            apps/server/src/cli/config.test.ts
+            apps/server/src/environment/ServerEnvironmentLabel.test.ts
+            apps/server/src/environment/ServerEnvironmentLabel.ts
+            apps/server/src/server.test.ts
+            # In-app update from the configured release channel; proposed upstream.
+            # T3CODE_RELEASE_REPOSITORY in the server, the launcher and the install
+            # scripts, a semver release index, and the optional availableServerUpdate
+            # descriptor field behind the web client's update notice.
+            apps/server/src/cli/update.ts
+            apps/server/src/cloud/bootService.ts
+            apps/server/src/cloud/pinnedRuntime.test.ts
+            apps/server/src/cloud/pinnedRuntime.ts
+            apps/server/src/cloud/releaseIndex.test.ts
+            apps/server/src/cloud/releaseIndex.ts
+            apps/server/src/cloud/selfUpdate.test.ts
+            apps/server/src/cloud/selfUpdate.ts
+            apps/server/src/environment/ServerEnvironment.test.ts
+            apps/server/src/environment/ServerEnvironment.ts
             apps/web/src/components/chat/useAutoBalanceUpdateBanner.tsx
             apps/web/src/components/settings/ConnectionsSettings.tsx
             apps/web/src/versionSkew.test.ts
             apps/web/src/versionSkew.ts
-            # Optional availableServerUpdate descriptor field; proposed upstream.
             packages/contracts/src/environment.ts
-            # Configurable release repository and semver release index; proposed upstream.
             packages/shared/src/cliRelease.test.ts
             packages/shared/src/cliRelease.ts
+            scripts/install-scripts.test.ts
+            scripts/install.ps1
+            scripts/install.sh
+            # The Lazurio distribution: its contract test. Its other files sit outside
+            # these folders (Dockerfile.lazurio, the lazurio-* workflows, the runbook).
+            scripts/lazurio-release-contract.test.mjs
             # Prepared prompt from the Lazurio shell by link (Lazurio/t3code#35): the link is
             # taken off the address at boot and the chat layout opens it as an unsent draft.
-            apps/web/src/lazurio/LazurioPromptDraft.tsx
-            apps/web/src/lazurio/promptDraft.test.ts
-            apps/web/src/lazurio/promptDraft.ts
             apps/web/src/main.tsx
             apps/web/src/routes/_chat.tsx
             # The Lazurio shell slot (issue #33): the loader, the rail, the padding and
@@ -95,43 +115,72 @@ jobs:
             # index.html also maps T3's sidebar tokens to the shell's colour roles.
             apps/web/index.html
             apps/web/src/components/AppSidebarLayout.tsx
-            # The Environment browser (root decision 0191, plan DEV-6646): the web client has no
-            # browser, so on a Lazurio Environment the right panel shows the thread's tabs of the
-            # Environment browser, each the view of one remote tab in a frame. The server keeps a
-            # thread's tabs and streams them; every device reconciles its strip to that list, and
-            # a tab a page opens, a link in the chat or Vrátit holds a tab. A surface kind of its
-            # own with its title, icon and tooltip in RightPanelTabs.tsx, one generic store action,
-            # and ChatView.tsx's one hook call and the wrapper that keeps each tab's frame beside
-            # the surface in view (listed above).
-            apps/web/src/components/RightPanelTabs.tsx
-            apps/web/src/lazurio/LazurioEnvironmentBrowser.test.tsx
-            apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx
-            apps/web/src/lazurio/environmentBrowser.test.ts
-            apps/web/src/lazurio/environmentBrowser.ts
-            apps/web/src/lazurio/threadTabs.test.ts
-            apps/web/src/lazurio/threadTabs.ts
-            apps/web/src/rightPanelStore.ts
-            # Another Lazurio Environment's view opens as a marked tab of the right panel (plan
-            # DEV-6646). The parser of a view's address is a copy of the server's, whose Environment
-            # browser host answers preview_open of such a view.
-            apps/web/src/lazurio/browserView.ts
-            # A thread's tabs from the server and Nová karta behind "+" (LazurioPlatform F47 step 4,
-            # task 501): where the Environment's shell defines <lazurio-new-tab>, "+" and the empty
-            # panel open Nová karta with upstream's own "+" actions as its tools. The seams are one
-            # hook call and two conditionals in RightPanelTabs.tsx (listed above).
-            apps/web/src/lazurio/LazurioNewTab.test.tsx
-            apps/web/src/lazurio/LazurioNewTab.tsx
+            # The Environment browser (root decision 0191, plan DEV-6646, LazurioPlatform F47):
+            # a thread's provider processes get its agent-browser session (ProviderService.ts);
+            # T3's browser tools drive the Environment browser as a preferred preview host
+            # (PreviewAutomationBroker.ts, ARIA refs in McpHttpServer.ts, view and message in
+            # preview_open's result, playwright-core beside the CLI bundle); one overlay layer
+            # (server.ts) keeps a thread's tabs in its holder file and streams them to the web,
+            # whose right panel shows them. The web's seams are the shared files above.
+            apps/server/package.json
+            apps/server/src/mcp/McpHttpServer.test.ts
+            apps/server/src/mcp/McpHttpServer.ts
+            apps/server/src/mcp/PreviewAutomationBroker.test.ts
+            apps/server/src/mcp/PreviewAutomationBroker.ts
+            apps/server/src/mcp/toolkits/preview/tools.ts
+            apps/server/src/provider/Layers/ProviderService.ts
+            apps/server/src/server.ts
+            scripts/lib/cli-external-packages.test.ts
+            scripts/lib/cli-external-packages.ts
             # Upstream 410793042 (#17730), backported: the right panel's tabs reorder by dragging.
             # It goes at the 0.0.46 refresh, where upstream owns it. Its seams in ChatView.tsx,
-            # RightPanelTabs.tsx and rightPanelStore.ts are listed above.
+            # RightPanelTabs.tsx and rightPanelStore.ts are the shared files above.
             apps/web/src/rightPanelStore.test.ts
             apps/web/src/routes/_chat.pull-requests.tsx
+            # The managed Lazurio Folder (LazurioPlatform F51): with T3CODE_LAZURIO_FOLDER, Chat
+            # starts in the Environment's Folder. The server adopts or creates its project at
+            # startup, keeps commands and agent turns there, never makes the Folder root a
+            # repository and tells clients the Folder; `t3 lazurio` reports its capabilities and
+            # reconciles the Platform's recommended model where the person chose none. The web
+            # starts new threads there, hides other projects' entry points and shows the managed
+            # welcome. Five server test fixtures gain the settings service's new method.
+            apps/server/src/bin.ts
+            apps/server/src/cli/lazurio.ts
+            apps/server/src/device/DeviceService.test.ts
+            apps/server/src/http.ts
+            apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts
+            apps/server/src/orchestration/Layers/OrchestrationEngine.ts
+            apps/server/src/orchestration/Layers/ProviderCommandReactor.ts
+            apps/server/src/orchestration/ThreadSettlementReactor.test.ts
+            apps/server/src/provider/Layers/ProviderRegistry.test.ts
+            apps/server/src/provider/makeManagedServerProvider.test.ts
+            apps/server/src/serverRuntimeStartup.ts
+            apps/server/src/serverSettings.test.ts
+            apps/server/src/serverSettings.ts
+            apps/server/src/terminal/Manager.test.ts
+            apps/server/src/vcs/VcsProvisioningService.test.ts
+            apps/server/src/vcs/VcsProvisioningService.ts
+            apps/server/src/ws.ts
+            apps/web/src/components/CommandPalette.tsx
+            apps/web/src/components/GitActionsControl.tsx
+            apps/web/src/components/Sidebar.tsx
+            apps/web/src/components/chat/DraftHeroHeadline.tsx
+            apps/web/src/components/onboarding/FirstRunGate.tsx
+            apps/web/src/components/sidebar/SidebarThreadHeader.tsx
+            apps/web/src/hooks/useHandleNewThread.test.ts
+            apps/web/src/hooks/useHandleNewThread.ts
+            apps/web/src/hooks/useScratchProject.ts
+            apps/web/src/routes/welcome.tsx
+            packages/contracts/src/server.ts
+            packages/contracts/src/settings.ts
+            packages/shared/src/serverSettings.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
-            grep -E '^(apps/(web|mobile|desktop)|packages)/' |
+            grep -E '^(apps|packages|scripts)/' |
+            grep -vE '^apps/[^/]+/src/lazurio/' |
             grep -vxF -f <(printf '%s\n' "${allowed_upstream_changes[@]}") || true)"
           if [ -n "$unexpected" ]; then
-            echo "Fork overlay changed an upstream client or shared package:" >&2
+            echo "Fork overlay changed an upstream file that is not on its allowlist:" >&2
             echo "$unexpected" >&2
             exit 1
           fi
