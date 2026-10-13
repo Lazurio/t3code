@@ -40,7 +40,10 @@ const makeBaseDir = () => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-
 // The recommendation as the Platform sends it, and as T3 prints it back.
 const selectionJson =
   '{"instanceId":"codex","model":"gpt-6.1-sol","options":[{"id":"reasoningEffort","value":"high"}]}';
-const folder = "/workspace/Lazurio";
+// The Folder exists, as Machines' T3CODE_LAZURIO_FOLDER does; the Platform sends its realpath.
+const folder = NodeFS.realpathSync(
+  NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-lazurio-cli-folder-")),
+);
 const request = `{"folder":"${folder}","selection":${selectionJson}}`;
 
 /** The model route on 127.0.0.1 over `baseDir`'s auth and settings, as the running service has it. */

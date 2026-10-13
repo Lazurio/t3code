@@ -1,3 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off - the Folder is a real directory, also reached through a symlink.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -17,12 +22,16 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Route from "./modelRecommendationRoute.ts";
 import { MODEL_RECOMMENDATION_ROUTE } from "./modelRecommendation.ts";
+const parent = NodeFS.realpathSync(
+  NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-model-route-folder-")),
+);
+const folder = NodePath.join(parent, "Lazurio");
+const link = NodePath.join(parent, "link-to-Lazurio");
+NodeFS.mkdirSync(folder);
+NodeFS.symlinkSync(folder, link);
 const configLayer = Layer.effect(
   ServerConfig.ServerConfig,
-  Effect.map(ServerConfig.ServerConfig, (config) => ({
-    ...config,
-    lazurioFolder: "/workspace/Lazurio",
-  })),
+  Effect.map(ServerConfig.ServerConfig, (config) => ({ ...config, lazurioFolder: folder })),
 ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-model-route-" })));
 const authLayer = EnvironmentAuth.layer.pipe(
   Layer.provideMerge(SqlitePersistenceMemory),
@@ -85,8 +94,14 @@ it.layer(settingsLayer.pipe(Layer.provide(NodeServices.layer)), {
           expect((await post({})).status).toBe(401);
           expect((await post({}, readOnly.token)).status).toBe(403);
           expect((await post({}, writer.token)).status).toBe(400);
-          expect((await post({ folder: "/elsewhere", selection }, writer.token)).status).toBe(409);
-          const applied = await post({ folder: config.lazurioFolder, selection }, writer.token);
+          for (const elsewhere of [parent, NodePath.join(folder, "organizations"), "relative"]) {
+            expect((await post({ folder: elsewhere, selection }, writer.token)).status).toBe(409);
+          }
+          // The Platform sends the Folder's realpath; a symlink or a trailing slash names it too.
+          for (const sameFolder of [link, `${folder}/`]) {
+            expect((await post({ folder: sameFolder, selection }, writer.token)).status).toBe(200);
+          }
+          const applied = await post({ folder, selection }, writer.token);
           expect(applied.status).toBe(200);
           // `t3 lazurio model` prints this answer as it is, and the Platform reads it.
           expect(await applied.text()).toBe(
@@ -96,9 +111,7 @@ it.layer(settingsLayer.pipe(Layer.provide(NodeServices.layer)), {
         expect((yield* settings.getSettings).defaultModelSelection).toEqual(selection);
         const custom = { ...selection, options: [{ id: "reasoningEffort", value: "low" }] };
         yield* settings.updateSettings({ defaultModelSelection: custom });
-        yield* Effect.promise(() =>
-          post({ folder: config.lazurioFolder, selection }, writer.token),
-        );
+        yield* Effect.promise(() => post({ folder, selection }, writer.token));
         expect((yield* settings.getSettings).defaultModelSelection).toEqual(custom);
 
         // A settings service that cannot reconcile, such as upstream's test layer, refuses.
@@ -108,7 +121,7 @@ it.layer(settingsLayer.pipe(Layer.provide(NodeServices.layer)), {
         const unavailable = handlerWith(testSettings);
         yield* Effect.addFinalizer(() => Effect.promise(() => unavailable.dispose()));
         const refused = yield* Effect.promise(() =>
-          unavailable.handler(request({ folder: config.lazurioFolder, selection }, writer.token)),
+          unavailable.handler(request({ folder, selection }, writer.token)),
         );
         expect(refused.status).toBe(503);
       }),
