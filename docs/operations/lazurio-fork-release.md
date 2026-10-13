@@ -4,18 +4,21 @@ Runbook pro vlastníka vydávání T3 Code v Lazuriu (Steward). Vydání připra
 otestujete a spustíte sami; Organization Admin ho jen schválí v GitHub
 environmentu.
 
-`Lazurio/t3code` je upravená distribuce T3 Code pro Lazurio Mašiny: server a web
-klient přesného upstream stable vydání a nad nimi overlay Lazuria. Overlay chování
-T3 Code mění: hostované nastavení, aktualizace z kanálu Lazuria, zadání
-z Launchpadu, slot pro shell Lazuria, prohlížeč Environmentu a spravovaná složka
-Lazuria. Co přesně a ve kterých souborech, říká [Overlay](#overlay); podrobnou
-specifikaci prohlížeče Environmentu drží [specifikace
-overlaye](./lazurio-overlay.md). T3 vždy běží v kořeni vlastního hostname
-(`https://t3code.<vm>.<org>.lazurio.io/`) za TLS reverse proxy. Oficiální
-desktop a mobilní aplikace se připojují jako neupravení upstream klienti.
-Vzhled a branding webového klienta zůstávají upstream; do jeho UI zasahuje jen
-slot pro shell Lazuria (viz [Lazurio shell](#lazurio-shell)), prohlížeč
-Environmentu v pravém panelu a uvítání spravované složky Lazuria.
+`Lazurio/t3code` je distribuce **Lazurio T3 Code** (rozhodnutí 0200), upravená
+distribuce T3 Code pro Environmenty Lazuria: server a web klient přesného
+upstream stable vydání a nad nimi overlay Lazuria. Overlay chování T3 Code mění:
+hostované nastavení, aktualizace z kanálu Lazuria, zadání z Launchpadu, slot pro
+shell Lazuria, prohlížeč Environmentu, spravovaná složka Lazuria, jméno
+v aplikaci a vzhled na Environmentu. Co přesně a ve kterých souborech, říká
+[Overlay](#overlay); podrobnou specifikaci prohlížeče Environmentu drží
+[specifikace overlaye](./lazurio-overlay.md). T3 vždy běží
+v kořeni vlastního hostname (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS
+reverse proxy. Oficiální desktop a mobilní aplikace se připojují jako
+neupravení upstream klienti. Značka T3 Code zůstává. Do UI webového klienta
+zasahuje slot pro shell Lazuria (viz [Lazurio shell](#lazurio-shell)),
+prohlížeč Environmentu v pravém panelu, uvítání spravované složky Lazuria,
+jméno „T3 Code (Lazurio)“ a na Environmentu světlý vzhled design systému
+Lazuria (viz [Jméno a vzhled](#jméno-a-vzhled)).
 
 ## Licence
 
@@ -117,7 +120,7 @@ přestavba“ říká, proč řádek zůstává a co z něj podle upstream `main
 | 2   | `hosted: serve behind an explicit HTTPS external origin`                                        | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.                                                                                                                                                                                                                                                                                                             | Upstream ekvivalent nemá. Upstream `main` kontroluje Origin sám (#18509): kontrola odpadne, proměnná, Secure `__Host-` cookie a politika loopbacku zůstanou.                                                                                                                                                                        |
 | 3   | `hosted: explicit environment label`                                                            | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                                                                                                                                                                                                                                                                                                                                        | Upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou: zůstává.                                                                                                                                                                                                                                               |
 | 4   | `feat: in-app update from the configured release channel`                                       | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.                                                                                                                                                                                                                                                                                                                 | Upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu: zůstává celý.                                                                                                                                                                                                                                                      |
-| 5   | `release: Lazurio distribution`                                                                 | Tento runbook, [specifikace overlaye](./lazurio-overlay.md), `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`, včetně preview vydání pro canary (`X.Y.Z-preview.YYYYMMDD.N` jako GitHub pre-release).                                                                                                                                                                                                                    | Zůstává; v přestavbě jde poslední.                                                                                                                                                                                                                                                                                                  |
+| 5   | `release: Lazurio distribution`                                                                 | Tento runbook, [specifikace overlaye](./lazurio-overlay.md), `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`, včetně preview vydání pro canary (`X.Y.Z-preview.YYYYMMDD.N` jako GitHub pre-release), a formulář issue. Jméno distribuce nesou vydání, image a formulář (rozhodnutí 0200).                                                                                                                               | Zůstává; v přestavbě jde poslední.                                                                                                                                                                                                                                                                                                  |
 | 6   | `lazurio: unsent prompt draft by link from the shell`                                           | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                                                                                                                                                                                                                                                                                                       | Upstream `main` přidává odkazy `/new?prompt=` (#18454), které nesou text v adrese a projekt vybírají podle `repo`. Odkaz overlaye text nenese: zůstává vedle nich.                                                                                                                                                                  |
 | 7   | `feat(web): Lazurio shell slot`                                                                 | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                                                                                                                                                                                   | Upstream ekvivalent nemá: zůstává.                                                                                                                                                                                                                                                                                                  |
 | 8   | `feat(server): each thread's provider processes get its agent-browser session`                  | Každý proces poskytovatele, který T3 spustí pro vlákno, dostane `AGENT_BROWSER_SESSION=t3-<id vlákna>`: agenti vlákna pracují ve vlastním okně prohlížeče Environmentu (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                                                                                                                                                                     | Rozhodnutí 0191; upstream ekvivalent nemá. Upstream `main` maže `ProviderService.ts`: šev se přestaví na `AgentScope.wrap` nebo v adaptérech, s testem pro Codex i Claude.                                                                                                                                                          |
@@ -128,13 +131,17 @@ přestavba“ říká, proč řádek zůstává a co z něj podle upstream `main
 | 13  | `feat(web): "+" and the empty panel open Nová karta`                                            | Kde shell Environmentu definuje `<lazurio-new-tab>`, otevře „+“ záložku Nová karta a prázdný panel ukáže Novou kartu s upstream akcemi „+“ jako nástroji.                                                                                                                                                                                                                                                                                                                                                           | F47 bod 10. Na 0.0.46 upstream ukazuje „+“ při každém otevřeném panelu a Mod+T otevírá nabídku: obojí potřebuje větev. Odpadne, až upstream nabídne bod rozšíření „+“.                                                                                                                                                              |
 | 14  | `feat(web): reorder right panel tabs by dragging (#17730)`                                      | Backport upstream 410793042: záložky pravého panelu jde přetahovat, povrchy overlaye stejně jako ostatní.                                                                                                                                                                                                                                                                                                                                                                                                           | Odpadne: upstream ho má na `main` (od nightly 0.0.46).                                                                                                                                                                                                                                                                              |
 | 15  | `feat(lazurio): provide a managed Folder project and native model reconciliation`               | S `T3CODE_LAZURIO_FOLDER` začíná Chat ve složce Lazuria daného Environmentu a `t3 lazurio` srovnává doporučený model Platformy (viz [Spravovaná složka Lazuria](#spravovaná-složka-lazuria)).                                                                                                                                                                                                                                                                                                                       | F51; upstream ekvivalent nemá. Na 0.0.46 se převzetí složky přesune do `ProjectService.bootstrap` a stráž příkazů na vstupy orchestrace v2: přestavba.                                                                                                                                                                              |
+| 16  | `feat(web): the in-app name T3 Code (Lazurio)`                                                  | Rozhodnutí 0200 bod 2: v aplikaci se T3 Code jmenuje „T3 Code (Lazurio)“, vedle wordmarku stojí štítek „Lazurio“ a náhledová vydání se nejmenují „Nightly“ (viz [Jméno a vzhled](#jméno-a-vzhled)).                                                                                                                                                                                                                                                                                                                 | Upstream ekvivalent nemá, štítek fáze je konstanta buildu: zůstává. Při přestavbě ověřte, že upstream nezměnil tvar verze náhledů ani místo pilulky vedle wordmarku.                                                                                                                                                                |
+| 17  | `feat(web): the design system's light look on a Lazurio Environment`                            | Rozhodnutí 0200 bod 4: ve standardním světlém vzhledu bere webový klient barvy, písmo a zaoblení design systému z tokenů `--lz-*`, které deklaruje shell Environmentu (LazurioPlatform F36). Jeden soubor `apps/web/src/lazurio/theme.css` a import v `main.tsx`; bez shellu se nepoužije nic (viz [Jméno a vzhled](#jméno-a-vzhled)).                                                                                                                                                                              | Motivy Environmentu upstreamu (`t3 theme set`) dají jen barvy, při každém načtení bliknou a resetují volbu člověka: zůstává. Kontraktní test hlídá, že mapované tokeny `index.css` deklaruje ve stejném scope.                                                                                                                      |
 
 Hostované proměnné a spravovaná složka platí, jen když jsou nastavené, a shell,
-prohlížeč Environmentu a Nová karta se ukážou, jen když je Environment nabízí.
-Bez ohledu na to běží dvě věci: server pod launcherem kontroluje vydání svého
-kanálu (vypne to `T3CODE_UPDATE_CHECK_ENABLED=false`) a procesy poskytovatelů
-dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje. Řádek odeberte, jakmile
-upstream nabídne ekvivalent. Upstream soubory pod `apps/`, `packages/` a `scripts/` overlay mění
+prohlížeč Environmentu, Nová karta a vzhled design systému se ukážou, jen když je
+Environment nabízí. Bez ohledu na to platí tři věci: server pod launcherem
+kontroluje vydání svého kanálu (vypne to `T3CODE_UPDATE_CHECK_ENABLED=false`),
+procesy poskytovatelů dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje,
+a build distribuce se v aplikaci jmenuje „T3 Code (Lazurio)“. Řádek odeberte,
+jakmile upstream nabídne ekvivalent. Upstream soubory pod `apps/`, `packages/`
+a `scripts/` overlay mění
 jen v přesných souborech z allowlistu `allowed_upstream_changes` v
 `lazurio-fork-ci.yml`. Allowlist je seskupený podle funkce, které soubor patří,
 a soubory, které mění víc funkcí, má v jedné skupině společných švů. Každý
@@ -153,10 +160,10 @@ commity, které k němu na `main` patří (stav k d2156a2a0), a soubory, které 
 commit mění.
 
 - Soubory distribuce (`.dockerignore`, `Dockerfile.lazurio`,
-  `.github/workflows/lazurio-*.yml`, `docs/operations/lazurio-*.md` a
-  `scripts/lazurio-release-contract.test.mjs`) patří celé řádku 5. Jejich
-  konečný stav (allowlist, švy v kontraktním testu, tento runbook) popisuje
-  všechny řádky, proto řádek 5 jde poslední.
+  `.github/workflows/lazurio-*.yml`, `.github/ISSUE_TEMPLATE/1-lazurio-t3-code.yml`,
+  `docs/operations/lazurio-*.md` a `scripts/lazurio-release-contract.test.mjs`)
+  patří celé řádku 5. Jejich konečný stav (allowlist, švy v kontraktním testu,
+  tento runbook) popisuje všechny řádky, proto řádek 5 jde poslední.
 - Commit, který mění jen soubory distribuce, patří řádku 5. Commit, který mění i
   jiné soubory, patří řádku těch souborů a jeho změny souborů distribuce
   přejdou do řádku 5. Pozdější commity se řadí stejně, podle souborů.
@@ -187,10 +194,10 @@ commit mění.
    77b88dd53, e0c5b1927, 7200b04ff, 9e0795d0f, cfe97431e, 97d1b3668, a0e4479f4,
    f5fc40194, c2dd83504, 830f4a4e5, b122de46c, d2156a2a0; test 9b6f3fba0, e22e37ddf,
    8f43969d8, fea295e3f, f8c831bd5, 041391a86. Soubory distribuce.
-6. 9c3b3e8e8, 6df0dfa00. `apps/web/src/main.tsx`, `apps/web/src/routes/_chat.tsx`,
+6. 9c3b3e8e8, 6df0dfa00. `apps/web/src/main.tsx`\*, `apps/web/src/routes/_chat.tsx`,
    `apps/web/src/lazurio/`: `LazurioPromptDraft.tsx`, `promptDraft.ts` a jeho
    test.
-7. 1e4cf23d6, 47c8f9713. `apps/web/index.html`,
+7. 1e4cf23d6, 47c8f9713. `apps/web/index.html`\*,
    `apps/web/src/components/AppSidebarLayout.tsx`.
 8. 2968ed2ac, 5998ed586, f9d8ab6e2, 2d37d1423.
    `apps/server/src/provider/Layers/ProviderService.ts`,
@@ -245,6 +252,13 @@ commit mění.
     `apps/web/src/lazurio/`: `ManagedFolderWelcome.tsx`, `managedFolder.ts` a
     jeho test. `packages/contracts/src/server.ts`,
     `packages/contracts/src/settings.ts`.
+16. Commit `feat(web): the in-app name T3 Code (Lazurio)` (po d2156a2a0).
+    `apps/web/src/`: `branding.ts`, `branding.logic.ts` a `branding.test.ts`,
+    `components/sidebar/SidebarChrome.tsx`; `apps/web/index.html`\* (titulek a
+    splash), `apps/web/public/manifest.webmanifest`.
+17. Commit `feat(web): the design system's light look on a Lazurio Environment`
+    (po d2156a2a0). `apps/web/src/main.tsx`\* (import),
+    `apps/web/src/lazurio/theme.css`.
 
 ### Lazurio shell
 
@@ -278,7 +292,8 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
 - `apps/web/src/components/AppSidebarLayout.tsx`:
   `<lazurio-column-head active="chat">` jako první prvek sidebaru, nad horním
   řádkem upstreamu s logem T3 Code, který zůstává se všemi ovládacími prvky
-  (rozhodnutí 0179 bod 6: vzhled a branding upstreamu zůstávají). Jedno místo
+  (rozhodnutí 0200 bod 1: značka T3 Code zůstává; vedle wordmarku přibude jen
+  štítek „Lazurio“, viz [Jméno a vzhled](#jméno-a-vzhled)). Jedno místo
   platí pro sidebar vláken, legacy sidebar i Nastavení. Přepínač sidebaru je
   `position: fixed` u horního okraje, takže se při otevřeném sidebaru na
   desktopu posune dolů o výšku hlavičky sloupce, s horním řádkem sidebaru.
@@ -294,7 +309,8 @@ nastaví dvanáct barevných rolí shellu (`--lazurio-surface`, `--lazurio-ink`,
 text, hairline a text seznamu jsou `--contrast-*` varianty, které T3 sám
 kreslí (respektují nastavení kontrastu ve Vzhledu), seznam je `--popover` a
 fokus `--ring`. Role jsou jen odkazy na tokeny, takže shell sleduje každý
-motiv T3, světlý i tmavý, i jeho přepnutí za běhu. Vlastní výběr motivů má
+motiv T3, světlý i tmavý, i jeho přepnutí za běhu, a na Environmentu i světlý
+vzhled design systému, který tokeny T3 mapuje. Vlastní výběr motivů má
 zatím každá aplikace; sjednocení motivů napříč aplikacemi je samostatná
 pozdější práce.
 
@@ -306,7 +322,8 @@ Mezi railem a sidebarem T3 nesmí být vidět čára. Proto:
   (`#000`), kdežto `--sidebar` dokumentu je o odstín světlejší; bez toho by
   rail vedle sidebaru tvořil hranu.
 - Rail nosí zrnitost `--surface-grain`, kterou T3 dává svým plochám. Bez ní
-  se rail od sidebaru liší o 1–3 z 255 úrovní jasu a hrana je vidět.
+  se rail od sidebaru liší o 1–3 z 255 úrovní jasu a hrana je vidět. Vzhled
+  design systému zrnitost nemá, ani na railu, ani na sidebaru.
 - Kontejner sidebaru T3 má okraj jen vpravo, mezi sidebarem a hlavní plochou,
   a ten zůstává. Levá hrana sidebaru ani `#root` okraj nemají.
 
@@ -316,14 +333,70 @@ Kontraktní test proto hlídá mapování rolí, tokeny v `index.css` i to, že
 atribut v `apps/web/src` používá jen `AppSidebarLayout.tsx`. Přestavba, která
 cokoli z toho poruší, v CI selže a vyžaduje nové rozhodnutí.
 
-Vzhled a branding zůstávají upstream až do stabilních vydání upstreamu: T3
-Code nepřebarvujeme ani nepřejmenováváme a dál o něm mluvíme jako o T3 Code.
-Mimo Lazurio se nic nevykreslí: bez `/.lazurio/shell.js` (samostatný server,
-vývoj upstreamu) zůstanou elementy nedefinované, šířka railu je 0, hlavička
-sloupce má výšku 0 a klient se chová jako upstream. Server T3 na neznámou
-cestu vrátí `index.html`, takže prohlížeč jen zaloguje neúspěšné načtení
-skriptu. Oficiální desktop a mobilní aplikace jsou upstream
-a shell nemají.
+Značka T3 Code zůstává a o Chatu dál mluvíme jako o T3 Code; jméno a vzhled na
+Environmentu popisuje [Jméno a vzhled](#jméno-a-vzhled). Mimo Lazurio se nic
+nevykreslí: bez `/.lazurio/shell.js` (samostatný server, vývoj upstreamu)
+zůstanou elementy nedefinované, šířka railu je 0, hlavička sloupce má výšku 0
+a klient se chová jako upstream. Server T3 na neznámou cestu vrátí
+`index.html`, takže prohlížeč jen zaloguje neúspěšné načtení skriptu. Oficiální
+desktop a mobilní aplikace jsou upstream a shell nemají.
+
+### Jméno a vzhled
+
+**Rozhodnutí 0200 (2026-10-13, plán DEV-6646).** Chat je distribuce Lazurio T3
+Code, upravená distribuce T3 Code. Značka T3 Code zůstává: wordmark, ikony,
+jméno produktu a texty, které říkají „T3 Code“, jsou upstreamu. „T3 Code“
+používáme jako přesný popis toho, z čeho distribuce vychází, nikdy jako značku
+Lazuria; wordmark ani ikony nepřebarvujeme ani nepřekreslujeme.
+
+- **Distribuce.** Vydání se jmenují `Lazurio T3 Code v<verze>`, stable
+  i preview. Poznámky začínají „Lazurio T3 Code, a modified distribution of T3
+  Code vX.Y.Z“, mluví o Environmentech a končí řádkem se zdrojovým commitem
+  a licencí. Image nese OCI štítky `title`, `description`, `licenses` (MIT),
+  `url` a `vendor`, stejné ve workflow vydání i v `Dockerfile.lazurio`. Issues
+  mají vlastní formulář `1-lazurio-t3-code.yml`, první v nabídce; formuláře
+  upstreamu a jejich konfigurace zůstávají. Bezpečnostní hlášení formulář
+  posílá na soukromé hlášení zranitelností, které musí být v nastavení
+  repozitáře zapnuté. Kořenové `README.md` zůstává upstreamu.
+- **Jméno v aplikaci (řádek 16).** Build distribuce má štítek fáze `Lazurio`
+  místo upstream `Alpha`, takže se jmenuje „T3 Code (Lazurio)“: v titulku
+  záložky, na stránkách párování, 404 a chyby, v hlášení chyby, ve splashi
+  a ve web manifestu (`short_name` je „T3 Code“). Štítek „Lazurio“ stojí
+  i vedle wordmarku v sidebaru, v místě, které upstream dává pilulce Dev
+  a Nightly, a to v každém režimu identifikace. Vývojový build zůstává
+  „T3 Code (Dev)“. Náhled `X.Y.Z-preview.YYYYMMDD.N` je canary příštího
+  stable, ne nightly: jmenuje se stejně a nemá noční artwork upstreamu.
+- **Vzhled (řádek 17).** Shell Environmentu (`/.lazurio/shell.js`,
+  LazurioPlatform F36, dodatek z 2026-10-13) deklaruje tokeny design systému
+  `--lz-*` na kořeni dokumentu a označí ho `data-lazurio-theme="light"`.
+  `apps/web/src/lazurio/theme.css` je mapuje na vlastní tokeny T3 jen ve
+  standardním světlém vzhledu: obě jeho pravidla platí pod
+  `:root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark)`, jedno na
+  kořeni a jedno ve scope palety sidebaru (`[data-app-sidebar]`), kam patří
+  i rail. Bílé plochy a papírový sidebar, inkoustový text, černá tlačítka,
+  šedý výběr o stupeň tmavší, vlasové linky, neutrální fokus, signální barvy,
+  jedna modrá pro odkazy a oznámení o aktualizaci, písmo Inter Tight a Geist
+  Mono, `--control-radius` 6 px a bez zrnitosti. Aktivní záložka přepínače
+  (`--sidebar-row-active`, bílá) se liší od jeho dráhy
+  (`--sidebar-control-surface`, gray-100).
+- **Co zůstává T3.** Soubor píše jen surové tokeny T3, nikdy `--contrast-*`,
+  `--app-theme-*` ani `--lazurio-*`, a žádnou barvu přímo. Nastavení kontrastu
+  proto dál funguje, motiv, který si člověk vybere, editor motivů a tmavý
+  režim zůstávají paletami T3, písmo zvolené ve Vzhledu vyhraje a barevné
+  role shellu se přizpůsobí samy. Stíny, sklo, širší škála zaoblení, velikosti
+  písma a ikony zůstávají T3; design systém zatím nemá tmavé rozhraní.
+- **Bez shellu** (samostatný server, vývoj upstreamu, Environment se starší
+  Platformou) neplatí nic z toho: T3 vypadá jako upstream, jen se jmenuje
+  „T3 Code (Lazurio)“. Hodnoty tokenů patří design systému a mění se vydáním
+  Platformy, bez vydání forku. Fork se spoléhá jen na jména, která rozhraní v1
+  shellu slibuje; kontraktní test drží 23 jmen, která mapování čte.
+- **Pořadí vydání.** Platforma s tokeny jde na Environmenty dřív než vydání
+  forku, které je používá (rozhodnutí 0200).
+
+Kontraktní test hlídá import hned za `index.css`, bránu obou pravidel i její
+hodnotu, jen surové tokeny, které `index.css` deklaruje ve stejném scope, jen
+slíbená jména `--lz-*`, žádnou barvu přímo, písmo, zaoblení a zrnitost
+a oddělené tokeny přepínače. Test barevných rolí shellu se nemění.
 
 ### Zadání z Launchpadu
 
@@ -602,6 +675,16 @@ t3code.service && systemctl --user start t3code.service` (#25).
    toho vlákna, po 8 s; SSE projde bránou Environmentu; nové vlákno před první
    zprávou ukáže větu o prohlížeči a po ní Novou kartu bez obnovení stránky.
 
+   U vydání se jménem a vzhledem (rozhodnutí 0200) ověřte v prohlížeči na
+   Environmentu s Platformou, jejíž shell deklaruje tokeny: titulek záložky
+   a štítek vedle wordmarku říkají „T3 Code (Lazurio)“ i v preview; světlý
+   vzhled je design systém (bílé plochy, papírový sidebar a rail jako jedna
+   plocha, černá tlačítka, Inter Tight) a čtou se v něm nabídky, diff
+   a terminál; tmavý režim a vybraný motiv jsou T3; kontrast 50 a 200 mění
+   barvy textu a linek; přepínač Chat · Apps · Automate má aktivní záložku
+   odlišenou od dráhy; česká diakritika v řádcích sidebaru se neořízne. Na
+   Environmentu se starší Platformou vypadá T3 jako upstream.
+
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
    zeleném canary a výslovném souhlasu Admina. Canary Mašiny vraťte z preview
    (se stejnou proměnnou): `t3 update --channel stable --allow-downgrade`
@@ -646,12 +729,14 @@ Workflow `Lazurio T3 Code Release` postupně:
      `main`. Když se `main` mezitím posunul, skončí a nic nepublikuje; spusťte
      vydání znovu s novou špičkou;
    - napíše `SHA256SUMS` a attestuje každý archiv zvlášť;
-   - postaví, pushne a attestuje `ghcr.io/lazurio/t3code:<verze>` a ověří, že
-     publikovaný image nese `LICENSE` a produkční favicon;
+   - postaví, pushne a attestuje `ghcr.io/lazurio/t3code:<verze>` s OCI štítky
+     distribuce a ověří, že publikovaný image nese `LICENSE` a produkční
+     favicon;
    - vytvoří tag `v<verze>` na `source_sha` tokenem release App (API odmítne
      existující tag);
-   - publikuje GitHub Release: stable jako `latest`, preview jako pre-release,
-     které `latest` nikdy není (workflow to po publikaci ověří).
+   - publikuje GitHub Release `Lazurio T3 Code v<verze>`: stable jako
+     `latest`, preview jako pre-release, které `latest` nikdy není (workflow to
+     po publikaci ověří).
 
    Existující tag, vydání ani image nikdy nepřepíše.
 
