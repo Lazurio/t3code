@@ -515,8 +515,11 @@ function LazurioEnvironmentBrowser(props: {
             title={title}
             className="min-h-0 w-full flex-1 border-0"
             allow="clipboard-read; clipboard-write; fullscreen"
+            // A tab the view opens itself, such as its own "Otevřít samostatně", is a normal tab of
+            // the person's browser, not a sandboxed one (allow-popups-to-escape-sandbox), as from
+            // the Platform's Nová karta frame (`newTabFrameSandbox`).
             // oxlint-disable-next-line react/iframe-missing-sandbox -- the view is never on this page's origin (environmentBrowser.ts), so allow-same-origin keeps it to its own.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
             // Another Environment's view lets T3 frame it by the origin this names (LazurioPlatform).
             referrerPolicy="origin"
             onLoad={() => setLoaded(request)}
