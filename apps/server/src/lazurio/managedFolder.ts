@@ -88,9 +88,10 @@ const repositoryAtFolder =
   "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.";
 
 /**
- * The guard of the provider reactor and the VCS service, read once from the server config: why an
- * agent turn or a new repository is refused in a managed Environment, or null. A working directory
- * counts as the Folder when it resolves to it, symlinks followed.
+ * The guard of the provider reactor, the VCS service and the model recommendation route, read once
+ * from the server config: why an agent turn or a new repository is refused in a managed
+ * Environment, or null, and whether a path names the Folder. A path counts as the Folder when it
+ * resolves to it, symlinks followed.
  */
 export const makeFolderGuard = Effect.gen(function* () {
   const { lazurioFolder: folder } = yield* ServerConfig;
@@ -112,6 +113,11 @@ export const makeFolderGuard = Effect.gen(function* () {
         : canonical(cwd).pipe(
             Effect.map((path) => ((path ?? cwd) === folder ? repositoryAtFolder : null)),
           ),
+    /** Whether `path` is the Folder itself; never without a managed Folder. */
+    isFolder: (path: string): Effect.Effect<boolean> =>
+      folder === undefined
+        ? Effect.succeed(false)
+        : canonical(path).pipe(Effect.map((resolved) => resolved === folder)),
   };
 });
 

@@ -60,6 +60,24 @@ it.effect("runs an agent turn only in the Folder itself, a symlink to it include
   }).pipe(withConfig(folder)),
 );
 
+it.effect("knows the Folder by its canonical path, never without a managed Folder", () =>
+  Effect.gen(function* () {
+    const guard = yield* makeFolderGuard;
+    for (const path of [folder, link, `${folder}/`]) {
+      assert.isTrue(yield* guard.isFolder(path), path);
+    }
+    for (const path of [parent, repository, NodePath.join(parent, "missing"), "Lazurio"]) {
+      assert.isFalse(yield* guard.isFolder(path), path);
+    }
+    assert.isFalse(
+      yield* makeFolderGuard.pipe(
+        Effect.flatMap((other) => other.isFolder(folder)),
+        withConfig(undefined),
+      ),
+    );
+  }).pipe(withConfig(folder)),
+);
+
 it.effect("never makes the Folder a repository, while repositories inside it are fine", () =>
   Effect.gen(function* () {
     const guard = yield* makeFolderGuard;

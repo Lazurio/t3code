@@ -5,8 +5,8 @@
  * (modelRecommendation.ts). The scope is upstream's for writing settings.
  *
  * Answers `{"version": 1, "current", "lastManaged"}`; 400 for another body, 409 when the request
- * names another Folder than this Environment's managed one, 503 when the settings service cannot
- * reconcile (only its test layer).
+ * names another folder than this Environment's managed Folder (a path that resolves to the Folder
+ * is the Folder), 503 when the settings service cannot reconcile (only its test layer).
  */
 import { type ModelSelection, WS_METHODS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -15,15 +15,15 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 
 import { failEnvironmentInternal } from "../auth/http.ts";
 import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
-import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
+import { makeFolderGuard } from "./managedFolder.ts";
 import { MODEL_RECOMMENDATION_ROUTE, ModelRecommendationRequest } from "./modelRecommendation.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
 export const layer = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const settings = yield* ServerSettingsService;
-    const config = yield* ServerConfig;
+    const folderGuard = yield* makeFolderGuard;
     const answer = (value: {
       defaultModelSelection: ModelSelection | null;
       lazurioManagedModelSelection: ModelSelection | null;
@@ -46,7 +46,7 @@ export const layer = HttpRouter.use((router) =>
             { error: "invalid-recommendation" },
             { status: 400 },
           );
-        if (config.lazurioFolder === undefined || selection.value.folder !== config.lazurioFolder)
+        if (!(yield* folderGuard.isFolder(selection.value.folder)))
           return HttpServerResponse.jsonUnsafe({ error: "folder-mismatch" }, { status: 409 });
         if (settings.reconcileRecommendedModel === undefined)
           return HttpServerResponse.jsonUnsafe({ error: "unavailable" }, { status: 503 });
