@@ -65,8 +65,9 @@ agent processes still get an `AGENT_BROWSER_SESSION` variable, which does nothin
 ## Tracking upstream
 
 `main` is an exact upstream stable release tag with the Lazurio overlay commits on top, and nothing
-else. When upstream publishes a new stable release, the overlay is rebuilt on it, and every change
-upstream now covers is dropped. Changes that would help everyone are offered upstream.
+else. When upstream publishes a new stable release, a daily check opens an issue in this repository
+that tracks the move: the overlay is rebuilt on the new release, one commit per change, and every
+change upstream now covers is dropped. Changes that would help everyone are offered upstream.
 
 ## Releases
 
