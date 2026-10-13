@@ -29,15 +29,17 @@ const environmentBrowserOverlay = [
   "apps/web/src/lazurio/threadTabs.ts",
   "apps/web/src/rightPanelStore.ts",
 ];
-const [release, archives, ci, dockerfile, dockerignore, docs, updateSource] = await Promise.all([
-  read(".github/workflows/lazurio-release.yml"),
-  read(".github/workflows/lazurio-cli-archives.yml"),
-  read(".github/workflows/lazurio-fork-ci.yml"),
-  read("Dockerfile.lazurio"),
-  read(".dockerignore"),
-  read("docs/operations/lazurio-fork-release.md"),
-  read("apps/server/src/cli/update.ts"),
-]);
+const [release, archives, ci, dockerfile, dockerignore, docs, updateSource, issueTemplate] =
+  await Promise.all([
+    read(".github/workflows/lazurio-release.yml"),
+    read(".github/workflows/lazurio-cli-archives.yml"),
+    read(".github/workflows/lazurio-fork-ci.yml"),
+    read("Dockerfile.lazurio"),
+    read(".dockerignore"),
+    read("docs/operations/lazurio-fork-release.md"),
+    read("apps/server/src/cli/update.ts"),
+    read(".github/ISSUE_TEMPLATE/1-lazurio-t3-code.yml"),
+  ]);
 
 // The guard in lazurio-fork-ci.yml: under apps/, packages/ and scripts/ the overlay changes only the
 // files on its allowlist and its own folders, apps/*/src/lazurio/, which pass whole.
@@ -162,14 +164,47 @@ NodeTest.test("a preview is a GitHub pre-release and never latest; stable is lat
   NodeAssert.doesNotMatch(release, /^\s+--latest \\$/m);
 });
 
-// The overlay changes T3 Code, so the notes of every release say it is a modified distribution of
-// the upstream tag it is built on, never vanilla upstream.
-NodeTest.test("release notes call the release a modified distribution of T3 Code", () => {
-  NodeAssert.match(
-    release,
-    /echo "T3 Code \$UPSTREAM_TAG with the Lazurio overlay: a modified distribution of upstream"/,
+// Root decision 0200: the fork is the distribution "Lazurio T3 Code", a modified distribution of
+// T3 Code, never vanilla upstream. Its releases and its image carry that name. The notes open with
+// the upstream tag the release is built on, speak of Environments, and end with where the source is
+// and under which licence.
+NodeTest.test("releases and the image carry the name Lazurio T3 Code", () => {
+  NodeAssert.match(release, /--title "Lazurio T3 Code \$RELEASE_TAG" \\\n/);
+  const notes =
+    /\n( +)\{\n([^]*?)\n\1\} > "\$RUNNER_TEMP\/RELEASE_NOTES\.md"/.exec(release)?.[2] ?? "";
+  const lines = [...notes.matchAll(/^\s*echo "(.*)"$/gm)].map((match) => match[1]);
+  NodeAssert.equal(
+    lines[0],
+    "Lazurio T3 Code, a modified distribution of T3 Code $UPSTREAM_TAG for Lazurio",
   );
+  NodeAssert.match(notes, /Lazurio Environments update to it from this release\."\n/);
+  NodeAssert.doesNotMatch(notes, /\bMachines?\b|vanilla/i);
   NodeAssert.doesNotMatch(release, /vanilla/i);
+  // The last lines of the notes: the exact source and the licence.
+  NodeAssert.match(
+    notes,
+    /\n\s+echo "Source code: https:\/\/github\.com\/\$GITHUB_REPOSITORY\/tree\/\$SOURCE_SHA\. Licensed under the"\n\s+echo "MIT License, like T3 Code; each archive and the image include T3 Code's LICENSE\."$/,
+  );
+  // The image's name, description, licence, address and vendor, the same in the published image and
+  // in every image Dockerfile.lazurio builds.
+  const expected = {
+    title: "Lazurio T3 Code",
+    description: "Lazurio T3 Code: a modified distribution of T3 Code for Lazurio Environments",
+    licenses: "MIT",
+    url: "https://github.com/Lazurio/t3code",
+    vendor: "Lazurio",
+  };
+  const labelsOf = (pattern, source) =>
+    Object.fromEntries([...source.matchAll(pattern)].map((match) => [match[1], match[2]]));
+  const releaseLabels = labelsOf(/^ +org\.opencontainers\.image\.(\w+)=(.*)$/gm, release);
+  const imageLabels = labelsOf(/org\.opencontainers\.image\.(\w+)="([^"]*)"/g, dockerfile);
+  for (const [key, value] of Object.entries(expected)) {
+    NodeAssert.equal(releaseLabels[key], value, `the release's ${key} label`);
+    NodeAssert.equal(imageLabels[key], value, `Dockerfile.lazurio's ${key} label`);
+  }
+  // Issues: the distribution's own form, beside upstream's unchanged ones.
+  NodeAssert.match(issueTemplate, /^name: Lazurio T3 Code problem\n/);
+  NodeAssert.match(issueTemplate, /Report problems with it here, not to the T3 Code team\./);
 });
 
 NodeTest.test("archives are built with upstream's own release steps", () => {
@@ -319,9 +354,13 @@ NodeTest.test(
   },
 );
 
-NodeTest.test("T3 is served at the root; no mount path or branding overlay remains", () => {
+// T3 is served at the root of its own hostname, with no mount path. No build sets a hosted app
+// variable: VITE_HOSTED_APP_CHANNEL is no name but switches the web client into app.t3.codes mode,
+// where it stops treating its own server as the primary environment. The distribution's name is in
+// its releases and its image (above), and the app's name comes from its stage label.
+NodeTest.test("T3 is served at the root, and no build sets a hosted app variable", () => {
   for (const source of [release, archives, ci, dockerfile]) {
-    NodeAssert.doesNotMatch(source, /T3CODE_BASE_PATH|VITE_HOSTED_APP_NAME/);
+    NodeAssert.doesNotMatch(source, /T3CODE_BASE_PATH|VITE_HOSTED_APP_/);
   }
   NodeAssert.match(docs, /v kořeni vlastního hostname/);
 });

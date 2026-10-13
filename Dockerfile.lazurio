@@ -1,6 +1,6 @@
-# Lazurio hosted T3 Code image: T3 Code's server and web client with the Lazurio
-# overlay (a modified distribution), served at the root of its own hostname
-# behind a TLS reverse proxy. See docs/operations/lazurio-fork-release.md.
+# Lazurio T3 Code image: a modified distribution of T3 Code, its server and web
+# client with the Lazurio overlay, served at the root of its own hostname behind
+# a TLS reverse proxy. See docs/operations/lazurio-fork-release.md.
 ARG NODE_BASE_IMAGE
 
 FROM $NODE_BASE_IMAGE AS build
@@ -46,7 +46,12 @@ ENV NODE_ENV=production \
     T3CODE_CLIENT_SESSION_TTL=365d \
     PATH=/opt/lazurio-t3/dist:$PATH
 
-LABEL org.opencontainers.image.source="https://github.com/Lazurio/t3code" \
+LABEL org.opencontainers.image.title="Lazurio T3 Code" \
+      org.opencontainers.image.description="Lazurio T3 Code: a modified distribution of T3 Code for Lazurio Environments" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.url="https://github.com/Lazurio/t3code" \
+      org.opencontainers.image.vendor="Lazurio" \
+      org.opencontainers.image.source="https://github.com/Lazurio/t3code" \
       org.opencontainers.image.revision="$SOURCE_REVISION" \
       org.opencontainers.image.version="$RELEASE_TAG" \
       io.lazurio.t3code.upstream-base="$UPSTREAM_BASE"

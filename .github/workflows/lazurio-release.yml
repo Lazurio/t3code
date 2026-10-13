@@ -271,8 +271,13 @@ jobs:
             UPSTREAM_BASE=${{ env.UPSTREAM_SHA }}
           labels: |
             org.opencontainers.image.created=${{ steps.source.outputs.source_date_iso }}
+            org.opencontainers.image.description=Lazurio T3 Code: a modified distribution of T3 Code for Lazurio Environments
+            org.opencontainers.image.licenses=MIT
             org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
             org.opencontainers.image.source=https://github.com/Lazurio/t3code
+            org.opencontainers.image.title=Lazurio T3 Code
+            org.opencontainers.image.url=https://github.com/Lazurio/t3code
+            org.opencontainers.image.vendor=Lazurio
             org.opencontainers.image.version=${{ env.VERSION }}
 
       - name: Verify the published image
@@ -360,9 +365,9 @@ jobs:
             }' > release-assets/release-evidence.json
 
           {
-            echo "T3 Code $UPSTREAM_TAG with the Lazurio overlay: a modified distribution of upstream"
-            echo "T3 Code, served at the root of its own hostname. Lazurio Environments update to it"
-            echo "from this release."
+            echo "Lazurio T3 Code, a modified distribution of T3 Code $UPSTREAM_TAG for Lazurio"
+            echo "Environments: T3 Code's server and web client with the Lazurio overlay, served at the"
+            echo "root of its own hostname. Lazurio Environments update to it from this release."
             echo
             if [[ "$CHANNEL" == preview ]]; then
               echo "Preview: never offered as an update. Install it on a chosen Environment with"
@@ -380,6 +385,9 @@ jobs:
             echo
             git log --no-merges --pretty='format:- %s (%h)' "$UPSTREAM_SHA..$SOURCE_SHA"
             echo
+            echo
+            echo "Source code: https://github.com/$GITHUB_REPOSITORY/tree/$SOURCE_SHA. Licensed under the"
+            echo "MIT License, like T3 Code; each archive and the image include T3 Code's LICENSE."
           } > "$RUNNER_TEMP/RELEASE_NOTES.md"
 
       # Release tags can only be created by the Lazurio T3 Code Release App,
@@ -425,7 +433,7 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "T3 Code $RELEASE_TAG" \
+            --title "Lazurio T3 Code $RELEASE_TAG" \
             --notes-file "$RUNNER_TEMP/RELEASE_NOTES.md" \
             "${channel_flags[@]}" \
             "release-assets/t3-$VERSION-darwin-arm64.tar.gz" \
