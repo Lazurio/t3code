@@ -591,10 +591,10 @@ function intend(sync: ThreadTabsSync, tab: string): () => boolean {
 /**
  * The thread holds `tabId` (a choice in Nová karta, a page's new tab, a link, Vrátit). Until the
  * POST answers, the tab is pending and the strip keeps it. A network failure or a 5xx is retried
- * with a growing pause while the tab is in the strip; a refusal (the thread is gone, or has as many
- * tabs as it may) leaves it as the device's own, which ends 30 s after its last viewer (F39).
- * A later × of the tab replaces the hold: a retry still waiting does not go, and an answer still
- * under way changes nothing.
+ * with a growing pause while the tab is in the strip, for about a minute; a refusal (the thread is
+ * gone, or has as many tabs as it may), or a failure that outlasts the retries, leaves it as the
+ * device's own, which ends 30 s after its last viewer (F39). A later × of the tab replaces the
+ * hold: a retry still waiting does not go, and an answer still under way changes nothing.
  */
 export function holdTab(threadRef: ScopedThreadRef, tabId: string): void {
   const sync = syncOf(threadRef);
@@ -615,13 +615,12 @@ export function holdTab(threadRef: ScopedThreadRef, tabId: string): void {
         return;
       }
       const inStrip = hasSurface(threadRef, tabSurfaceId(tab));
-      if (outcome.retry && inStrip) {
-        const delay = RETRY_DELAYS_MS[Math.min(tries, RETRY_DELAYS_MS.length - 1)];
-        window.setTimeout(() => attempt(tries + 1), delay);
+      if (outcome.retry && inStrip && tries < RETRY_DELAYS_MS.length) {
+        window.setTimeout(() => attempt(tries + 1), RETRY_DELAYS_MS[tries]);
         return;
       }
       sync.pending.delete(tab);
-      if (!inStrip || outcome.retry) return;
+      if (!inStrip) return;
       sync.local.add(tab);
       const czech = prefersCzech();
       toastManager.add(
