@@ -55,11 +55,13 @@ jobs:
           # change there fails.
           allowed_upstream_changes=(
             # Shared seams, each with the hooks of several features below: the server's
-            # CLI and runtime config (hosted settings, the managed Folder), ChatView.tsx
-            # (update notice, Environment browser, drag backport), RightPanelTabs.tsx and
-            # rightPanelStore.ts (Environment browser, Nová karta, drag backport).
+            # CLI and runtime config (hosted settings, the managed Folder), index.html (the
+            # shell slot, the name in the app), ChatView.tsx (update notice, Environment
+            # browser, drag backport), RightPanelTabs.tsx and rightPanelStore.ts
+            # (Environment browser, Nová karta, drag backport).
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
+            apps/web/index.html
             apps/web/src/components/ChatView.tsx
             apps/web/src/components/RightPanelTabs.tsx
             apps/web/src/rightPanelStore.ts
@@ -113,8 +115,16 @@ jobs:
             # Buddy in index.html, and the column head at the top of the sidebar. The
             # shell itself is served by the Environment's Launchpad; without it nothing renders.
             # index.html also maps T3's sidebar tokens to the shell's colour roles.
-            apps/web/index.html
             apps/web/src/components/AppSidebarLayout.tsx
+            # The name in the app (root decision 0200): T3 Code (Lazurio), from the stage
+            # label of the distribution's builds, with the label beside the wordmark in the
+            # sidebar, the page title in index.html and the web manifest; a preview is a
+            # canary, not a nightly. The wordmark and the icons stay upstream's.
+            apps/web/public/manifest.webmanifest
+            apps/web/src/branding.logic.ts
+            apps/web/src/branding.test.ts
+            apps/web/src/branding.ts
+            apps/web/src/components/sidebar/SidebarChrome.tsx
             # The Environment browser (root decision 0191, plan DEV-6646, LazurioPlatform F47):
             # a thread's provider processes get its agent-browser session (ProviderService.ts);
             # T3's browser tools drive the Environment browser as a preferred preview host
