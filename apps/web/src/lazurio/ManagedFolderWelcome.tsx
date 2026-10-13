@@ -11,6 +11,7 @@ import { useProjects } from "../state/entities";
 import { primaryServerConfigAtom } from "../state/server";
 import { environmentShell } from "../state/shell";
 import { managedFirstRunDecision } from "./managedFolder";
+import { prefersCzech } from "./threadTabs";
 
 /** The primary Environment's Lazurio Folder (LazurioPlatform F51), when it is managed. */
 export function usePrimaryLazurioFolder(): string | undefined {
@@ -50,6 +51,39 @@ export function useManagedFirstRunDecision(upstream: FirstRun): FirstRun {
   };
 }
 
+/** The welcome's words: Czech where the person's browser is, with formal address (root decision
+ * 0199) and "Environment" for the place (root decision 0170), as the rest of the overlay. */
+const welcomeWords = (czech: boolean) =>
+  czech
+    ? {
+        title: "Váš pracovní prostor je připravený",
+        folder:
+          "Každý nový chat začíná ve vašem Lazurio Folderu, který vašemu agentovi dává kontext tohoto Environmentu a Organizací, se kterými můžete pracovat.",
+        inside: "Vaše projekty a repozitáře jsou v tomto Folderu. Není potřeba nic importovat.",
+        connectBefore: "Účet agenta připojte v ",
+        connectLink: "nastavení Environmentu",
+        connectAfter:
+          " a pak se sem vraťte. Účet, který tam už je připojený, můžete rovnou použít.",
+        connected: "Použijte účet agenta připojený k tomuto Environmentu.",
+        failed: "Lazurio se nepodařilo otevřít. Zkuste to prosím znovu.",
+        opening: "Otevírám…",
+        start: "Začít v Lazuriu",
+      }
+    : {
+        title: "Your workspace is ready",
+        folder:
+          "Every new chat starts in your Lazurio Folder. It gives your agent the context for this Environment and the Organizations you can work with.",
+        inside:
+          "Your projects and repositories live inside this Folder. There is nothing to import.",
+        connectBefore: "Connect your agent account in ",
+        connectLink: "Environment settings",
+        connectAfter: ", then return here. An account already connected there is ready to use.",
+        connected: "Use the agent account connected to this Environment.",
+        failed: "Could not open Lazurio. Please try again.",
+        opening: "Opening…",
+        start: "Start in Lazurio",
+      };
+
 /**
  * The managed Environment's welcome, in place of upstream's setup wizard: it names the Lazurio
  * Folder, completes onboarding and opens a new chat in the Folder's project.
@@ -61,6 +95,7 @@ export function ManagedFolderWelcome() {
   const openNewThread = useNewThreadHandler();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [words] = useState(() => welcomeWords(prefersCzech()));
   const project = projects.find(
     (p) =>
       p.environmentId === config?.environment.environmentId &&
@@ -71,29 +106,24 @@ export function ManagedFolderWelcome() {
       <section className="w-full max-w-xl space-y-6 rounded-xl border border-border p-8">
         <div>
           <p className="text-sm text-muted-foreground">Lazurio Environment</p>
-          <h1 className="mt-2 text-2xl font-semibold">Your workspace is ready</h1>
+          <h1 className="mt-2 text-2xl font-semibold">{words.title}</h1>
         </div>
-        <p>
-          Every new chat starts in your Lazurio Folder. It gives your agent the context for this
-          Environment and the Organizations you can work with.
-        </p>
+        <p>{words.folder}</p>
         <div className="rounded-lg border border-border p-4">
           <strong>Lazurio</strong>
           <p className="mt-1 break-all text-sm text-muted-foreground">{config?.lazurioFolder}</p>
-          <p className="mt-2 text-sm">
-            Your projects and repositories live inside this Folder. There is nothing to import.
-          </p>
+          <p className="mt-2 text-sm">{words.inside}</p>
         </div>
         {config?.lazurioToolsUrl ? (
           <p>
-            Connect your agent account in{" "}
+            {words.connectBefore}
             <a className="underline" href={config.lazurioToolsUrl} target="_blank" rel="noreferrer">
-              Environment settings
+              {words.connectLink}
             </a>
-            , then return here. An account already connected there is ready to use.
+            {words.connectAfter}
           </p>
         ) : (
-          <p>Use the agent account connected to this Environment.</p>
+          <p>{words.connected}</p>
         )}
         {error ? (
           <p role="alert" className="text-destructive">
@@ -113,12 +143,12 @@ export function ManagedFolderWelcome() {
                 }),
               )
               .catch(() => {
-                setError("Could not open Lazurio. Please try again.");
+                setError(words.failed);
                 setBusy(false);
               });
           }}
         >
-          {busy ? "Opening…" : "Start in Lazurio"}
+          {busy ? words.opening : words.start}
         </Button>
       </section>
     </main>
