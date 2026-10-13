@@ -360,11 +360,12 @@ jobs:
             }' > release-assets/release-evidence.json
 
           {
-            echo "Vanilla upstream T3 Code $UPSTREAM_TAG plus the Lazurio overlay, served at the"
-            echo "root of its own hostname. Lazurio Machines update to it from this release."
+            echo "T3 Code $UPSTREAM_TAG with the Lazurio overlay: a modified distribution of upstream"
+            echo "T3 Code, served at the root of its own hostname. Lazurio Environments update to it"
+            echo "from this release."
             echo
             if [[ "$CHANNEL" == preview ]]; then
-              echo "Preview: never offered as an update. Install it on a chosen Machine with"
+              echo "Preview: never offered as an update. Install it on a chosen Environment with"
               echo "\`t3 update $VERSION\`; return with \`t3 update --channel stable --allow-downgrade\`."
               echo
             fi
