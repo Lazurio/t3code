@@ -120,7 +120,7 @@ přestavba“ říká, proč řádek zůstává a co z něj podle upstream `main
 | 2   | `hosted: serve behind an explicit HTTPS external origin`                                        | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku, používá Secure cookie `__Host-t3_session` a mutace a WebSocket upgrady autentizované cookie přijímá jen z tohoto originu.                                                                                                                                                                                                                                                                                                             | Upstream ekvivalent nemá. Upstream `main` kontroluje Origin sám (#18509): kontrola odpadne, proměnná, Secure `__Host-` cookie a politika loopbacku zůstanou.                                                                                                                                                                        |
 | 3   | `hosted: explicit environment label`                                                            | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                                                                                                                                                                                                                                                                                                                                        | Upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou: zůstává.                                                                                                                                                                                                                                               |
 | 4   | `feat: in-app update from the configured release channel`                                       | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Navrženo upstreamu.                                                                                                                                                                                                                                                                                                                 | Upstream má pevné `pingdotgg/t3code` a bere první vydání kanálu: zůstává celý.                                                                                                                                                                                                                                                      |
-| 5   | `release: Lazurio distribution`                                                                 | Tento runbook, [specifikace overlaye](./lazurio-overlay.md), `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml` a `lazurio-release.yml`, včetně preview vydání pro canary (`X.Y.Z-preview.YYYYMMDD.N` jako GitHub pre-release), formulář issue, `.github/README.md` a bezpečnostní politika `.github/SECURITY.md`. Jméno distribuce nesou vydání, image, formulář a README (rozhodnutí 0200).                                                      | Zůstává; v přestavbě jde poslední.                                                                                                                                                                                                                                                                                                  |
+| 5   | `release: Lazurio distribution`                                                                 | Tento runbook, [specifikace overlaye](./lazurio-overlay.md), `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml`, `lazurio-release.yml` (včetně preview vydání pro canary, `X.Y.Z-preview.YYYYMMDD.N` jako GitHub pre-release) a `lazurio-upstream-watch.yml`, formulář issue, `.github/README.md` a bezpečnostní politika `.github/SECURITY.md`. Jméno distribuce nesou vydání, image, formulář a README (rozhodnutí 0200).                        | Zůstává; v přestavbě jde poslední.                                                                                                                                                                                                                                                                                                  |
 | 6   | `lazurio: unsent prompt draft by link from the shell`                                           | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                                                                                                                                                                                                                                                                                                       | Upstream `main` přidává odkazy `/new?prompt=` (#18454), které nesou text v adrese a projekt vybírají podle `repo`. Odkaz overlaye text nenese: zůstává vedle nich.                                                                                                                                                                  |
 | 7   | `feat(web): Lazurio shell slot`                                                                 | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                                                                                                                                                                                   | Upstream ekvivalent nemá: zůstává.                                                                                                                                                                                                                                                                                                  |
 | 8   | `feat(server): each thread's provider processes get its agent-browser session`                  | Každý proces poskytovatele, který T3 spustí pro vlákno, dostane `AGENT_BROWSER_SESSION=t3-<id vlákna>`: agenti vlákna pracují ve vlastním okně prohlížeče Environmentu (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                                                                                                                                                                     | Rozhodnutí 0191; upstream ekvivalent nemá. Upstream `main` maže `ProviderService.ts`: šev se přestaví na `AgentScope.wrap` nebo v adaptérech, s testem pro Codex i Claude.                                                                                                                                                          |
@@ -559,28 +559,47 @@ preview se nikdy nenabízí a stable vyjde až po canary.
 
 ### 1. Sledování
 
-Steward porovnává nejnovější stabilní vydání upstreamu s bází `main` (jen
-čtení):
+Workflow `Lazurio upstream watch`
+(`.github/workflows/lazurio-upstream-watch.yml`) běží každý den kolem 5:41
+UTC. Porovná nejnovější stabilní vydání upstreamu (bez draftů a pre-release,
+tag tvaru `vX.Y.Z`) s `UPSTREAM_TAG` v `lazurio-fork-ci.yml` na `main`. Když
+je upstream novější a:
+
+- žádné issue s názvem začínajícím „Přestavba na upstream T3 Code“ není
+  otevřené, založí issue přestavby `Přestavba na upstream T3 Code vX.Y.Z`
+  ze [šablony](#issue-přestavby);
+- takové issue otevřené je, napíše do něj jednou za každý nový tag komentář
+  s tagem a jeho commitem.
+
+Nic jiného nedělá (viz [Hranice automatizace](#hranice-automatizace)). Odběr
+všech vydání upstreamu na GitHubu by ho nenahradil: upstream vydává několik
+nightly denně a stable se mezi nimi ztratí.
+
+Issue převezme Steward, který sleduje issues tohoto repozitáře (Watch →
+Custom → Issues). Začněte hned: oficiální desktop a mobilní aplikace se na
+nové vydání brzy aktualizují, a když nové vydání mění orchestrační protokol,
+k serverům forku na staré bázi se nepřipojí (viz
+[Desktop a mobil](#desktop-a-mobil-proti-serveru-z-forku)). Když upstream
+během přestavby vydá další stable, watch to připíše do téhož issue:
+přestavujte rovnou na nejnovější a issue přejmenujte.
+
+Totéž porovnání ručně a poslední běhy watche (jen čtení):
 
 ```bash
 gh release list --repo pingdotgg/t3code --exclude-drafts --exclude-pre-releases --limit 3
 gh api 'repos/Lazurio/t3code/contents/.github/workflows/lazurio-fork-ci.yml?ref=main' \
   -H 'Accept: application/vnd.github.raw' | grep -E '^  UPSTREAM_(TAG|SHA):'
+gh run list --repo Lazurio/t3code --workflow lazurio-upstream-watch.yml --limit 3
 ```
 
 První příkaz vypíše tři nejnovější stabilní vydání upstreamu (název, `Latest`,
 tag a čas vydání), druhý `UPSTREAM_TAG` a `UPSTREAM_SHA`, na kterých `main`
-stojí. Odběr všech vydání upstreamu na GitHubu nestačí: upstream vydává
-několik nightly denně a stable se mezi nimi ztratí.
-
-Když je upstream novější, založte issue přestavby ze
-[šablony](#issue-přestavby) a převezměte ho. Začněte
-hned: oficiální desktop a mobilní aplikace se na nové vydání brzy
-aktualizují, a když nové vydání mění orchestrační protokol, k serverům forku
-na staré bázi se nepřipojí (viz
-[Desktop a mobil](#desktop-a-mobil-proti-serveru-z-forku)). Když upstream
-během přestavby vydá další stable, přestavujte rovnou na nejnovější a issue
-přejmenujte.
+stojí. Porovnání hned spustí
+`gh workflow run lazurio-upstream-watch.yml --repo Lazurio/t3code`. GitHub
+plánované workflow veřejného repozitáře po 60 dnech bez aktivity
+v repozitáři vypne; když ho `gh workflow list --repo Lazurio/t3code --all`
+ukáže jako `disabled_inactivity`, zapněte ho:
+`gh workflow enable lazurio-upstream-watch.yml --repo Lazurio/t3code`.
 
 ### 2. Inventura a rozhodnutí
 
@@ -1397,9 +1416,17 @@ Nový upstream workflow s triggerem `pull_request` se může spustit už na PR
 přestavby. Bez Blacksmith runnerů a upstream secrets jen visí ve frontě nebo
 selže; povinným checkem není.
 
-Aktivní zůstávají jen `lazurio-fork-ci.yml` (read-only, povinný check
-`Server and web compatibility`), `lazurio-cli-archives.yml` (volaný z obou
-ostatních) a ručně spouštěný `lazurio-release.yml`.
+Aktivní zůstávají jen workflow Lazuria:
+
+- `lazurio-fork-ci.yml`: read-only CI, povinný check
+  `Server and web compatibility`;
+- `lazurio-cli-archives.yml`: build archivů, volaný z CI a z vydání;
+- `lazurio-release.yml`: vydání, spouštěné ručně a schvalované Adminem;
+- `lazurio-upstream-watch.yml`: denní porovnání s upstreamem (etapa
+  [Sledování](#1-sledování)). Čte jen veřejná vydání upstreamu a soubory
+  `main` a zapisuje jen issues tohoto repozitáře, tokenem `GITHUB_TOKEN`
+  s oprávněním `issues: write`. Nic nepřestavuje, netaguje ani nevydává:
+  přestavbu, výměnu `main` a vydání dělají lidé.
 
 ## Historie
 

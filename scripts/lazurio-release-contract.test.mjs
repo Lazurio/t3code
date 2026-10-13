@@ -302,6 +302,125 @@ NodeTest.test(
   },
 );
 
+// The upstream watch (runbook "Nové stabilní vydání upstreamu", stage 1): once a day it compares
+// upstream's newest stable release with the base of main and opens the rebuild's tracking issue
+// from the runbook's template, or comments once on the open one. It reads upstream's public
+// releases and this repository's files and writes only issues here, with this repository's token.
+NodeTest.test("the upstream watch reads upstream and writes only the rebuild's issue", async () => {
+  const watch = await read(".github/workflows/lazurio-upstream-watch.yml");
+  const triggers = watch.slice(watch.indexOf("\non:"), watch.indexOf("\npermissions:"));
+  NodeAssert.deepEqual(
+    [...triggers.matchAll(/^ {2}(\w+):/gm)].map((match) => match[1]),
+    ["schedule", "workflow_dispatch"],
+  );
+  NodeAssert.match(watch, /^permissions:\n {2}contents: read\n {2}issues: write\n\n/m);
+  NodeAssert.equal(watch.match(/permissions:/g)?.length, 1, "no job widens the permissions");
+  NodeAssert.match(watch, /if: github\.repository == 'Lazurio\/t3code'/);
+  NodeAssert.doesNotMatch(watch, /uses:/);
+  NodeAssert.deepEqual(
+    [...new Set([...watch.matchAll(/secrets\.(\w+)/g)].map((match) => match[1]))],
+    ["GITHUB_TOKEN"],
+  );
+  // Reads: main's base as CI declares it, and upstream's stable releases only.
+  NodeAssert.match(watch, /sed -n 's\/\^ {2}UPSTREAM_TAG: \/\/p'/);
+  NodeAssert.match(ci, /^ {2}UPSTREAM_TAG: v\d+\.\d+\.\d+$/m);
+  NodeAssert.match(
+    watch,
+    /gh release list --repo pingdotgg\/t3code --exclude-drafts --exclude-pre-releases/,
+  );
+  // Writes: an issue or a comment in this repository, nothing else.
+  const allowed = new Set([
+    "api",
+    "release list",
+    "issue list",
+    "issue view",
+    "issue create",
+    "issue comment",
+  ]);
+  for (const [, command, subcommand] of watch.matchAll(/\bgh (\w+)(?: (\w+))?/g)) {
+    const used = command === "api" ? command : `${command} ${subcommand}`;
+    NodeAssert.ok(allowed.has(used), `the watch must not run gh ${used}`);
+  }
+  NodeAssert.doesNotMatch(
+    watch,
+    /gh api[^\n]*(--method|-X\b|--field|--raw-field|-f\b|-F\b|--input)/,
+  );
+  NodeAssert.doesNotMatch(watch, /\bgit (push|tag)\b/);
+  // The issue it opens or finds is the runbook's: the same title, and the runbook's template.
+  const title = "Přestavba na upstream T3 Code";
+  NodeAssert.ok(watch.includes(`startswith("${title} ")`), "it finds the open issue by title");
+  NodeAssert.ok(watch.includes(`--title "${title} $latest"`), "it opens the issue by title");
+  NodeAssert.ok(docs.includes(`\`${title} vX.Y.Z\``), "the runbook names the same title");
+  for (const marker of ["<!-- rebuild-issue:start -->", "<!-- rebuild-issue:end -->"]) {
+    NodeAssert.equal(docs.split(`\n${marker}\n`).length, 2, `the runbook has ${marker} once`);
+    NodeAssert.ok(watch.includes(`/^${marker}$/`), `the watch reads the template from ${marker}`);
+  }
+});
+
+// The watch's own script, run with stand-ins for gh and git: an upstream tag that does not resolve to
+// exactly one commit stops it before any issue write, and a tag that does opens the issue.
+NodeTest.test(
+  "the upstream watch writes no issue unless upstream's tag is one commit",
+  async () => {
+    const watch = await read(".github/workflows/lazurio-upstream-watch.yml");
+    const block = /\n {8}run: \|\n((?: {10}.*\n|\n)+)/.exec(watch)?.[1];
+    NodeAssert.ok(block, "the watch has its script");
+    const script = block
+      .split("\n")
+      .map((line) => line.slice(10))
+      .join("\n");
+    const dir = await NodeFSP.mkdtemp("/tmp/lazurio-watch-");
+    await NodeFSP.writeFile(`${dir}/ci.yml`, ci);
+    await NodeFSP.writeFile(`${dir}/runbook.md`, docs);
+    // gh: main's lazurio-fork-ci.yml and the runbook from the repository, a newer upstream stable,
+    // no open rebuild issue, and every issue write recorded. git: ls-remote answers $LS_REMOTE.
+    const standIns = `
+gh() {
+  case "$1" in
+    api) case "$2" in *lazurio-fork-ci.yml*) cat "$STAND_INS/ci.yml" ;; *lazurio-fork-release.md*) cat "$STAND_INS/runbook.md" ;; esac ;;
+    release) echo "v9.9.9" ;;
+    issue) case "$2" in list) echo "" ;; *) printf '%s\n' "gh $*" >> "$STAND_INS/writes" ;; esac ;;
+  esac
+}
+git() { if [ "$1" = ls-remote ]; then printf '%s' "$LS_REMOTE"; fi; }
+`;
+    const run = async (lsRemote) => {
+      await NodeFSP.rm(`${dir}/writes`, { force: true });
+      const result = NodeChildProcess.spawnSync("bash", ["-c", standIns + script], {
+        env: {
+          PATH: process.env.PATH,
+          STAND_INS: dir,
+          REPO: "Lazurio/t3code",
+          LS_REMOTE: lsRemote,
+        },
+        encoding: "utf8",
+      });
+      const writes = await read(`${dir}/writes`).catch(() => "");
+      return { status: result.status, writes };
+    };
+    for (const missing of ["", "deadbeef\trefs/tags/v9.9.9\n"]) {
+      const result = await run(missing);
+      NodeAssert.notEqual(result.status, 0, "an unresolved tag fails the run");
+      NodeAssert.equal(result.writes, "", "and writes no issue");
+    }
+    // A lightweight tag is its commit; an annotated tag's commit is its peeled line, never the
+    // tag object.
+    const commit = "c".repeat(40);
+    for (const answer of [
+      `${commit}\trefs/tags/v9.9.9\n`,
+      `${"d".repeat(40)}\trefs/tags/v9.9.9\n${commit}\trefs/tags/v9.9.9^{}\n`,
+    ]) {
+      const resolved = await run(answer);
+      NodeAssert.equal(resolved.status, 0);
+      NodeAssert.match(resolved.writes, /^gh issue create /);
+      NodeAssert.equal(resolved.writes.match(/^gh issue /gm)?.length, 1, "one issue written");
+      NodeAssert.ok(resolved.writes.includes(`\`${commit}\``), "the issue names the tag's commit");
+      NodeAssert.ok(!resolved.writes.includes("d".repeat(40)), "never the tag object");
+    }
+    await NodeFSP.rm(dir, { recursive: true, force: true });
+  },
+);
+
 NodeTest.test("image is root-served, non-root, and self-checks its terminal", () => {
   NodeAssert.match(
     dockerfile,
