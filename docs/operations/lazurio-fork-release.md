@@ -410,7 +410,8 @@ Lazuria jako výchozí kontext Chatu. Server při startu, ještě před připrav
 převezme nebo založí její nativní projekt. Ostatní projekty a konverzace
 zůstávají jako historie; nová vlákna začínají v kořeni složky. Nejde o sandbox
 souborového systému. `T3CODE_LAZURIO_TOOLS_URL` odkáže spravované uvítání na
-stránku Environmentu, kde se přihlašují agenti.
+stránku Environmentu, kde se přihlašují agenti. Uvítání mluví česky (s vykáním),
+má-li prohlížeč češtinu, jinak anglicky, jako ostatní texty overlaye.
 
 Machines ověří `t3 lazurio capabilities` (kontrakt verze 1) a po zřízení složky
 spustí `lazurio chat defaults --apply` Platformy. Doporučení vlastní Platforma;
