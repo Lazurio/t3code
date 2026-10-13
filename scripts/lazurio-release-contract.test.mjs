@@ -539,7 +539,7 @@ NodeTest.test(
     NodeAssert.match(component, /allow="clipboard-read; clipboard-write; fullscreen"/);
     NodeAssert.match(
       component,
-      /sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"/,
+      /sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"/,
     );
     NodeAssert.match(component, /<a href=\{view\} target="_blank" rel="noopener" \/>/);
     // Only the panel's own frame, on its view's origin, is heard (unit tests in src/lazurio).
