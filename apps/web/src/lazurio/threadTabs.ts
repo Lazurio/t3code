@@ -11,9 +11,9 @@
  * the strip from the server, which also asks to reveal it; the panel then opens on it.
  *
  * This module is the pure part (the reconciliation, the reveals, the words) and the client state
- * (the last snapshot per thread, the pending holds, the titles the frames report); the hooks, the
- * frames and the strip's title, icon and tooltip are in LazurioEnvironmentBrowser.tsx, Nová karta
- * in LazurioNewTab.tsx.
+ * (the last snapshot per thread, the pending holds, the titles the frames report, their reloads);
+ * the hooks, the frames and the strip's title, icon, tooltip and tab menu are in
+ * LazurioEnvironmentBrowser.tsx, Nová karta in LazurioNewTab.tsx.
  */
 
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -309,6 +309,9 @@ interface ThreadTabsState {
   readonly snapshots: Readonly<Record<string, ThreadTabsSnapshot | null>>;
   /** The titles the frames report, by surface id: a remote tab's title is the same everywhere. */
   readonly titles: Readonly<Record<string, string>>;
+  /** How often each tab's frame was reloaded, by surface id: part of its frame's key, so a reload
+   * is a fresh frame, also of a tab behind the one in front. */
+  readonly reloads: Readonly<Record<string, number>>;
   /** The thread the chat shows, whose panel may show Nová karta. */
   readonly inView: ScopedThreadRef | null;
   /** The draft the chat shows: no thread of the server yet, so it has no tabs until its first
@@ -319,6 +322,7 @@ interface ThreadTabsState {
 export const useThreadTabsStore = create<ThreadTabsState>(() => ({
   snapshots: {},
   titles: {},
+  reloads: {},
   inView: null,
   draftInView: null,
 }));
@@ -329,6 +333,13 @@ export function rememberTitle(surfaceId: string, title: string | null): void {
     const { [surfaceId]: _previous, ...others } = state.titles;
     return { titles: title === null ? others : { ...others, [surfaceId]: title } };
   });
+}
+
+/** A fresh frame of the tab's view: the tab menu's Reload, or the sign-in notice's. */
+export function reloadSurface(surfaceId: string): void {
+  useThreadTabsStore.setState((state) => ({
+    reloads: { ...state.reloads, [surfaceId]: (state.reloads[surfaceId] ?? 0) + 1 },
+  }));
 }
 
 export const snapshotOf = (threadRef: ScopedThreadRef | null) =>
@@ -387,7 +398,13 @@ export function syncOf(threadRef: ScopedThreadRef): ThreadTabsSync {
 /** Tests start from nothing. */
 export function resetThreadTabs(): void {
   syncs.clear();
-  useThreadTabsStore.setState({ snapshots: {}, titles: {}, inView: null, draftInView: null });
+  useThreadTabsStore.setState({
+    snapshots: {},
+    titles: {},
+    reloads: {},
+    inView: null,
+    draftInView: null,
+  });
 }
 
 export type PostOutcome =

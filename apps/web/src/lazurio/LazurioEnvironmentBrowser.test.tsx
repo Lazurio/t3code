@@ -6,7 +6,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { RightPanelTabs } from "../components/RightPanelTabs";
 import { toastManager } from "../components/ui/toast";
+import { dismissContextMenu } from "../contextMenuFallback";
 import {
   type RightPanelSurface,
   selectThreadRightPanelState,
@@ -19,6 +21,9 @@ import {
   useLazurioThreadTabs,
 } from "./LazurioEnvironmentBrowser";
 import {
+  newTabSurface,
+  reloadSurface,
+  rememberTitle,
   resetThreadTabs,
   syncOf,
   tabSurfaceId,
@@ -278,11 +283,12 @@ describe("the panel's Environment browser frames", () => {
     expect(posted).toEqual([]);
   });
 
-  it("say discreetly under the view's bar where else the tab is", async () => {
+  it("show only the view: no head row above it, and no line about a shared tab", async () => {
     withSnapshot(
       snapshot([
         {
           tabId: id(1),
+          agent: true,
           alsoHeldBy: [
             { strip: "launchpad", label: "Launchpad" },
             { strip: "t3-thread-B", label: "Web shop" },
@@ -291,32 +297,42 @@ describe("the panel's Environment browser frames", () => {
       ]),
     );
     await showPanel(threadA, [tab(1)], tab(1).id);
-    expect(container.querySelector('[role="note"]')?.textContent).toBe(
-      "Shared tab · also in Apps and in the thread “Web shop”",
-    );
+    // The view's own bar is the panel's only toolbar; the strip's dot and tooltip say the rest.
+    expect(frameOf(viewOf(1)).title).toBe("Environment browser");
+    expect(container.querySelectorAll("button, a, [role='note']")).toHaveLength(0);
+    expect(container.textContent).toBe("");
+  });
+
+  it("make a fresh frame of a tab reloaded through the store, also of one behind the tab in view", async () => {
+    withSnapshot(snapshot([{ tabId: id(1) }, { tabId: id(2) }]));
+    await showPanel(threadA, [tab(1), tab(2)], tab(1).id);
+    const [first, second] = [frameOf(viewOf(1)), frameOf(viewOf(2))];
+    act(() => reloadSurface(tab(2).id));
+    expect(frameOf(viewOf(1))).toBe(first);
+    expect(frameOf(viewOf(2))).not.toBe(second);
+    expect(isHidden(frameOf(viewOf(2)))).toBe(true);
   });
 });
 
 describe("another Environment's browser in the panel", () => {
   const signInNotice = "Sign in to this Environment's browser";
 
-  it("frames it marked as that Environment's, named by the shell, telling it only this page's origin", async () => {
+  it("frames it inside a coloured border, leaves naming it to its view's bar, and tells it only this page's origin", async () => {
     withSnapshot(snapshot([{ tabId: id(1) }]));
     await showPanel(threadA, [tab(1), foreignTab], foreignTab.id);
     expect(frameOf(foreignView).getAttribute("referrerpolicy")).toBe("origin");
     expect(frameOf(foreignView).title).toBe("Another Environment's browser");
-    // The shell's element names it as that Environment's switcher does; until the shell knows it
-    // (or without the element), it says only that the browser is another Environment's.
-    const name = container.querySelector(ENVIRONMENT_ELEMENT);
-    expect(name?.getAttribute("environment")).toBe("vm-02.acme");
-    expect(name?.getAttribute("lang")).toBe("en");
-    expect(name?.textContent).toBe("Another Environment's browser");
-    expect(container.textContent).not.toContain("Acme · vm-02");
-    expect(container.querySelector("img")).toBeNull();
+    // Marked as that Environment's by its border; this Environment's tab has none.
+    expect(frameOf(foreignView).closest(".border-warning")).not.toBeNull();
+    expect(frameOf(viewOf(1)).closest(".border-warning")).toBeNull();
+    // No head: the view's own bar names that Environment, as its switcher does.
+    expect(container.querySelector(ENVIRONMENT_ELEMENT)).toBeNull();
+    expect(container.querySelectorAll("button, a")).toHaveLength(0);
+    expect(container.textContent).toBe("");
     expect(frameOf(viewOf(1)).title).toBe("Environment browser");
   });
 
-  it("asks the person to sign in there where its view does not come up", async () => {
+  it("asks the person to sign in there where its view does not come up, naming that Environment", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await showPanel(threadA, [foreignTab], foreignTab.id);
     const notice = () => container.textContent?.includes(signInNotice) ?? false;
@@ -327,6 +343,16 @@ describe("another Environment's browser in the panel", () => {
     expect(notice()).toBe(false);
     act(() => vi.advanceTimersByTime(1));
     expect(notice()).toBe(true);
+    // The shell's element names that Environment above the notice's title, as that Environment's
+    // switcher does; until the shell knows it (or without the element), it says only that the
+    // browser is another Environment's. The fork has no naming rule of its own.
+    const name = container.querySelector(ENVIRONMENT_ELEMENT);
+    expect(name?.getAttribute("environment")).toBe("vm-02.acme");
+    expect(name?.getAttribute("lang")).toBe("en");
+    expect(name?.textContent).toBe("Another Environment's browser");
+    expect(container.textContent).toContain(`Another Environment's browser${signInNotice}`);
+    expect(container.textContent).not.toContain("Acme · vm-02");
+    expect(container.querySelector("img")).toBeNull();
     const before = frameOf(foreignView);
     const reload = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Reload",
@@ -347,6 +373,155 @@ describe("another Environment's browser in the panel", () => {
     );
     act(() => vi.advanceTimersByTime(60_000));
     expect(notice()).toBe(false);
+    expect(container.querySelector(ENVIRONMENT_ELEMENT)).toBeNull();
+  });
+});
+
+describe("the strip tab's menu", () => {
+  const files: RightPanelSurface = { id: "files", kind: "files" };
+  const closes = ["Close", "Close others", "Close to the right", "Close all"];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    // Base UI's scroll area asks for animations, which jsdom does not have.
+    if (!("getAnimations" in Element.prototype)) {
+      Object.defineProperty(Element.prototype, "getAnimations", {
+        configurable: true,
+        value: () => [],
+      });
+    }
+    // The strip is the thread's the chat shows, as ChatView's hook sets it.
+    useThreadTabsStore.setState({ inView: threadA });
+    rememberTitle(tab(1).id, "Docs");
+    rememberTitle(tab(2).id, "Shop");
+    rememberTitle(foreignTab.id, "Report");
+  });
+
+  afterEach(() => dismissContextMenu());
+
+  /** Upstream's strip over the panel's frames, as ChatView draws them. */
+  async function showStrip(surfaces: readonly RightPanelSurface[], activeSurfaceId: string) {
+    await act(async () =>
+      root.render(
+        <RightPanelTabs
+          mode="inline"
+          surfaces={surfaces}
+          environmentId={null}
+          activeSurfaceId={activeSurfaceId}
+          pendingSurfaceIds={new Set()}
+          previewSessions={{}}
+          desktopByTabId={{}}
+          terminalLabelsById={new Map()}
+          onActivate={() => undefined}
+          onCloseSurface={() => undefined}
+          onCloseOtherSurfaces={() => undefined}
+          onCloseSurfacesToRight={() => undefined}
+          onCloseAllSurfaces={() => undefined}
+          onCopyFilePath={() => undefined}
+          onAddBrowser={() => undefined}
+          onAddBrowserInProfile={() => undefined}
+          onAddTerminal={() => undefined}
+          onAddPullRequest={() => undefined}
+          onAddPullRequests={() => undefined}
+          onAddDiff={() => undefined}
+          onAddFiles={() => undefined}
+          onAddAgents={() => undefined}
+          onAddDevice={() => undefined}
+          liveAgentCount={0}
+          browserAvailable={false}
+          terminalAvailable
+          diffAvailable={false}
+          filesAvailable
+          pullRequestAvailable={false}
+          pullRequestsAvailable={false}
+          agentsAvailable
+          deviceAvailable
+        >
+          <LazurioRightPanelSurfaces
+            threadRef={threadA}
+            surfaces={surfaces}
+            activeSurfaceId={activeSurfaceId}
+          >
+            {null}
+          </LazurioRightPanelSurfaces>
+        </RightPanelTabs>,
+      ),
+    );
+  }
+
+  /** Right-clicks the strip's tab titled `title`: its menu's items, which take a choice from the
+   * next frame on, as after a person's right-click. */
+  async function openMenu(title: string) {
+    const stripTab = [...container.querySelectorAll<HTMLElement>("[data-active-tab]")].find(
+      (element) => element.textContent === title,
+    );
+    if (stripTab === undefined) throw new Error(`The strip has no tab ${title}`);
+    await act(async () => {
+      stripTab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    return [...document.body.querySelectorAll<HTMLButtonElement>('[data-level="0"] button')];
+  }
+  const said = (items: readonly HTMLButtonElement[]) =>
+    items.map((item) => `${item.textContent}${item.disabled ? " (unavailable)" : ""}`);
+  const choose = (items: readonly HTMLButtonElement[], label: string) =>
+    act(async () => items.find((item) => item.textContent === label)?.click());
+
+  it("offers Open in new tab and Reload for an Environment browser tab, before upstream's closes", async () => {
+    withSnapshot(snapshot([{ tabId: id(1) }]));
+    await showStrip([tab(1), foreignTab, newTabSurface(), files], tab(1).id);
+    expect(said(await openMenu("Docs"))).toEqual(["Open in new tab", "Reload", ...closes]);
+    dismissContextMenu();
+    expect(said(await openMenu("Report"))).toEqual(["Open in new tab", "Reload", ...closes]);
+  });
+
+  it("offers only upstream's items for Nová karta and upstream's own surfaces", async () => {
+    withSnapshot(snapshot([{ tabId: id(1) }]));
+    await showStrip([newTabSurface(), files, tab(1)], tab(1).id);
+    expect(said(await openMenu("New tab"))).toEqual(closes);
+    dismissContextMenu();
+    expect(said(await openMenu("Files"))).toEqual(closes);
+  });
+
+  it("offers neither while the tab has no view address", async () => {
+    // Before the server's first answer, and where this Environment offers no browser.
+    await showStrip([tab(1), files], files.id);
+    const unavailable = ["Open in new tab (unavailable)", "Reload (unavailable)", ...closes];
+    expect(said(await openMenu("Docs"))).toEqual(unavailable);
+    dismissContextMenu();
+    act(() => withSnapshot(null));
+    expect(said(await openMenu("Docs"))).toEqual(unavailable);
+  });
+
+  it("opens the tab's view in a new tab of the person's browser", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    withSnapshot(snapshot([{ tabId: id(1) }]));
+    await showStrip([tab(1), foreignTab], tab(1).id);
+    await choose(await openMenu("Docs"), "Open in new tab");
+    await choose(await openMenu("Report"), "Open in new tab");
+    expect(open.mock.calls).toEqual([
+      [viewOf(1), "_blank", "noopener"],
+      [foreignView, "_blank", "noopener"],
+    ]);
+  });
+
+  it("reloads the tab's frame, also of a tab behind the one in view", async () => {
+    withSnapshot(snapshot([{ tabId: id(1) }, { tabId: id(2) }]));
+    await showStrip([tab(1), tab(2)], tab(1).id);
+    const [first, second] = [frameOf(viewOf(1)), frameOf(viewOf(2))];
+    await choose(await openMenu("Shop"), "Reload");
+    expect(frameOf(viewOf(2))).not.toBe(second);
+    expect(isHidden(frameOf(viewOf(2)))).toBe(true);
+    expect(frameOf(viewOf(1))).toBe(first);
+    await choose(await openMenu("Docs"), "Reload");
+    expect(frameOf(viewOf(1))).not.toBe(first);
   });
 });
 
