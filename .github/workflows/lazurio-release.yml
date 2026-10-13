@@ -78,6 +78,11 @@ jobs:
           test "$(git rev-parse "refs/tags/upstream-$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_SHA"
           test "$(git merge-base "$UPSTREAM_SHA" "$SOURCE_SHA")" = "$UPSTREAM_SHA"
           test "$(git rev-list --merges "$UPSTREAM_SHA..$SOURCE_SHA" --count)" = 0
+          # The base must be the one the source is built on, as its CI pins it. Upstream's
+          # history is linear, so every older stable tag is an ancestor too, and a release
+          # named after it would carry newer code under an older version (#69).
+          test "$(sed -n 's/^  UPSTREAM_TAG: //p' .github/workflows/lazurio-fork-ci.yml)" = "$UPSTREAM_TAG"
+          test "$(sed -n 's/^  UPSTREAM_SHA: //p' .github/workflows/lazurio-fork-ci.yml)" = "$UPSTREAM_SHA"
 
       - name: Install Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

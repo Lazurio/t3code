@@ -68,6 +68,14 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
     release,
     /git rev-list --merges "\$UPSTREAM_SHA\.\.\$SOURCE_SHA" --count\)" = 0/,
   );
+  // The base is the source's own (#69): an older upstream tag is an ancestor too.
+  for (const name of ["UPSTREAM_TAG", "UPSTREAM_SHA"])
+    NodeAssert.ok(
+      release.includes(
+        `test "$(sed -n 's/^  ${name}: //p' .github/workflows/lazurio-fork-ci.yml)" = "$${name}"`,
+      ),
+      `the release checks ${name} against the source's lazurio-fork-ci.yml`,
+    );
   // Servers take the newest release on their own channel, so a release must be
   // the highest version on its channel; channels are compared as upstream derives them.
   NodeAssert.match(release, /cliReleaseChannelOf\(published\) !== channel\) continue;/);
