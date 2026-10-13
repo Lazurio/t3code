@@ -183,6 +183,17 @@ describe("the draft", () => {
     ]);
   });
 
+  it("opens in a managed environment's Folder project whatever the cwd, and adds nothing", async () => {
+    const folder = "/home/operator/Lazurio";
+    const { calls, dependencies: deps } = dependencies({ lazurioFolder: folder });
+    await expect(openPromptDraft(link, deps)).resolves.toBe("opened");
+    expect(calls).toEqual([`find ${folder}`, "open", `prompt draft-1 ${document.text}`]);
+
+    const missing = dependencies({ lazurioFolder: folder, findProject: () => null });
+    await expect(openPromptDraft(link, missing.dependencies)).resolves.toBe("failed");
+    expect(missing.calls).toEqual([]);
+  });
+
   it("asks again when another navigation overtook the new thread", async () => {
     let attempts = 0;
     const { calls, dependencies: deps } = dependencies({

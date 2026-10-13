@@ -30,12 +30,13 @@ const livePrimaryEnvironmentIdAtom = Atom.make((get) => {
 /**
  * Lazurio overlay (Lazurio/t3code#35): once the primary environment's shell
  * is live, opens the prompt a Lazurio link named in a new thread of the
- * primary environment's project rooted at the prompt's folder, with the text
- * in the composer and nothing sent. Renders nothing; without a link it does
- * nothing at all.
+ * primary environment's project rooted at the prompt's folder (in a managed
+ * environment, its Lazurio Folder's project), with the text in the composer
+ * and nothing sent. Renders nothing; without a link it does nothing at all.
  */
 export function LazurioPromptDraft() {
   const primaryEnvironmentId = useAtomValue(livePrimaryEnvironmentIdAtom);
+  const lazurioFolder = useAtomValue(primaryServerConfigAtom)?.lazurioFolder;
   const handleNewThread = useNewThreadHandler();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const started = useRef(false);
@@ -72,6 +73,7 @@ export function LazurioPromptDraft() {
         await waitForProject(projectRef, 3_000).catch(() => null);
         return projectRef;
       },
+      lazurioFolder,
       openThread: (projectRef) => handleNewThread(projectRef),
       setPrompt: (draftId, text) => useComposerDraftStore.getState().setPrompt(draftId, text),
     }).then((outcome) => {
@@ -85,7 +87,7 @@ export function LazurioPromptDraft() {
         );
       }
     });
-  }, [createProject, handleNewThread, primaryEnvironmentId]);
+  }, [createProject, handleNewThread, lazurioFolder, primaryEnvironmentId]);
 
   return null;
 }
