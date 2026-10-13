@@ -210,7 +210,8 @@ type TabContextMenuAction =
   | "close"
   | "close-others"
   | "close-to-right"
-  | "close-all";
+  | "close-all"
+  | Lazurio.TabMenuAction;
 
 const TAB_SCROLL_EDGE_TOLERANCE = 1;
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
@@ -1061,6 +1062,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           }),
         });
       }
+      items.push(...Lazurio.tabMenuItems(surface));
       items.push(
         { id: "close", label: "Close" },
         {
@@ -1116,6 +1118,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           break;
         case null:
           break;
+        default:
+          Lazurio.runTabMenuAction(action, surface);
       }
     },
     [props],

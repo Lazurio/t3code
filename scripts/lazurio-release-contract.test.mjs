@@ -842,3 +842,29 @@ NodeTest.test('"+" and the empty panel open Nová karta through their seams', as
   NodeAssert.match(newTab, /customElements\s*\.whenDefined\(NEW_TAB_ELEMENT\)/);
   NodeAssert.doesNotMatch(newTab, /focus-address|focusAddress|\blang:/);
 });
+
+// The panel has no head row (approved by the Admin on 2026-10-13): the view's own bar, which the
+// Environment's Platform serves, is its only toolbar, and what the head row offered moves into the
+// strip tab's menu: "Open in new tab" and "Reload" for an Environment browser tab, before upstream's
+// close items, which stay. The seams are the menu's action type, one call for the items and one for
+// the action; a rebuild on a new upstream tag that loses one fails here.
+NodeTest.test("the strip tab's menu opens and reloads a tab's view through its seams", async () => {
+  const [tabs, component] = await Promise.all(
+    [
+      "apps/web/src/components/RightPanelTabs.tsx",
+      "apps/web/src/lazurio/LazurioEnvironmentBrowser.tsx",
+    ].map(read),
+  );
+  NodeAssert.match(tabs, /\n {2}\| "close-all"\n {2}\| Lazurio\.TabMenuAction;\n/);
+  NodeAssert.match(
+    tabs,
+    /\n\s+items\.push\(\.\.\.Lazurio\.tabMenuItems\(surface\)\);\n\s+items\.push\(\n\s+\{ id: "close", label: "Close" \},/,
+  );
+  NodeAssert.match(
+    tabs,
+    /\n\s+case null:\n\s+break;\n\s+default:\n\s+Lazurio\.runTabMenuAction\(action, surface\);\n\s+\}/,
+  );
+  NodeAssert.equal(tabs.match(/Lazurio\.(tabMenuItems|runTabMenuAction)\(/g)?.length, 2);
+  // The view opens in a tab of its own, which never reaches back into T3 Code.
+  NodeAssert.match(component, /window\.open\(view, "_blank", "noopener"\)/);
+});

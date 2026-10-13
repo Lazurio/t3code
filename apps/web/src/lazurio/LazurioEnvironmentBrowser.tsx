@@ -1,6 +1,6 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import { ExternalLink, Globe2, LogIn, Plus, Users } from "lucide-react";
+import type { ContextMenuItem, ScopedThreadRef } from "@t3tools/contracts";
+import { ExternalLink, Globe2, LogIn, Plus } from "lucide-react";
 import { createElement, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -13,13 +13,13 @@ import {
   EmptyTitle,
 } from "~/components/ui/empty";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { type RightPanelSurface, useRightPanelStore } from "../rightPanelStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import type { LazurioBrowserView } from "./browserView";
 import {
+  type ForeignEnvironmentBrowserTab,
   foreignEnvironmentBrowserTab,
   isPlainPrimaryClick,
   readEnvironmentBrowserMessage,
@@ -39,10 +39,10 @@ import {
   openLinkInPanel,
   parseForeignTab,
   parseThreadTabsAnswer,
-  placesOf,
   prefersCzech,
   receiveForeign,
   receiveSnapshot,
+  reloadSurface,
   rememberTitle,
   showForeignTab,
   showOwnTab,
@@ -52,6 +52,7 @@ import {
   tabSurfaceId,
   tabTooltip,
   type ThreadTab,
+  type ThreadTabsSnapshot,
   THREAD_TABS_ROUTE,
   useThreadTabsStore,
 } from "./threadTabs";
@@ -222,13 +223,14 @@ const FOREIGN_VIEW_MS = 15_000;
  * addendum of 2026-10-12). */
 export const ENVIRONMENT_ELEMENT = "lazurio-environment";
 
-/** Another Environment's view, said without naming it: what the head shows until the shell knows
- * that Environment, and where the Environment's Platform predates the element. */
+/** Another Environment's view, said without naming it: its frame's title, and its name until the
+ * shell knows that Environment, or where the Environment's Platform predates the element. */
 const anotherEnvironment = (czech: boolean) =>
   czech ? "Prohlížeč jiného Environmentu" : "Another Environment's browser";
 
-/** Another Environment's name in the panel's head: the shell's `<lazurio-environment>`, which
- * shows its children until the page's shell knows that Environment. */
+/** Another Environment's name over the notice to sign in there, where its view, whose own bar names
+ * it, did not come up: the shell's `<lazurio-environment>`, which shows its children until the
+ * page's shell knows that Environment. */
 function ForeignEnvironmentName(props: {
   readonly environment: LazurioBrowserView;
   readonly czech: boolean;
@@ -238,7 +240,7 @@ function ForeignEnvironmentName(props: {
     {
       environment: viewEnvironmentId(props.environment),
       lang: props.czech ? "cs" : "en",
-      className: "min-w-0 flex-1 truncate font-medium text-warning-foreground text-xs",
+      className: "max-w-full truncate rounded-md border px-2 py-1 font-medium text-sm",
     },
     anotherEnvironment(props.czech),
   );
@@ -301,6 +303,10 @@ export function LazurioRightPanelSurfaces(props: {
   );
 }
 
+/** The server's last answer for the thread the chat shows, whose strip RightPanelTabs draws. */
+const snapshotInView = (state: ReturnType<typeof useThreadTabsStore.getState>) =>
+  state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)];
+
 /**
  * RightPanelTabs's one hook: whether "+" and the empty panel open Nová karta (`newTab`,
  * LazurioNewTab.tsx), and the strip's tooltip of an Environment browser tab, which names the other
@@ -309,9 +315,7 @@ export function LazurioRightPanelSurfaces(props: {
  */
 export function useRightPanel(actions: ReadonlyArray<SurfaceAction>) {
   const newTab = useNewTab(actions);
-  const snapshot = useThreadTabsStore((state) =>
-    state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)],
-  );
+  const snapshot = useThreadTabsStore(snapshotInView);
   useThreadTabsStore((state) => state.titles);
   // A draft on an Environment whose shell offers Nová karta, unless the server already said that
   // this Environment has no browser for another thread.
@@ -344,11 +348,8 @@ export function surfaceTitle(surface: EnvironmentBrowserSurface): string {
 }
 
 const tabOfInView =
-  (surfaceId: string) => (state: ReturnType<typeof useThreadTabsStore.getState>) => {
-    const snapshot =
-      state.inView === null ? undefined : state.snapshots[scopedThreadKey(state.inView)];
-    return snapshot?.tabs.find((tab) => tabSurfaceId(tab.tabId) === surfaceId);
-  };
+  (surfaceId: string) => (state: ReturnType<typeof useThreadTabsStore.getState>) =>
+    snapshotInView(state)?.tabs.find((tab) => tabSurfaceId(tab.tabId) === surfaceId);
 
 /** The strip's icon of an Environment browser tab, marked while an agent works in it or another
  * place holds it too. */
@@ -372,50 +373,20 @@ export function SurfaceIcon({ surface }: { readonly surface: EnvironmentBrowserS
   );
 }
 
-/** A shared tab, said discreetly under the view's bar (wireframe HostPanel `SharedLine`). */
-function SharedLine(props: { readonly threadRef: ScopedThreadRef; readonly tabId: string }) {
-  const tab = useThreadTabsStore((state) =>
-    state.snapshots[scopedThreadKey(props.threadRef)]?.tabs.find(
-      (entry) => entry.tabId === props.tabId,
-    ),
-  );
-  if (tab === undefined || tab.alsoHeldBy.length === 0) return null;
-  const czech = prefersCzech();
-  return (
-    <div
-      role="note"
-      className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-background px-2 py-1 text-muted-foreground text-xs"
-    >
-      <Users aria-hidden className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">
-        <strong className="font-medium text-foreground">
-          {czech ? "Sdílená záložka" : "Shared tab"}
-        </strong>{" "}
-        · {czech ? "je i" : "also"} {placesOf(tab.alsoHeldBy, czech)}
-      </span>
-    </div>
-  );
-}
-
 /**
- * An Environment browser tab of the right panel: the view of one remote tab in a frame. A tab of
- * this Environment frames `<viewOrigin>/t/<id>`, the server's view origin, so no address of it is
- * stored. The frame tells the panel its tab's title; a tab its page opens becomes a new tab of the
- * panel, in front when the page is the one in view and behind it when the page is hidden, and the
- * thread holds it; a tab that ended leaves the panel (root decision 0191 point 12, F47 point 6).
- * The gateway's sign-in page cannot render in a frame once the sign-in has expired, so the view
- * also opens in a new tab. Another Lazurio Environment's tab is marked as that Environment's: a
- * coloured border, and its Organization's picture and name in the head. Where its view does not
- * come up (no session at that Environment's gateway), the panel asks the person to sign in there.
+ * What the panel frames for an Environment browser tab: another Environment's tab its own view
+ * (`foreign`, marked as that Environment's), a tab of this Environment `<view origin>/t/<id>` with
+ * the origin of the server's answer, so no address of it is stored. The view is undefined until the
+ * server's first answer, and null where this Environment offers no browser. The frame and the tab
+ * menu's "Open in new tab" share it.
  */
-function LazurioEnvironmentBrowser(props: {
-  readonly threadRef: ScopedThreadRef;
-  readonly surface: EnvironmentBrowserSurface;
-  readonly shown: boolean;
-}) {
-  const { threadRef, surface, shown } = props;
-  const snapshot = useThreadTabsStore((state) => state.snapshots[scopedThreadKey(threadRef)]);
-  const tabId = tabIdOfSurface(surface);
+function viewOfTab(
+  surface: EnvironmentBrowserSurface,
+  snapshot: ThreadTabsSnapshot | null | undefined,
+): {
+  readonly foreign: ForeignEnvironmentBrowserTab | null;
+  readonly view: string | null | undefined;
+} {
   const foreign =
     surface.view === undefined
       ? null
@@ -424,7 +395,7 @@ function LazurioEnvironmentBrowser(props: {
           window.location.origin,
           snapshot?.viewOrigin ?? null,
         );
-  // The frame's address; undefined until the server's first answer, null without a browser.
+  const tabId = tabIdOfSurface(surface);
   const view =
     foreign !== null
       ? foreign.view
@@ -433,7 +404,64 @@ function LazurioEnvironmentBrowser(props: {
         : snapshot === null
           ? null
           : undefined;
-  const [request, setRequest] = useState(0);
+  return { foreign, view };
+}
+
+/** The overlay's items of the strip tab's menu (RightPanelTabs `TabContextMenuAction`). */
+export type TabMenuAction = "lazurio-open-in-new-tab" | "lazurio-reload";
+
+/**
+ * RightPanelTabs's tab menu, before upstream's close items: for an Environment browser tab other
+ * than Nová karta, "Open in new tab" and "Reload", which the panel's head row offered until the
+ * view's own bar became its only toolbar; nothing for any other surface. In English, as every item
+ * of that upstream menu. Both wait for the tab's view address. Read when the menu opens, from the
+ * thread in view, as the strip's titles are.
+ */
+export function tabMenuItems(surface: RightPanelSurface): ContextMenuItem<TabMenuAction>[] {
+  if (!isEnvironmentBrowserSurface(surface) || isNewTabSurface(surface)) return [];
+  const disabled = !viewOfTab(surface, snapshotInView(useThreadTabsStore.getState())).view;
+  return [
+    { id: "lazurio-open-in-new-tab", label: "Open in new tab", disabled },
+    { id: "lazurio-reload", label: "Reload", disabled },
+  ];
+}
+
+/**
+ * Runs an item of `tabMenuItems`: the tab's view in a new tab of the person's browser, or a fresh
+ * frame of it, also while another tab is in front.
+ */
+export function runTabMenuAction(action: TabMenuAction, surface: RightPanelSurface): void {
+  if (!isEnvironmentBrowserSurface(surface)) return;
+  if (action === "lazurio-reload") {
+    reloadSurface(surface.id);
+    return;
+  }
+  const { view } = viewOfTab(surface, snapshotInView(useThreadTabsStore.getState()));
+  if (view) window.open(view, "_blank", "noopener");
+}
+
+/**
+ * An Environment browser tab of the right panel: the view of one remote tab in a frame, and nothing
+ * above it: the view's own bar, which the Environment's Platform serves, is the panel's only
+ * toolbar, and the strip tab's menu opens the view in a new tab or reloads it (`tabMenuItems`). The
+ * frame tells the panel its tab's title; a tab its page opens becomes a new tab of the panel, in
+ * front when the page is the one in view and behind it when the page is hidden, and the thread
+ * holds it; a tab that ended leaves the panel (root decision 0191 point 12, F47 point 6). Another
+ * Lazurio Environment's tab is marked as that Environment's by a coloured border; its view's bar
+ * names that Environment. Where its view does not come up (no session at that Environment's
+ * gateway), the panel names that Environment and asks the person to sign in there.
+ */
+function LazurioEnvironmentBrowser(props: {
+  readonly threadRef: ScopedThreadRef;
+  readonly surface: EnvironmentBrowserSurface;
+  readonly shown: boolean;
+}) {
+  const { threadRef, surface, shown } = props;
+  const snapshot = useThreadTabsStore((state) => state.snapshots[scopedThreadKey(threadRef)]);
+  // The frame's address; undefined until the server's first answer, null without a browser.
+  const { foreign, view } = viewOfTab(surface, snapshot);
+  // Each reload is a fresh frame (its key).
+  const request = useThreadTabsStore((state) => state.reloads[surface.id] ?? 0);
 
   // The requests whose frame told its tab (its view came up), fired load, or ran out of time.
   const [cameUp, setCameUp] = useState<number | null>(null);
@@ -473,52 +501,11 @@ function LazurioEnvironmentBrowser(props: {
   }, [isForeign, view, request, loaded, cameUp]);
   const signIn = isForeign && Boolean(view) && late === request && cameUp !== request;
   const czech = prefersCzech();
+  // The frame's name for assistive technology.
   const title = foreign === null ? "Environment browser" : anotherEnvironment(czech);
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", isForeign && "border-2 border-warning")}>
-      <div
-        className={cn(
-          "flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 px-2",
-          isForeign ? "bg-warning-surface" : "bg-background",
-        )}
-      >
-        {foreign === null ? (
-          <>
-            <Globe2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">{title}</span>
-          </>
-        ) : (
-          <ForeignEnvironmentName environment={foreign.environment} czech={czech} />
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Reload"
-                disabled={!view}
-                onClick={() => setRequest((value) => value + 1)}
-              />
-            }
-          >
-            <RefreshIcon refreshing={view === undefined} />
-          </TooltipTrigger>
-          <TooltipPopup>Reload</TooltipPopup>
-        </Tooltip>
-        {view ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            render={<a href={view} target="_blank" rel="noopener" />}
-          >
-            <ExternalLink aria-hidden />
-            Open in new tab
-          </Button>
-        ) : null}
-      </div>
-      {tabId !== null ? <SharedLine threadRef={threadRef} tabId={tabId} /> : null}
       {view ? (
         <div className="relative flex min-h-0 flex-1 flex-col">
           <iframe
@@ -537,6 +524,7 @@ function LazurioEnvironmentBrowser(props: {
           {signIn && foreign !== null ? (
             <div className="absolute inset-0 flex bg-background">
               <Empty size="compact">
+                <ForeignEnvironmentName environment={foreign.environment} czech={czech} />
                 <EmptyMedia variant="icon">
                   <LogIn />
                 </EmptyMedia>
@@ -558,11 +546,7 @@ function LazurioEnvironmentBrowser(props: {
                       <ExternalLink aria-hidden />
                       {czech ? "Otevřít v nové záložce" : "Open in new tab"}
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setRequest((value) => value + 1)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => reloadSurface(surface.id)}>
                       <RefreshIcon refreshing={false} />
                       {czech ? "Načíst znovu" : "Reload"}
                     </Button>
