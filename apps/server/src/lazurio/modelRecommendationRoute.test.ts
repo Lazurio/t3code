@@ -30,7 +30,12 @@ const authLayer = EnvironmentAuth.layer.pipe(
   Layer.provide(ServerEnvironment.identityLayer),
   Layer.provideMerge(configLayer),
 );
-it.layer(Layer.mergeAll(authLayer, Settings.layerTest()).pipe(Layer.provide(NodeServices.layer)), {
+// The server's own settings layer: only it reconciles a recommendation.
+const settingsLayer = Settings.layer.pipe(
+  Layer.provide(ServerSecretStore.layer),
+  Layer.provideMerge(authLayer),
+);
+it.layer(settingsLayer.pipe(Layer.provide(NodeServices.layer)), {
   excludeTestServices: true,
 })("native model recommendation route", (it) => {
   it.effect(
@@ -38,18 +43,20 @@ it.layer(Layer.mergeAll(authLayer, Settings.layerTest()).pipe(Layer.provide(Node
     () =>
       Effect.gen(function* () {
         const auth = yield* EnvironmentAuth.EnvironmentAuth;
-        const settings = yield* Settings.ServerSettingsService;
         const config = yield* ServerConfig.ServerConfig;
-        const handler = HttpRouter.toWebHandler(
-          Route.layer.pipe(
-            Layer.provideMerge(Layer.succeed(EnvironmentAuth.EnvironmentAuth, auth)),
-            Layer.provideMerge(Layer.succeed(Settings.ServerSettingsService, settings)),
-            Layer.provideMerge(ServerConfig.layer(config)),
-            Layer.provideMerge(NodeHttpPlatform.layer),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-          { disableLogger: true },
-        );
+        const handlerWith = (settings: Settings.ServerSettingsService["Service"]) =>
+          HttpRouter.toWebHandler(
+            Route.layer.pipe(
+              Layer.provideMerge(Layer.succeed(EnvironmentAuth.EnvironmentAuth, auth)),
+              Layer.provideMerge(Layer.succeed(Settings.ServerSettingsService, settings)),
+              Layer.provideMerge(ServerConfig.layer(config)),
+              Layer.provideMerge(NodeHttpPlatform.layer),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+            { disableLogger: true },
+          );
+        const settings = yield* Settings.ServerSettingsService;
+        const handler = handlerWith(settings);
         yield* Effect.addFinalizer(() => Effect.promise(() => handler.dispose()));
         const readOnly = yield* auth.issueSession({
           scopes: [AuthOrchestrationReadScope],
@@ -64,25 +71,27 @@ it.layer(Layer.mergeAll(authLayer, Settings.layerTest()).pipe(Layer.provide(Node
           model: "gpt-6.1-sol",
           options: [{ id: "reasoningEffort", value: "high" }],
         };
-        const post = (body: unknown, token?: string) =>
-          handler.handler(
-            new Request(`http://localhost${MODEL_RECOMMENDATION_ROUTE}`, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                ...(token ? { authorization: `Bearer ${token}` } : {}),
-              },
-              body: JSON.stringify(body),
-            }),
-          );
+        const request = (body: unknown, token?: string) =>
+          new Request(`http://localhost${MODEL_RECOMMENDATION_ROUTE}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(token ? { authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(body),
+          });
+        const post = (body: unknown, token?: string) => handler.handler(request(body, token));
         yield* Effect.promise(async () => {
           expect((await post({})).status).toBe(401);
           expect((await post({}, readOnly.token)).status).toBe(403);
           expect((await post({}, writer.token)).status).toBe(400);
           expect((await post({ folder: "/elsewhere", selection }, writer.token)).status).toBe(409);
-          expect(
-            (await post({ folder: config.lazurioFolder, selection }, writer.token)).status,
-          ).toBe(200);
+          const applied = await post({ folder: config.lazurioFolder, selection }, writer.token);
+          expect(applied.status).toBe(200);
+          // `t3 lazurio model` prints this answer as it is, and the Platform reads it.
+          expect(await applied.text()).toBe(
+            '{"version":1,"current":{"instanceId":"codex","model":"gpt-6.1-sol","options":[{"id":"reasoningEffort","value":"high"}]},"lastManaged":{"instanceId":"codex","model":"gpt-6.1-sol","options":[{"id":"reasoningEffort","value":"high"}]}}',
+          );
         });
         expect((yield* settings.getSettings).defaultModelSelection).toEqual(selection);
         const custom = { ...selection, options: [{ id: "reasoningEffort", value: "low" }] };
@@ -91,6 +100,17 @@ it.layer(Layer.mergeAll(authLayer, Settings.layerTest()).pipe(Layer.provide(Node
           post({ folder: config.lazurioFolder, selection }, writer.token),
         );
         expect((yield* settings.getSettings).defaultModelSelection).toEqual(custom);
+
+        // A settings service that cannot reconcile, such as upstream's test layer, refuses.
+        const testSettings = yield* Effect.service(Settings.ServerSettingsService).pipe(
+          Effect.provide(Settings.layerTest()),
+        );
+        const unavailable = handlerWith(testSettings);
+        yield* Effect.addFinalizer(() => Effect.promise(() => unavailable.dispose()));
+        const refused = yield* Effect.promise(() =>
+          unavailable.handler(request({ folder: config.lazurioFolder, selection }, writer.token)),
+        );
+        expect(refused.status).toBe(503);
       }),
   );
 });

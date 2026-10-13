@@ -1,11 +1,26 @@
+/**
+ * Lazurio overlay, the managed Lazurio Folder (LazurioPlatform F51). With `T3CODE_LAZURIO_FOLDER`
+ * (managedFolderConfig.ts) a hosted Environment's chats start in its Lazurio Folder: the engine,
+ * the provider reactor and the VCS service keep commands, agent turns and repositories there
+ * through the guards below, and the startup (managedFolderStartup.ts) gives the Folder its
+ * project. This is an entry-context contract, not a filesystem sandbox: agents start at the Folder
+ * and can then work in its repositories with their normal tools. Without the variable nothing here
+ * refuses anything.
+ */
 import type { OrchestrationCommand, OrchestrationReadModel } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 
-// This is an entry-context contract, not a filesystem sandbox. Agents start
-// at the Folder and can then work in its repositories with their normal tools.
+import { ServerConfig } from "../config.ts";
+import { OrchestrationCommandInvariantError } from "../orchestration/Errors.ts";
+
+type CommandState = Pick<OrchestrationReadModel, "projects" | "threads">;
+
+/** Why the engine refuses a command in a managed Environment, or null. */
 export function managedFolderRefusal(
   folder: string | undefined,
   command: OrchestrationCommand,
-  state: Pick<OrchestrationReadModel, "projects" | "threads">,
+  state: CommandState,
 ): string | null {
   if (folder === undefined) return null;
   const message =
@@ -52,3 +67,59 @@ export function managedFolderRefusal(
       return null;
   }
 }
+
+/** The engine's guard: fails a command `managedFolderRefusal` refuses, before it is decided. */
+export const makeCommandGuard = Effect.map(
+  ServerConfig,
+  ({ lazurioFolder }) =>
+    (command: OrchestrationCommand, state: CommandState) => {
+      const refusal = managedFolderRefusal(lazurioFolder, command, state);
+      return refusal === null
+        ? Effect.void
+        : Effect.fail(
+            new OrchestrationCommandInvariantError({ commandType: command.type, detail: refusal }),
+          );
+    },
+);
+
+const turnOutsideFolder =
+  "Agents in this Environment work in its Lazurio Folder. Start a new chat in the Lazurio project.";
+const repositoryAtFolder =
+  "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.";
+
+/**
+ * The guard of the provider reactor and the VCS service, read once from the server config: why an
+ * agent turn or a new repository is refused in a managed Environment, or null. A working directory
+ * counts as the Folder when it resolves to it, symlinks followed.
+ */
+export const makeFolderGuard = Effect.gen(function* () {
+  const { lazurioFolder: folder } = yield* ServerConfig;
+  const fs = yield* FileSystem.FileSystem;
+  /** `path` with its symlinks resolved, or null when it does not resolve. */
+  const canonical = (path: string) => fs.realPath(path).pipe(Effect.orElseSucceed(() => null));
+  return {
+    /** An agent turn runs only in the Folder itself; anywhere else, or nowhere, is refused. */
+    turnRefusal: (cwd: string | undefined): Effect.Effect<string | null> =>
+      folder === undefined
+        ? Effect.succeed(null)
+        : (cwd === undefined ? Effect.succeed(null) : canonical(cwd)).pipe(
+            Effect.map((path) => (path === folder ? null : turnOutsideFolder)),
+          ),
+    /** The Folder holds repositories, so it never becomes one; a path that does not resolve is compared as it is. */
+    repositoryRefusal: (cwd: string): Effect.Effect<string | null> =>
+      folder === undefined
+        ? Effect.succeed(null)
+        : canonical(cwd).pipe(
+            Effect.map((path) => ((path ?? cwd) === folder ? repositoryAtFolder : null)),
+          ),
+  };
+});
+
+/** The managed Folder in the config the server gives its clients (`server.getConfig`), if any. */
+export const managedFolderClientConfig = (config: {
+  readonly lazurioFolder?: string;
+  readonly lazurioToolsUrl?: string;
+}) => ({
+  ...(config.lazurioFolder === undefined ? {} : { lazurioFolder: config.lazurioFolder }),
+  ...(config.lazurioToolsUrl === undefined ? {} : { lazurioToolsUrl: config.lazurioToolsUrl }),
+});

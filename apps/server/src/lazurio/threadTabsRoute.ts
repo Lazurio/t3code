@@ -10,14 +10,14 @@
  *
  * Errors are `{"error": <reason>}`: 400 invalid-request, 404 thread-not-found, 409 too-many-tabs,
  * 503 unavailable | holder-unreadable | hold-failed. Requests authenticate as any of T3 Code's
- * HTTP routes do (a session cookie, or a bearer or DPoP token); a cookie-authenticated POST must
- * come from the external origin (EnvironmentAuth), while a same-origin EventSource, which sends no
- * Origin, passes. The scopes are upstream's for listing, opening and closing a preview
+ * HTTP routes do (a session cookie, or a bearer or DPoP token; routeAuth.ts); a cookie-authenticated
+ * POST must come from the external origin (EnvironmentAuth), while a same-origin EventSource, which
+ * sends no Origin, passes. The scopes are upstream's for listing, opening and closing a preview
  * (`requiredScopeForRpcMethod`), so they follow upstream. The stream is never compressed or
  * buffered on the way: `cache-control: no-transform` keeps the compression middleware off it.
  */
 
-import { ThreadId, WS_METHODS, type AuthEnvironmentScope } from "@t3tools/contracts";
+import { ThreadId, WS_METHODS } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -25,13 +25,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import {
-  failEnvironmentAuthInvalid,
-  failEnvironmentInternal,
-  failEnvironmentScopeRequired,
-} from "../auth/http.ts";
 import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
+import { authenticateOverlayRoute as authenticate } from "./routeAuth.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 
 export const THREAD_TABS_ROUTE = "/api/lazurio/thread-tabs";
@@ -76,26 +71,6 @@ const serverSentEvent = (event: ThreadTabs.ThreadTabsEvent) =>
 export const layer = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const threadTabs = yield* ThreadTabs.ThreadTabs;
-    const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-
-    const authenticate = (scope: AuthEnvironmentScope) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const session = yield* serverAuth.authenticateHttpRequest(request).pipe(
-          Effect.catch((error) =>
-            Effect.gen(function* () {
-              if (EnvironmentAuth.isServerAuthCredentialError(error)) {
-                return yield* failEnvironmentAuthInvalid(
-                  EnvironmentAuth.serverAuthCredentialReason(error),
-                  EnvironmentAuth.serverAuthDpopFailureReason(error),
-                );
-              }
-              return yield* failEnvironmentInternal("internal_error", error);
-            }),
-          ),
-        );
-        if (!session.scopes.includes(scope)) return yield* failEnvironmentScopeRequired(scope);
-      });
 
     const threadIdOfQuery = Effect.map(HttpServerRequest.HttpServerRequest, (request) =>
       Option.flatMap(HttpServerRequest.toURL(request), (url) =>

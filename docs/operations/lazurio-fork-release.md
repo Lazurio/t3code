@@ -216,7 +216,8 @@ commit mění.
 11. 02d8c3791, 5b4bff3b6, 09a34d82e. `apps/server/src/server.ts`\*,
     `apps/server/src/lazurio/`: `holders.ts`\* a jeho test\*, `overlay.ts`\*,
     `threadTabs.ts`\* a jeho test\*, `threadTabsRoute.ts` a jeho test\*,
-    `threadLifecycle.ts`\*, `environmentBrowser.ts`\* a jeho test\*.
+    `routeAuth.ts`\*, `threadLifecycle.ts`\*, `environmentBrowser.ts`\* a jeho
+    test\*.
 12. c9ef2a1e7, 18043f639, 26e141cd0, a6915a2eb. `apps/server/src/lazurio/`:
     `threadLifecycle.ts`\* a jeho test, `holders.ts`\* a jeho test\*,
     `threadTabs.ts`\* a jeho test\*, `threadTabsRoute.test.ts`\*, `overlay.ts`\*.
@@ -227,17 +228,15 @@ commit mění.
 14. 8b3d9c1e2. `apps/web/src/components/ChatView.tsx`\*, `RightPanelTabs.tsx`\*,
     `apps/web/src/rightPanelStore.ts`\* a jeho test,
     `apps/web/src/routes/_chat.pull-requests.tsx`.
-15. 8b0e53424, b64117698. Server: `bin.ts`, `cli/config.ts`\*, `cli/lazurio.ts`,
-    `config.ts`\*, `http.ts`, `orchestration/Layers/OrchestrationEngine.ts` a
-    jeho test, `orchestration/Layers/ProviderCommandReactor.ts`,
-    `serverRuntimeStartup.ts`, `serverSettings.ts` a jeho test,
-    `vcs/VcsProvisioningService.ts` a jeho test, `ws.ts`; jednořádkové fixtury
-    v `device/DeviceService.test.ts`, `orchestration/ThreadSettlementReactor.test.ts`,
-    `provider/Layers/ProviderRegistry.test.ts`,
-    `provider/makeManagedServerProvider.test.ts` a `terminal/Manager.test.ts`;
-    `apps/server/src/lazurio/`: `managedFolder.ts`, `managedFolderStartup.ts`,
-    `modelRecommendation.ts`, `modelRecommendationRoute.ts` a jeho test,
-    `overlay.ts`\*. Web: `components/CommandPalette.tsx`,
+15. 8b0e53424, b64117698. Server: `bin.ts`, `cli/config.ts`\*, `config.ts`\*,
+    `orchestration/Layers/OrchestrationEngine.ts` a jeho test,
+    `orchestration/Layers/ProviderCommandReactor.ts` a jeho test,
+    `serverRuntimeStartup.ts`, `serverSettings.ts`,
+    `vcs/VcsProvisioningService.ts` a jeho test, `ws.ts`;
+    `apps/server/src/lazurio/`: `cli.ts`, `managedFolder.ts`,
+    `managedFolderConfig.ts`, `modelRecommendation.ts` a
+    `modelRecommendationRoute.ts`, každý s testem, `managedFolderStartup.ts`,
+    `routeAuth.ts`\*, `overlay.ts`\*. Web: `components/CommandPalette.tsx`,
     `components/GitActionsControl.tsx`, `components/Sidebar.tsx`,
     `components/chat/DraftHeroHeadline.tsx`,
     `components/onboarding/FirstRunGate.tsx`,
@@ -245,7 +244,7 @@ commit mění.
     a jeho test, `hooks/useScratchProject.ts`, `routes/welcome.tsx`;
     `apps/web/src/lazurio/`: `ManagedFolderWelcome.tsx`, `managedFolder.ts` a
     jeho test. `packages/contracts/src/server.ts`,
-    `packages/contracts/src/settings.ts`, `packages/shared/src/serverSettings.ts`.
+    `packages/contracts/src/settings.ts`.
 
 ### Lazurio shell
 

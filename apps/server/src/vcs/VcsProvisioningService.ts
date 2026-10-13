@@ -1,5 +1,4 @@
-import { ServerConfig } from "../config.ts";
-import * as FileSystem from "effect/FileSystem";
+import { makeFolderGuard } from "../lazurio/managedFolder.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -40,22 +39,18 @@ function resolveRequestedKind(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
-  const { lazurioFolder } = yield* ServerConfig;
-  const fs = yield* FileSystem.FileSystem;
+  const lazurioFolderGuard = yield* makeFolderGuard;
 
   const initRepository: VcsProvisioningService["Service"]["initRepository"] = Effect.fn(
     "VcsProvisioningService.initRepository",
   )(function* (input) {
-    if (lazurioFolder !== undefined) {
-      const cwd = yield* fs.realPath(input.cwd).pipe(Effect.orElseSucceed(() => input.cwd));
-      if (cwd === lazurioFolder)
-        return yield* new VcsUnsupportedOperationError({
-          operation: "VcsProvisioningService.initRepository",
-          kind: input.kind ?? "git",
-          detail:
-            "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.",
-        });
-    }
+    const lazurioRefusal = yield* lazurioFolderGuard.repositoryRefusal(input.cwd);
+    if (lazurioRefusal !== null)
+      return yield* new VcsUnsupportedOperationError({
+        operation: "VcsProvisioningService.initRepository",
+        kind: input.kind ?? "git",
+        detail: lazurioRefusal,
+      });
     const kind = yield* resolveRequestedKind(input.kind);
     const driver = yield* registry.get(kind);
     return yield* driver.initRepository(input);

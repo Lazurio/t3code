@@ -138,26 +138,20 @@ jobs:
             apps/web/src/rightPanelStore.test.ts
             apps/web/src/routes/_chat.pull-requests.tsx
             # The managed Lazurio Folder (LazurioPlatform F51): with T3CODE_LAZURIO_FOLDER, Chat
-            # starts in the Environment's Folder. The server adopts or creates its project at
-            # startup, keeps commands and agent turns there, never makes the Folder root a
-            # repository and tells clients the Folder; `t3 lazurio` reports its capabilities and
-            # reconciles the Platform's recommended model where the person chose none. The web
-            # starts new threads there, hides other projects' entry points and shows the managed
-            # welcome. Five server test fixtures gain the settings service's new method.
+            # starts in the Environment's Folder. Its code lives in apps/*/src/lazurio/; these are
+            # the hooks. The server adopts or creates the Folder's project at startup, the engine,
+            # the provider reactor and the VCS service keep commands, agent turns and repositories
+            # there, the settings writer reconciles the Platform's recommended model where the
+            # person chose none, `t3 lazurio` reports both, and clients learn the Folder. The web
+            # starts new threads there, leaves out what leads elsewhere and shows the managed
+            # welcome. The engine's, the reactor's and the VCS service's tests cover the hooks.
             apps/server/src/bin.ts
-            apps/server/src/cli/lazurio.ts
-            apps/server/src/device/DeviceService.test.ts
-            apps/server/src/http.ts
             apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts
             apps/server/src/orchestration/Layers/OrchestrationEngine.ts
+            apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts
             apps/server/src/orchestration/Layers/ProviderCommandReactor.ts
-            apps/server/src/orchestration/ThreadSettlementReactor.test.ts
-            apps/server/src/provider/Layers/ProviderRegistry.test.ts
-            apps/server/src/provider/makeManagedServerProvider.test.ts
             apps/server/src/serverRuntimeStartup.ts
-            apps/server/src/serverSettings.test.ts
             apps/server/src/serverSettings.ts
-            apps/server/src/terminal/Manager.test.ts
             apps/server/src/vcs/VcsProvisioningService.test.ts
             apps/server/src/vcs/VcsProvisioningService.ts
             apps/server/src/ws.ts
@@ -173,7 +167,6 @@ jobs:
             apps/web/src/routes/welcome.tsx
             packages/contracts/src/server.ts
             packages/contracts/src/settings.ts
-            packages/shared/src/serverSettings.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

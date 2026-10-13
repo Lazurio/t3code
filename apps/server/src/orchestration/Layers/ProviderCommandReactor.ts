@@ -1,4 +1,4 @@
-import { ServerConfig } from "../../config.ts";
+import { makeFolderGuard } from "../../lazurio/managedFolder.ts";
 import { withWorkspaceLease } from "../../workspace/workspaceLease.ts";
 import {
   type ChatAttachment,
@@ -212,7 +212,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 }
 
 const make = Effect.gen(function* () {
-  const { lazurioFolder } = yield* ServerConfig;
+  const lazurioFolderGuard = yield* makeFolderGuard;
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -712,20 +712,13 @@ const make = Effect.gen(function* () {
       thread,
       projects: project ? [project] : [],
     });
-    if (lazurioFolder !== undefined) {
-      const canonicalCwd =
-        effectiveCwd === undefined
-          ? null
-          : yield* fileSystem.realPath(effectiveCwd).pipe(Effect.orElseSucceed(() => null));
-      if (canonicalCwd !== lazurioFolder) {
-        return yield* new ProviderAdapterRequestError({
-          provider: preferredProvider,
-          method: "thread.turn.start",
-          detail:
-            "Agents in this Environment work in its Lazurio Folder. Start a new chat in the Lazurio project.",
-        });
-      }
-    }
+    const lazurioRefusal = yield* lazurioFolderGuard.turnRefusal(effectiveCwd);
+    if (lazurioRefusal !== null)
+      return yield* new ProviderAdapterRequestError({
+        provider: preferredProvider,
+        method: "thread.turn.start",
+        detail: lazurioRefusal,
+      });
     const refreshWorkspaceSnapshot = effectiveCwd
       ? providerRegistry
           .refreshWorkspaceSnapshot({ instanceId: desiredInstanceId, cwd: effectiveCwd })

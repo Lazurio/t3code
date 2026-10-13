@@ -1,3 +1,8 @@
+/**
+ * Lazurio overlay (LazurioPlatform F51): `t3 lazurio`. Machines checks `t3 lazurio capabilities`
+ * (contract version 1) and the Platform's `lazurio chat defaults --apply` runs `t3 lazurio model`,
+ * so both commands' output is a contract: cli.test.ts pins it byte for byte.
+ */
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Config from "effect/Config";
 import { AuthOrchestrationOperateScope, ServerSettings } from "@t3tools/contracts";
@@ -13,11 +18,8 @@ import { FetchHttpClient, HttpBody, HttpClient } from "effect/unstable/http";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
-import {
-  MODEL_RECOMMENDATION_ROUTE,
-  ModelRecommendationRequest,
-} from "../lazurio/modelRecommendation.ts";
+import { projectLocationFlags, resolveCliAuthConfig } from "../cli/config.ts";
+import { MODEL_RECOMMENDATION_ROUTE, ModelRecommendationRequest } from "./modelRecommendation.ts";
 
 class RecommendationCommandError extends Schema.TaggedError<RecommendationCommandError>()(
   "RecommendationCommandError",

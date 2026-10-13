@@ -2,6 +2,7 @@ import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
 } from "@t3tools/shared/usageLimits";
+import { managedFolderClientConfig } from "./lazurio/managedFolder.ts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -2091,10 +2092,7 @@ const makeWsRpcLayer = (
             environment,
             auth,
             cwd: config.cwd,
-            ...(config.lazurioFolder === undefined ? {} : { lazurioFolder: config.lazurioFolder }),
-            ...(config.lazurioToolsUrl === undefined
-              ? {}
-              : { lazurioToolsUrl: config.lazurioToolsUrl }),
+            ...managedFolderClientConfig(config),
             keybindingsConfigPath: config.keybindingsConfigPath,
             keybindings: keybindingsConfig.keybindings,
             issues: keybindingsConfig.issues,

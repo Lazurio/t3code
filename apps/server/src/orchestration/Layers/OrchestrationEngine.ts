@@ -40,8 +40,7 @@ import {
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
-import { ServerConfig } from "../../config.ts";
-import { managedFolderRefusal } from "../../lazurio/managedFolder.ts";
+import { makeCommandGuard } from "../../lazurio/managedFolder.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
@@ -91,7 +90,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const crypto = yield* Crypto.Crypto;
-  const { lazurioFolder } = yield* ServerConfig;
+  const lazurioCommandGuard = yield* makeCommandGuard;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   let commandReadModel = createEmptyReadModel(yield* nowIso);
@@ -245,12 +244,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           envelope.command.type === "thread.user-input.dismiss"
             ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
             : Option.none();
-        const refusal = managedFolderRefusal(lazurioFolder, envelope.command, commandReadModel);
-        if (refusal !== null)
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: envelope.command.type,
-            detail: refusal,
-          });
+        yield* lazurioCommandGuard(envelope.command, commandReadModel);
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
