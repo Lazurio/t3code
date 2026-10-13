@@ -457,6 +457,31 @@ describe("closing in the strip and Vrátit", () => {
     expect(syncOf(threadA).ended.size).toBe(0);
   });
 
+  it("a tab whose view ended leaves as upstream's × would, and the panel closes with the last one", () => {
+    const states: ThreadRightPanelState[] = [
+      { isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] },
+      { isOpen: true, activeSurfaceId: tab(1).id, surfaces: [files, tab(1), tab(2)] },
+      { isOpen: true, activeSurfaceId: files.id, surfaces: [files, tab(1)] },
+      { isOpen: false, activeSurfaceId: tab(1).id, surfaces: [tab(1), tab(2)] },
+    ];
+    for (const state of states) {
+      setPanel(state);
+      useRightPanelStore.getState().closeSurface(threadA, tab(1).id);
+      const upstream = panel();
+      const revision = useRightPanelStore.getState().getUserActionRevision(threadA);
+      setPanel(state);
+      tabEnded(threadA, tab(1).id);
+      expect(panel()).toEqual(upstream);
+      // The view ended the tab: no choice of the person's, so upstream's later automatic
+      // panels still open.
+      expect(useRightPanelStore.getState().getUserActionRevision(threadA)).toBe(revision);
+    }
+    // The thread's last tab ended: the panel closes instead of staying open and empty.
+    setPanel({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
+    tabEnded(threadA, tab(1).id);
+    expect(panel()).toEqual({ isOpen: false, activeSurfaceId: null, surfaces: [] });
+  });
+
   it("says what becomes of the tabs, from the agent and the other holders", () => {
     const shared = { tabId: id(1), view: "", agent: false, alsoHeldBy: [] };
     expect(closeToastText([{ ...shared, agent: true }], true)).toEqual({
