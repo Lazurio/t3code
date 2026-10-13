@@ -461,14 +461,22 @@ function withSurface(
     : { ...current, surfaces, activeSurfaceId: current.activeSurfaceId ?? surface.id };
 }
 
-/** Removes a surface the way upstream closes one: the neighbour comes to the front. */
+/**
+ * Removes a surface exactly as upstream's × does (rightPanelStore `closeSurface`): the neighbour
+ * comes to the front, and the panel closes with its last surface. Upstream's action counts as the
+ * person's choice, which a tab that ended is not (it would hold back the panels upstream opens by
+ * itself after a turn), so the overlay applies the same update as an automatic one; a test holds
+ * the two equal.
+ */
 function withoutSurface(current: ThreadRightPanelState, surfaceId: string): ThreadRightPanelState {
   const index = current.surfaces.findIndex((surface) => surface.id === surfaceId);
   if (index < 0) return current;
   const surfaces = current.surfaces.filter((surface) => surface.id !== surfaceId);
-  if (current.activeSurfaceId !== surfaceId) return { ...current, surfaces };
+  const isOpen = surfaces.length > 0 && current.isOpen;
+  if (current.activeSurfaceId !== surfaceId) return { ...current, isOpen, surfaces };
   return {
     ...current,
+    isOpen,
     surfaces,
     activeSurfaceId: surfaces[Math.min(index, surfaces.length - 1)]?.id ?? null,
   };
