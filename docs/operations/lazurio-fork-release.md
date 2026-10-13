@@ -109,7 +109,7 @@ nabídne normálně.
 
 `main` je přesný upstream stable tag a nad ním jen commity overlaye. Tabulka je
 cílový stack: jeden commit na řádek, jak ho přehraje příští přestavba (viz
-[Přestavba](#přestavba-na-nový-upstream-tag)). Dnešní commity každého řádku a
+[Přestavba candidate](#3-přestavba-candidate)). Dnešní commity každého řádku a
 jeho soubory uvádí [Cílový stack](#cílový-stack). Sloupec „Upstream a
 přestavba“ říká, proč řádek zůstává a co z něj podle upstream `main` k
 2026-10-12 při přestavbě na 0.0.46 odpadne.
@@ -516,12 +516,13 @@ modelu je záměrně mimo fork.
 ## Kdy vydávat
 
 - **Nový upstream stable** (`pingdotgg/t3code` vydal `vX.Y.Z`): přestavte
-  overlay na nový tag (viz další sekce) a vydejte `X.Y.Z-lazurio.1`.
+  overlay na nový tag a vydejte `X.Y.Z-lazurio.1` postupem
+  [Nové stabilní vydání upstreamu](#nové-stabilní-vydání-upstreamu).
 - **Vlastní oprava nebo změna overlaye** na stejné bázi: po merge do `main`
   vydejte další `-lazurio.N`.
 - **Canary před stable:** z téže špičky `main` nejdřív vydejte preview
-  `X.Y.Z-preview.YYYYMMDD.N`, nainstalujte ho na canary Mašiny a teprve po
-  jejich ověření vydejte stable. Oprava během canary je nový commit na `main`
+  `X.Y.Z-preview.YYYYMMDD.N`, nainstalujte ho na canary Environment a teprve
+  po jeho ověření vydejte stable. Oprava během canary je nový commit na `main`
   a další preview `.N+1`.
 - Nevydávejte nightly a nevydávejte z jiné branche než `main`.
 - PR do `main` se mergují jen rebase, bez merge commitu. Release i CI odmítnou
@@ -530,44 +531,344 @@ modelu je záměrně mimo fork.
   `gh api repos/Lazurio/t3code/rulesets/21717536 --jq '[.rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods], [.rules[].type]'`
   vrátí `[["rebase"]]` a mezi typy `required_linear_history`.
 
-## Přestavba na nový upstream tag
+## Nové stabilní vydání upstreamu
 
-`main` je rolling patch-stack. Starý `main` se neslučuje ani nepřehrává
-hromadně. Přestavbu připravujete vy (Steward): candidate branch, checky a
-přesné SHA. Samotnou výměnu `main` provádí Organization Admin, nebo jeho Task
-Agent na jeho explicitní pokyn. Používá k tomu existující bypass
-`OrganizationAdmin` v main rulesetu 21717536. Ostatním force-push dál blokuje
-pravidlo `non_fast_forward` a běžné PR a check ochrany platí pro všechny beze
-změny.
+Když `pingdotgg/t3code` vydá nové stabilní vydání `vX.Y.Z`, overlay se na
+něm přestaví a vyjde `X.Y.Z-lazurio.1`. `main` je rolling patch-stack: starý
+`main` se neslučuje ani nepřehrává hromadně. Overlay se přehraje na přesném
+tagu jako jeden commit na řádek tabulky [Overlay](#overlay) a hotový
+candidate nahradí `main` výměnou.
 
-1. Z přesného upstream stable tagu založte candidate branch a přehrajte overlay
-   jako [Cílový stack](#cílový-stack): jeden commit na řádek tabulky Overlay,
-   s jeho předmětem, řádek 5 poslední. Každý řádek přeneste podle záměru
-   (`git cherry-pick` jeho commitů, případně ručně) a zmenšete o všechno, co
-   už upstream umí (sloupec „Upstream a přestavba“). Řádek, který odpadne celý,
-   z tabulky odeberte.
-2. V `lazurio-fork-ci.yml` aktualizujte `UPSTREAM_TAG`, `UPSTREAM_SHA` a verzi
-   `X.Y.Z-lazurio.0` u jobu `cli-archives`. Kontraktní test hlídá, že sedí
-   k `UPSTREAM_TAG`.
-3. Při každé přestavbě znovu projděte allowlist `allowed_upstream_changes`.
-   Soubor, který overlay už nemění nebo jehož změnu převzal upstream, z něj
-   odeberte. Nový soubor přidejte jen jako vědomé rozhodnutí se zdůvodněním,
-   do skupiny funkce, které patří.
-4. Otevřete PR a počkejte na zelené `Lazurio Fork CI`. Pak předejte Adminovi
-   přesný starý `main` (`expected_old_main`) a přesný nový head
-   (`candidate_head`) spolu s odkazem na zelený běh.
-5. Než se `main` přepne, musí být současný `main` zachycený publikovaným
-   **immutable** vydáním `v…-lazurio.N`. Jiný tag nestačí. Tag vydání míří
-   buď přesně na starý `main`, nebo na jeho předka, od kterého se starý
-   `main` liší jen v `docs/`. Takové commity nemění nic, co se vydává, a
-   jejich obsah přejde do nového `main` s přestavěným overlayem; kvůli nim
-   se samostatné vydání nedělá (rozhodnutí Admina 2026-10-02, DEV-6633).
-   Ověřte obojí a že vydání je immutable:
+Postup vede vlastník vydávání (Steward). Organization Admin schvaluje
+rozhodnutí, která mění chování nebo kontrakt s Lazuriem, vyměňuje `main`
+a schvaluje vydání. Etapy 2–5 a 9 může za Stewarda udělat Task Agent (pro
+etapy 2–5 je [zadání](#zadání-pro-task-agenta) níž), výměnu `main` a vydání
+jen na výslovný pokyn vázaný na přesné SHA a verzi. Stav a rozhodnutí přestavby drží jedno
+issue v tomto repozitáři s názvem `Přestavba na upstream T3 Code vX.Y.Z`;
+runbook drží postup.
+
+Přestavuje se jen na stable tagu. Nightly ani preview buildy upstreamu
+(`vX.Y.Z-nightly.…`, `vX.Y.Z-preview.…`) ji nespouštějí: workflow vydání
+přijme jen upstream tag tvaru `vX.Y.Z` a oficiální desktop a mobilní
+aplikace jsou stable vydání, takže server z nightly může mluvit protokolem,
+kterému ještě nerozumějí.
+
+Náhled na canary jde až po výměně `main`, protože workflow vydání vydává
+jen špičku `main`. Environmenty se tím nepohnou: výměna sama nic nevydá,
+preview se nikdy nenabízí a stable vyjde až po canary.
+
+### 1. Sledování
+
+Steward porovnává nejnovější stabilní vydání upstreamu s bází `main` (jen
+čtení):
+
+```bash
+gh release list --repo pingdotgg/t3code --exclude-drafts --exclude-pre-releases --limit 3
+gh api 'repos/Lazurio/t3code/contents/.github/workflows/lazurio-fork-ci.yml?ref=main' \
+  -H 'Accept: application/vnd.github.raw' | grep -E '^  UPSTREAM_(TAG|SHA):'
+```
+
+První příkaz vypíše tři nejnovější stabilní vydání upstreamu (název, `Latest`,
+tag a čas vydání), druhý `UPSTREAM_TAG` a `UPSTREAM_SHA`, na kterých `main`
+stojí. Odběr všech vydání upstreamu na GitHubu nestačí: upstream vydává
+několik nightly denně a stable se mezi nimi ztratí.
+
+Když je upstream novější, otevřete issue přestavby a převezměte ho. Začněte
+hned: oficiální desktop a mobilní aplikace se na nové vydání brzy
+aktualizují, a když nové vydání mění orchestrační protokol, k serverům forku
+na staré bázi se nepřipojí (viz
+[Desktop a mobil](#desktop-a-mobil-proti-serveru-z-forku)). Když upstream
+během přestavby vydá další stable, přestavujte rovnou na nejnovější a issue
+přejmenujte.
+
+### 2. Inventura a rozhodnutí
+
+Než se změní první řádek kódu, má issue přestavby tabulku rozhodnutí: jeden
+řádek na každý řádek tabulky [Overlay](#overlay) s tím, co upstream změnil
+v jeho souborech, s rozhodnutím, zdůvodněním a tím, kdo ho schválil.
+Podklady dá klon forku (`origin` je `Lazurio/t3code`, Git 2.40 nebo novější;
+jen čtení):
+
+```bash
+git remote add upstream https://github.com/pingdotgg/t3code.git   # jen poprvé
+NEW_TAG=v0.0.46
+git fetch origin main
+git fetch --no-tags upstream "refs/tags/${NEW_TAG}:refs/tags/upstream-${NEW_TAG}"
+OLD_SHA="$(git show origin/main:.github/workflows/lazurio-fork-ci.yml | sed -n 's/^  UPSTREAM_SHA: //p')"
+NEW_SHA="$(git rev-parse "refs/tags/upstream-$NEW_TAG^{commit}")"
+# Commit tagu podle upstreamu: anotovaný tag ho ohlašuje jako <tag>^{}, lehký tag je commit sám.
+test "$NEW_SHA" = "$(git ls-remote https://github.com/pingdotgg/t3code.git "refs/tags/${NEW_TAG}^{}" "refs/tags/${NEW_TAG}" |
+  sort -k2,2r | head -n 1 | cut -f1)"
+
+gh release view "$NEW_TAG" --repo pingdotgg/t3code   # co upstream o vydání píše
+git diff --name-only "$OLD_SHA" origin/main > /tmp/overlay-files
+# Soubory overlaye, které upstream změnil (M) nebo smazal (D):
+git diff --name-status --no-renames "$OLD_SHA" "$NEW_SHA" |
+  awk -F'\t' 'NR == FNR { overlay[$0]; next } $2 in overlay' /tmp/overlay-files -
+# Soubory, kde se overlay s upstreamem střetne (prázdný výstup: žádný konflikt):
+git merge-tree --write-tree --name-only --merge-base="$OLD_SHA" "$NEW_SHA" origin/main |
+  awk 'NR == 1 { next } /^$/ { exit } { print }'
+# Co upstream udělal v souborech jednoho řádku (jeho soubory z Cílového stacku):
+git log --oneline "$OLD_SHA..$NEW_SHA" -- <soubory řádku>
+# Nové a změněné upstream workflow:
+git diff --name-status "$OLD_SHA" "$NEW_SHA" -- .github/workflows/
+```
+
+`git merge-tree` slučuje celý overlay naráz; přehrávání po řádcích potká
+tytéž konflikty po částech. Pro každý řádek pak zvolte jedno rozhodnutí:
+
+- **ponechat**: upstream nic podobného nemá a švy řádku na nové bázi sedí;
+- **přestavět**: upstream šev smazal (D výš) nebo přesunul na nové API;
+  záměr řádku zůstává a postaví se znovu na novém API;
+- **zmenšit**: část řádku upstream už umí, ta z řádku odpadne;
+- **odebrat**: upstream umí celý řádek; řádek z tabulky Overlay odejde
+  a jeho soubory z allowlistu.
+
+K tomu případně **nabídnout upstreamu**: změnu, která by pomohla všem,
+navrhněte v `pingdotgg/t3code` (issue nebo PR) a odkaz zapište do tabulky.
+
+Co se sloučí bez konfliktu, a přesto se rozbije (smazané a přejmenované
+moduly a API, které importují složky overlaye `apps/*/src/lazurio/`, švy,
+které hlídá kontraktní test), ukáže naplno až typecheck a testy candidate
+(etapa 4); co je známé z inventury, zapište do tabulky hned. K inventuře
+patří i brány z etapy 5.
+
+Rozhodnutí navrhuje Steward. Organization Admin schvaluje každé, které mění
+chování pro lidi nebo jiné systémy (brány z etapy 5), přidává soubor do
+allowlistu nebo vybírá mezi dvěma mechanismy; v issue citujte zvolenou
+možnost. Kód se začne měnit, až v tabulce nezbývá otevřené rozhodnutí.
+
+### 3. Přestavba candidate
+
+Candidate vzniká v samostatném worktree z přesného tagu (proměnné z etapy 2):
+
+```bash
+git worktree add -b "lazurio/rebuild-$NEW_TAG" "../t3code-rebuild-$NEW_TAG" "$NEW_SHA"
+cd "../t3code-rebuild-$NEW_TAG"
+```
+
+Řádky přehrajte v pořadí [Cílového stacku](#cílový-stack), každý jako jeden
+commit s předmětem z tabulky Overlay, řádek 5 poslední. Řádek přeneste podle
+záměru, ne commit po commitu: jeho čistý diff proti staré bázi spojí původní
+commit, pozdější opravy i vrácené pokusy do jedné změny.
+
+```bash
+git diff --binary --full-index "$OLD_SHA" origin/main -- <soubory řádku> | git apply --3way --index
+git status --short   # UU: konflikt; vyřešte ho podle záměru a pak git add <soubor>
+git commit -m "<předmět řádku>" -m "<co řádek dělá, proč a co se na nové bázi změnilo>"
+```
+
+- Soubor, který upstream smazal, `git apply` odmítne i s celým diffem („does
+  not exist in index“). Vynechte ho (za ostatní soubory přidejte
+  `':(exclude)<soubor>'`) a šev napište znovu na novém API podle rozhodnutí
+  z tabulky.
+- Soubor označený \* v Cílovém stacku mění víc řádků. Každý řádek si vezme
+  své změny; kde je oddělit nejde, vezme celý soubor první řádek, který ho
+  mění, a další řádky ho vynechají. CI musí projít jen hlava candidate
+  branch.
+- `pnpm-lock.yaml` diffem nepřenášejte. Když řádek mění závislosti
+  (`package.json`), vygenerujte lockfile na candidate (`pnpm install`)
+  a commitněte ho s řádkem; CI instaluje s `--frozen-lockfile`.
+- Kde se commity řádku přenesou čistě, stačí `git cherry-pick -n` s nimi.
+  Jejich změny souborů distribuce vraťte
+  (`git restore --staged --worktree --source=HEAD -- <soubory>`), patří
+  řádku 5.
+- Řádek s rozhodnutím „odebrat“ nepřehrávejte; „zmenšit“ a „přestavět“
+  udělejte v jeho commitu.
+
+Řádek 5 jde poslední. Soubory distribuce vezměte ze starého `main`;
+`.github/SECURITY.md` patří upstreamu, a proto se přenáší jako ostatní
+upstream soubory:
+
+```bash
+git checkout origin/main -- .dockerignore Dockerfile.lazurio '.github/workflows/lazurio-*.yml' \
+  .github/ISSUE_TEMPLATE/1-lazurio-t3-code.yml .github/README.md 'docs/operations/lazurio-*.md' \
+  scripts/lazurio-release-contract.test.mjs
+git diff --binary --full-index "$OLD_SHA" origin/main -- .github/SECURITY.md | git apply --3way --index
+```
+
+Pak je upravte na novou bázi:
+
+- `lazurio-fork-ci.yml`: `UPSTREAM_TAG`, `UPSTREAM_SHA` a
+  `version: X.Y.Z-lazurio.0` jobu `cli-archives`. Kontraktní test hlídá, že
+  verze sedí k `UPSTREAM_TAG`, a sám obě hodnoty drží (test „CI is read-only
+  and pins the exact upstream base“): změňte je i tam.
+- Allowlist `allowed_upstream_changes`: odeberte soubory, které overlay už
+  nemění nebo jejichž změnu převzal upstream. Nový soubor přidejte jen
+  s rozhodnutím z issue a se zdůvodněním, do skupiny funkce, které patří.
+  Co candidate (i s necommitnutými změnami) pod `apps/`, `packages/`
+  a `scripts/` mění, vypíše
+  `git diff --name-only "$NEW_SHA" -- apps packages scripts | grep -vE '^apps/[^/]+/src/lazurio/'`.
+- Pevná brána testů (`gate` v kroku „Test what the overlay changes“): cesta,
+  kterou upstream smazal, krok shodí. Nahraďte ji vědomě a stejnou změnu
+  udělejte v `oldTestGate` kontraktního testu.
+- Švy, které kontraktní test hlídá a které se přesunuly (etapa 4).
+- `.github/SECURITY.md`: pod nadpisem „Upstream T3 Code“ text upstreamu
+  z nového tagu.
+- Formulář issue: příklad verze (`placeholder`).
+- Tento runbook: tabulka Overlay (bez odebraných řádků, sloupec „Upstream
+  a přestavba“ podle nové báze), Cílový stack (u každého řádku jeho commit;
+  řádek 5 je tento commit), recepty, které nová báze mění (etapa 5),
+  a příklady verzí.
+
+### 4. Kontrakt a stráže
+
+Lokálně v candidate (Node 24, pnpm 11.10.0):
+
+```bash
+node --test scripts/lazurio-release-contract.test.mjs
+pnpm install --frozen-lockfile
+pnpm exec vp fmt --check
+pnpm exec vp run --filter t3 typecheck
+pnpm exec vp run --filter @t3tools/web typecheck
+(cd apps/server && pnpm run test src/lazurio src/auth)
+(cd apps/web && pnpm run test src/lazurio)
+```
+
+Pak branch pushněte a otevřete PR do `main`, nejdřív jako draft:
+
+```bash
+git push -u origin "lazurio/rebuild-$NEW_TAG"
+gh pr create --repo Lazurio/t3code --base main --head "lazurio/rebuild-$NEW_TAG" --draft \
+  --title "Rebuild the Lazurio overlay on upstream T3 Code $NEW_TAG" --body-file <popis PR>
+gh pr checks "lazurio/rebuild-$NEW_TAG" --repo Lazurio/t3code --required --watch
+```
+
+PR slouží jen CI a review a tlačítkem se nikdy nemerguje: jeho head se stane
+`main` výměnou (etapa 6). Popis PR nese přesné vstupy (starou a novou bázi se
+SHA, `expected_old_main` a `candidate_head`), odkaz na issue přestavby,
+posunuté piny kontraktního testu a změny allowlistu a brány testů. GitHub
+v PR ukazuje i všechny změny upstreamu mezi bázemi, overlay se proto čte
+lokálně:
+
+```bash
+git diff --stat "$NEW_SHA" HEAD                           # celý overlay na nové bázi
+git range-diff "$OLD_SHA..origin/main" "$NEW_SHA..HEAD"   # overlay proti starému main
+```
+
+Povinné checky main rulesetu jsou čtyři:
+
+```bash
+gh api repos/Lazurio/t3code/rulesets/21717536 \
+  --jq '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context]'
+# ["CLI archives / Build darwin-arm64","CLI archives / Build linux-x64",
+#  "CLI archives / Launcher install linux-x64","Server and web compatibility"]
+```
+
+Co hlídají a co dělat, když selžou (podrobně
+[Testování před vydáním](#testování-před-vydáním), krok 1):
+
+- **Allowlist** (první krok CI): změna upstream souboru, který na allowlistu
+  není. Změnu vraťte, nebo soubor přidejte s rozhodnutím z issue.
+- **Kontraktní test** hlídá švy overlaye v upstream souborech. Když se šev
+  podle rozhodnutí v issue přesunul, upravte pin ve stejném commitu řádku 5
+  a v PR ho vyjmenujte. Pin, který projde jen proto, že ve stromu zůstal
+  soubor smazaný upstreamem, je chyba: soubor smažte a pin přepište na nový
+  šev.
+- **Testy** všeho, co overlay mění, a pevná brána. Testy proti skutečnému
+  Chromiu se bez `LAZURIO_TEST_DEVTOOLS_ENDPOINT` přeskočí.
+- **Formát, lint a typecheck.** Smazané a přejmenované moduly a API upstreamu
+  se ukážou tady.
+- **Image a CLI archivy** včetně `LICENSE`, produkčního faviconu a instalace
+  přes launcher.
+
+PR přepněte na Ready, až je CI na přesném headu zelené a issue má vyplněnou
+etapu 5.
+
+### 5. Kompatibilita s Lazuriem
+
+Kromě CI musí přestavba zachovat to, na co spoléhají jiné systémy a lidé. Ke
+každé bráně zapište do issue, co se na nové bázi mění, rozhodnutí a jak je to
+ověřené. Rozdíl mezi bázemi ukáže
+`git diff "$OLD_SHA" "$NEW_SHA" -- <soubory>` se soubory uvedenými u brány.
+
+- **`t3 lazurio capabilities` a `t3 lazurio model`.** Machines ověřují
+  `capabilities` (kontrakt verze 1) a `lazurio chat defaults --apply`
+  Platformy volá `model`. `apps/server/src/lazurio/cli.test.ts` drží jejich
+  výstup bajt po bajtu a při přestavbě se nemění. `model` s argumentem JSON
+  jde přes běžící službu sezením, které si CLI samo vydá; to musí mít rozsah,
+  který cesta vyžaduje
+  (`requiredScopeForRpcMethod(WS_METHODS.serverUpdateSettings)`), jinak
+  služba odpoví 403. Soubory: `apps/server/src/auth/RpcAuthorization.ts`
+  a `packages/contracts/src/auth.ts`. Na canary ověřte
+  `lazurio chat defaults --apply`.
+- **Kanál aktualizací.** Environmenty se aktualizují z vydání tohoto
+  repozitáře přes `T3CODE_RELEASE_REPOSITORY` (řádek 4). Hlídají ho testy
+  řádku 4 v CI a job `Launcher install linux-x64`. Soubor
+  `apps/server/src/cloud/serviceProtocol.ts`: když se změní
+  `SERVICE_LAUNCHER_PROTOCOL`, tlačítko Update na Environmentu se starým
+  launcherem odmítne a Environment je potřeba jednou převést (Testování před
+  vydáním, krok 3).
+- **Párování a rozsahy sezení.** Prohlížeče jsou spárované na rok
+  (`T3CODE_CLIENT_SESSION_TTL=365d`) a server uložené rozsahy nikdy
+  nerozšiřuje. Když upstream rozsahy rozdělí nebo přidá
+  (`packages/contracts/src/auth.ts`, `apps/server/src/auth/RpcAuthorization.ts`),
+  prohlížeč spárovaný na staré bázi ztratí operace, které nový rozsah
+  vyžadují, dokud se znovu nespáruje. Cesty overlaye berou rozsahy
+  z `requiredScopeForRpcMethod`, takže se posunou samy; lidem změnu oznamte
+  předem (etapa 8).
+- **Databáze.** Migrace jsou jednosměrné, starší server nemá down migrace.
+  Před aktualizací canary zálohujte databázi (Testování před vydáním, krok
+  3). Soubory `apps/server/src/config.ts` (`dbPath`) a
+  `apps/server/src/persistence/`: když nová báze databázi přesouvá nebo
+  zakládá novou, upravte zálohu a [Rollback](#rollback) ve stejné přestavbě
+  a do issue zapište, co s daty udělá návrat na starou bázi.
+- **Desktop a mobil.** Oficiální aplikace jsou upstream a se serverem se
+  domlouvají na orchestračním protokolu (`ORCHESTRATION_PROTOCOL_VERSION`
+  v `packages/contracts/src/environment.ts`; server bez něj má 1). Když se
+  liší, aplikace a server různých protokolů se nespojí (viz
+  [Desktop a mobil](#desktop-a-mobil-proti-serveru-z-forku)). Na canary
+  připojte aplikaci verze nové báze.
+- **Kontrakt prohlížeče Environmentu (LazurioPlatform F50).** Hub, pohled
+  a Launchpad Platformy čtou soubory držitelů a adresy pohledů, které overlay
+  píše a čte. Ručně kopírované části kontraktu jsou pomocníci
+  v `apps/server/src/lazurio/holders.ts` (vyjmenovává je jeho hlavička),
+  čtení adresy pohledu v obou `browserView.ts` a pravidla id záložky a jména
+  pásu v obou složkách overlaye. Dokud je úkol 703 nenahradí soubory
+  převzatými z ověřeného artefaktu shellu Platformy, musí zůstat shodné
+  s modulem kontraktu Platformy (`src/browser/contract/`). Přestavba je proto
+  přenáší beze změny chování, nanejvýš s novými importy, a `holders.test.ts`
+  s vektory Platformy i kontrola obou kopií v kontraktním testu projdou beze
+  změny vektorů. Změna kontraktu je samostatná změna s Platformou, ne součást
+  přestavby.
+- **Slot shellu a vzhled design systému.** Shell Environmentu
+  (`/.lazurio/shell.js`, rozhraní v1) se zavěšuje do `apps/web/index.html`
+  a `AppSidebarLayout.tsx` a `apps/web/src/lazurio/theme.css` mapuje jeho
+  tokeny na tokeny T3 z `apps/web/src/index.css`. Kontraktní test hlídá slot,
+  barevné role shellu a to, že mapované tokeny `index.css` deklaruje ve
+  stejném scope. Nové tokeny upstreamu nezachytí, ty mají výchozí hodnoty T3;
+  proto kontrola v prohlížeči na canary (etapa 7).
+- **Machines a Platforma.** Co nová báze potřebuje od Environmentu
+  (proměnné v drop-inu služby, oprávnění pro systemd, nové soubory nebo
+  služby) a co z overlaye volá Platforma, zapište do issue jako změny
+  Machines a Platformy. Nasazují se před stable (etapa 8).
+
+### 6. Výměna `main`
+
+Výměnu provádí Organization Admin, nebo jeho Task Agent na jeho explicitní
+pokyn vázaný na oba SHA. Používá k tomu existující bypass `OrganizationAdmin`
+v main rulesetu 21717536. Ostatním force-push dál blokuje pravidlo
+`non_fast_forward` a běžné PR a check ochrany platí pro všechny beze změny.
+Steward předá Adminovi přesný starý `main` (`expected_old_main`), přesný head
+PR (`candidate_head`) a odkaz na zelený běh CI.
+
+Předpoklady:
+
+1. `Lazurio Fork CI` je zelené na přesném headu PR, review na tomto headu
+   nemá otevřená vlákna a issue nemá otevřené rozhodnutí.
+2. Současný `main` je zachycený publikovaným **immutable** vydáním
+   `v…-lazurio.N`. Jiný tag nestačí. Tag vydání míří buď přesně na starý
+   `main`, nebo na jeho předka, od kterého se starý `main` liší jen
+   v `docs/`. Takové commity nemění nic, co se vydává, a jejich obsah přejde
+   do nového `main` s přestavěným overlayem; kvůli nim se samostatné vydání
+   nedělá (rozhodnutí Admina 2026-10-02, DEV-6633). Ověřte obojí a že vydání
+   je immutable:
 
    ```bash
    git fetch origin main --tags
    expected_old_main="$(git ls-remote https://github.com/Lazurio/t3code.git refs/heads/main | cut -f1)"
-   capture=v0.0.45-lazurio.7   # poslední stable vydání
+   candidate_head="$(gh pr view "lazurio/rebuild-$NEW_TAG" --repo Lazurio/t3code --json headRefOid --jq .headRefOid)"
+   capture="$(gh api repos/Lazurio/t3code/releases/latest --jq .tag_name)"   # poslední stable vydání
    capture_sha="$(gh api "repos/Lazurio/t3code/git/ref/tags/$capture" --jq .object.sha)"
    git merge-base --is-ancestor "$capture_sha" "$expected_old_main"
    git diff --quiet "$capture_sha" "$expected_old_main" -- . ':(exclude)docs/'
@@ -575,8 +876,9 @@ změny.
    ```
 
    Pokud starý `main` mění proti poslednímu vydání cokoli mimo `docs/`,
-   vydejte ho nejdřív. Docs commity starého `main` přeneste do candidate. Admin
-   pak ověří, že bypass existuje:
+   vydejte ho nejdřív. Docs commity starého `main` přeneste do candidate.
+
+3. Admin ověří, že bypass existuje:
 
    ```bash
    gh api repos/Lazurio/t3code/rulesets/21717536 --jq '.bypass_actors'
@@ -584,17 +886,126 @@ změny.
    # (Maintainer vidí null kvůli svým právům; readback dělá Admin.)
    ```
 
-   Potom Admin, nebo jeho Task Agent na explicitní pokyn vázaný na oba SHA,
-   vymění `main`:
+Potom Admin, nebo jeho Task Agent na explicitní pokyn vázaný na oba SHA,
+vymění `main` z klonu, který candidate head má
+(`git fetch origin "lazurio/rebuild-$NEW_TAG"`):
 
-   ```bash
-   git push --force-with-lease="refs/heads/main:$expected_old_main" \
-     origin "$candidate_head:refs/heads/main"
-   ```
+```bash
+git push --force-with-lease="refs/heads/main:$expected_old_main" \
+  origin "${candidate_head}:refs/heads/main"
+```
 
-   Neúspěšný lease znamená souběžnou změnu. Nikdy ho automaticky neopakujte.
+Neúspěšný lease znamená souběžnou změnu. Nikdy ho automaticky neopakujte.
 
-6. Vydejte `X.Y.Z-lazurio.1` z nového `main` postupem níže.
+Po výměně:
+
+- PR přestavby GitHub sám označí jako merged, protože jeho head je teď
+  `main`.
+- `Lazurio Fork CI` proběhne na `main`:
+  `gh run list --repo Lazurio/t3code --workflow lazurio-fork-ci.yml --branch main --limit 1`.
+- Nové upstream workflow vypněte (viz
+  [Hranice automatizace](#hranice-automatizace)).
+- Každé vydání z `main` je od teď na nové bázi a opravu na starou bázi už
+  vydat nejde. Vyměňujte proto, až je poslední stable na staré bázi
+  v pořádku.
+
+### 7. Náhled na canary
+
+Z nového `main` vydejte preview `X.Y.Z-preview.YYYYMMDD.1`
+([Spuštění vydání](#spuštění-vydání), [Schválení](#schválení),
+[Ověření publikovaného vydání](#ověření-publikovaného-vydání))
+a nainstalujte ho na canary Environment po záloze databáze
+([Testování před vydáním](#testování-před-vydáním), krok 3). Projděte
+všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
+řádku:
+
+- přihlášení přes Launchpad Chat a nové spárování prohlížeče; co umí
+  a neumí prohlížeč spárovaný na staré bázi;
+- `t3 lazurio capabilities`, `lazurio chat defaults --apply` Platformy
+  a nová vlákna ve složce Lazuria s uvítáním;
+- „+ Nový modul“ z Launchpadu otevře neodeslané zadání;
+- agentní turn s Codexem i s Claude: agent pracuje ve vlastním okně
+  prohlížeče Environmentu a `preview_open` ukáže jeho záložku v panelu;
+- rail, hlavička sloupce a Buddy, bez čáry mezi railem a sidebarem;
+- stará vlákna po migraci databáze a restart služby se zachovanými daty;
+- oficiální desktop aplikace verze nové báze proti serveru.
+
+Kontrolu v prohlížeči (root rozhodnutí 0178) dělá Organization Admin;
+výsledek zapište do issue. Oprava během canary je běžný PR do `main`
+a další preview `.N+1`.
+
+### 8. Stable a nasazení
+
+1. **Platforma a Machines první.** Změny, které nová verze potřebuje (etapa
+   5), dostanou všechny dotčené Environmenty dřív než stable. Stable si lidé
+   nainstalují tlačítkem Update sami a kdykoli, kdežto Platforma a Machines
+   přijdou na Environment jen naším rolloutem (rozhodnutí 0200, F47).
+2. **Oznámení lidem**, když přestavba mění, co uvidí nebo musí udělat: nové
+   spárování prohlížeče, aktualizace desktop a mobilní aplikace, cokoli
+   z tabulky rozhodnutí.
+3. **Stable `X.Y.Z-lazurio.1`** ze stejného commitu jako canary preview, po
+   výslovném souhlasu Admina. Canary Environment pak vraťte z preview
+   (Testování před vydáním, krok 4).
+4. **Co dostanou Environmenty.** Environmenty pod launcherem ukážou tlačítko
+   Update po příští kontrole kanálu (při startu a každých 6 hodin). Na
+   Environmentu, který zůstal na předchozím stable, ověřte, že Update nabídne,
+   projde trialem launcheru a zálohou databáze a `t3 --version` ukáže novou
+   verzi. Pin T3 v Machines je minimum: na stable se Environmenty dostanou
+   tlačítkem i bez něj; zvedněte ho, až má nový Environment rovnou začínat na
+   nové bázi.
+5. **Desktop a mobil** až po Update ve webové T3 (viz
+   [Desktop a mobil](#desktop-a-mobil-proti-serveru-z-forku)).
+
+### 9. Po vydání
+
+- **Upstreamu** nabídněte, co by pomohlo všem a příští overlay zmenšilo
+  (v tabulce „nabídnout upstreamu“): issue nebo PR v `pingdotgg/t3code`
+  podle jeho `CONTRIBUTING.md`. Odkaz zapište do sloupce „Upstream
+  a přestavba“.
+- **Runbook** doplňte běžným PR do `main`: Cílový stack o commity, které na
+  `main` přibyly po výměně (opravy z canary), podle pravidel řazení,
+  a sloupec „Upstream a přestavba“ podle upstream `main` toho dne. Změna jen
+  v `docs/` pravidlo zachycení z etapy 6 neporuší.
+- **Issue přestavby** zavřete s odkazem na stable vydání a PR přestavby.
+
+### Zadání pro Task Agenta
+
+Steward může etapy 2–5 svěřit Task Agentovi (Claude Code, Codex a další).
+Zadání vložte do jeho Chatu a nahraďte v něm `vX.Y.Z` a odkaz na issue:
+
+```text
+Pracuješ v repozitáři Lazurio/t3code, distribuci Lazurio T3 Code. Repozitář je veřejný.
+Upstream T3 Code vydal stabilní vX.Y.Z a přestavba overlaye na něj se vede v issue <odkaz na
+issue přestavby>. Postup je v docs/operations/lazurio-fork-release.md, sekce „Nové stabilní
+vydání upstreamu“. Přečti ji celou i sekce, na které odkazuje, a řiď se jí.
+
+Udělej etapy 2 až 5:
+1. Inventura: spusť příkazy etapy 2 a v issue vyplň tabulku rozhodnutí, jeden řádek na každý
+   řádek tabulky Overlay, a brány kompatibility z etapy 5. U každého řádku navrhni rozhodnutí
+   se zdůvodněním. Rozhodnutí, které mění chování pro lidi nebo jiné systémy, přidává soubor do
+   allowlistu nebo vybírá mezi mechanismy, nech na Organization Adminovi a dál nepokračuj,
+   dokud ho v issue nezapíše.
+2. Candidate: worktree z přesného tagu, jeden commit na řádek v pořadí Cílového stacku, řádek 5
+   poslední, každý řádek podle záměru (čistý diff řádku; šev, který upstream smazal, znovu na
+   novém API).
+3. Stráže: lokálně kontraktní test, formát, typecheck a testy overlaye. Pak push branche
+   lazurio/rebuild-vX.Y.Z a PR do main, nejdřív jako draft, s přesnými vstupy (stará a nová
+   báze, expected_old_main, candidate_head), posunutými piny kontraktního testu a změnami
+   allowlistu. Počkej na zelené Lazurio Fork CI na přesném headu a oprav, co selže. Pak PR
+   přepni na Ready.
+4. Kompatibilita: ke každé bráně etapy 5 zapiš do issue, co se mění a jak jsi to ověřil.
+
+Nikdy nepushuj na main, PR přestavby nemerguj, nevytvářej tagy ani vydání, nespouštěj workflow
+vydání, nic neschvaluj v environmentu, neměň nastavení repozitáře ani rulesety a nezapínej
+upstream workflow. Force push smíš jen na vlastní PR branch s přesným
+--force-with-lease=<ref>:<sha>. Výměna main, vydání a jejich schválení (etapy 6 až 8) patří
+Adminovi a Stewardovi; uděláš je jen na jejich výslovný pokyn vázaný na přesné SHA a verzi.
+Do kódu, commitů, PR ani issue nepiš jména klientských Organizací, lidí ani soukromých hostů,
+jen Environmenty a role.
+
+Na konci vrať odkaz na PR a jeho přesný head, expected_old_main, odkaz na zelený běh CI, stav
+tabulky rozhodnutí a bran, posunuté piny kontraktního testu a co zůstává otevřené.
+```
 
 ## Testování před vydáním
 
@@ -641,10 +1052,11 @@ změny.
    git checkout -- apps/server/package.json apps/web/package.json apps/desktop/package.json packages/contracts/package.json
    ```
 
-3. **Canary přes preview.** Vydejte preview a na canary Mašinách pod launcherem
-   (nejdřív testovací VM klientské Organizace, potom osobní VM a další Mašiny) ho nainstalujte přes
-   SSH s TTY. Lokální `t3 update` nejde přes launcherův trial ani zálohu
-   databáze (ty má jen tlačítko Update, #22), proto nejdřív zálohujte databázi:
+3. **Canary přes preview.** Vydejte preview a nainstalujte ho přes SSH s TTY
+   na canary Environmenty pod launcherem: nejdřív testovací Environment
+   klientské Organizace, potom osobní a další Environmenty. Lokální
+   `t3 update` nejde přes launcherův trial ani zálohu databáze (ty má jen
+   tlačítko Update, #22), proto nejdřív zálohujte databázi:
 
    ```bash
    # Konzistentní kopie za běhu (SQLite backup API)
@@ -668,7 +1080,7 @@ t3code.service && systemctl --user start t3code.service` (#25).
    Ověřte přesnou verzi, `~/.t3/runtime/service-state.json` (protokol
    a `activeVersion`), přihlášení a pairing přes Launchpad Chat, terminál,
    agentní turn, starý i nový thread, upload a download, reconnect a restart
-   služby se zachovanými daty. Ověřte také, že Mašina na stable preview
+   služby se zachovanými daty. Ověřte také, že Environment na stable preview
    nenabízí (`/.well-known/t3/environment` → `availableServerUpdate`). První
    selhání zastaví rozšiřování.
 
@@ -692,15 +1104,16 @@ t3code.service && systemctl --user start t3code.service` (#25).
    Environmentu se starší Platformou vypadá T3 jako upstream.
 
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
-   zeleném canary a výslovném souhlasu Admina. Canary Mašiny vraťte z preview
-   (se stejnou proměnnou): `t3 update --channel stable --allow-downgrade`
-   (bez `--allow-downgrade` je to odmítnuté, SemVer řadí `-lazurio.N` pod
-   `-preview.…`). Mašiny na předchozím stable ukážou banner Update po příští
-   kontrole kanálu (při startu a každých 6 hodin). Tlačítko projde trialem
-   launcheru a zálohou databáze, **jen když má Mašina launcher se stejným
-   protokolem, jaký nová verze vyžaduje**. Jinak preflight update bezpečně
-   odmítne („This release requires a newer T3 Code service launcher“) a
-   Mašinu je potřeba jednou převést lokálně (postup výše) nebo zvýšením pinu
+   zeleném canary a výslovném souhlasu Admina. Canary Environmenty vraťte
+   z preview (se stejnou proměnnou):
+   `t3 update --channel stable --allow-downgrade` (bez `--allow-downgrade` je
+   to odmítnuté, SemVer řadí `-lazurio.N` pod `-preview.…`). Environmenty na
+   předchozím stable ukážou banner Update po příští kontrole kanálu (při
+   startu a každých 6 hodin). Tlačítko projde trialem launcheru a zálohou
+   databáze, **jen když má Environment launcher se stejným protokolem, jaký
+   nová verze vyžaduje**. Jinak preflight update bezpečně odmítne („This
+   release requires a newer T3 Code service launcher“) a Environment je
+   potřeba jednou převést lokálně (postup výše) nebo zvýšením pinu
    v Machines, které instalují přes `t3 service install`.
 
 ## Spuštění vydání
@@ -710,9 +1123,12 @@ Vydání se spouští jen z `main` a jen z commitu, který je právě na jeho š
 ```bash
 VERSION=0.0.45-preview.20261012.5   # nebo stable 0.0.45-lazurio.8
 SOURCE_SHA="$(git ls-remote https://github.com/Lazurio/t3code.git refs/heads/main | cut -f1)"
-UPSTREAM_TAG=v0.0.45
-UPSTREAM_SHA="$(git ls-remote https://github.com/pingdotgg/t3code.git "refs/tags/$UPSTREAM_TAG" | cut -f1)"
-# Upstream tagy jsou lightweight, SHA tagu je přímo commit (workflow to ověří).
+# Báze zdroje z jeho lazurio-fork-ci.yml. Workflow ověří, že tag i commit se s ní
+# shodují a že tag u upstreamu míří na ten commit (#69).
+CI="$(gh api "repos/Lazurio/t3code/contents/.github/workflows/lazurio-fork-ci.yml?ref=$SOURCE_SHA" \
+  -H 'Accept: application/vnd.github.raw')"
+UPSTREAM_TAG="$(sed -n 's/^  UPSTREAM_TAG: //p' <<<"$CI")"
+UPSTREAM_SHA="$(sed -n 's/^  UPSTREAM_SHA: //p' <<<"$CI")"
 
 gh workflow run lazurio-release.yml --repo Lazurio/t3code --ref main \
   -f version="$VERSION" \
@@ -802,7 +1218,8 @@ gh api repos/Lazurio/t3code/releases/latest --jq .tag_name   # preview tu nikdy 
 tar -tzf "t3-$VERSION-linux-x64.tar.gz" | grep -Fx "t3-$VERSION-linux-x64/LICENSE"
 ```
 
-Pak proveďte Update na canary Mašině (viz Testování).
+Pak proveďte Update na canary Environmentu (viz
+[Testování před vydáním](#testování-před-vydáním)).
 
 ## Desktop a mobil proti serveru z forku
 
@@ -819,6 +1236,18 @@ nevědí:
   nejnovější upstream verzi kanálu serveru. Server ji v našem kanálu nenajde
   a skončí stejnou hláškou.
 
+**Když nová upstream báze mění orchestrační protokol**
+(`ORCHESTRATION_PROTOCOL_VERSION` v `packages/contracts/src/environment.ts`;
+server bez této konstanty má protokol 1), aplikace a server různých protokolů
+se nespojí vůbec. Server nového protokolu odmítne WebSocket aplikace se
+starším protokolem (HTTP 426) a aplikace nového protokolu se k serveru se
+starším nepřipojí a hlásí, že T3 Code na serveru potřebuje aktualizaci.
+Oficiální aplikace se na nové upstream vydání aktualizují dřív, než vyjde
+přestavba, a k Environmentům na staré bázi se do té doby nepřipojí. Proto
+přestavbu začínejte hned (etapa 1 v
+[Nové stabilní vydání upstreamu](#nové-stabilní-vydání-upstreamu)), lidem
+změnu oznamte předem a po Update ve webové T3 aktualizujte i aplikace.
+
 Ověřeno 2026-09-30 (DEV-6633): desktop 0.0.44 proti serveru
 `0.0.44-preview.…` nic nenabídl. Podrobnosti a stav v #26.
 
@@ -832,9 +1261,9 @@ Tlačítkem se na nižší verzi vrátit nedá. Rollback je vždy nové, vyšš�
 opravte chybu (nebo revertujte commit) na `main` a vydejte další
 `-lazurio.N`, během canary další preview.
 
-Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
+Nouzové cesty, když T3 na Environmentu nenaběhne a na opravu se nedá čekat:
 
-- na Mašině `t3 update <předchozí verze> --allow-downgrade`. Pokud mezitím
+- na Environmentu `t3 update <předchozí verze> --allow-downgrade`. Pokud mezitím
   proběhly nové migrace databáze (starší server nemá down migrace) nebo se
   mění protokol launcheru, nesmí starší server naběhnout dřív, než je
   databáze obnovená a stav služby zapsaný jeho CLI:
@@ -850,9 +1279,10 @@ Nouzové cesty, když Mašina nenaběhne a na opravu se nedá čekat:
 
   Data vzniklá po záloze se tím ztratí. Tahle cesta zatím nebyla živě vyzkoušená;
 
-- canary Mašinu z preview vrátit `t3 update --channel stable --allow-downgrade`.
+- canary Environment z preview vrátit
+  `t3 update --channel stable --allow-downgrade`.
 
-Pin T3 v Machines je minimum: Mašinu s vyšší verzí nevrátí.
+Pin T3 v Machines je minimum: Environment s vyšší verzí nevrátí.
 
 ## Co nedělat
 
@@ -864,7 +1294,8 @@ Pin T3 v Machines je minimum: Mašinu s vyšší verzí nevrátí.
   nekopírujte.
 - Nespoléhejte na příznak pre-release: servery ho neskryjí. Canary drží jen
   preview tvar verze.
-- Nepushujte na `main` s force mimo postup „Přestavba na nový upstream tag“.
+- Nepushujte na `main` s force mimo [výměnu `main`](#6-výměna-main).
+- PR přestavby nemergujte tlačítkem: `main` nahradí jen výměna.
 - Nespouštějte upstream workflow (`release.yml` a další) a nezapínejte je.
 
 ## Hranice automatizace
@@ -873,13 +1304,17 @@ Upstream workflow soubory zůstávají ve stromu, aby refresh zůstal bez diffu,
 v nastavení Actions tohoto repozitáře jsou **vypnuté**. Potřebují Blacksmith
 runnery a upstream secrets, takže odsud publikovat nemohou. Zapnuté by jen
 visely ve frontě nebo padaly a `release.yml` by reagoval na tagy `v*`. Když
-refresh přinese nový upstream workflow, vypněte ho také:
+přestavba přinese nový upstream workflow, vypněte ho hned po výměně `main`:
 
 ```bash
 gh workflow list --repo Lazurio/t3code --all --json id,path,state \
   | jq -r '.[] | select(.path | test("lazurio-") | not) | select(.state == "active") | .id' \
   | xargs -n1 gh workflow disable --repo Lazurio/t3code
 ```
+
+Nový upstream workflow s triggerem `pull_request` se může spustit už na PR
+přestavby. Bez Blacksmith runnerů a upstream secrets jen visí ve frontě nebo
+selže; povinným checkem není.
 
 Aktivní zůstávají jen `lazurio-fork-ci.yml` (read-only, povinný check
 `Server and web compatibility`), `lazurio-cli-archives.yml` (volaný z obou
