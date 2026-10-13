@@ -126,18 +126,16 @@ export function isPlainPrimaryClick(
   );
 }
 
-/** What the view in a panel frame says (LazurioPlatform F39, F47 point 6): its tab (title and
- * view), a page's new tab, or that its tab ended. */
+/** What the view in a panel frame says (LazurioPlatform F39, F47 point 6): its tab's title, a
+ * page's new tab, or that its tab ended. The frame that says it is the tab it speaks of. */
 export type EnvironmentBrowserMessage =
   | {
       readonly type: "info";
       /** The page's title, else its host; null for a page with neither, such as a new tab. */
       readonly title: string | null;
-      /** The remote tab the view shows, on the view's own origin; null when it names none. */
-      readonly tab: EnvironmentBrowserTab | null;
     }
   | { readonly type: "new-tab"; readonly tab: EnvironmentBrowserTab }
-  | { readonly type: "closed"; readonly tab: EnvironmentBrowserTab | null };
+  | { readonly type: "closed" };
 
 /**
  * The message of the view that `frame` (the panel frame's window) shows at `view`, or null for
@@ -157,25 +155,18 @@ export function readEnvironmentBrowserMessage(
   if (message.type === "lazurio-browser:info") {
     const { title, url } = message;
     if (typeof title !== "string" || typeof url !== "string") return null;
-    const tab = environmentBrowserTab(message.view);
-    return {
-      type: "info",
-      title: title.trim() || hostOf(url),
-      tab: tab !== null && originOf(tab.view) === origin ? tab : null,
-    };
+    return { type: "info", title: title.trim() || hostOf(url) };
   }
   if (message.type === "lazurio-browser:new-tab") {
     const tab = environmentBrowserTab(message.view);
     return tab !== null && originOf(tab.view) === origin ? { type: "new-tab", tab } : null;
   }
-  if (message.type === "lazurio-browser:closed") {
-    const tab = environmentBrowserTab(message.view);
-    return { type: "closed", tab: tab !== null && originOf(tab.view) === origin ? tab : null };
-  }
+  if (message.type === "lazurio-browser:closed") return { type: "closed" };
   return null;
 }
 
-function originOf(url: string): string | null {
+/** The origin of an address, or null when it is none. */
+export function originOf(url: string): string | null {
   try {
     return new URL(url).origin;
   } catch {

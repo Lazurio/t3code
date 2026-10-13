@@ -697,7 +697,6 @@ describe("what a snapshot says of each tab", () => {
     const [tab] = ((await w.core.read(threadA)) as ThreadTabsSnapshot).tabs;
     expect(tab).toEqual({
       tabId: id(1),
-      view: `${viewOrigin}/t/${id(1)}`,
       agent: false,
       alsoHeldBy: [
         { strip: "launchpad", label: "Launchpad" },

@@ -189,6 +189,9 @@ export function keptTabs(
     .map((tab) => tab.id);
 }
 
+/** A strip's label as a holder file keeps it: trimmed, at most 200 characters. */
+export const holderLabel = (label: string) => label.trim().slice(0, maxLabelLength);
+
 /** The hold one holder file records, or null when the file is not one: its
  * `strip` must be its file name, and only target ids count. */
 export function parseHolder(
@@ -207,8 +210,7 @@ export function parseHolder(
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
   if (record.strip !== name || !Array.isArray(record.tabs)) return null;
-  const label =
-    typeof record.label === "string" ? record.label.trim().slice(0, maxLabelLength) : "";
+  const label = typeof record.label === "string" ? holderLabel(record.label) : "";
   const tabs = [
     ...new Set(
       record.tabs
@@ -276,7 +278,7 @@ export function processAlive(pid: number): boolean {
 }
 
 /** A `.pid` file's process id when it is a well-formed one of at least 2, else null. */
-export function daemonProcessId(text: string): number | null {
+function daemonProcessId(text: string): number | null {
   const digits = text.trim();
   const pid = /^[0-9]{1,10}$/.test(digits) ? Number(digits) : Number.NaN;
   return Number.isSafeInteger(pid) && pid >= 2 ? pid : null;
@@ -367,7 +369,6 @@ export type DaemonAnswer =
 /** What the daemon stop and the bindings need of the host: overridable in tests. */
 export type DaemonSeams = Readonly<{
   alive?: (pid: number) => boolean;
-  read?: (path: string) => Promise<string>;
   /** Sends one command line to a socket and answers the reply line. */
   ask?: (socketPath: string, line: string) => Promise<DaemonAnswer>;
   /** Whether a file is still there, polled while the daemon exits. */
@@ -393,7 +394,7 @@ const absentSocketCodes = new Set(["ENOENT", "ECONNREFUSED", "ENOTSOCK"]);
 /** One command line to a Unix socket and its reply line. Nothing listening (no socket, a stale
  * one) is `absent`; no reply within 5 s, or a socket that cannot be reached for any other reason,
  * is `no-answer`. The Platform's `askDaemonSocket`. */
-export function askDaemonSocket(socketPath: string, line: string): Promise<DaemonAnswer> {
+function askDaemonSocket(socketPath: string, line: string): Promise<DaemonAnswer> {
   return new Promise((resolve) => {
     let settled = false;
     let connected = false;

@@ -50,6 +50,7 @@ import {
   fileText,
   holderDirectory,
   holderFileText,
+  holderLabel,
   isMissing,
   isStrip,
   isTargetId,
@@ -72,7 +73,6 @@ import { type LiveThread, ThreadLifecycle, type ThreadLifecycleEvent } from "./t
 export const MAX_THREAD_TABS = 128;
 /** A defensive bound well inside the 64 KiB the hub reads of a holder file. */
 const MAX_FILE_BYTES = 60 * 1024;
-const MAX_LABEL_LENGTH = 200;
 
 const REASONS = [
   "invalid-request",
@@ -99,10 +99,9 @@ export interface TabHolder {
   readonly label: string;
 }
 
+/** A tab of the thread; its view is `<viewOrigin>/t/<tabId>`, which the web builds itself. */
 export interface ThreadTab {
   readonly tabId: string;
-  /** The view of the tab, `<viewOrigin>/t/<tabId>`. */
-  readonly view: string;
   /** An agent works in it: a session bound to it has a live daemon. */
   readonly agent: boolean;
   readonly alsoHeldBy: ReadonlyArray<TabHolder>;
@@ -192,7 +191,6 @@ interface Held {
 const isThreadTabsError = Schema.is(ThreadTabsError);
 const isThreadStrip = (strip: string) => isStrip(strip) && strip.startsWith("t3-");
 const refusal = (reason: ThreadTabsErrorReason) => new ThreadTabsError({ reason });
-const cutLabel = (label: string) => label.trim().slice(0, MAX_LABEL_LENGTH);
 
 export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
   const lazurioDirectory = NodePath.join(seams.runtimeDirectory, "lazurio-browser");
@@ -275,7 +273,7 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     return { list, boot };
   }
 
-  /** The ids of `held` the hub's list lets go (`keptTabs`). */
+  /** Lets go of the tabs of `held` that the hub's list lets go (`keptTabs`), and names them. */
   function letGo(
     held: Held,
     { list, boot }: Awaited<ReturnType<typeof listAndBoot>>,
@@ -288,7 +286,9 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
         boot,
       ),
     );
-    return [...held.tabs.keys()].filter((id) => !kept.has(id));
+    const gone = [...held.tabs.keys()].filter((id) => !kept.has(id));
+    for (const id of gone) held.tabs.delete(id);
+    return gone;
   }
 
   /** Writes the file, or removes it once its last tab went, so the hub reads fewer files. */
@@ -335,14 +335,13 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       if (live === null) throw refusal("thread-not-found");
       const held = await current(strip);
       const gone = letGo(held, await listAndBoot());
-      for (const id of gone) held.tabs.delete(id);
       let changed = gone.length > 0;
       if (!held.tabs.has(tab)) {
         if (held.tabs.size >= MAX_THREAD_TABS) throw refusal("too-many-tabs");
         held.tabs.set(tab, await seams.bootClock());
         changed = true;
       }
-      if (held.label === "") held.label = cutLabel(live.title);
+      if (held.label === "") held.label = holderLabel(live.title);
       if (retired.has(strip)) throw refusal("thread-not-found");
       if (changed) await write(strip, held);
       forgetReveals(strip, gone);
@@ -354,7 +353,6 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     serialized(async () => {
       const held = await current(strip);
       const gone = letGo(held, await listAndBoot());
-      for (const id of gone) held.tabs.delete(id);
       const had = held.tabs.delete(tab);
       if (had || gone.length > 0) await write(strip, held);
       forgetReveals(strip, [...gone, tab]);
@@ -380,7 +378,6 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       try {
         const held = await current(strip);
         const gone = letGo(held, listed);
-        for (const id of gone) held.tabs.delete(id);
         if (gone.length > 0) await write(strip, held);
         forgetReveals(strip, gone);
         remember(strip, held);
@@ -525,7 +522,6 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
         const revealId = own?.get(tabId);
         return {
           tabId,
-          view: `${origin}/t/${tabId}`,
           agent: working.has(tabId),
           alsoHeldBy: (holdsOf.get(tabId) ?? []).filter((holder) => holder.strip !== strip),
           ...(revealId === undefined ? {} : { revealRequest: { id: revealId } }),
@@ -697,7 +693,7 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
         log("thread-tabs-label-skipped", { strip });
         return;
       }
-      const label = cutLabel(title);
+      const label = holderLabel(title);
       if (held.tabs.size === 0 || held.label === label) return;
       held.label = label;
       await write(strip, held);

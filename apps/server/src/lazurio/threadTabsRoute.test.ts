@@ -200,7 +200,7 @@ it.layer(authLayer.pipe(Layer.provide(NodeServices.layer)), { excludeTestService
               );
               expect(held.status).toBe(200);
               expect(((await held.json()) as ThreadTabs.ThreadTabsSnapshot).tabs).toEqual([
-                { tabId: tab, view: `${viewOrigin}/t/${tab}`, agent: false, alsoHeldBy: [] },
+                { tabId: tab, agent: false, alsoHeldBy: [] },
               ]);
               for (const threadId of [archived, "5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6"]) {
                 const missing = await on.handler(
@@ -328,7 +328,7 @@ it.layer(authLayer.pipe(Layer.provide(NodeServices.layer)), { excludeTestService
             );
             expect(await events.next()).toMatchObject({
               event: "snapshot",
-              data: { tabs: [{ tabId: tab, view: `${viewOrigin}/t/${tab}` }] },
+              data: { viewOrigin, tabs: [{ tabId: tab }] },
             });
             await events.cancel();
             // An unknown thread is a 404, on which an EventSource stops.

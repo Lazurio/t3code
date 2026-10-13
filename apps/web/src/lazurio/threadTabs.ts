@@ -28,7 +28,11 @@ import {
   type ThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
-import { environmentBrowserLink, foreignEnvironmentBrowserTab } from "./environmentBrowser";
+import {
+  environmentBrowserLink,
+  foreignEnvironmentBrowserTab,
+  originOf,
+} from "./environmentBrowser";
 
 export const THREAD_TABS_ROUTE = "/api/lazurio/thread-tabs";
 
@@ -71,13 +75,6 @@ const NEW_TAB_PREFIX = "environment-browser:new-tab:";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const originOf = (address: string) => {
-  try {
-    return new URL(address).origin;
-  } catch {
-    return null;
-  }
-};
 
 /** The panel surface of this Environment's remote tab: its id only, the address is the server's. */
 export const tabSurfaceId = (tabId: string) =>
@@ -342,6 +339,7 @@ export function reloadSurface(surfaceId: string): void {
   }));
 }
 
+/** The thread's last snapshot: undefined before the server's first answer, null while unavailable. */
 export const snapshotOf = (threadRef: ScopedThreadRef | null) =>
   threadRef === null
     ? undefined
@@ -412,7 +410,7 @@ export type PostOutcome =
   | { readonly ok: false; readonly retry: boolean; readonly status: number | null };
 
 /** POST hold or release on this page's own origin; a network failure or a 5xx may be retried. */
-export async function postThreadTab(
+async function postThreadTab(
   action: "hold" | "release",
   threadId: string,
   tabId: string,
@@ -441,7 +439,8 @@ const enqueue = (sync: ThreadTabsSync, work: () => Promise<void>) => {
 };
 const setSnapshot = (key: string, snapshot: ThreadTabsSnapshot | null) =>
   useThreadTabsStore.setState((state) => ({ snapshots: { ...state.snapshots, [key]: snapshot } }));
-const panelOf = (threadRef: ScopedThreadRef) =>
+/** The thread's right panel as the store has it now. */
+export const panelOf = (threadRef: ScopedThreadRef) =>
   selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
 const hasSurface = (threadRef: ScopedThreadRef, surfaceId: string) =>
   panelOf(threadRef).surfaces.some((surface) => surface.id === surfaceId);
@@ -713,7 +712,7 @@ export function letGoOfTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): voi
 }
 
 /** Vrátit: the tabs go back where they were and the thread holds them again (a new record). */
-export function restoreTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): void {
+function restoreTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): void {
   useRightPanelStore.getState().lazurio(threadRef, false, (current) => {
     const surfaces = [...current.surfaces];
     for (const { surface, index } of [...closed.surfaces].sort((a, b) => a.index - b.index)) {

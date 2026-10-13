@@ -26,12 +26,15 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
+import { surfaceShortcutTargetsTypingContext } from "../components/RightPanelTabs";
+import { useRightPanelStore } from "../rightPanelStore";
 import {
   chooseTab,
   type EnvironmentBrowserSurface,
   newTabSurface,
+  panelOf,
   prefersCzech,
+  snapshotOf,
   useThreadTabsStore,
 } from "./threadTabs";
 
@@ -126,15 +129,12 @@ export const useNewTabDefined = () => useNewTabStore((state) => state.defined);
 /** Upstream's actions as RightPanelTabs last rendered them: each runs in Nová karta's place. */
 let publishedActions: ReadonlyArray<SurfaceAction> = [];
 
-const panelOf = (threadRef: ScopedThreadRef) =>
-  selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
-
 /**
  * Runs upstream's action for `id`. In a Nová karta tab (`newTabId`), the surface it opens takes
  * that tab's place; one it only brings to the front leaves Nová karta out; one that opens nothing
  * (a setup dialog) leaves Nová karta as it is. An id that is no published tool is ignored.
  */
-export function runTool(threadRef: ScopedThreadRef, newTabId: string | null, id: string): void {
+function runTool(threadRef: ScopedThreadRef, newTabId: string | null, id: string): void {
   const action = publishedActions.find(
     (entry) => entry.available && entry.label !== "Browser" && toolId(entry.label) === id,
   );
@@ -159,7 +159,7 @@ export function runTool(threadRef: ScopedThreadRef, newTabId: string | null, id:
 }
 
 /** What Nová karta became: a page or tab on the thread's view origin, or a tool. */
-export function chooseInNewTab(
+function chooseInNewTab(
   threadRef: ScopedThreadRef,
   newTabId: string | null,
   choice: NewTabChoice,
@@ -168,7 +168,7 @@ export function chooseInNewTab(
     runTool(threadRef, newTabId, choice.id);
     return;
   }
-  const snapshot = useThreadTabsStore.getState().snapshots[scopedThreadKey(threadRef)];
+  const snapshot = snapshotOf(threadRef);
   if (snapshot === undefined || snapshot === null) return;
   if (!isViewOf(choice.view, choice.tab, snapshot.viewOrigin)) return;
   chooseTab(threadRef, newTabId, choice.tab);
@@ -239,12 +239,6 @@ const LETTER_BLOCKING_LAYERS = [
   '[data-slot="autocomplete-popup"]',
 ].join(",");
 
-/** Upstream's typing context (RightPanelTabs `surfaceShortcutTargetsTypingContext`). */
-const typingIn = (target: EventTarget | null) =>
-  target instanceof Element &&
-  target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !==
-    null;
-
 /** Nová karta for a thread: the element, its choices, and the tools' letters while it is shown and
  * the focus is in T3 Code's document (inside the frame, the page passes letters on itself). */
 function NewTabView(props: {
@@ -283,7 +277,7 @@ function NewTabView(props: {
       if (
         tool === undefined ||
         document.querySelector(LETTER_BLOCKING_LAYERS) ||
-        typingIn(event.target)
+        (event.target instanceof Element && surfaceShortcutTargetsTypingContext(event.target))
       ) {
         return;
       }
