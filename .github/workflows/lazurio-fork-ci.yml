@@ -196,6 +196,11 @@ jobs:
       - name: Check formatting
         run: pnpm exec vp fmt --check
 
+      # Upstream's lint script with upstream's rules, including the per-file ceilings on
+      # ManagedRuntime.make in tests that its own `vp check` holds.
+      - name: Lint
+        run: pnpm run lint
+
       - name: Typecheck server and web
         run: |
           pnpm exec vp run --filter t3 typecheck

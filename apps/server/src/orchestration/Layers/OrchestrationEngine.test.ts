@@ -142,126 +142,131 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
-  it("adopts an existing Folder project on restart and retains other project history", async () => {
-    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "managed-upgrade-"));
-    const databasePath = NodePath.join(directory, "state.sqlite");
-    const folder = "/workspace/Lazurio";
-    const previous = await createOrchestrationSystem(databasePath);
-    try {
-      for (const [name, path] of [
-        ["folder", folder],
-        ["history", "/old/repository"],
-      ] as const) {
-        await previous.run(
-          previous.engine.dispatch({
+  effectIt.live(
+    "adopts an existing Folder project on restart and retains other project history",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "managed-upgrade-")),
+        );
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+        );
+        const databasePath = NodePath.join(directory, "state.sqlite");
+        const folder = "/workspace/Lazurio";
+        // Before the Environment was managed: the Folder's project and another one.
+        yield* Effect.forEach(
+          [
+            ["folder", folder],
+            ["history", "/old/repository"],
+          ] as const,
+          ([name, path]) =>
+            Effect.flatMap(OrchestrationEngineService, (engine) =>
+              engine.dispatch({
+                type: "project.create",
+                commandId: CommandId.make(name),
+                projectId: ProjectId.make(name),
+                title: name,
+                workspaceRoot: path,
+                createdAt: now(),
+              }),
+            ),
+        ).pipe(Effect.provide(makeOrchestrationLayer(databasePath)));
+        // Managed from here on, over the same database.
+        yield* Effect.gen(function* () {
+          const adopted = yield* ensureManagedFolderProject;
+          expect(adopted.bootstrapProjectId).toBe("folder");
+          expect(adopted.bootstrapProjectCreated).toBe(false);
+          yield* ensureManagedFolderProject;
+          const snapshot = yield* Effect.flatMap(ProjectionSnapshotQuery, (query) =>
+            query.getSnapshot(),
+          );
+          expect(snapshot.projects).toHaveLength(2);
+          expect(snapshot.projects.find((p) => p.id === "history")?.workspaceRoot).toBe(
+            "/old/repository",
+          );
+        }).pipe(Effect.provide(makeOrchestrationLayer(databasePath, undefined, folder)));
+      }),
+  );
+
+  effectIt.live(
+    "managed startup adopts or creates one native project and the engine enforces its entry context",
+    () =>
+      Effect.gen(function* () {
+        const folder = "/tmp/managed-lazurio";
+        const first = yield* ensureManagedFolderProject;
+        const second = yield* ensureManagedFolderProject;
+        expect(first.bootstrapProjectCreated).toBe(true);
+        expect(second).toEqual({ ...first, bootstrapProjectCreated: false });
+        const engine = yield* OrchestrationEngineService;
+        const snapshot = yield* Effect.flatMap(ProjectionSnapshotQuery, (query) =>
+          query.getSnapshot(),
+        );
+        expect(snapshot.projects).toHaveLength(1);
+        expect(snapshot.projects[0]?.workspaceRoot).toBe(folder);
+        const id = first.bootstrapProjectId!;
+        const refusal = (command: OrchestrationCommand) =>
+          engine.dispatch(command).pipe(
+            Effect.flip,
+            Effect.map((error) => error.message),
+          );
+        expect(
+          yield* refusal({
             type: "project.create",
-            commandId: CommandId.make(name),
-            projectId: ProjectId.make(name),
-            title: name,
-            workspaceRoot: path,
+            commandId: CommandId.make("other-root"),
+            projectId: ProjectId.make("other"),
+            title: "Other",
+            workspaceRoot: `${folder}/organizations/example`,
             createdAt: now(),
           }),
-        );
-      }
-    } finally {
-      await previous.dispose();
-    }
-    const runtime = ManagedRuntime.make(makeOrchestrationLayer(databasePath, undefined, folder));
-    try {
-      const adopted = await runtime.runPromise(ensureManagedFolderProject);
-      expect(adopted.bootstrapProjectId).toBe("folder");
-      expect(adopted.bootstrapProjectCreated).toBe(false);
-      await runtime.runPromise(ensureManagedFolderProject);
-      const snapshot = await runtime.runPromise(
-        Effect.service(ProjectionSnapshotQuery).pipe(
-          Effect.flatMap((query) => query.getSnapshot()),
-        ),
-      );
-      expect(snapshot.projects).toHaveLength(2);
-      expect(snapshot.projects.find((p) => p.id === "history")?.workspaceRoot).toBe(
-        "/old/repository",
-      );
-    } finally {
-      await runtime.dispose();
-      await NodeFSP.rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("managed startup adopts or creates one native project and the engine enforces its entry context", async () => {
-    const folder = "/tmp/managed-lazurio";
-    const runtime = ManagedRuntime.make(makeOrchestrationLayer(undefined, undefined, folder));
-    try {
-      const ensure = ensureManagedFolderProject;
-      const first = await runtime.runPromise(ensure);
-      const second = await runtime.runPromise(ensure);
-      expect(first.bootstrapProjectCreated).toBe(true);
-      expect(second).toEqual({ ...first, bootstrapProjectCreated: false });
-      const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
-      const snapshot = await runtime.runPromise(
-        Effect.service(ProjectionSnapshotQuery).pipe(
-          Effect.flatMap((query) => query.getSnapshot()),
-        ),
-      );
-      expect(snapshot.projects).toHaveLength(1);
-      expect(snapshot.projects[0]?.workspaceRoot).toBe(folder);
-      const id = first.bootstrapProjectId!;
-      const dispatch = (command: OrchestrationCommand) =>
-        runtime.runPromise(engine.dispatch(command));
-      await expect(
-        dispatch({
-          type: "project.create",
-          commandId: CommandId.make("other-root"),
-          projectId: ProjectId.make("other"),
-          title: "Other",
-          workspaceRoot: `${folder}/organizations/example`,
-          createdAt: now(),
-        }),
-      ).rejects.toThrow("Lazurio");
-      await expect(
-        dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.make("retarget"),
+        ).toContain("Lazurio");
+        expect(
+          yield* refusal({
+            type: "project.meta.update",
+            commandId: CommandId.make("retarget"),
+            projectId: id,
+            workspaceRoot: "/tmp/other",
+          }),
+        ).toContain("cannot point to another folder");
+        expect(
+          yield* refusal({
+            type: "project.delete",
+            commandId: CommandId.make("delete"),
+            projectId: id,
+          }),
+        ).toContain("cannot be removed");
+        const thread = {
+          type: "thread.create" as const,
+          commandId: CommandId.make("root-thread"),
+          threadId: ThreadId.make("root-thread"),
           projectId: id,
-          workspaceRoot: "/tmp/other",
-        }),
-      ).rejects.toThrow("cannot point to another folder");
-      await expect(
-        dispatch({ type: "project.delete", commandId: CommandId.make("delete"), projectId: id }),
-      ).rejects.toThrow("cannot be removed");
-      const thread = {
-        type: "thread.create" as const,
-        commandId: CommandId.make("root-thread"),
-        threadId: ThreadId.make("root-thread"),
-        projectId: id,
-        title: "New thread",
-        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" },
-        runtimeMode: "full-access" as const,
-        interactionMode: "default" as const,
-        branch: null,
-        worktreePath: null,
-        createdAt: now(),
-      };
-      await dispatch(thread);
-      await expect(
-        dispatch({
-          ...thread,
-          commandId: CommandId.make("worktree-thread"),
-          threadId: ThreadId.make("worktree-thread"),
-          worktreePath: "/tmp/worktree",
-        }),
-      ).rejects.toThrow("Lazurio");
-      await expect(
-        dispatch({
-          type: "thread.meta.update",
-          commandId: CommandId.make("move-thread"),
-          threadId: thread.threadId,
-          worktreePath: "/tmp/worktree",
-        }),
-      ).rejects.toThrow("Lazurio");
-    } finally {
-      await runtime.dispose();
-    }
-  });
+          title: "New thread",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" },
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+          branch: null,
+          worktreePath: null,
+          createdAt: now(),
+        };
+        yield* engine.dispatch(thread);
+        expect(
+          yield* refusal({
+            ...thread,
+            commandId: CommandId.make("worktree-thread"),
+            threadId: ThreadId.make("worktree-thread"),
+            worktreePath: "/tmp/worktree",
+          }),
+        ).toContain("Lazurio");
+        expect(
+          yield* refusal({
+            type: "thread.meta.update",
+            commandId: CommandId.make("move-thread"),
+            threadId: thread.threadId,
+            worktreePath: "/tmp/worktree",
+          }),
+        ).toContain("Lazurio");
+      }).pipe(Effect.provide(makeOrchestrationLayer(undefined, undefined, "/tmp/managed-lazurio"))),
+  );
 
   it.each(["running", "stopped"] as const)(
     "sends async answers with a %s session and rejects old duplicate replies",
