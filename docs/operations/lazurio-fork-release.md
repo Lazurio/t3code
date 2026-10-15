@@ -542,7 +542,8 @@ Environmentu Lazuria nenabízí ani nepovolí:
   chybí a text řekne, že se přihlašuje v Lazuriu. Instance spravovaného
   Codexu, která je ještě přihlášená k účtu jen pro T3, si v nastavení nechá
   „Disconnect“ („Odpojit“), tedy upstream odhlášení; „Change account“ ani
-  „Reconnect“ nenabídne.
+  „Reconnect“ nenabídne. Jako upstream je neaktivní, když stránka nastavení
+  nesmí zapisovat (režim jen pro čtení) nebo je instance vypnutá.
 - **Server.** `LazurioProviderSignIn.guard` obalí upstream `ProviderAuthService`:
   pro instanci Codexu odmítne `start` i `importProfile` chybou
   `ProviderSetupError`, takže token platný jen pro T3 nevznikne ani z

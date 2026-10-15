@@ -48,7 +48,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const render = (status: ServerProvider["auth"]["status"]) =>
+const render = (
+  status: ServerProvider["auth"]["status"],
+  access: { readOnly?: boolean; enabled?: boolean } = {},
+) =>
   act(() =>
     root.render(
       <LazurioSignInRow
@@ -56,6 +59,8 @@ const render = (status: ServerProvider["auth"]["status"]) =>
         instanceId={instanceId}
         mode="managed"
         provider={provider(status)}
+        readOnly={access.readOnly ?? false}
+        enabled={access.enabled ?? true}
       />,
     ),
   );
@@ -81,6 +86,18 @@ describe("a managed Codex account on a Lazurio Environment", () => {
     expect(logout).toHaveBeenCalledWith({ environmentId, input: { instanceId } });
     // What the provider said about the sign-out reaches the person, as in upstream's setup.
     expect(container.textContent).toContain("Signed out locally.");
+  });
+
+  it("keeps Disconnect unavailable where the settings page allows no writes, as upstream's", async () => {
+    // A session without the scope to write, and an instance turned off, freeze it alike.
+    for (const access of [{ readOnly: true }, { enabled: false }]) {
+      render("authenticated", access);
+      const disconnect = container.querySelector("button");
+      expect(disconnect?.textContent).toBe("Disconnect");
+      expect(disconnect?.disabled).toBe(true);
+      await act(async () => disconnect?.click());
+    }
+    expect(logout).not.toHaveBeenCalled();
   });
 
   it("offers nothing to disconnect once signed out", () => {
