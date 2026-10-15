@@ -270,7 +270,8 @@ turns them on` (po 1250f2186). Server: `server.ts`\* (stráž nad
     `cli.ts`\* a jeho test\*, `routeAuth.ts`\*, `overlay.ts`\*. Web:
     `components/settings/CodexSetupSection.tsx`,
     `components/settings/AddProviderInstanceDialog.tsx`;
-    `apps/web/src/lazurio/`: `LazurioSignIn.tsx`, `providerSignIn.ts` a jeho test.
+    `apps/web/src/lazurio/`: `LazurioSignIn.tsx` a `providerSignIn.ts`, každý
+    s testem.
 
 ### Lazurio shell
 
@@ -538,13 +539,16 @@ Environmentu Lazuria nenabízí ani nepovolí:
   provider instance“, nastavení Codexu ve spravovaném režimu, dialog dalšího
   účtu ChatGPT a uvítání, pokud je vidět), ukáže odkaz „Open Getting started“
   na `T3CODE_LAZURIO_TOOLS_URL`, česky „Otevřít Začínáme“. Bez proměnné odkaz
-  chybí a text řekne, že se přihlašuje v Lazuriu.
+  chybí a text řekne, že se přihlašuje v Lazuriu. Instance spravovaného
+  Codexu, která je ještě přihlášená k účtu jen pro T3, si v nastavení nechá
+  „Disconnect“ („Odpojit“), tedy upstream odhlášení; „Change account“ ani
+  „Reconnect“ nenabídne.
 - **Server.** `LazurioProviderSignIn.guard` obalí upstream `ProviderAuthService`:
   pro instanci Codexu odmítne `start` i `importProfile` chybou
   `ProviderSetupError`, takže token platný jen pro T3 nevznikne ani z
   oficiální desktop nebo mobilní aplikace. Odhlášení, zrušení a ostatní
   poskytovatelé zůstávají upstreamu. Instance spravovaného Codexu, která na
-  Environmentu už je, se nemaže; jen se v ní znovu nepřihlásí.
+  Environmentu už je, se nemaže a jde odpojit; jen se v ní znovu nepřihlásí.
 - **`t3 lazurio providers <request-json>`.** Po přihlášení CLI ho spustí
   Launchpad stejného Environmentu jako uživatel Environmentu. Příkaz si vydá
   sezení z úložiště tajemství T3 (jako `t3 lazurio model`), zavolá běžící
@@ -554,12 +558,17 @@ Environmentu Lazuria nenabízí ani nepovolí:
   CLI, ne ovladač T3 (`claude` je ovladač `claudeAgent`). S `enable` služba
   nejdřív zapne výchozí instanci každého jmenovaného poskytovatele (u
   explicitní instance oba příznaky `enabled`) atomicky přes zapisovač
-  nastavení a nic jiného nemění. Pak u každé zapnuté instance jmenovaných
+  nastavení a nic jiného nemění. ID instance ovladač neurčuje: leží-li na ID
+  výchozí instance (`codex`, `claudeAgent`) instance jiného ovladače, výchozí
+  instance toho poskytovatele není. Požadavek s `enable` pak nic nezapne ani
+  znovu nenačte a odpoví 409 se seznamem, co kde leží
+  (`{"error": "driver-mismatch", "mismatches": [...]}`); příkaz tuto odpověď
+  vypíše ve své chybě. Pak u každé zapnuté instance jmenovaných
   poskytovatelů zahodí její mezipaměti (Claude si výsledek své sondy drží
   5 minut) a přečte poskytovatele znovu. Instanci, kterou požadavek právě
   zapnul, registr přestaví a nová instance poskytovatele přečte sama.
-  Odpověď `{"version": 1, "providers": [{"provider", "instanceId",
-"enabled", "status", "auth"}]}` je stav po obnově; hned po zapnutí může
+  Odpověď `{"version": 1, "providers": [...]}` s položkami `provider`,
+  `instanceId`, `enabled`, `status` a `auth` je stav po obnově; hned po zapnutí může
   ještě ukazovat kontrolu (`warning`, `unknown`), další volání bez `enable`
   už výsledek sondy. Neběží-li služba, příkaz skončí chybou a nic nemění.
   Na `t3 lazurio capabilities` je `"providerRefresh": true`.
@@ -567,8 +576,9 @@ Environmentu Lazuria nenabízí ani nepovolí:
 Bez `T3CODE_LAZURIO_FOLDER` se nic nemění; cesta a příkaz existují, ale dělají
 jen to, co klient se stejnými rozsahy může přes WebSocket. Kontraktní test
 („providers sign in through Lazurio, never through T3's own ChatGPT sign-in“)
-hlídá stráž v `server.ts`, obě stráže v `CodexSetupSection.tsx` a odkaz v
-`AddProviderInstanceDialog.tsx`; `cli.test.ts` drží výstup příkazu bajt po bajtu.
+hlídá stráž v `server.ts`, obě stráže v `CodexSetupSection.tsx` (včetně
+předání stavu instance kvůli odpojení) a odkaz v `AddProviderInstanceDialog.tsx`;
+`cli.test.ts` drží výstup příkazu bajt po bajtu.
 
 ## Kdy vydávat
 
