@@ -64,7 +64,16 @@ export function CodexSetupSection(props: CodexSetupSectionProps) {
   const [requested, setRequested] = useState(false);
   // Lazurio (root decision 0201): a Lazurio Environment signs Codex in on its Getting started page.
   const lazurioSignIn = useLazurioSignIn(props.environmentId);
-  if (lazurioSignIn) return <LazurioSignInRow environmentId={props.environmentId} />;
+  // A managed account already signed in keeps its Disconnect there, never its sign-in.
+  if (lazurioSignIn)
+    return (
+      <LazurioSignInRow
+        environmentId={props.environmentId}
+        instanceId={props.instanceId}
+        mode={props.mode}
+        provider={props.provider}
+      />
+    );
   const existingState = getOnboardingProviderState(props.provider);
   const existingReady = props.enabled && existingState === "ready";
   const existingAuthenticated = props.provider?.auth.status === "authenticated";
