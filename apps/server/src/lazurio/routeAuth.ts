@@ -1,9 +1,9 @@
 /**
- * Lazurio overlay: how the overlay's HTTP routes (threadTabsRoute.ts, modelRecommendationRoute.ts)
- * authenticate, the way upstream's own raw routes do (`authenticateRawRouteWithScope` in http.ts,
- * which upstream keeps private): EnvironmentAuth checks the session cookie or the bearer or DPoP
- * token, then the session must hold the route's scope. A missing or bad credential answers 401, a
- * missing scope 403.
+ * Lazurio overlay: how the overlay's HTTP routes (threadTabsRoute.ts, modelRecommendationRoute.ts,
+ * providerRefreshRoute.ts) authenticate, the way upstream's own raw routes do
+ * (`authenticateRawRouteWithScope` in http.ts, which upstream keeps private): EnvironmentAuth checks
+ * the session cookie or the bearer or DPoP token once, then the session must hold every scope the
+ * route needs. A missing or bad credential answers 401, a missing scope 403.
  */
 import type { AuthEnvironmentScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -16,7 +16,7 @@ import {
   failEnvironmentScopeRequired,
 } from "../auth/http.ts";
 
-export const authenticateOverlayRoute = (scope: AuthEnvironmentScope) =>
+export const authenticateOverlayRoute = (...scopes: ReadonlyArray<AuthEnvironmentScope>) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
@@ -31,5 +31,6 @@ export const authenticateOverlayRoute = (scope: AuthEnvironmentScope) =>
         failEnvironmentInternal("internal_error", error),
       ),
     );
-    if (!session.scopes.includes(scope)) return yield* failEnvironmentScopeRequired(scope);
+    for (const scope of scopes)
+      if (!session.scopes.includes(scope)) return yield* failEnvironmentScopeRequired(scope);
   });

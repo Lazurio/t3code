@@ -1,14 +1,16 @@
 /**
- * Lazurio overlay (LazurioPlatform F51): `t3 lazurio`. Machines checks `t3 lazurio capabilities`
- * (contract version 1) and the Platform's `lazurio chat defaults --apply` runs `t3 lazurio model`,
- * so both commands' output is a contract: cli.test.ts pins it byte for byte.
+ * Lazurio overlay (LazurioPlatform F51, root decision 0201): `t3 lazurio`. Machines checks
+ * `t3 lazurio capabilities` (contract version 1), the Platform's `lazurio chat defaults --apply`
+ * runs `t3 lazurio model` and the Launchpad runs `t3 lazurio providers` after Codex or Claude signed
+ * in through its CLI, so the commands' output is a contract: cli.test.ts pins it byte for byte.
  */
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Config from "effect/Config";
-import { AuthOrchestrationOperateScope, ServerSettings } from "@t3tools/contracts";
+import { type AuthEnvironmentScope, ServerSettings, WS_METHODS } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
 import { resolveBaseDir } from "../os-jank.ts";
 import * as Console from "effect/Console";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -20,15 +22,83 @@ import * as ServerConfig from "../config.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "../cli/config.ts";
 import { MODEL_RECOMMENDATION_ROUTE, ModelRecommendationRequest } from "./modelRecommendation.ts";
+import {
+  PROVIDER_REFRESH_ROUTE,
+  PROVIDER_REFRESH_SCOPES,
+  ProviderRefreshRequest,
+} from "./providerRefresh.ts";
+import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
 
-class RecommendationCommandError extends Schema.TaggedError<RecommendationCommandError>()(
-  "RecommendationCommandError",
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeModelRecommendationRequest = Schema.decodeEffect(
+  Schema.fromJsonString(ModelRecommendationRequest),
+);
+const decodeProviderRefreshRequest = Schema.decodeEffect(
+  Schema.fromJsonString(ProviderRefreshRequest),
+);
+
+class RunningServiceCommandError extends Schema.TaggedError<RunningServiceCommandError>()(
+  "RunningServiceCommandError",
   { detail: Schema.String },
 ) {
   override get message() {
     return this.detail;
   }
 }
+
+/**
+ * Post `body` to `route` on this Environment's running T3 service with a session issued for this
+ * call alone, revoked afterwards, and print the service's answer as it is. Never an offline
+ * fallback: without the running service nothing changes.
+ */
+const postToRunningService = (
+  flags: { readonly baseDir: Option.Option<string> },
+  call: {
+    readonly route: string;
+    readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+    readonly body: unknown;
+    readonly label: string;
+    readonly timeout: Duration.Input;
+    readonly notRunning: string;
+    readonly refused: (status: number) => string;
+  },
+) =>
+  Effect.gen(function* () {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveCliAuthConfig(flags, logLevel);
+    const state = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
+    if (Option.isNone(state) || !isProcessAlive(state.value.pid))
+      return yield* new RunningServiceCommandError({ detail: call.notRunning });
+    return yield* Effect.gen(function* () {
+      const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const client = yield* HttpClient.HttpClient;
+      const output = yield* Effect.acquireUseRelease(
+        auth.issueSession({ scopes: call.scopes, label: call.label }),
+        (issued) =>
+          Effect.gen(function* () {
+            const headers = { authorization: `Bearer ${issued.token}` };
+            const response = yield* client.post(`${state.value.origin}${call.route}`, {
+              headers,
+              body: yield* HttpBody.json(call.body),
+            });
+            if (response.status !== 200)
+              return yield* new RunningServiceCommandError({
+                detail: call.refused(response.status),
+              });
+            return yield* response.json;
+          }).pipe(Effect.timeout(call.timeout)),
+        (issued) => auth.revokeSession(issued.sessionId).pipe(Effect.ignore({ log: true })),
+      );
+      yield* Console.log(yield* encodeJson(output));
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          EnvironmentAuth.runtimeLayer.pipe(Layer.provide(ServerConfig.layer(config))),
+          FetchHttpClient.layer,
+        ),
+      ),
+    );
+  });
 
 const modelCommand = Command.make("model", {
   ...projectLocationFlags,
@@ -56,7 +126,7 @@ const modelCommand = Command.make("model", {
             )
           : { defaultModelSelection: null, lazurioManagedModelSelection: null };
         yield* Console.log(
-          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+          yield* encodeJson({
             version: 1,
             current: settings.defaultModelSelection,
             lastManaged: settings.lazurioManagedModelSelection,
@@ -64,51 +134,40 @@ const modelCommand = Command.make("model", {
         );
         return;
       }
-      const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveCliAuthConfig(flags, logLevel);
-      const selection = yield* Schema.decodeEffect(
-        Schema.fromJsonString(ModelRecommendationRequest),
-      )(flags.selection.value);
-      const state = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
-      if (Option.isNone(state) || !isProcessAlive(state.value.pid))
-        return yield* new RecommendationCommandError({
-          detail: "The T3 service must be running. No settings were changed.",
-        });
-      return yield* Effect.gen(function* () {
-        const auth = yield* EnvironmentAuth.EnvironmentAuth;
-        const client = yield* HttpClient.HttpClient;
-        const output = yield* Effect.acquireUseRelease(
-          auth.issueSession({
-            scopes: [AuthOrchestrationOperateScope],
-            label: "lazurio model reconciliation",
-          }),
-          (issued) =>
-            Effect.gen(function* () {
-              const headers = { authorization: `Bearer ${issued.token}` };
-              const url = `${state.value.origin}${MODEL_RECOMMENDATION_ROUTE}`;
-              const response = yield* client.post(url, {
-                headers,
-                body: yield* HttpBody.json(selection),
-              });
-              if (response.status !== 200)
-                return yield* new RecommendationCommandError({
-                  detail: `The live T3 service refused the recommendation (${response.status}). No offline fallback was attempted.`,
-                });
-              return yield* response.json;
-            }).pipe(Effect.timeout("10 seconds")),
-          (issued) => auth.revokeSession(issued.sessionId).pipe(Effect.ignore({ log: true })),
-        );
-        yield* Console.log(
-          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(output),
-        );
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            EnvironmentAuth.runtimeLayer.pipe(Layer.provide(ServerConfig.layer(config))),
-            FetchHttpClient.layer,
-          ),
-        ),
-      );
+      const selection = yield* decodeModelRecommendationRequest(flags.selection.value);
+      yield* postToRunningService(flags, {
+        route: MODEL_RECOMMENDATION_ROUTE,
+        scopes: [requiredScopeForRpcMethod(WS_METHODS.serverUpdateSettings)],
+        body: selection,
+        label: "lazurio model reconciliation",
+        timeout: "10 seconds",
+        notRunning: "The T3 service must be running. No settings were changed.",
+        refused: (status) =>
+          `The live T3 service refused the recommendation (${status}). No offline fallback was attempted.`,
+      });
+    }),
+  ),
+);
+const providersCommand = Command.make("providers", {
+  ...projectLocationFlags,
+  request: Argument.String("request-json"),
+}).pipe(
+  Command.withDescription(
+    'After Codex or Claude signed in through its CLI, turn it on and read its sign-in again through the running service, e.g. {"providers":["codex"],"enable":true}.',
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const request = yield* decodeProviderRefreshRequest(flags.request);
+      yield* postToRunningService(flags, {
+        route: PROVIDER_REFRESH_ROUTE,
+        scopes: PROVIDER_REFRESH_SCOPES,
+        body: request,
+        label: "lazurio provider refresh",
+        // Reading a provider's sign-in starts its CLI; Codex's check alone may take ten seconds.
+        timeout: "60 seconds",
+        notRunning: "The T3 service must be running. Nothing was changed.",
+        refused: (status) => `The live T3 service refused the provider refresh (${status}).`,
+      });
     }),
   ),
 );
@@ -117,10 +176,17 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
     "Report the versioned Lazurio hosting contract without reading or changing user state.",
   ),
   Command.withHandler(() =>
-    Console.log(JSON.stringify({ version: 1, managedFolder: true, modelRecommendation: true })),
+    Console.log(
+      JSON.stringify({
+        version: 1,
+        managedFolder: true,
+        modelRecommendation: true,
+        providerRefresh: true,
+      }),
+    ),
   ),
 );
 
 export const lazurioCommand = Command.make("lazurio").pipe(
-  Command.withSubcommands([modelCommand, capabilitiesCommand]),
+  Command.withSubcommands([modelCommand, providersCommand, capabilitiesCommand]),
 );
