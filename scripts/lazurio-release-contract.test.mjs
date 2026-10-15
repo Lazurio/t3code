@@ -775,7 +775,9 @@ NodeTest.test(
       const start = text.indexOf(component);
       NodeAssert.ok(start >= 0, `${message}: component`);
       const body = text.slice(start);
-      const guard = body.search(/if \(lazurioSignIn\) return <LazurioSignIn(Row|Dialog) /);
+      const guard = body.search(
+        /if \(lazurioSignIn\)\s+return (\(\s*)?<LazurioSignIn(Row|Dialog)\b/,
+      );
       NodeAssert.ok(guard > 0, `${message}: guard`);
       NodeAssert.ok(guard < body.indexOf("\n  return"), `${message}: before upstream's render`);
     };
@@ -783,6 +785,11 @@ NodeTest.test(
       source.codexSetup,
       "export function CodexSetupSection(props: CodexSetupSectionProps) {",
       "the Codex setup in Settings and the welcome",
+    );
+    // A managed account already signed in keeps upstream's way out (its Disconnect) there.
+    NodeAssert.match(
+      source.codexSetup,
+      /<LazurioSignInRow\s+environmentId=\{props\.environmentId\}\s+instanceId=\{props\.instanceId\}\s+mode=\{props\.mode\}\s+provider=\{props\.provider\}\s+\/>/,
     );
     guarded(
       source.codexSetup,
