@@ -17,7 +17,11 @@ import { failEnvironmentInternal } from "../auth/http.ts";
 import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { makeFolderGuard } from "./managedFolder.ts";
-import { MODEL_RECOMMENDATION_ROUTE, ModelRecommendationRequest } from "./modelRecommendation.ts";
+import {
+  MODEL_RECOMMENDATION_ROUTE,
+  ModelRecommendationRequest,
+  reconcileRecommendedModel,
+} from "./modelRecommendation.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
 export const layer = HttpRouter.use((router) =>
@@ -48,11 +52,13 @@ export const layer = HttpRouter.use((router) =>
           );
         if (!(yield* folderGuard.isFolder(selection.value.folder)))
           return HttpServerResponse.jsonUnsafe({ error: "folder-mismatch" }, { status: 409 });
-        if (settings.reconcileRecommendedModel === undefined)
+        if (settings.updateSettingsWith === undefined)
           return HttpServerResponse.jsonUnsafe({ error: "unavailable" }, { status: 503 });
         return answer(
           yield* settings
-            .reconcileRecommendedModel(selection.value.selection)
+            .updateSettingsWith((current) =>
+              reconcileRecommendedModel(current, selection.value.selection),
+            )
             .pipe(Effect.catch((cause) => failEnvironmentInternal("internal_error", cause))),
         );
       }),

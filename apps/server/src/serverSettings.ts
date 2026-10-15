@@ -56,7 +56,6 @@ import {
   deriveLegacyProjectOverrides,
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
-import { reconcileRecommendedModel } from "./lazurio/modelRecommendation.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
@@ -221,11 +220,13 @@ export class ServerSettingsService extends Context.Service<
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
     /**
-     * Lazurio overlay (LazurioPlatform F51): the Platform's recommended model, written by the same
-     * writer and atomically keeping a person's own choice. Only the server's own layer has it.
+     * Lazurio overlay (LazurioPlatform F51, root decision 0201): a change the overlay makes to the
+     * settings, such as the Platform's recommended model or a provider turned on, applied by the
+     * same writer to the settings as they are when it writes, so a concurrent change is never lost.
+     * Only the server's own layer has it.
      */
-    readonly reconcileRecommendedModel?: (
-      selection: NonNullable<ServerSettings["defaultModelSelection"]>,
+    readonly updateSettingsWith?: (
+      apply: (current: ServerSettings) => ServerSettings,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
     /** Stream of settings change events. */
@@ -1138,8 +1139,7 @@ const make = Effect.gen(function* () {
       Effect.map(resolveTextGenerationProvider),
     ),
     updateSettings,
-    reconcileRecommendedModel: (selection) =>
-      updateSettings({}, (current) => reconcileRecommendedModel(current, selection)),
+    updateSettingsWith: (apply) => updateSettings({}, apply),
     get streamChanges() {
       return materializeChanges(Stream.fromPubSub(changesPubSub));
     },

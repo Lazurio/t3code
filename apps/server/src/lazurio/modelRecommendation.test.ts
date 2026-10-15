@@ -45,8 +45,10 @@ it.effect("the settings writer records recommendations atomically and keeps pers
     const settings = yield* Settings.ServerSettingsService;
     const config = yield* ServerConfig.ServerConfig;
     const fs = yield* FileSystem.FileSystem;
-    const reconcile = settings.reconcileRecommendedModel;
-    assert.isDefined(reconcile);
+    const updateWith = settings.updateSettingsWith;
+    assert.isDefined(updateWith);
+    const reconcile = (selection: typeof first) =>
+      updateWith((current) => reconcileRecommendedModel(current, selection));
     yield* reconcile(first);
     assert.deepStrictEqual((yield* settings.getSettings).defaultModelSelection, first);
     yield* reconcile(second);
