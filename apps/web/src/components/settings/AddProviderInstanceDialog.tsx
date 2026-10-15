@@ -32,6 +32,7 @@ import {
 } from "./AddProviderInstanceDialog.logic";
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
 import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
+import { LazurioSignInButton, useLazurioSignIn } from "../../lazurio/LazurioSignIn";
 
 const PROVIDER_ACCENT_SWATCHES = [
   "#2563eb",
@@ -139,6 +140,8 @@ export function AddProviderInstanceDialog({
   // Errors are suppressed until the user has tried to submit once. After that
   // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  // Lazurio (root decision 0201): a Lazurio Environment signs Codex in on its Getting started page.
+  const lazurioSignIn = useLazurioSignIn(environmentId);
 
   const existingIds = useMemo(
     () => new Set(Object.keys(settings.providerInstances ?? {})),
@@ -426,7 +429,11 @@ export function AddProviderInstanceDialog({
               <Button variant="outline" onClick={() => navigateToStep(1)}>
                 Configure manually
               </Button>
-              <ChatGptConnectionButton onClick={() => setAddingChatGptAccount(true)} />
+              {lazurioSignIn ? (
+                <LazurioSignInButton toolsUrl={lazurioSignIn.toolsUrl} />
+              ) : (
+                <ChatGptConnectionButton onClick={() => setAddingChatGptAccount(true)} />
+              )}
             </>
           ) : wizardStep < ADD_PROVIDER_WIZARD_STEPS.length - 1 ? (
             <Button onClick={() => navigateToStep(wizardStep + 1)}>Next</Button>
