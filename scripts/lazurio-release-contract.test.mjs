@@ -657,7 +657,12 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   );
   NodeAssert.match(source.startup, /\.\.\.welcomeBase,\n\s+\.\.\.managedWelcome,\n/);
   NodeAssert.doesNotMatch(source.startup, /lazurioFolder/);
-  NodeAssert.match(source.settings, /readonly reconcileRecommendedModel\?: \(/);
+  NodeAssert.match(source.settings, /readonly updateSettingsWith\?: \(/);
+  NodeAssert.match(
+    source.settings,
+    /updateSettingsWith: \(apply\) => updateSettings\(\{\}, apply\),/,
+  );
+  NodeAssert.doesNotMatch(source.settings, /lazurio\//);
   NodeAssert.match(source.settings, /\n\s+apply = applyServerSettingsPatch,\n/);
   NodeAssert.match(source.settings, /const updated = apply\(current, patch\);/);
   NodeAssert.match(source.ws, /\n\s+\.\.\.managedFolderClientConfig\(config\),\n/);
@@ -719,6 +724,82 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
     NodeAssert.ok(overlayMayChange(file), file);
   }
 });
+
+// Root decision 0201 point 4 (Lazurio/t3code#46): on a Lazurio Environment Codex and Claude sign in
+// through their CLIs from the Launchpad's Getting started page, never through T3's own "Continue
+// with ChatGPT", which would keep a token only T3 sees. The web offers the page where it offered
+// T3's sign-in, upstream's auth service refuses T3's own Codex sign-in for every client, and the
+// Launchpad's `t3 lazurio providers` turns providers on and reads them again. The upstream files
+// keep only the hooks below, so a rebuild that loses or moves one fails here.
+NodeTest.test(
+  "providers sign in through Lazurio, never through T3's own ChatGPT sign-in",
+  async () => {
+    const files = {
+      server: "apps/server/src/server.ts",
+      codexSetup: "apps/web/src/components/settings/CodexSetupSection.tsx",
+      addProvider: "apps/web/src/components/settings/AddProviderInstanceDialog.tsx",
+    };
+    const source = Object.fromEntries(
+      await Promise.all(Object.entries(files).map(async ([key, file]) => [key, await read(file)])),
+    );
+    const [overlay, cli, signIn] = await Promise.all(
+      [
+        "apps/server/src/lazurio/overlay.ts",
+        "apps/server/src/lazurio/cli.ts",
+        "apps/server/src/lazurio/providerSignIn.ts",
+      ].map(read),
+    );
+
+    // Server: the one auth service every transport uses is upstream's behind the guard.
+    NodeAssert.match(
+      source.server,
+      /\n\s+Layer\.provideMerge\(LazurioProviderSignIn\.guard\(ProviderAuthServiceLive\)\),\n/,
+    );
+    NodeAssert.doesNotMatch(source.server, /Layer\.provideMerge\(ProviderAuthServiceLive\)/);
+    NodeAssert.match(signIn, /if \(config\.lazurioFolder === undefined\) return auth;/);
+    NodeAssert.match(signIn, /start: \(input, ownerSessionId\) =>/);
+    NodeAssert.match(signIn, /importProfile: \(input\) =>/);
+    // The route is the overlay's, and the CLI the Launchpad runs reaches it.
+    NodeAssert.match(
+      overlay,
+      /ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\)/,
+    );
+    NodeAssert.match(
+      cli,
+      /Command\.withSubcommands\(\[modelCommand, providersCommand, capabilitiesCommand\]\)/,
+    );
+    NodeAssert.match(cli, /providerRefresh: true/);
+
+    // Web: on a Lazurio Environment the page takes the place of T3's sign-in, before any of it.
+    const guarded = (text, component, message) => {
+      const start = text.indexOf(component);
+      NodeAssert.ok(start >= 0, `${message}: component`);
+      const body = text.slice(start);
+      const guard = body.search(/if \(lazurioSignIn\) return <LazurioSignIn(Row|Dialog) /);
+      NodeAssert.ok(guard > 0, `${message}: guard`);
+      NodeAssert.ok(guard < body.indexOf("\n  return"), `${message}: before upstream's render`);
+    };
+    guarded(
+      source.codexSetup,
+      "export function CodexSetupSection(props: CodexSetupSectionProps) {",
+      "the Codex setup in Settings and the welcome",
+    );
+    guarded(
+      source.codexSetup,
+      "export function AddManagedCodexAccountDialog({",
+      "another ChatGPT account",
+    );
+    NodeAssert.match(
+      source.addProvider,
+      /\{lazurioSignIn \? \(\n\s+<LazurioSignInButton toolsUrl=\{lazurioSignIn\.toolsUrl\} \/>\n\s+\) : \(\n\s+<ChatGptConnectionButton onClick=\{\(\) => setAddingChatGptAccount\(true\)\} \/>\n\s+\)\}/,
+    );
+
+    // Every file is the overlay's own or a reviewed allowlist entry.
+    for (const file of Object.values(files)) {
+      NodeAssert.ok(overlayMayChange(file), file);
+    }
+  },
+);
 
 NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag", async () => {
   const [page, layout, sidebarUi] = await Promise.all([
@@ -1303,7 +1384,7 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
   );
   NodeAssert.match(
     overlay,
-    /Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,?\s*\)/,
+    /Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),?\s*\)/,
   );
 });
 
