@@ -84,6 +84,31 @@ it("leaves settings that already have the provider on exactly as they are", () =
   assert.strictEqual(ProviderRefresh.enableProviders(explicitOn, ["codex"]), explicitOn);
 });
 
+// An instance ID names no driver: the schema accepts any driver at `codex`, and the registry then
+// has no default Codex at all (hydration skips the legacy default when the ID exists).
+const claudeAtCodexId: ServerSettings = {
+  ...legacyOff,
+  providerInstances: {
+    [codex]: { driver: ProviderDriverKind.make("claudeAgent"), enabled: false },
+  },
+};
+
+it("never turns on another provider's instance that sits at a default instance's ID", () => {
+  assert.deepStrictEqual(ProviderRefresh.defaultInstanceMismatches(claudeAtCodexId, ["codex"]), [
+    { provider: "codex", instanceId: codex, driver: ProviderDriverKind.make("claudeAgent") },
+  ]);
+  // The named CLI's own default instance is not mismatched, and neither is a legacy default.
+  assert.deepStrictEqual(
+    ProviderRefresh.defaultInstanceMismatches(claudeAtCodexId, ["claude"]),
+    [],
+  );
+  assert.deepStrictEqual(ProviderRefresh.defaultInstanceMismatches(legacyOff, ["codex"]), []);
+  // Even called directly, enabling leaves the Claude instance at `codex` as it was.
+  const next = ProviderRefresh.enableProviders(claudeAtCodexId, ["codex", "claude"]);
+  assert.deepStrictEqual(next.providerInstances, claudeAtCodexId.providerInstances);
+  assert.isTrue(next.providers.claudeAgent.enabled);
+});
+
 it("answers with the requested CLIs' instances under the CLI's name", () => {
   const snapshot = (
     instanceId: string,
@@ -257,6 +282,39 @@ it.effect(
     );
   },
 );
+
+it.effect("refuses, changing nothing, when a default instance's ID holds another driver", () => {
+  const { seen, layer } = makeRegistries([
+    { driver: "claudeAgent", enabled: true },
+    { driver: "codex", enabled: true },
+  ]);
+  return Effect.gen(function* () {
+    const settings = yield* Settings.ServerSettingsService;
+    yield* settings.updateSettings({
+      providers: { claudeAgent: { enabled: false } },
+      providerInstances: claudeAtCodexId.providerInstances,
+    });
+    const before = yield* settings.getSettings;
+    const service = yield* ProviderRefresh.ProviderRefresh;
+    const error = yield* service
+      .refresh({ providers: ["claude", "codex"], enable: true })
+      .pipe(Effect.flip);
+    assert.strictEqual(error._tag, "ProviderRefreshDriverMismatchError");
+    assert.deepStrictEqual(
+      error._tag === "ProviderRefreshDriverMismatchError" ? error.mismatches : [],
+      [{ provider: "codex", instanceId: codex, driver: ProviderDriverKind.make("claudeAgent") }],
+    );
+    // Fail closed: Claude, which was named too, stays off, and nothing was read again.
+    const after = yield* settings.getSettings;
+    assert.deepStrictEqual(after.providers, before.providers);
+    assert.deepStrictEqual(after.providerInstances, before.providerInstances);
+    assert.deepStrictEqual(seen, { invalidated: [], refreshed: [] });
+  }).pipe(
+    Effect.provide(
+      ProviderRefresh.layer.pipe(Layer.provideMerge(layer), Layer.provideMerge(settingsLayer)),
+    ),
+  );
+});
 
 it.effect("refuses to turn providers on where the settings service cannot", () => {
   const { seen, layer } = makeRegistries([{ driver: "codex", enabled: true }]);

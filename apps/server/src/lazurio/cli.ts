@@ -60,7 +60,8 @@ const postToRunningService = (
     readonly label: string;
     readonly timeout: Duration.Input;
     readonly notRunning: string;
-    readonly refused: (status: number) => string;
+    /** The error for an answer other than 200, given its status and body. */
+    readonly refused: (status: number, body: string) => string;
   },
 ) =>
   Effect.gen(function* () {
@@ -83,7 +84,7 @@ const postToRunningService = (
             });
             if (response.status !== 200)
               return yield* new RunningServiceCommandError({
-                detail: call.refused(response.status),
+                detail: call.refused(response.status, yield* response.text),
               });
             return yield* response.json;
           }).pipe(Effect.timeout(call.timeout)),
@@ -166,7 +167,9 @@ const providersCommand = Command.make("providers", {
         // Reading a provider's sign-in starts its CLI; Codex's check alone may take ten seconds.
         timeout: "60 seconds",
         notRunning: "The T3 service must be running. Nothing was changed.",
-        refused: (status) => `The live T3 service refused the provider refresh (${status}).`,
+        // The service says why, e.g. which instance holds a default instance's ID.
+        refused: (status, body) =>
+          `The live T3 service refused the provider refresh (${status}): ${body}`,
       });
     }),
   ),
