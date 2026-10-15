@@ -77,6 +77,7 @@ import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as LazurioOverlay from "./lazurio/overlay.ts";
+import * as LazurioProviderSignIn from "./lazurio/providerSignIn.ts";
 import { deviceHubProxyRouteLayer } from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -512,7 +513,8 @@ const ProviderInstallationRefreshLive = Layer.effectDiscard(
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderInstallationRefreshLive),
   Layer.provideMerge(ReplayMarkers.layer),
-  Layer.provideMerge(ProviderAuthServiceLive),
+  // Lazurio overlay (root decision 0201): no T3-only Codex sign-in on a Lazurio Environment.
+  Layer.provideMerge(LazurioProviderSignIn.guard(ProviderAuthServiceLive)),
   // Core Services
   Layer.provideMerge(ServerSettingsLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
