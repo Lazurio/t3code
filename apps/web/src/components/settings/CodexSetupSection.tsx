@@ -72,6 +72,8 @@ export function CodexSetupSection(props: CodexSetupSectionProps) {
         instanceId={props.instanceId}
         mode={props.mode}
         provider={props.provider}
+        readOnly={props.readOnly}
+        enabled={props.enabled}
       />
     );
   const existingState = getOnboardingProviderState(props.provider);

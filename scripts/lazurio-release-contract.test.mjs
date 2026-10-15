@@ -789,7 +789,7 @@ NodeTest.test(
     // A managed account already signed in keeps upstream's way out (its Disconnect) there.
     NodeAssert.match(
       source.codexSetup,
-      /<LazurioSignInRow\s+environmentId=\{props\.environmentId\}\s+instanceId=\{props\.instanceId\}\s+mode=\{props\.mode\}\s+provider=\{props\.provider\}\s+\/>/,
+      /<LazurioSignInRow\s+environmentId=\{props\.environmentId\}\s+instanceId=\{props\.instanceId\}\s+mode=\{props\.mode\}\s+provider=\{props\.provider\}\s+readOnly=\{props\.readOnly\}\s+enabled=\{props\.enabled\}\s+\/>/,
     );
     guarded(
       source.codexSetup,

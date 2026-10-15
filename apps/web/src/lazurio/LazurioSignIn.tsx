@@ -74,11 +74,16 @@ export function LazurioSignInRow({
   instanceId,
   mode,
   provider,
+  readOnly = false,
+  enabled = true,
 }: {
   environmentId: EnvironmentId;
   instanceId?: ProviderInstanceId;
   mode?: "managed" | "existing";
   provider?: ServerProvider | undefined;
+  /** The settings page's write availability, which freezes Disconnect as it does upstream's. */
+  readOnly?: boolean | undefined;
+  enabled?: boolean;
 }) {
   const signIn = useLazurioSignIn(environmentId);
   const [words] = useState(() => signInWords(prefersCzech()));
@@ -94,7 +99,12 @@ export function LazurioSignInRow({
         }
       />
       {instanceId !== undefined && t3AccountToDisconnect(mode, provider) ? (
-        <T3AccountDisconnect environmentId={environmentId} instanceId={instanceId} words={words} />
+        <T3AccountDisconnect
+          environmentId={environmentId}
+          instanceId={instanceId}
+          unavailable={readOnly || !enabled}
+          words={words}
+        />
       ) : null}
     </>
   );
@@ -104,10 +114,12 @@ export function LazurioSignInRow({
 function T3AccountDisconnect({
   environmentId,
   instanceId,
+  unavailable,
   words,
 }: {
   environmentId: EnvironmentId;
   instanceId: ProviderInstanceId;
+  unavailable: boolean;
   words: SignInWords;
 }) {
   const logout = useAtomCommand(serverEnvironment.logoutProviderAuth, words.disconnectFailed);
@@ -121,7 +133,7 @@ function T3AccountDisconnect({
         <Button
           size="sm"
           variant="ghost"
-          disabled={pending}
+          disabled={unavailable || pending}
           onClick={() => {
             setPending(true);
             void logout({ environmentId, input: { instanceId } }).then((result) => {
