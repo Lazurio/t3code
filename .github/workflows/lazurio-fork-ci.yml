@@ -55,14 +55,16 @@ jobs:
           # change there fails.
           allowed_upstream_changes=(
             # Shared seams, each with the hooks of several features below: the server's
-            # CLI and runtime config (hosted settings, the managed Folder), index.html (the
-            # shell slot, the name in the app), main.tsx (the prepared prompt, and the
-            # import of the design system's light look, root decision 0200, whose one
-            # stylesheet is apps/web/src/lazurio/theme.css), ChatView.tsx (update notice,
-            # Environment browser, drag backport), RightPanelTabs.tsx and rightPanelStore.ts
-            # (Environment browser, Nová karta, drag backport).
+            # CLI and runtime config (hosted settings, the managed Folder), server.ts (the
+            # overlay's one route layer, and the sign-in guard on upstream's auth service),
+            # index.html (the shell slot, the name in the app), main.tsx (the prepared
+            # prompt, and the import of the design system's light look, root decision 0200,
+            # whose one stylesheet is apps/web/src/lazurio/theme.css), ChatView.tsx (update
+            # notice, Environment browser, drag backport), RightPanelTabs.tsx and
+            # rightPanelStore.ts (Environment browser, Nová karta, drag backport).
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
+            apps/server/src/server.ts
             apps/web/index.html
             apps/web/src/components/ChatView.tsx
             apps/web/src/components/RightPanelTabs.tsx
@@ -133,8 +135,8 @@ jobs:
             # T3's browser tools drive the Environment browser as a preferred preview host
             # (PreviewAutomationBroker.ts, ARIA refs in McpHttpServer.ts, view and message in
             # preview_open's result, playwright-core beside the CLI bundle); one overlay layer
-            # (server.ts) keeps a thread's tabs in its holder file and streams them to the web,
-            # whose right panel shows them. The web's seams are the shared files above.
+            # (server.ts, above) keeps a thread's tabs in its holder file and streams them to the
+            # web, whose right panel shows them. The web's seams are the shared files above.
             apps/server/package.json
             apps/server/src/mcp/McpHttpServer.test.ts
             apps/server/src/mcp/McpHttpServer.ts
@@ -142,7 +144,6 @@ jobs:
             apps/server/src/mcp/PreviewAutomationBroker.ts
             apps/server/src/mcp/toolkits/preview/tools.ts
             apps/server/src/provider/Layers/ProviderService.ts
-            apps/server/src/server.ts
             scripts/lib/cli-external-packages.test.ts
             scripts/lib/cli-external-packages.ts
             # Upstream 410793042 (#17730), backported: the right panel's tabs reorder by dragging.
@@ -180,6 +181,14 @@ jobs:
             apps/web/src/routes/welcome.tsx
             packages/contracts/src/server.ts
             packages/contracts/src/settings.ts
+            # Sign-in through Lazurio (root decision 0201, Lazurio/t3code#46): on a Lazurio
+            # Environment Codex and Claude sign in through their CLIs from the Launchpad's
+            # Getting started page. The web offers that page where it offered T3's own
+            # "Continue with ChatGPT"; the server refuses T3's own Codex sign-in (server.ts,
+            # above), and `t3 lazurio providers` turns providers on and reads them again. Its
+            # code lives in apps/*/src/lazurio/; these are the web's hooks.
+            apps/web/src/components/settings/AddProviderInstanceDialog.tsx
+            apps/web/src/components/settings/CodexSetupSection.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

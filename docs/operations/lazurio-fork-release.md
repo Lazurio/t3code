@@ -9,7 +9,8 @@ distribuce T3 Code pro Environmenty Lazuria: server a web klient přesného
 upstream stable vydání a nad nimi overlay Lazuria. Overlay chování T3 Code mění:
 hostované nastavení, aktualizace z kanálu Lazuria, zadání z Launchpadu, slot pro
 shell Lazuria, prohlížeč Environmentu, spravovaná složka Lazuria, jméno
-v aplikaci a vzhled na Environmentu. Co přesně a ve kterých souborech, říká
+v aplikaci, vzhled na Environmentu a přihlášení poskytovatelů přes Lazurio. Co
+přesně a ve kterých souborech, říká
 [Overlay](#overlay); podrobnou specifikaci prohlížeče Environmentu drží
 [specifikace overlaye](./lazurio-overlay.md). T3 vždy běží
 v kořeni vlastního hostname (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS
@@ -133,6 +134,7 @@ přestavba“ říká, proč řádek zůstává a co z něj podle upstream `main
 | 15  | `feat(lazurio): provide a managed Folder project and native model reconciliation`               | S `T3CODE_LAZURIO_FOLDER` začíná Chat ve složce Lazuria daného Environmentu a `t3 lazurio` srovnává doporučený model Platformy (viz [Spravovaná složka Lazuria](#spravovaná-složka-lazuria)).                                                                                                                                                                                                                                                                                                                       | F51; upstream ekvivalent nemá. Na 0.0.46 se převzetí složky přesune do `ProjectService.bootstrap` a stráž příkazů na vstupy orchestrace v2: přestavba.                                                                                                                                                                              |
 | 16  | `feat(web): the in-app name T3 Code (Lazurio)`                                                  | Rozhodnutí 0200 bod 2: v aplikaci se T3 Code jmenuje „T3 Code (Lazurio)“, vedle wordmarku stojí štítek „Lazurio“ a náhledová vydání se nejmenují „Nightly“ (viz [Jméno a vzhled](#jméno-a-vzhled)).                                                                                                                                                                                                                                                                                                                 | Upstream ekvivalent nemá, štítek fáze je konstanta buildu: zůstává. Při přestavbě ověřte, že upstream nezměnil tvar verze náhledů ani místo pilulky vedle wordmarku.                                                                                                                                                                |
 | 17  | `feat(web): the design system's light look on a Lazurio Environment`                            | Rozhodnutí 0200 bod 4: ve standardním světlém vzhledu bere webový klient barvy, písmo a zaoblení design systému z tokenů `--lz-*`, které deklaruje shell Environmentu (LazurioPlatform F36). Jeden soubor `apps/web/src/lazurio/theme.css` a import v `main.tsx`; bez shellu se nepoužije nic (viz [Jméno a vzhled](#jméno-a-vzhled)).                                                                                                                                                                              | Motivy Environmentu upstreamu (`t3 theme set`) dají jen barvy, při každém načtení bliknou a resetují volbu člověka: zůstává. Kontraktní test hlídá, že mapované tokeny `index.css` deklaruje ve stejném scope.                                                                                                                      |
+| 18  | `feat(lazurio): providers sign in through Lazurio, and the Launchpad turns them on`             | Rozhodnutí 0201 bod 4 (Lazurio/t3code#46): s `T3CODE_LAZURIO_FOLDER` se Codex a Claude přihlašují svými CLI ze stránky Začínáme Launchpadu (`T3CODE_LAZURIO_TOOLS_URL`). Web tam, kde nabízel vlastní „Continue with ChatGPT“, odkáže na Začínáme, server vlastní přihlášení Codexu v T3 odmítne pro každého klienta a `t3 lazurio providers` poskytovatele zapne a hned znovu načte (viz [Přihlášení přes Lazurio](#přihlášení-přes-lazurio)).                                                                     | Upstream ekvivalent nemá. Při přestavbě ověřte, že upstream nepřidal další vstup do vlastního přihlášení Codexu (nová tlačítka, MCP nástroj) mimo `ProviderAuthService.start` a `importProfile`.                                                                                                                                    |
 
 Hostované proměnné a spravovaná složka platí, jen když jsou nastavené, a shell,
 prohlížeč Environmentu, Nová karta a vzhled design systému se ukážou, jen když je
@@ -241,10 +243,11 @@ commit mění.
     `orchestration/Layers/ProviderCommandReactor.ts` a jeho test,
     `serverRuntimeStartup.ts`, `serverSettings.ts`,
     `vcs/VcsProvisioningService.ts` a jeho test, `ws.ts`;
-    `apps/server/src/lazurio/`: `cli.ts`, `managedFolder.ts`,
+    `apps/server/src/lazurio/`: `cli.ts`\* a jeho test\*, `managedFolder.ts`,
     `managedFolderConfig.ts`, `modelRecommendation.ts` a
     `modelRecommendationRoute.ts`, každý s testem, `managedFolderStartup.ts`,
-    `routeAuth.ts`\*, `overlay.ts`\*. Web: `components/CommandPalette.tsx`,
+    `routeAuth.ts`\*, `overlay.ts`\*. Háček `updateSettingsWith` ve
+    `serverSettings.ts` je obecný: používá ho i řádek 18. Web: `components/CommandPalette.tsx`,
     `components/GitActionsControl.tsx`, `components/Sidebar.tsx`,
     `components/chat/DraftHeroHeadline.tsx`,
     `components/onboarding/FirstRunGate.tsx`,
@@ -260,6 +263,14 @@ commit mění.
 17. Commit `feat(web): the design system's light look on a Lazurio Environment`
     (po d2156a2a0). `apps/web/src/main.tsx`\* (import),
     `apps/web/src/lazurio/theme.css`.
+18. Commit `feat(lazurio): providers sign in through Lazurio, and the Launchpad
+turns them on` (po 1250f2186). Server: `server.ts`\* (stráž nad
+    `ProviderAuthServiceLive`); `apps/server/src/lazurio/`: `providerRefresh.ts`,
+    `providerRefreshRoute.ts` a `providerSignIn.ts`, každý s testem,
+    `cli.ts`\* a jeho test\*, `routeAuth.ts`\*, `overlay.ts`\*. Web:
+    `components/settings/CodexSetupSection.tsx`,
+    `components/settings/AddProviderInstanceDialog.tsx`;
+    `apps/web/src/lazurio/`: `LazurioSignIn.tsx`, `providerSignIn.ts` a jeho test.
 
 ### Lazurio shell
 
@@ -512,6 +523,52 @@ drží výstup `t3 lazurio capabilities` a `t3 lazurio model` bajt po bajtu.
 Při přestavbě na nový upstream zachovejte testy spravovaného startu, nativní
 stráže příkazů, stráže tahů agenta a spravovaného uvítání; samotný výběr
 modelu je záměrně mimo fork.
+
+### Přihlášení přes Lazurio
+
+**Rozhodnutí 0201 bod 4 (plán DEV-6665, Lazurio/t3code#46).** Na Environmentu
+Lazuria (`T3CODE_LAZURIO_FOLDER`) se Codex a Claude přihlašují oficiálním
+přihlášením svých CLI (`codex login`, `claude auth login`), které spouští
+stránka Začínáme Launchpadu. Přihlášení se tak uloží tam, kde ho čte T3,
+terminál, Codex Desktop přes SSH i všichni agenti. Vlastní „Continue with
+ChatGPT“ T3 by vytvořilo přihlášení platné jen pro T3, proto ho overlay na
+Environmentu Lazuria nenabízí ani nepovolí:
+
+- **Web.** Kde T3 nabízelo vlastní přihlášení Codexu (pata dialogu „Add
+  provider instance“, nastavení Codexu ve spravovaném režimu, dialog dalšího
+  účtu ChatGPT a uvítání, pokud je vidět), ukáže odkaz „Open Getting started“
+  na `T3CODE_LAZURIO_TOOLS_URL`, česky „Otevřít Začínáme“. Bez proměnné odkaz
+  chybí a text řekne, že se přihlašuje v Lazuriu.
+- **Server.** `LazurioProviderSignIn.guard` obalí upstream `ProviderAuthService`:
+  pro instanci Codexu odmítne `start` i `importProfile` chybou
+  `ProviderSetupError`, takže token platný jen pro T3 nevznikne ani z
+  oficiální desktop nebo mobilní aplikace. Odhlášení, zrušení a ostatní
+  poskytovatelé zůstávají upstreamu. Instance spravovaného Codexu, která na
+  Environmentu už je, se nemaže; jen se v ní znovu nepřihlásí.
+- **`t3 lazurio providers <request-json>`.** Po přihlášení CLI ho spustí
+  Launchpad stejného Environmentu jako uživatel Environmentu. Příkaz si vydá
+  sezení z úložiště tajemství T3 (jako `t3 lazurio model`), zavolá běžící
+  službu cestou `POST /api/lazurio/providers` a sezení zase odvolá. Cesta
+  chce rozsahy upstreamu pro obnovu poskytovatelů a pro zápis nastavení.
+  Požadavek `{"providers": ["codex" | "claude", …], "enable"?: true}` jmenuje
+  CLI, ne ovladač T3 (`claude` je ovladač `claudeAgent`). S `enable` služba
+  nejdřív zapne výchozí instanci každého jmenovaného poskytovatele (u
+  explicitní instance oba příznaky `enabled`) atomicky přes zapisovač
+  nastavení a nic jiného nemění. Pak u každé zapnuté instance jmenovaných
+  poskytovatelů zahodí její mezipaměti (Claude si výsledek své sondy drží
+  5 minut) a přečte poskytovatele znovu. Instanci, kterou požadavek právě
+  zapnul, registr přestaví a nová instance poskytovatele přečte sama.
+  Odpověď `{"version": 1, "providers": [{"provider", "instanceId",
+"enabled", "status", "auth"}]}` je stav po obnově; hned po zapnutí může
+  ještě ukazovat kontrolu (`warning`, `unknown`), další volání bez `enable`
+  už výsledek sondy. Neběží-li služba, příkaz skončí chybou a nic nemění.
+  Na `t3 lazurio capabilities` je `"providerRefresh": true`.
+
+Bez `T3CODE_LAZURIO_FOLDER` se nic nemění; cesta a příkaz existují, ale dělají
+jen to, co klient se stejnými rozsahy může přes WebSocket. Kontraktní test
+(„providers sign in through Lazurio, never through T3's own ChatGPT sign-in“)
+hlídá stráž v `server.ts`, obě stráže v `CodexSetupSection.tsx` a odkaz v
+`AddProviderInstanceDialog.tsx`; `cli.test.ts` drží výstup příkazu bajt po bajtu.
 
 ## Kdy vydávat
 
@@ -802,16 +859,19 @@ každé bráně zapište do issue, co se na nové bázi mění, rozhodnutí a ja
 ověřené. Rozdíl mezi bázemi ukáže
 `git diff "$OLD_SHA" "$NEW_SHA" -- <soubory>` se soubory uvedenými u brány.
 
-- **`t3 lazurio capabilities` a `t3 lazurio model`.** Machines ověřují
-  `capabilities` (kontrakt verze 1) a `lazurio chat defaults --apply`
-  Platformy volá `model`. `apps/server/src/lazurio/cli.test.ts` drží jejich
-  výstup bajt po bajtu a při přestavbě se nemění. `model` s argumentem JSON
-  jde přes běžící službu sezením, které si CLI samo vydá; to musí mít rozsah,
-  který cesta vyžaduje
-  (`requiredScopeForRpcMethod(WS_METHODS.serverUpdateSettings)`), jinak
-  služba odpoví 403. Soubory: `apps/server/src/auth/RpcAuthorization.ts`
-  a `packages/contracts/src/auth.ts`. Na canary ověřte
-  `lazurio chat defaults --apply`.
+- **`t3 lazurio capabilities`, `t3 lazurio model` a `t3 lazurio providers`.**
+  Machines ověřují `capabilities` (kontrakt verze 1), `lazurio chat defaults
+--apply` Platformy volá `model` a Launchpad po přihlášení CLI volá
+  `providers`. `apps/server/src/lazurio/cli.test.ts` drží jejich výstup bajt
+  po bajtu a při přestavbě se nemění. `model` a `providers` jdou přes běžící
+  službu sezením, které si CLI samo vydá s rozsahy, jež cesty vyžadují
+  (`requiredScopeForRpcMethod` pro `serverUpdateSettings`
+  a `serverRefreshProviders`); CLI i cesta je berou ze stejného místa, takže
+  se s upstreamem posunou spolu. Když upstream rozsahy rozdělí, ověřte, že
+  úložiště tajemství sezení s novými rozsahy vydá. Soubory:
+  `apps/server/src/auth/RpcAuthorization.ts` a
+  `packages/contracts/src/auth.ts`. Na canary ověřte `lazurio chat defaults
+--apply` a přihlášení na stránce Začínáme.
 - **Kanál aktualizací.** Environmenty se aktualizují z vydání tohoto
   repozitáře přes `T3CODE_RELEASE_REPOSITORY` (řádek 4). Hlídají ho testy
   řádku 4 v CI a job `Launcher install linux-x64`. Soubor
