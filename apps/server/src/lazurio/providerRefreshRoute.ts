@@ -6,8 +6,10 @@
  * them, or the CLI on this Environment, which issues its own session from the Environment's secret
  * store, can call it.
  *
- * Answers `{"version": 1, "providers": [...]}`; 400 for another body, 503 when the settings service
- * cannot turn providers on (only its test layer).
+ * Answers `{"version": 1, "providers": [...]}`; 400 for another body; 409
+ * `{"error": "driver-mismatch", "mismatches": [{"provider", "instanceId", "driver"}]}` when a named
+ * provider's default instance ID holds another driver, with nothing changed; 503 when the settings
+ * service cannot turn providers on (only its test layer).
  */
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -33,6 +35,13 @@ export const layer = HttpRouter.use((router) =>
         return yield* providers.refresh(request.value).pipe(
           Effect.map((answer) => HttpServerResponse.jsonUnsafe(answer)),
           Effect.catchTags({
+            ProviderRefreshDriverMismatchError: ({ mismatches }) =>
+              Effect.succeed(
+                HttpServerResponse.jsonUnsafe(
+                  { error: "driver-mismatch", mismatches },
+                  { status: 409 },
+                ),
+              ),
             ProviderRefreshUnavailableError: () =>
               Effect.succeed(
                 HttpServerResponse.jsonUnsafe({ error: "unavailable" }, { status: 503 }),

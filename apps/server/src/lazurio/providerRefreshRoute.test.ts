@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  ProviderDriverKind,
   ProviderInstanceId,
   ServerSettingsError,
 } from "@t3tools/contracts";
@@ -48,7 +49,9 @@ it.layer(authLayer.pipe(Layer.provide(NodeServices.layer)), { excludeTestService
         const requests: unknown[] = [];
         let outcome: Effect.Effect<
           typeof answer,
-          ProviderRefresh.ProviderRefreshUnavailableError | ServerSettingsError
+          | ProviderRefresh.ProviderRefreshUnavailableError
+          | ProviderRefresh.ProviderRefreshDriverMismatchError
+          | ServerSettingsError
         > = Effect.succeed(answer);
         const handler = HttpRouter.toWebHandler(
           Route.layer.pipe(
@@ -105,6 +108,25 @@ it.layer(authLayer.pipe(Layer.provide(NodeServices.layer)), { excludeTestService
           expect(requests).toEqual([{ providers: ["codex"], enable: true }]);
         });
 
+        outcome = Effect.fail(
+          new ProviderRefresh.ProviderRefreshDriverMismatchError({
+            mismatches: [
+              {
+                provider: "codex",
+                instanceId: ProviderInstanceId.make("codex"),
+                driver: ProviderDriverKind.make("claudeAgent"),
+              },
+            ],
+          }),
+        );
+        const mismatched = yield* Effect.promise(() =>
+          post({ providers: ["codex"], enable: true }, operator.token),
+        );
+        expect(mismatched.status).toBe(409);
+        // The CLI prints this body, so the Launchpad can say which instance is in the way.
+        expect(yield* Effect.promise(() => mismatched.text())).toBe(
+          '{"error":"driver-mismatch","mismatches":[{"provider":"codex","instanceId":"codex","driver":"claudeAgent"}]}',
+        );
         outcome = Effect.fail(new ProviderRefresh.ProviderRefreshUnavailableError());
         const unavailable = yield* Effect.promise(() =>
           post({ providers: ["claude"], enable: true }, operator.token),

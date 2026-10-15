@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -51,7 +51,7 @@ const folder = NodeFS.realpathSync(
 const request = `{"folder":"${folder}","selection":${selectionJson}}`;
 
 /** The provider refresh as the Launchpad asks for it, and the running service's answer. */
-const providersRequest = '{"providers":["codex","claude"],"enable":true}';
+const providersRequest = '{"providers":["codex"],"enable":true}';
 const providersAnswer = {
   version: 1 as const,
   providers: [
@@ -67,7 +67,21 @@ const providersAnswer = {
 const providerRefreshRoute = ProviderRefreshRoute.layer.pipe(
   Layer.provide(
     Layer.succeed(ProviderRefresh.ProviderRefresh, {
-      refresh: () => Effect.succeed(providersAnswer),
+      // Claude alone stands for a request the service refuses: its ID holds another driver.
+      refresh: (request) =>
+        request.providers.includes("claude")
+          ? Effect.fail(
+              new ProviderRefresh.ProviderRefreshDriverMismatchError({
+                mismatches: [
+                  {
+                    provider: "claude",
+                    instanceId: ProviderInstanceId.make("claudeAgent"),
+                    driver: ProviderDriverKind.make("codex"),
+                  },
+                ],
+              }),
+            )
+          : Effect.succeed(providersAnswer),
     }),
   ),
 );
@@ -215,6 +229,27 @@ describe("t3 lazurio", () => {
       assert.deepStrictEqual(output, [
         '{"version":1,"providers":[{"provider":"codex","instanceId":"codex","enabled":true,"status":"ready","auth":"authenticated"}]}',
       ]);
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("providers <request>: a refusal says why, as the running service answered", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const error = yield* withLiveService(
+        baseDir,
+        run([
+          "lazurio",
+          "providers",
+          "--base-dir",
+          baseDir,
+          '{"providers":["claude"],"enable":true}',
+        ]).pipe(Effect.flip),
+        providerRefreshRoute,
+      );
+      assert.strictEqual(
+        error.message,
+        'The live T3 service refused the provider refresh (409): {"error":"driver-mismatch","mismatches":[{"provider":"claude","instanceId":"claudeAgent","driver":"codex"}]}',
+      );
     }).pipe(Effect.provide(TestConsole.layer)),
   );
 });

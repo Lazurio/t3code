@@ -56,12 +56,31 @@ const DRIVER_OF = { codex: "codex", claude: "claudeAgent" } as const satisfies R
 const cliOf = (driver: ProviderDriverKind): ProviderCli | undefined =>
   driver === DRIVER_OF.codex ? "codex" : driver === DRIVER_OF.claude ? "claude" : undefined;
 
+/**
+ * The explicit instances at a named CLI's default instance ID that run another driver. An ID names
+ * no driver: the settings schema accepts any driver at `codex`, and the registry then has no
+ * default Codex at all, because hydration skips the legacy default when the ID exists.
+ */
+export const defaultInstanceMismatches = (
+  current: ServerSettings,
+  clis: ReadonlyArray<ProviderCli>,
+) =>
+  [...new Set(clis)].flatMap((cli) => {
+    // The default instance's ID is its driver's kind (`defaultInstanceIdForDriver`).
+    const instanceId = ProviderInstanceId.make(DRIVER_OF[cli]);
+    const driver = current.providerInstances[instanceId]?.driver;
+    return driver === undefined || driver === DRIVER_OF[cli]
+      ? []
+      : [{ provider: cli, instanceId, driver }];
+  });
+
 /** The settings with the default instance of `cli` turned on, or as they are when it is on. */
 const enableProvider = (current: ServerSettings, cli: ProviderCli): ServerSettings => {
   const key = DRIVER_OF[cli];
-  // The default instance's id is its driver's kind (`defaultInstanceIdForDriver`).
   const instanceId = ProviderInstanceId.make(key);
   const explicit = current.providerInstances[instanceId];
+  // Another provider's instance at this ID is never this provider's to turn on.
+  if (explicit !== undefined && explicit.driver !== key) return current;
   if (explicit === undefined)
     return current.providers[key].enabled
       ? current
@@ -89,7 +108,8 @@ const enableProvider = (current: ServerSettings, cli: ProviderCli): ServerSettin
 /**
  * The settings with the default Codex or Claude instance of each named CLI turned on, and
  * nothing else changed. An explicit default instance turns on through both of its flags, since an
- * explicit `false` on either keeps it off. Settings that already have them on come back as they are.
+ * explicit `false` on either keeps it off; one that runs another driver stays as it is
+ * (`defaultInstanceMismatches`). Settings that already have them on come back as they are.
  */
 export const enableProviders = (
   current: ServerSettings,
@@ -130,6 +150,27 @@ export class ProviderRefreshUnavailableError extends Schema.TaggedError<Provider
   }
 }
 
+/**
+ * A named CLI's default instance ID holds another provider's instance, so there is no default
+ * instance of that CLI to turn on. Nothing was changed; the person decides what that instance is.
+ */
+export class ProviderRefreshDriverMismatchError extends Schema.TaggedError<ProviderRefreshDriverMismatchError>()(
+  "ProviderRefreshDriverMismatchError",
+  {
+    mismatches: Schema.Array(
+      Schema.Struct({
+        provider: ProviderCli,
+        instanceId: ProviderInstanceId,
+        driver: ProviderDriverKind,
+      }),
+    ),
+  },
+) {
+  override get message(): string {
+    return "A default provider instance ID holds another provider's instance, so nothing was turned on.";
+  }
+}
+
 export class ProviderRefresh extends Context.Service<
   ProviderRefresh,
   {
@@ -137,12 +178,14 @@ export class ProviderRefresh extends Context.Service<
      * Turn the named providers on when asked, then read the sign-in of every instance of theirs
      * that is on. An instance this request turns on is rebuilt from the new settings by the
      * registry, and a new instance checks its provider as it starts, so it is not read twice.
+     * When a named provider's default instance ID holds another driver, nothing is turned on or
+     * read again: the request fails closed.
      */
     readonly refresh: (
       request: ProviderRefreshRequest,
     ) => Effect.Effect<
       ReturnType<typeof providerRefreshAnswer>,
-      ProviderRefreshUnavailableError | ServerSettingsError
+      ProviderRefreshUnavailableError | ProviderRefreshDriverMismatchError | ServerSettingsError
     >;
   }
 >()("t3/lazurio/providerRefresh") {}
@@ -156,9 +199,14 @@ const make = Effect.gen(function* () {
       if (request.enable === true) {
         if (settings.updateSettingsWith === undefined)
           return yield* new ProviderRefreshUnavailableError();
-        yield* settings.updateSettingsWith((current) =>
-          enableProviders(current, request.providers),
-        );
+        // Checked in the same write that turns them on, against the settings it writes.
+        let mismatches: ReturnType<typeof defaultInstanceMismatches> = [];
+        yield* settings.updateSettingsWith((current) => {
+          mismatches = defaultInstanceMismatches(current, request.providers);
+          return mismatches.length > 0 ? current : enableProviders(current, request.providers);
+        });
+        if (mismatches.length > 0)
+          return yield* new ProviderRefreshDriverMismatchError({ mismatches });
       }
       const drivers = new Set(
         request.providers.map((cli) => ProviderDriverKind.make(DRIVER_OF[cli])),
