@@ -303,6 +303,14 @@ describe("the panel's Environment browser frames", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("name their frames in Czech for assistive technology where the browser is Czech", async () => {
+    vi.spyOn(window.navigator, "language", "get").mockReturnValue("cs-CZ");
+    withSnapshot(snapshot([{ tabId: id(1) }]));
+    await showPanel(threadA, [tab(1), foreignTab], tab(1).id);
+    expect(frameOf(viewOf(1)).title).toBe("Prohlížeč Prostředí");
+    expect(frameOf(foreignView).title).toBe("Prohlížeč jiného Prostředí");
+  });
+
   it("make a fresh frame of a tab reloaded through the store, also of one behind the tab in view", async () => {
     withSnapshot(snapshot([{ tabId: id(1) }, { tabId: id(2) }]));
     await showPanel(threadA, [tab(1), tab(2)], tab(1).id);
