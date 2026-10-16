@@ -524,7 +524,7 @@ describe("closing in the strip and Vrátit", () => {
         true,
       ).description,
     ).toBe("Dál je v Apps a ve vlákně „Web“.");
-    expect(closeToastText([shared], true).description).toBe("Zavře se v Environmentu.");
+    expect(closeToastText([shared], true).description).toBe("Zavře se v Prostředí.");
     expect(closeToastText([shared, { ...shared, agent: true }], false)).toEqual({
       title: "The tabs left this thread.",
       description:

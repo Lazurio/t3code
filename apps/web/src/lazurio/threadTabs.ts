@@ -278,7 +278,7 @@ export function closeToastText(
               ? `Dál je ${placesOf(tab.alsoHeldBy, true)}.`
               : `It stays ${placesOf(tab.alsoHeldBy, false)}.`
             : czech
-              ? "Zavře se v Environmentu."
+              ? "Zavře se v Prostředí."
               : "It closes in the Environment.",
     };
   }
@@ -292,10 +292,10 @@ export function closeToastText(
           : "They stay open elsewhere or with an agent."
         : staying === 0
           ? czech
-            ? "Zavřou se v Environmentu."
+            ? "Zavřou se v Prostředí."
             : "They close in the Environment."
           : czech
-            ? "Některé zůstávají otevřené jinde nebo u agenta, ostatní se zavřou v Environmentu."
+            ? "Některé zůstávají otevřené jinde nebo u agenta, ostatní se zavřou v Prostředí."
             : "Some stay open elsewhere or with an agent; the others close in the Environment.",
   };
 }
@@ -575,7 +575,7 @@ export function leaveDraft(threadRef: ScopedThreadRef): void {
 /** The empty panel's line on a draft (Lazurio/t3code#53; the Admin chose it on 2026-10-12). */
 export const draftBrowserNote = (czech: boolean) =>
   czech
-    ? "Prohlížeč Environmentu bude k dispozici po první zprávě."
+    ? "Prohlížeč Prostředí bude k dispozici po první zprávě."
     : "The Environment browser comes with the first message.";
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
@@ -627,7 +627,7 @@ export function holdTab(threadRef: ScopedThreadRef, tabId: string): void {
         stackedThreadToast({
           type: "warning",
           title: czech
-            ? "Vlákno si tuhle záložku neponechá."
+            ? "Vlákno si tuto záložku neponechá."
             : "This thread does not keep this tab.",
           description:
             outcome.status === 409

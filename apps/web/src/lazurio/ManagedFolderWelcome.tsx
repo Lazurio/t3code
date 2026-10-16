@@ -52,27 +52,29 @@ export function useManagedFirstRunDecision(upstream: FirstRun): FirstRun {
 }
 
 /** The welcome's words: Czech where the person's browser is, with formal address (root decision
- * 0199) and "Environment" for the place (root decision 0170), as the rest of the overlay. */
+ * 0199) and "Prostředí" for the place (root decision 0170 with its addendum of 2026-10-15), as the
+ * rest of the overlay. They say where a chat starts and what to do, not what the Folder gives an
+ * agent (DEV-6665, LazurioPlatform F36's addendum of 2026-10-16). */
 const welcomeWords = (czech: boolean) =>
   czech
     ? {
-        title: "Váš pracovní prostor je připravený",
-        folder:
-          "Každý nový chat začíná ve vašem Lazurio Folderu, který vašemu agentovi dává kontext tohoto Environmentu a Organizací, se kterými můžete pracovat.",
+        eyebrow: "Prostředí Lazuria",
+        title: "Vaše Prostředí je připravené",
+        folder: "Každý nový chat začíná ve vašem Lazurio Folderu.",
         inside: "Vaše projekty a repozitáře jsou v tomto Folderu. Není potřeba nic importovat.",
         connectBefore: "Účet agenta připojte v ",
-        connectLink: "nastavení Environmentu",
+        connectLink: "nastavení Prostředí",
         connectAfter:
           " a pak se sem vraťte. Účet, který tam už je připojený, můžete rovnou použít.",
-        connected: "Použijte účet agenta připojený k tomuto Environmentu.",
+        connected: "Použijte účet agenta připojený k tomuto Prostředí.",
         failed: "Lazurio se nepodařilo otevřít. Zkuste to prosím znovu.",
         opening: "Otevírám…",
         start: "Začít v Lazuriu",
       }
     : {
-        title: "Your workspace is ready",
-        folder:
-          "Every new chat starts in your Lazurio Folder. It gives your agent the context for this Environment and the Organizations you can work with.",
+        eyebrow: "Lazurio Environment",
+        title: "Your Environment is ready",
+        folder: "Every new chat starts in your Lazurio Folder.",
         inside:
           "Your projects and repositories live inside this Folder. There is nothing to import.",
         connectBefore: "Connect your agent account in ",
@@ -105,7 +107,7 @@ export function ManagedFolderWelcome() {
     <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-foreground">
       <section className="w-full max-w-xl space-y-6 rounded-xl border border-border p-8">
         <div>
-          <p className="text-sm text-muted-foreground">Lazurio Environment</p>
+          <p className="text-sm text-muted-foreground">{words.eyebrow}</p>
           <h1 className="mt-2 text-2xl font-semibold">{words.title}</h1>
         </div>
         <p>{words.folder}</p>
