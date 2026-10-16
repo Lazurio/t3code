@@ -502,8 +502,13 @@ function LazurioEnvironmentBrowser(props: {
   }, [isForeign, view, request, loaded, cameUp]);
   const signIn = isForeign && Boolean(view) && late === request && cameUp !== request;
   const czech = prefersCzech();
-  // The frame's name for assistive technology.
-  const title = foreign === null ? "Environment browser" : anotherEnvironment(czech);
+  // The frame's name for assistive technology, in the overlay's language.
+  const title =
+    foreign === null
+      ? czech
+        ? "Prohlížeč Prostředí"
+        : "Environment browser"
+      : anotherEnvironment(czech);
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", isForeign && "border-2 border-warning")}>
