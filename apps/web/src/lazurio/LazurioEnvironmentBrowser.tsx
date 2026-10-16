@@ -227,7 +227,7 @@ export const ENVIRONMENT_ELEMENT = "lazurio-environment";
 /** Another Environment's view, said without naming it: its frame's title, and its name until the
  * shell knows that Environment, or where the Environment's Platform predates the element. */
 const anotherEnvironment = (czech: boolean) =>
-  czech ? "Prohlížeč jiného Environmentu" : "Another Environment's browser";
+  czech ? "Prohlížeč jiného Prostředí" : "Another Environment's browser";
 
 /** Another Environment's name over the notice to sign in there, where its view, whose own bar names
  * it, did not come up: the shell's `<lazurio-environment>`, which shows its children until the
@@ -535,7 +535,7 @@ function LazurioEnvironmentBrowser(props: {
                 <EmptyHeader>
                   <EmptyTitle>
                     {czech
-                      ? "Přihlaste se do prohlížeče tohoto Environmentu"
+                      ? "Přihlaste se do prohlížeče tohoto Prostředí"
                       : "Sign in to this Environment's browser"}
                   </EmptyTitle>
                   <EmptyDescription>

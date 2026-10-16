@@ -73,6 +73,12 @@ describe("a managed Codex account on a Lazurio Environment", () => {
     // T3's own sign-in stays closed: only the Getting started page, no way back into it.
     expect(container.textContent).not.toMatch(/Continue with ChatGPT|Change account|Reconnect/);
     expect(container.querySelector("a")?.getAttribute("href")).toBe(toolsUrl);
+    // The row says where to sign in and what to do, not how Lazurio shares a sign-in (DEV-6665).
+    expect(container.textContent).toContain(
+      "Codex and Claude sign in through Lazurio on the Getting started page.",
+    );
+    expect(container.textContent).toContain("Disconnect it and sign Codex in through Lazurio.");
+    expect(container.textContent).not.toMatch(/the terminal|instance|only T3 Code uses/);
 
     logout.mockResolvedValue({
       _tag: "Success",

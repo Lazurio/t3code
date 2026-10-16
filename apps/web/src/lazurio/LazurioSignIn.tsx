@@ -23,33 +23,33 @@ export function useLazurioSignIn(environmentId: EnvironmentId | null) {
   return lazurioSignInOf(useAtomValue(serverEnvironment.configValueAtom(environmentId)));
 }
 
-/** The words, Czech where the person's browser is, as the rest of the overlay (root decision 0199). */
+/**
+ * The words, Czech where the person's browser is, as the rest of the overlay (root decision 0199):
+ * where Codex and Claude sign in, and what to do with an account only T3 uses. Why the sign-in
+ * lives in Lazurio is not for the person (DEV-6665, LazurioPlatform F36's addendum of 2026-10-16).
+ */
 const signInWords = (czech: boolean) =>
   czech
     ? {
         title: "Přihlášení přes Lazurio",
-        page: "Na Environmentu Lazuria se Codex a Claude přihlašují v Lazuriu na stránce Začínáme. Přihlášení pak platí pro T3, terminál i všechny agenty.",
-        noPage:
-          "Na Environmentu Lazuria se Codex a Claude přihlašují v Lazuriu. Přihlášení pak platí pro T3, terminál i všechny agenty.",
+        page: "Codex a Claude se přihlašují v Lazuriu na stránce Začínáme.",
+        noPage: "Codex a Claude se přihlašují v Lazuriu.",
         open: "Otevřít Začínáme",
         close: "Zavřít",
         t3Account: "Účet ChatGPT v T3 Code",
-        t3AccountSignedIn:
-          "Tato instance je ještě přihlášená k účtu ChatGPT, který používá jen T3 Code. Odpojte ho tady; Codex se pak přihlašuje přes Lazurio.",
+        t3AccountSignedIn: "Odpojte ho a přihlaste Codex přes Lazurio.",
         disconnect: "Odpojit",
         disconnecting: "Odpojuji…",
         disconnectFailed: "Účet ChatGPT se nepodařilo odpojit",
       }
     : {
         title: "Sign in through Lazurio",
-        page: "On a Lazurio Environment, Codex and Claude sign in through Lazurio on the Getting started page. The sign-in then works for T3, the terminal and every agent.",
-        noPage:
-          "On a Lazurio Environment, Codex and Claude sign in through Lazurio. The sign-in then works for T3, the terminal and every agent.",
+        page: "Codex and Claude sign in through Lazurio on the Getting started page.",
+        noPage: "Codex and Claude sign in through Lazurio.",
         open: "Open Getting started",
         close: "Close",
         t3Account: "ChatGPT account in T3 Code",
-        t3AccountSignedIn:
-          "This instance is still signed in to a ChatGPT account that only T3 Code uses. Disconnect it here; Codex then signs in through Lazurio.",
+        t3AccountSignedIn: "Disconnect it and sign Codex in through Lazurio.",
         disconnect: "Disconnect",
         disconnecting: "Disconnecting…",
         disconnectFailed: "Could not disconnect the ChatGPT account",
