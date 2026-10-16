@@ -220,13 +220,13 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   `.lazurio.io` (`viewEnvironmentId`, například `vm-01.acme` nebo `jana`).
   Vlastní pravidlo pojmenování fork nemá. Dokud shell stránky ten Environment
   nezná, a na Platformě bez prvku, ukáže prvek jen „Prohlížeč jiného
-  Environmentu“. Jazyk volí overlay jako
+  Prostředí“. Jazyk volí overlay jako
   pohled sám, podle jazyka prohlížeče (`cs`). Rám posílá
   `referrerPolicy="origin"`, podle kterého pohled jiného Environmentu dovolí
   zarámování T3 nebo Launchpadu (změna LazurioPlatform). Když pohled do 4 s od
   načtení rámu (15 s, když se nenačte) neohlásí svou záložku, typicky bez
   sezení v bráně toho Environmentu, ukáže panel „Přihlaste se do prohlížeče
-  tohoto Environmentu“ s otevřením pohledu v nové záložce a Reload: přihlašovací
+  tohoto Prostředí“ s otevřením pohledu v nové záložce a Reload: přihlašovací
   stránka Lazuria se v rámu nevykreslí. Pohled otevře v nové záložce i menu záložky.
 - **Rámy zůstávají připojené.** Dokud pravý panel ukazuje vlákno, má každá jeho
   záložka prohlížeče Environmentu svůj rám připojený, i když je vpředu jiná
