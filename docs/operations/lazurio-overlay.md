@@ -166,7 +166,7 @@ T3 žádný prohlížeč nemá, a tak overlay dělá tohle:
   404, který EventSource znovu nezkouší, a koncept si po první zprávě nechá
   stejný ref vlákna. Proto koncept proud neotevře a jeho prázdný panel zůstane
   upstream, jen místo „Only available in the desktop app.“ řekne pod seznamem
-  i jako důvod u řádku Browser „Prohlížeč Environmentu bude k dispozici po
+  i jako důvod u řádku Browser „Prohlížeč Prostředí bude k dispozici po
   první zprávě.“ Jakmile ho ChatView přestane označovat za koncept, proud se
   otevře a panel ukáže Novou kartu. Kde server o jiném vlákně řekl, že
   Environment prohlížeč nemá, zůstane upstream řádek. Menu „+“ při jiných
