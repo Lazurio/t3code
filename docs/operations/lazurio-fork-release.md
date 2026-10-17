@@ -388,7 +388,12 @@ Lazuria; wordmark ani ikony nepřebarvujeme ani nepřekreslujeme.
   záložky, na stránkách párování, 404 a chyby, v hlášení chyby, ve splashi
   a ve web manifestu (`short_name` je „T3 Code“). Štítek „Lazurio“ stojí
   i vedle wordmarku v sidebaru, v místě, které upstream dává pilulce Dev
-  a Nightly, a to v každém režimu identifikace. Vývojový build zůstává
+  a Nightly, a to v každém režimu identifikace. Od 2026-10-17 (schválený
+  design levého sloupce) má štítek před slovem symbol Lazuria
+  (`apps/web/src/lazurio/LazurioBadge.tsx`): celý schválený asset design
+  systému v nejmenší povolené velikosti 16 px, na tmavém vzhledu tmavá
+  verze; proto je štítek vyšší (20 px) než malá pilulka T3. Soubory symbolu
+  jsou v `apps/web/src/lazurio/brand/` beze změny. Vývojový build zůstává
   „T3 Code (Dev)“. Náhled `X.Y.Z-preview.YYYYMMDD.N` je canary příštího
   stable, ne nightly: jmenuje se stejně a nemá noční artwork upstreamu.
 - **Vzhled (řádek 17).** Shell Environmentu (`/.lazurio/shell.js`,

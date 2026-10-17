@@ -14,6 +14,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
+import { LazurioBadge } from "../../lazurio/LazurioBadge";
 import {
   SidebarFooter,
   SidebarMenu,
@@ -74,9 +75,13 @@ const SidebarChromeTitlebar = memo(function SidebarChromeTitlebar({
         <SidebarBrand onBackdrop={backdropVariant !== null} />
         {pillLabel ? (
           <div className="ml-1 flex h-7 items-center">
-            <Badge data-environment-identification="pill" size="sm" variant="secondary">
-              {pillLabel}
-            </Badge>
+            {pillLabel === "Lazurio" ? (
+              <LazurioBadge />
+            ) : (
+              <Badge data-environment-identification="pill" size="sm" variant="secondary">
+                {pillLabel}
+              </Badge>
+            )}
           </div>
         ) : null}
       </div>
