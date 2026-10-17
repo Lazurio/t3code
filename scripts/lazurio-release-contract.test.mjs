@@ -875,7 +875,7 @@ NodeTest.test(
     );
     NodeAssert.match(
       cli,
-      /Command\.withSubcommands\(\[modelCommand, providersCommand, capabilitiesCommand\]\)/,
+      /Command\.withSubcommands\(\[\s*modelCommand,\s*providersCommand,\s*pairingCommand,\s*capabilitiesCommand,?\s*\]\)/,
     );
     NodeAssert.match(cli, /providerRefresh: true/);
 
@@ -1831,4 +1831,55 @@ NodeTest.test("the strip tab's menu opens and reloads a tab's view through its s
   NodeAssert.equal(tabs.match(/Lazurio\.(tabMenuItems|runTabMenuAction)\(/g)?.length, 2);
   // The view opens in a tab of its own, which never reaches back into T3 Code.
   NodeAssert.match(component, /window\.open\(view, "_blank", "noopener"\)/);
+});
+
+// The Environment pairs its own browser (the Admin's decision of 2026-10-17, which replaces the
+// rule of 2026-09-21 that a direct visit shows T3's pairing page). Without a link's credential or
+// the desktop app's, the web's auth gate asks its own origin for one, which the Launchpad mints
+// with `t3 lazurio pairing` behind the gateway, and exchanges it like any bootstrap credential; a
+// session paired on 0.0.45 pairs again and keeps its scopes when that fails. The seam is two calls
+// in upstream's auth gate, so a rebuild that loses or moves one fails here.
+NodeTest.test("the Environment pairs its own browser through its seam", async () => {
+  const [gate, pairing, cli] = await Promise.all(
+    [
+      "apps/web/src/environments/primary/auth.ts",
+      "apps/web/src/lazurio/environmentPairing.ts",
+      "apps/server/src/lazurio/cli.ts",
+    ].map(read),
+  );
+  // A signed-in browser keeps upstream's early return; one paired on 0.0.45 pairs again before it.
+  NodeAssert.match(
+    gate,
+    /if \(currentSession\.authenticated && !urlCredential\) \{\n(?:\s*\/\/[^\n]*\n)*\s+await pairAgainWithEnvironment\(currentSession, exchangeBootstrapCredential\);\n\s+return \{ status: "authenticated" \};\n/,
+  );
+  // The Environment's credential is the third source, after a link's and the desktop app's.
+  NodeAssert.match(
+    gate,
+    /const bootstrapCredential =\n\s+urlCredential \?\?\n\s+getDesktopBootstrapCredential\(\) \?\?\n(?:\s*\/\/[^\n]*\n)*\s+\(await fetchEnvironmentPairingCredential\(\)\);\n/,
+  );
+  NodeAssert.equal(
+    gate.match(/\b(pairAgainWithEnvironment|fetchEnvironmentPairingCredential)\(/g)?.length,
+    2,
+  );
+  // Only from this page's own origin over HTTPS, never through a redirect or from the desktop app.
+  NodeAssert.match(
+    pairing,
+    /export const ENVIRONMENT_PAIRING_PATH = "\/\.lazurio\/chat\/pairing";/,
+  );
+  NodeAssert.match(pairing, /credentials: "same-origin",\n\s+redirect: "error",/);
+  NodeAssert.match(
+    pairing,
+    /if \(window\.desktopBridge !== undefined \|\| window\.location\.protocol !== "https:"\) \{/,
+  );
+  NodeAssert.match(pairing, /fetchPairingCredential\(window\.location\.origin, /);
+  NodeAssert.match(pairing, /await exchange\(credential\)\.catch\(\(\) => undefined\);/);
+  // The operator's scopes are the contracts' own, the standard ones and access, never relay:write.
+  NodeAssert.match(
+    cli,
+    /export const OPERATOR_PAIRING_SCOPES = \[\n\s+\.\.\.AuthStandardClientScopes,\n\s+AuthAccessReadScope,\n\s+AuthAccessWriteScope,\n\] as const;/,
+  );
+  NodeAssert.doesNotMatch(cli, /AuthRelayWriteScope|AuthAdministrativeScopes/);
+  NodeAssert.match(cli, /scopes: OPERATOR_PAIRING_SCOPES,/);
+  NodeAssert.match(cli, /operatorPairing: true/);
+  NodeAssert.ok(overlayMayChange("apps/web/src/environments/primary/auth.ts"));
 });
