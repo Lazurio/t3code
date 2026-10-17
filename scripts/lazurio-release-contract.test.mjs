@@ -924,10 +924,13 @@ NodeTest.test(
 );
 
 NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag", async () => {
-  const [page, layout, sidebarUi] = await Promise.all([
+  const [page, layout, sidebarUi, chrome, threads, legacy] = await Promise.all([
     read("apps/web/index.html"),
     read("apps/web/src/components/AppSidebarLayout.tsx"),
     read("apps/web/src/components/ui/sidebar.tsx"),
+    read("apps/web/src/components/sidebar/SidebarChrome.tsx"),
+    read("apps/web/src/components/Sidebar.tsx"),
+    read("apps/web/src/components/LegacySidebar.tsx"),
   ]);
   // Same-origin loader that Vite leaves alone; the Environment's Launchpad serves it.
   NodeAssert.match(
@@ -954,26 +957,27 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
     page,
     /<\/div>\s*<lazurio-buddy><\/lazurio-buddy>\s*<script type="module" src="\/src\/bootstrap\.ts"><\/script>\s*<\/body>/,
   );
-  // The column head is the sidebar's first child, above the upstream top row, for the thread,
-  // legacy and settings sidebars alike; the toggle moves down with that row.
+  // The column head sits under every sidebar's top row, with its toggle and the wordmark at the
+  // top of the column (the approved design of 2026-10-17). The header renders it, and the thread,
+  // legacy and settings sidebars all render the header; the layout and its toggle are upstream's.
+  NodeAssert.match(
+    chrome,
+    /\nexport const SidebarChromeHeader = memo\(function SidebarChromeHeader\(props: \{\n\s*isElectron: boolean;\n\}\) \{\n\s*return \(\n\s*<>\n\s*<SidebarChromeTitlebar \{\.\.\.props\} \/>\n\s*\{createElement\("lazurio-column-head", \{ active: "chat" \}\)\}\n\s*<\/>/,
+  );
+  NodeAssert.equal(chrome.match(/lazurio-column-head/g)?.length, 1);
+  NodeAssert.match(
+    chrome,
+    /\nconst SidebarChromeTitlebar = memo\(function SidebarChromeTitlebar\(\{/,
+  );
+  for (const sidebar of [threads, legacy]) {
+    NodeAssert.match(sidebar, /<SidebarChromeHeader isElectron=\{isElectron\} \/>/);
+  }
   NodeAssert.match(
     layout,
-    /\n\s*>\n(?:\s*\{\/\*[^\n]*\*\/\}\n)?\s*\{createElement\("lazurio-column-head", \{\s*active: "chat",\s*ref: observeLazurioColumnHead,?\s*\}\)\}\n\s*\{isOnSettings \? \(/,
+    /<SidebarChromeHeader isElectron=\{isElectron\} \/>\s*<SettingsSidebarNav /,
   );
-  NodeAssert.equal(layout.match(/lazurio-column-head/g)?.length, 1);
-  NodeAssert.match(
-    layout,
-    /<SidebarControl lazurioColumnHeadHeight=\{lazurioColumnHeadHeight\} \/>/,
-  );
-  // Measured with upstream's observeResize, as upstream's lint asks of every resize observer.
-  NodeAssert.match(
-    layout,
-    /observeResize\(element, \(\) => setLazurioColumnHeadHeight\(element\.offsetHeight\)\)/,
-  );
-  NodeAssert.match(
-    layout,
-    /isSidebarVisible && !isMobile && lazurioColumnHeadHeight > 0\s*\?\s*\{ top: `calc\(var\(--workspace-controls-top\) \+ \$\{lazurioColumnHeadHeight\}px\)` \}/,
-  );
+  NodeAssert.doesNotMatch(layout, /lazurio/i);
+  NodeAssert.match(layout, /\n\s*<SidebarControl \/>\n/);
 });
 
 NodeTest.test("the Lazurio shell takes T3's sidebar colours through the colour roles", async () => {

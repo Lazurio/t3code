@@ -124,7 +124,7 @@ Lazurio/t3code#70.
 | 4   | `feat: in-app update from the configured release channel`                                       | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Server pod launcherem po aktivaci přesměruje `~/.local/bin/t3` na svůj runtime, takže CLI běží ve stejné verzi jako server (Lazurio/t3code#30). Navrženo upstreamu.                                                                                                                                                                                                                                      | Upstream má dál pevné `pingdotgg/t3code` a protokol launcheru 3; „update everything“ (#18053) míří na verzi klienta z npm a overlay ho nezapojuje: zůstává celý. Přesměrování `t3` je nové: Update tlačítkem přesune jen aktivní verzi launcheru a CLI staré verze by na v0.1.0 zapisoval párování do `state.sqlite`, zatímco server čte `statev2.sqlite`. Nabídnout upstreamu.                                                                                                                                                                                   |
 | 5   | `release: Lazurio distribution`                                                                 | Tento runbook, [specifikace overlaye](./lazurio-overlay.md), skill [`lazurio-upstream-rebuild`](../../.agents/skills/lazurio-upstream-rebuild/SKILL.md), `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml`, `lazurio-release.yml` (včetně preview vydání pro canary, `X.Y.Z-preview.YYYYMMDD.N` jako GitHub pre-release) a `lazurio-upstream-watch.yml`, formulář issue, `.github/README.md` a bezpečnostní politika `.github/SECURITY.md`. Jméno distribuce nesou vydání, image, formulář a README (rozhodnutí 0200). | Zůstává; v přestavbě jde poslední. v0.1.0 přidala upstream workflow `mobile-android-apk.yml` s hodinovým cronem, který se po výměně `main` vypne ([Hranice automatizace](#hranice-automatizace)).                                                                                                                                                                                                                                                                                                                                                                 |
 | 6   | `lazurio: unsent prompt draft by link from the shell`                                           | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                                                                                                                                                                                                                                                                                                                                                                            | v0.1.0 přidala odkazy `/new?prompt=` (#18454), které nesou text v adrese a projekt vybírají podle `repo`; odkaz overlaye text nenese (D13) a zůstává vedle nich. Párování od v0.1.0 po přihlášení stránku znovu načte (#9785), proto odkaz přečká reload v `sessionStorage` (jen id a Organizace).                                                                                                                                                                                                                                                                |
-| 7   | `feat(web): Lazurio shell slot`                                                                 | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce nahoře v sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                                                                                                                                                                                                                                                        | Upstream ekvivalent nemá: zůstává. Výšku hlavičky sloupce měří upstream `observeResize`, jak chce lint `no-raw-resize-observer` z v0.1.0.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 7   | `feat(web): Lazurio shell slot`                                                                 | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce pod horním řádkem sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                                                                                                                                                                                                                                               | Upstream ekvivalent nemá: zůstává. Od 2026-10-17 je hlavička sloupce pod horním řádkem T3 (schválený design levého sloupce), takže `AppSidebarLayout.tsx` a přepínač sidebaru jsou upstreamu.                                                                                                                                                                                                                                                                                                                                                                     |
 | 8   | `feat(server): each thread's provider processes get its agent-browser session`                  | Procesy agentů, které T3 spouští pro jedno vlákno, dostanou `AGENT_BROWSER_SESSION=t3-<id vlákna>`, takže agenti vlákna pracují ve vlastním okně prohlížeče Environmentu. Codex, jehož app-server slouží všem vláknům instance, ji dostane v konfiguraci vlákna pro příkazy, které jeho agent spouští (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                                                                                                                                           | Rozhodnutí 0191; upstream ekvivalent nemá. v0.1.0 smazala `ProviderService.ts` (#2829) a procesy agentů spouští přes `AgentScope` (#17662): šev je dekorátor `AgentScope` v `server.ts` (Claude Code jako nativní binárka, Pi, Muse, agenti ACP) a jeden řádek v `CodexAdapterV2.ts` (`shell_environment_policy.set`). Nepokryto: OpenCode, Cursor, Grok na Linuxu, Claude Code spuštěný jako skript, Windows a terminály vlákna (Lazurio/t3code#73). Nabídnout upstreamu obecnou proměnnou vlákna.                                                               |
 | 9   | `feat(web): the right panel shows the thread's Environment browser tabs`                        | Na Environmentu Lazuria je prohlížeč Environmentu jediným prohlížečem webového klienta. Pravý panel ukazuje záložky prohlížeče Environmentu, které vlákno drží, podle seznamu serveru, na každém zařízení stejné. Nad pohledem není hlavička, jedinou lištou je lišta pohledu; menu záložky přidá Open in new tab a Reload. × záložku pro vlákno pustí s možností Vrátit a panel se sám otevře, když agent záložku ukáže (viz [Prohlížeč Environmentu](#prohlížeč-environmentu)).                                                                                                        | Rozhodnutí 0191, F47. v0.1.0 má pravý panel v14, Mod+Shift+T (#15207) a serverový prohlížeč (#15328), který web ukazuje jen podle `capabilities.serverBrowser`. Švy se přesunuly a přibyl jeden: Mod+Shift+T povrchy prohlížeče Environmentu přeskočí, cestou zpět zůstává Vrátit. Prohlížeč upstreamu skrývá server (řádek 10), web další šev nepotřebuje.                                                                                                                                                                                                       |
 | 10  | `feat(server): T3's browser tools drive the Environment browser`                                | Nástroje prohlížeče T3 (`preview_open`, `preview_snapshot`, …) ovládají prohlížeč Environmentu i ve webovém T3. Záložku, kterou otevřou nebo převezmou, přidají do záložek vlákna a pohled jiného Environmentu pošlou webu jako živou událost. S `T3CODE_LAZURIO_FOLDER` server serverový prohlížeč upstreamu nestaví ani neinzeruje, takže prohlížeč Environmentu je jediný.                                                                                                                                                                                                            | Rozhodnutí 0191. v0.1.0 má vlastní serverový prohlížeč (#15328) s preferovaným hostitelem, 660 s pro `open`, `reason`, ARIA stromem, `playwright-core` a enginem `ServerBrowserPage.ts`; desktop se k brokeru nepřipojuje. Zmenšeno: kopie engine a háčky v brokeru, MCP serveru a balení odpadly. Hostitel overlaye se registruje pod id serverového prohlížeče, `open` omezí na 60 s a stránky ovládá upstream engine s opravou velikosti snímku (nabídnout upstreamu). Vykreslení HTML zůstává upstreamu. Řeší Lazurio/t3code#43.                              |
@@ -214,7 +214,8 @@ Commity v pořadí na `main`:
   `apps/web/src/lazurio/`: `LazurioPromptDraft.tsx`, `promptDraft.ts` a jeho
   test.
 - **7.** `02a09d79ea`. `apps/web/index.html`\*,
-  `apps/web/src/components/AppSidebarLayout.tsx`.
+  `apps/web/src/components/sidebar/SidebarChrome.tsx`\* (hlavička sloupce pod
+  horním řádkem sidebaru).
 - **8.** `a45bd08f8e`. `apps/server/src/server.ts`\* (dekorátor `AgentScope`),
   `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts` a jeho test,
   `apps/server/src/lazurio/agentBrowserSession.ts` a jeho test.
@@ -256,7 +257,8 @@ Commity v pořadí na `main`:
   `managedFirstRun.ts`, `managedFolder.ts` a jeho test.
   `packages/contracts/src/server.ts`.
 - **16.** `543f0f9bfc`. `apps/web/src/`: `branding.ts`, `branding.logic.ts` a
-  `branding.test.ts`, `components/sidebar/SidebarChrome.tsx`;
+  `branding.test.ts`, `components/sidebar/SidebarChrome.tsx`\* (štítek u
+  wordmarku);
   `apps/web/index.html`\* (titulek a splash), `apps/web/public/manifest.webmanifest`.
 - **17.** `d16500b401`. `apps/web/src/main.tsx`\* (import),
   `apps/web/src/lazurio/theme.css`.
@@ -274,8 +276,8 @@ Commity v pořadí na `main`:
 issue #33.** V Lazuriu je T3 Code aplikace **Chat** v přepínači Chat · Apps ·
 Automate. Overlay do webového klienta přidává jen slot pro shell Lazuria: rail
 vlevo, hlavičku sloupce (výběr Environmentu, ozubené kolo Nastavení a přepínač
-Chat · Apps · Automate) nahoře ve vlastním sidebaru T3 a plovoucí bublinu
-Buddyho. Shell jsou Web Components se Shadow DOM (`<lazurio-rail>`,
+Chat · Apps · Automate) ve vlastním sidebaru T3 pod jeho horním řádkem a
+plovoucí bublinu Buddyho. Shell jsou Web Components se Shadow DOM (`<lazurio-rail>`,
 `<lazurio-column-head>`, `<lazurio-buddy>`), takže CSS T3 a Lazuria se navzájem
 neovlivní. Definuje je `/.lazurio/shell.js`, který servíruje Launchpad daného
 Environmentu na stejném originu za bránou Environmentu; data má v
@@ -297,14 +299,19 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
   nechalo pod railem. Proto se při definovaném railu stane obal sidebaru
   (`[data-slot="sidebar-wrapper"]`) jejich containing blockem
   (`contain: layout paint`). Bez shellu pravidlo neplatí.
-- `apps/web/src/components/AppSidebarLayout.tsx`:
-  `<lazurio-column-head active="chat">` jako první prvek sidebaru, nad horním
-  řádkem upstreamu s logem T3 Code, který zůstává se všemi ovládacími prvky
-  (rozhodnutí 0200 bod 1: značka T3 Code zůstává; vedle wordmarku přibude jen
-  štítek „Lazurio“, viz [Jméno a vzhled](#jméno-a-vzhled)). Jedno místo
-  platí pro sidebar vláken, legacy sidebar i Nastavení. Přepínač sidebaru je
-  `position: fixed` u horního okraje, takže se při otevřeném sidebaru na
-  desktopu posune dolů o výšku hlavičky sloupce, s horním řádkem sidebaru.
+- `apps/web/src/components/sidebar/SidebarChrome.tsx`:
+  `<lazurio-column-head active="chat">` hned pod horním řádkem upstreamu.
+  Nahoře zůstává řádek s přepínačem sidebaru, wordmarkem T3 Code a štítkem
+  „Lazurio“, pod ním výběr Environmentu, ozubené kolo a přepínač aplikací
+  (schválený design levého sloupce z 2026-10-17, prototyp
+  HumanAndMachine-ai/prototypes-lazurio#56 a #61; rozhodnutí 0200 bod 1:
+  značka T3 Code zůstává, viz [Jméno a vzhled](#jméno-a-vzhled)). Řádek
+  upstreamu se jmenuje `SidebarChromeTitlebar` a exportovaný
+  `SidebarChromeHeader` je tenký obal, který za něj přidá hlavičku sloupce.
+  Horní řádek kreslí sidebar vláken, legacy sidebar i Nastavení, takže hlavičku
+  mají všechny tři. Přepínač sidebaru (`position: fixed`) zůstává v horním
+  rohu jako v upstreamu, při otevřeném i skrytém sidebaru, a
+  `AppSidebarLayout.tsx` se nemění.
 
 Kontraktní test hlídá obojí, takže přestavba na nový upstream tag, která slot
 ztratí, v CI selže. Přepínač i rail vedou obyčejnými odkazy na jiné originy
@@ -322,7 +329,12 @@ vzhled design systému, který tokeny T3 mapuje. Vlastní výběr motivů má
 zatím každá aplikace; sjednocení motivů napříč aplikacemi je samostatná
 pozdější práce.
 
-Mezi railem a sidebarem T3 nesmí být vidět čára. Proto:
+Mezi railem a sidebarem T3 je od 2026-10-17 tenká čára (rozhodnutí
+Organization Admina ke schválenému designu levého sloupce mění rozhodnutí 0187
+bod 2). Kreslí ji rail barvou role `--lazurio-line`, kterou `index.html` bere
+z `--contrast-sidebar-border` T3, takže sleduje světlý, tmavý i každý jiný
+motiv; fork pro čáru nic nepřidává. Plocha railu a sidebaru má zůstat stejná,
+aby čára byla jediným rozhraním. Proto:
 
 - Role jsou deklarované na `:root` i na `[data-app-sidebar]`, tedy tam, kde
   T3 přepočítává paletu svého sidebaru, a `<lazurio-rail>` nese
@@ -1051,7 +1063,7 @@ ověřené. Rozdíl mezi bázemi ukáže
   přestavby.
 - **Slot shellu a vzhled design systému.** Shell Environmentu
   (`/.lazurio/shell.js`, rozhraní v1) se zavěšuje do `apps/web/index.html`
-  a `AppSidebarLayout.tsx` a `apps/web/src/lazurio/theme.css` mapuje jeho
+  a `sidebar/SidebarChrome.tsx` a `apps/web/src/lazurio/theme.css` mapuje jeho
   tokeny na tokeny T3 z `apps/web/src/index.css`. Kontraktní test hlídá slot,
   barevné role shellu a to, že mapované tokeny `index.css` deklaruje ve
   stejném scope. Nové tokeny upstreamu nezachytí, ty mají výchozí hodnoty T3;
@@ -1156,7 +1168,8 @@ všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
   sdílený Environment Ring 0 nepřihlašujte;
 - „+“ i Mod+T otevřou Novou kartu a serverový prohlížeč upstreamu se nikde
   neukáže;
-- rail, hlavička sloupce a Buddy, bez čáry mezi railem a sidebarem;
+- rail, hlavička sloupce pod horním řádkem s přepínačem a wordmarkem a Buddy,
+  s tenkou čárou mezi railem a sidebarem v barvě motivu (světlý i tmavý);
 - stará vlákna po migraci databáze a restart služby se zachovanými daty.
   Bez přihlášeného poskytovatele vlákno se zprávou nevznikne (odeslání je
   vypnuté), stará vlákna pak ověřte na prvním Environmentu s historií;
