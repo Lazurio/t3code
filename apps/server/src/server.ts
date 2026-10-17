@@ -65,6 +65,7 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
+import * as LazurioOverlay from "./lazurio/overlay.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
@@ -730,6 +731,9 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
+  // Lazurio overlay (plan DEV-6646): T3's browser tools drive the Environment browser and each
+  // thread keeps its tabs of it. It shares the routes' one preview broker, provided below.
+  LazurioOverlay.layer,
 ).pipe(
   // Guides read through the same pull request service as every other surface.
   Layer.provide(
