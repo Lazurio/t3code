@@ -150,15 +150,34 @@ const SNAPSHOT_SCRIPT = `(() => {
   };
 })()`;
 
+/**
+ * The viewport in CSS pixels and the device pixels per CSS pixel of a capture. A page Playwright
+ * reached over CDP without emulating it has no viewport of its own: both are its window's.
+ * Lazurio overlay (plan DEV-6646): the Environment browser's windows are such pages; offered
+ * upstream, whose desktop-rendered tabs are too.
+ */
+const viewportOf = async (page: Page, renderScale: number) => {
+  const emulated = page.viewportSize();
+  if (emulated) return { ...emulated, renderScale };
+  return (await page.evaluate(
+    "({ width: innerWidth, height: innerHeight, renderScale: devicePixelRatio })",
+  )) as { readonly width: number; readonly height: number; readonly renderScale: number };
+};
+
 // Scaled captures repaint live screencasts, so callers pause them. Clips use document offsets.
 export const captureViewport = async (
   page: Page,
   cdp: CDPSession,
-  options: { readonly format: "png" | "jpeg"; readonly quality?: number; readonly scale: number },
+  options: {
+    readonly format: "png" | "jpeg";
+    readonly quality?: number;
+    readonly scale: number;
+    readonly viewport?: { readonly width: number; readonly height: number };
+  },
 ) => {
   let clip;
   if (options.scale < 1) {
-    const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+    const viewport = options.viewport ?? page.viewportSize() ?? { width: 1280, height: 800 };
     const { cssVisualViewport } = await cdp.send("Page.getLayoutMetrics");
     clip = {
       x: cssVisualViewport.pageX,
@@ -183,8 +202,8 @@ export const snapshot = async (input: {
   readonly networkEntries: ReadonlyArray<PreviewAutomationNetworkEntry>;
   readonly actionTimeline: PreviewAutomationSnapshot["actionTimeline"];
 }): Promise<PreviewAutomationSnapshot> => {
-  const viewport = input.page.viewportSize() ?? { width: 1280, height: 800 };
-  const scale = Math.min(1, MAX_SCREENSHOT_WIDTH / (viewport.width * input.renderScale));
+  const { renderScale, ...viewport } = await viewportOf(input.page, input.renderScale);
+  const scale = Math.min(1, MAX_SCREENSHOT_WIDTH / (viewport.width * renderScale));
   const state = refsFor(input.page);
   invalidateRefs(input.page);
   const generation = state.generation;
@@ -196,7 +215,7 @@ export const snapshot = async (input: {
       >
     >,
     input.page.ariaSnapshot({ mode: "ai", boxes: true, timeout: DEFAULT_TIMEOUT_MS }),
-    captureViewport(input.page, input.cdp, { format: "png", scale }),
+    captureViewport(input.page, input.cdp, { format: "png", scale, viewport }),
   ]);
   if (state.generation !== generation) {
     throw new ServerBrowserOperationError(
@@ -220,8 +239,8 @@ export const snapshot = async (input: {
     screenshot: {
       mimeType: "image/png",
       data,
-      width: Math.round(viewport.width * input.renderScale * scale),
-      height: Math.round(viewport.height * input.renderScale * scale),
+      width: Math.round(viewport.width * renderScale * scale),
+      height: Math.round(viewport.height * renderScale * scale),
     },
   };
 };

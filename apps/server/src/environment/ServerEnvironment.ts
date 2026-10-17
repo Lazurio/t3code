@@ -22,6 +22,7 @@ import { watchAvailableServerUpdate } from "../cloud/releaseIndex.ts";
 import { resolveServerSelfUpdateCapability } from "../cloud/selfUpdate.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
+import { isLazurioEnvironment } from "../lazurio/lazurioEnvironment.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
 import { detectServerEnvironmentMachineKind } from "./ServerEnvironmentMachine.ts";
@@ -269,7 +270,8 @@ export const make = Effect.gen(function* () {
         ? { serverSelfUpdateProgress: true }
         : {}),
       ...(desktopAppUpdate ? { desktopAppUpdate: true } : {}),
-      serverBrowser: true,
+      // Lazurio overlay (root decision 0191): a Lazurio Environment's browser is its own.
+      ...((yield* isLazurioEnvironment) ? {} : { serverBrowser: true }),
     },
   };
 

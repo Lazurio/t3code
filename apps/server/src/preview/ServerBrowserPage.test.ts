@@ -276,6 +276,48 @@ describe("server browser element refs", () => {
     ).rejects.toMatchObject({ tag: "PreviewAutomationTimeoutError" });
     expect(await ServerBrowserPage.evaluate(cdp, { expression: "1 + 1" }, 2_000)).toBe(2);
   });
+
+  // A page Playwright reached over CDP without emulating it (a desktop tab, a browser the server
+  // attached to) has no viewport of its own: the snapshot measures its window. Scales here are
+  // exact in binary, so the PNG's size leaves no rounding to Chrome.
+  it.each([
+    { window: "narrower than a screenshot", width: 900, height: 600, ratio: 1, png: [900, 600] },
+    { window: "wider, scaled down", width: 2560, height: 1600, ratio: 1, png: [1280, 800] },
+    { window: "at two device pixels", width: 1280, height: 720, ratio: 2, png: [1280, 720] },
+  ])(
+    "reports the screenshot of a window $window at its size",
+    async ({ width, height, ratio, png }) => {
+      const unemulated = await browser.newContext({ viewport: null });
+      try {
+        const window = await unemulated.newPage();
+        const session = await unemulated.newCDPSession(window);
+        // The window's own size and pixel ratio, which Playwright does not know.
+        await session.send("Emulation.setDeviceMetricsOverride", {
+          width,
+          height,
+          deviceScaleFactor: ratio,
+          mobile: false,
+        });
+        await window.setContent("<h1>Window</h1>");
+        expect(window.viewportSize()).toBeNull();
+
+        const { screenshot } = await ServerBrowserPage.snapshot({
+          page: window,
+          cdp: session,
+          renderScale: 2,
+          consoleEntries: [],
+          networkEntries: [],
+          actionTimeline: [],
+        });
+
+        const image = Buffer.from(screenshot.data, "base64");
+        expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual(png);
+        expect([screenshot.width, screenshot.height]).toEqual(png);
+      } finally {
+        await unemulated.close();
+      }
+    },
+  );
 });
 
 describe("server browser drag", () => {
@@ -317,5 +359,61 @@ describe("server browser drag", () => {
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
+  });
+});
+
+describe("server browser snapshots of a page without a Playwright viewport", () => {
+  // Only the calls `snapshot` makes of a page Playwright reached over CDP without emulating it,
+  // in a window of `size` CSS pixels at `ratio` device pixels each.
+  const unemulatedPage = (size: { width: number; height: number }, ratio: number) => {
+    const captures: Array<unknown> = [];
+    const page = {
+      viewportSize: () => null,
+      on: () => page,
+      evaluate: async (script: string) =>
+        script.includes("devicePixelRatio")
+          ? { ...size, renderScale: ratio }
+          : {
+              url: "about:blank",
+              title: "",
+              loading: false,
+              visibleText: "",
+              interactiveElements: [],
+            },
+      ariaSnapshot: async () => "",
+    } as unknown as Page;
+    const cdp = {
+      send: async (method: string, params?: unknown) => {
+        if (method === "Page.getLayoutMetrics") {
+          return { cssVisualViewport: { pageX: 0, pageY: 40 } };
+        }
+        captures.push(params);
+        return { data: "" };
+      },
+    } as unknown as CDPSession;
+    return { page, cdp, captures };
+  };
+
+  it.each([
+    { window: "narrower than a screenshot", width: 900, height: 600, ratio: 1, png: [900, 600] },
+    { window: "wider, scaled down", width: 1600, height: 1000, ratio: 1, png: [1280, 800] },
+    { window: "at two device pixels", width: 960, height: 720, ratio: 2, png: [1280, 960] },
+  ])("captures a window $window as it is", async ({ width, height, ratio, png }) => {
+    const { page, cdp, captures } = unemulatedPage({ width, height }, ratio);
+
+    const { screenshot } = await ServerBrowserPage.snapshot({
+      page,
+      cdp,
+      renderScale: 2,
+      consoleEntries: [],
+      networkEntries: [],
+      actionTimeline: [],
+    });
+
+    expect([screenshot.width, screenshot.height]).toEqual(png);
+    const scale = png[0]! / (width * ratio);
+    expect(captures).toEqual([
+      { format: "png", ...(scale < 1 ? { clip: { x: 0, y: 40, width, height, scale } } : {}) },
+    ]);
   });
 });

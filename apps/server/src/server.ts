@@ -70,6 +70,7 @@ import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
+import * as LazurioServerBrowser from "./lazurio/serverBrowser.ts";
 import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
@@ -739,7 +740,10 @@ const layerMakeRoutes = Layer.mergeAll(
   // after the guide service so it reaches that too.
   Layer.provide(layerPullRequestService),
   // The stream route and the WebSocket RPCs share one browser.
-  Layer.provide(ServerBrowser.layer.pipe(Layer.provide(DesktopBrowserChannel.layer))),
+  // Lazurio overlay (root decision 0191): none on a Lazurio Environment, whose browser is its own.
+  Layer.provide(
+    LazurioServerBrowser.gate(ServerBrowser.layer.pipe(Layer.provide(DesktopBrowserChannel.layer))),
+  ),
   // Server browser tabs and HTML render previews install and run the same headless browser.
   Layer.provide(PreviewBrowser.layer),
   Layer.provide(PreviewAutomationBroker.layer),
