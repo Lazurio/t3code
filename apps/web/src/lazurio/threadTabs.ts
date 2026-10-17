@@ -203,8 +203,9 @@ export interface RevealBaseline {
 
 /**
  * The tabs whose reveal request is new since `baseline`, and the next baseline. The first snapshot
- * after the thread comes into view, or after the server restarted (another epoch), only marks every
- * request as seen, as upstream's own reveal does: a reload never reopens what the person closed.
+ * after the thread comes into view (`enterThreadTabs`), or after the server restarted (another
+ * epoch), only marks every request as seen, as upstream's own reveal does: a reload never reopens
+ * what the person closed.
  */
 export function freshReveals(
   baseline: RevealBaseline | null,
@@ -396,6 +397,7 @@ export function syncOf(threadRef: ScopedThreadRef): ThreadTabsSync {
 /** Tests start from nothing. */
 export function resetThreadTabs(): void {
   syncs.clear();
+  lastInView = null;
   useThreadTabsStore.setState({
     snapshots: {},
     titles: {},
@@ -546,9 +548,20 @@ export function receiveSnapshot(threadRef: ScopedThreadRef, answer: ThreadTabsAn
   }
 }
 
-/** The thread's view of the panel comes anew: the next snapshot is a baseline of reveals. */
+/** The thread or draft that came into view last, by key. */
+let lastInView: string | null = null;
+
+/**
+ * The thread's stream opens. When another thread or a draft came into view since this thread
+ * was last in view, the next snapshot is a baseline of reveals. The same thread's stream opening
+ * again keeps what the device saw, so a reveal that came while no stream was open still opens the
+ * panel. This happens when ChatView mounts anew or the thread's draft becomes a thread, and the
+ * person never left the thread.
+ */
 export function enterThreadTabs(threadRef: ScopedThreadRef): void {
-  syncOf(threadRef).baseline = null;
+  const key = scopedThreadKey(threadRef);
+  if (lastInView !== key) syncOf(threadRef).baseline = null;
+  lastInView = key;
   useThreadTabsStore.setState({ inView: threadRef });
 }
 
@@ -562,6 +575,7 @@ export function leaveThreadTabs(threadRef: ScopedThreadRef): void {
 /** A draft comes into view: the panel says that the Environment browser comes with the first
  * message, instead of upstream's desktop-only line. */
 export function enterDraft(threadRef: ScopedThreadRef): void {
+  lastInView = scopedThreadKey(threadRef);
   useThreadTabsStore.setState({ draftInView: threadRef });
 }
 

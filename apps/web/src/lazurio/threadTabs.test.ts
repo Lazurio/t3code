@@ -16,9 +16,13 @@ import {
 import {
   chooseTab,
   closeToastText,
+  enterDraft,
+  enterThreadTabs,
   freshReveals,
   holdTab,
   isNewTabSurface,
+  leaveDraft,
+  leaveThreadTabs,
   letGoOfTabs,
   newTabSurface,
   parseThreadTabsAnswer,
@@ -47,6 +51,7 @@ const foreign = {
 } as const;
 const files = { id: "files", kind: "files" } as const;
 const threadA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
+const threadB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
 const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA);
 const setPanel = (state: ThreadRightPanelState) =>
   useRightPanelStore.setState({ byThreadKey: { "env-1:thread-A": state } });
@@ -270,6 +275,30 @@ describe("reveals", () => {
     syncOf(threadA).inlinePanel = true;
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:2" } }]));
     expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
+  });
+
+  it("keep what the device saw while the person stays on the thread, and start again after another one", () => {
+    syncOf(threadA).inlinePanel = true;
+    // The person sends the first message of a draft, and its thread's stream opens.
+    enterDraft(threadA);
+    leaveDraft(threadA);
+    enterThreadTabs(threadA);
+    receiveSnapshot(threadA, snapshot([]));
+    // The stream closes and opens again on the same thread (ChatView mounting anew) while the agent
+    // reveals a page: the snapshot of the new stream still opens the panel on it.
+    leaveThreadTabs(threadA);
+    enterThreadTabs(threadA);
+    receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:1" } }]));
+    expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
+    // The person closes the panel and opens another thread's draft. Back on this thread, the first
+    // snapshot is a baseline again: a page the agent revealed meanwhile does not open the panel.
+    useRightPanelStore.getState().toggleVisibility(threadA);
+    leaveThreadTabs(threadA);
+    enterDraft(threadB);
+    leaveDraft(threadB);
+    enterThreadTabs(threadA);
+    receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:2" } }]));
+    expect(panel().isOpen).toBe(false);
   });
 
   it("leave the agent's tab of a thread that comes into view selected, for the panel the person opens", () => {
