@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { type EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { useClosedViewStore } from "../closedViewStore";
 import { toastManager } from "../components/ui/toast";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import {
   type RightPanelSurface,
   selectActiveRightPanelSurface,
@@ -31,6 +32,7 @@ import {
   receiveSnapshot,
   reconcileThreadTabs,
   resetThreadTabs,
+  routeShowsThread,
   showOwnTab,
   snapshotOf,
   syncOf,
@@ -113,6 +115,7 @@ async function settled() {
 beforeEach(() => {
   resetThreadTabs();
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
+  useComposerDraftStore.setState({ draftThreadsByThreadKey: {} });
   posted.length = 0;
   answers = [];
   vi.stubGlobal(
@@ -277,28 +280,55 @@ describe("reveals", () => {
     expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
   });
 
-  it("keep what the device saw while the person stays on the thread, and start again after another one", () => {
+  it("keep what the device saw while the route shows the thread, and start again once the person left it", () => {
     syncOf(threadA).inlinePanel = true;
-    // The person sends the first message of a draft, and its thread's stream opens.
+    // The person sends the first message of a draft: the route still shows the draft as its thread's
+    // stream opens.
     enterDraft(threadA);
-    leaveDraft(threadA);
+    leaveDraft(threadA, true);
     enterThreadTabs(threadA);
     receiveSnapshot(threadA, snapshot([]));
-    // The stream closes and opens again on the same thread (ChatView mounting anew) while the agent
-    // reveals a page: the snapshot of the new stream still opens the panel on it.
-    leaveThreadTabs(threadA);
+    // The thread's view closes and opens again while the route still shows it (ChatView mounting
+    // anew) and the agent reveals a page: the snapshot of the new stream opens the panel on it.
+    leaveThreadTabs(threadA, true);
     enterThreadTabs(threadA);
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:1" } }]));
     expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
-    // The person closes the panel and opens another thread's draft. Back on this thread, the first
-    // snapshot is a baseline again: a page the agent revealed meanwhile does not open the panel.
+    // The person closes the panel and goes to Settings, where no thread or draft is in view. The
+    // agent reveals a page meanwhile. Back on the thread, the first snapshot is a baseline: the
+    // panel stays closed.
     useRightPanelStore.getState().toggleVisibility(threadA);
-    leaveThreadTabs(threadA);
-    enterDraft(threadB);
-    leaveDraft(threadB);
+    leaveThreadTabs(threadA, false);
     enterThreadTabs(threadA);
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:2" } }]));
     expect(panel().isOpen).toBe(false);
+    // The same after another thread's draft.
+    leaveThreadTabs(threadA, false);
+    enterDraft(threadB);
+    leaveDraft(threadB, false);
+    enterThreadTabs(threadA);
+    receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:3" } }]));
+    expect(panel().isOpen).toBe(false);
+  });
+
+  it("know the thread a route shows, its own or its draft's", () => {
+    const route = (params: Record<string, string>) => routeShowsThread(params, threadA);
+    expect(route({ environmentId: "env-1", threadId: "thread-A" })).toBe(true);
+    expect(route({ environmentId: "env-1", threadId: "thread-B" })).toBe(false);
+    expect(route({ environmentId: "env-2", threadId: "thread-A" })).toBe(false);
+    // Settings and the other routes show no thread.
+    expect(route({})).toBe(false);
+    // A draft's route shows the thread the draft becomes, while its session lasts.
+    expect(route({ draftId: "draft-A" })).toBe(false);
+    useComposerDraftStore
+      .getState()
+      .setProjectDraftThreadId(
+        scopeProjectRef("env-1" as EnvironmentId, ProjectId.make("project-1")),
+        DraftId.make("draft-A"),
+        { threadId: ThreadId.make("thread-A") },
+      );
+    expect(route({ draftId: "draft-A" })).toBe(true);
+    expect(routeShowsThread({ draftId: "draft-A" }, threadB)).toBe(false);
   });
 
   it("leave the agent's tab of a thread that comes into view selected, for the panel the person opens", () => {

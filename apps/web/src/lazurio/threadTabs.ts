@@ -21,6 +21,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { randomUUID } from "../lib/utils";
 import {
   type RightPanelSurface,
@@ -28,6 +29,7 @@ import {
   type ThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { resolveThreadRouteTarget } from "../threadRoutes";
 import {
   environmentBrowserLink,
   foreignEnvironmentBrowserTab,
@@ -203,9 +205,9 @@ export interface RevealBaseline {
 
 /**
  * The tabs whose reveal request is new since `baseline`, and the next baseline. The first snapshot
- * after the thread comes into view (`enterThreadTabs`), or after the server restarted (another
- * epoch), only marks every request as seen, as upstream's own reveal does: a reload never reopens
- * what the person closed.
+ * after the page loads, after the person comes back to the thread (`leaveThreadTabs`) or after the
+ * server restarted (another epoch), only marks every request as seen, as upstream's own reveal
+ * does: a reload never reopens what the person closed.
  */
 export function freshReveals(
   baseline: RevealBaseline | null,
@@ -397,7 +399,6 @@ export function syncOf(threadRef: ScopedThreadRef): ThreadTabsSync {
 /** Tests start from nothing. */
 export function resetThreadTabs(): void {
   syncs.clear();
-  lastInView = null;
   useThreadTabsStore.setState({
     snapshots: {},
     titles: {},
@@ -548,24 +549,47 @@ export function receiveSnapshot(threadRef: ScopedThreadRef, answer: ThreadTabsAn
   }
 }
 
-/** The thread or draft that came into view last, by key. */
-let lastInView: string | null = null;
+/**
+ * Whether a route shows the thread: its own route, or the route of the draft that becomes it.
+ * `params` are the route's (`router.state.matches`), read as upstream's chat layout reads them.
+ */
+export function routeShowsThread(
+  params: Partial<Record<"environmentId" | "threadId" | "draftId", string | undefined>>,
+  threadRef: ScopedThreadRef,
+): boolean {
+  const target = resolveThreadRouteTarget(params);
+  const shown =
+    target?.kind === "server"
+      ? target.threadRef
+      : target?.kind === "draft"
+        ? useComposerDraftStore.getState().getDraftSession(target.draftId)
+        : null;
+  return (
+    shown !== null &&
+    shown.environmentId === threadRef.environmentId &&
+    shown.threadId === threadRef.threadId
+  );
+}
 
 /**
- * The thread's stream opens. When another thread or a draft came into view since this thread
- * was last in view, the next snapshot is a baseline of reveals. The same thread's stream opening
- * again keeps what the device saw, so a reveal that came while no stream was open still opens the
- * panel. This happens when ChatView mounts anew or the thread's draft becomes a thread, and the
- * person never left the thread.
+ * The person left the thread when the route no longer shows it (`stillShown` false). The next
+ * snapshot after they come back is then a baseline of reveals, so a page an agent opened meanwhile
+ * does not open the panel. While the route still shows the thread, the device keeps what it saw.
+ * The thread's view can close and open again without the person leaving: ChatView mounts anew,
+ * the thread's draft becomes a thread, its shell loads again. A reveal that came while no stream
+ * was open then still opens the panel.
  */
+function leftThread(threadRef: ScopedThreadRef, stillShown: boolean): void {
+  if (!stillShown) syncOf(threadRef).baseline = null;
+}
+
+/** The thread's stream opens. */
 export function enterThreadTabs(threadRef: ScopedThreadRef): void {
-  const key = scopedThreadKey(threadRef);
-  if (lastInView !== key) syncOf(threadRef).baseline = null;
-  lastInView = key;
   useThreadTabsStore.setState({ inView: threadRef });
 }
 
-export function leaveThreadTabs(threadRef: ScopedThreadRef): void {
+export function leaveThreadTabs(threadRef: ScopedThreadRef, stillShown: boolean): void {
+  leftThread(threadRef, stillShown);
   const inView = useThreadTabsStore.getState().inView;
   if (inView !== null && scopedThreadKey(inView) === scopedThreadKey(threadRef)) {
     useThreadTabsStore.setState({ inView: null });
@@ -575,11 +599,11 @@ export function leaveThreadTabs(threadRef: ScopedThreadRef): void {
 /** A draft comes into view: the panel says that the Environment browser comes with the first
  * message, instead of upstream's desktop-only line. */
 export function enterDraft(threadRef: ScopedThreadRef): void {
-  lastInView = scopedThreadKey(threadRef);
   useThreadTabsStore.setState({ draftInView: threadRef });
 }
 
-export function leaveDraft(threadRef: ScopedThreadRef): void {
+export function leaveDraft(threadRef: ScopedThreadRef, stillShown: boolean): void {
+  leftThread(threadRef, stillShown);
   const draft = useThreadTabsStore.getState().draftInView;
   if (draft !== null && scopedThreadKey(draft) === scopedThreadKey(threadRef)) {
     useThreadTabsStore.setState({ draftInView: null });
