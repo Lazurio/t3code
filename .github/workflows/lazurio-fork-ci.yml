@@ -1,0 +1,339 @@
+name: Lazurio Fork CI
+
+# Read-only CI for the Lazurio overlay on upstream T3 Code. Upstream workflows
+# need Blacksmith runners and upstream secrets and are disabled in this
+# repository's Actions settings; see docs/operations/lazurio-fork-release.md.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: none
+
+concurrency:
+  group: lazurio-fork-ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UPSTREAM_TAG: v0.1.0
+  UPSTREAM_SHA: 81493efb71e8e8244f95d3e9f71d8369654ab151
+
+jobs:
+  server-and-web:
+    name: Server and web compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Fetch exact source and upstream base without credentials
+        env:
+          SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add source "https://github.com/${SOURCE_REPOSITORY}.git"
+          git fetch --filter=blob:none source "$SOURCE_REF"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_REF"
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --filter=blob:none upstream \
+            "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-$UPSTREAM_TAG"
+          test "$(git rev-parse "refs/tags/upstream-$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_SHA"
+          git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD
+          test "$(git rev-list --merges "$UPSTREAM_SHA..HEAD" --count)" = 0
+
+          # The overlay is the Lazurio release files plus seams in upstream T3 Code.
+          # Under apps/, packages/ and scripts/ it changes only the files below, each
+          # a reviewed decision, grouped by the feature that owns it; its own folders,
+          # apps/*/src/lazurio/, which upstream does not have, pass whole. Any other
+          # change there fails.
+          allowed_upstream_changes=(
+            # Shared seams, each with the hooks of several features below: the server's
+            # CLI and runtime config (hosted settings, the managed Folder), ServerEnvironment.ts
+            # (the update notice's descriptor field, and no serverBrowser capability on a
+            # Lazurio Environment), orchestration-v2/runtimeLayer.ts (the managed Folder's
+            # guards and the sign-in guard, as decorators where it builds upstream's services),
+            # server.ts (the overlay's one route layer, the gate over upstream's server browser,
+            # the agent scope that gives a thread's agents its agent-browser session, and the
+            # `t3` command following the version the launcher activated), index.html (the shell
+            # slot, the name in the app), main.tsx (the prepared prompt, and the import of the
+            # design system's light look, root decision 0200, whose one stylesheet is
+            # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment
+            # browser), RightPanelTabs.tsx and rightPanelStore.ts (Environment browser, Nová
+            # karta).
+            apps/server/src/cli/config.ts
+            apps/server/src/config.ts
+            apps/server/src/environment/ServerEnvironment.ts
+            apps/server/src/orchestration-v2/runtimeLayer.ts
+            apps/server/src/server.ts
+            apps/web/index.html
+            apps/web/src/components/ChatView.tsx
+            apps/web/src/components/RightPanelTabs.tsx
+            apps/web/src/main.tsx
+            apps/web/src/rightPanelStore.ts
+            # Hosted configuration: T3CODE_CLIENT_SESSION_TTL, T3CODE_EXTERNAL_ORIGIN (a
+            # Secure __Host- cookie, and a loopback bind behind that origin counts as reached
+            # remotely; upstream itself accepts cookie-authenticated requests only from allowed
+            # origins) and T3CODE_ENVIRONMENT_LABEL. Unset, the server behaves as upstream.
+            apps/server/src/auth/EnvironmentAuthPolicy.test.ts
+            apps/server/src/auth/EnvironmentAuthPolicy.ts
+            apps/server/src/auth/SessionStore.test.ts
+            apps/server/src/auth/SessionStore.ts
+            apps/server/src/auth/http.ts
+            apps/server/src/auth/utils.ts
+            apps/server/src/cli/config.test.ts
+            apps/server/src/environment/ServerEnvironmentLabel.test.ts
+            apps/server/src/environment/ServerEnvironmentLabel.ts
+            # In-app update from the configured release channel; proposed upstream.
+            # T3CODE_RELEASE_REPOSITORY in the server, the launcher and the install
+            # scripts, a semver release index, and the optional availableServerUpdate
+            # descriptor field behind the web client's update notice. Once the launcher
+            # activates the new version, the user's `t3` follows it (Lazurio/t3code#30,
+            # server.ts above).
+            apps/server/src/cli/update.ts
+            apps/server/src/cloud/bootService.ts
+            apps/server/src/cloud/pinnedRuntime.test.ts
+            apps/server/src/cloud/pinnedRuntime.ts
+            apps/server/src/cloud/releaseIndex.test.ts
+            apps/server/src/cloud/releaseIndex.ts
+            apps/server/src/cloud/selfUpdate.test.ts
+            apps/server/src/cloud/selfUpdate.ts
+            apps/server/src/environment/ServerEnvironment.test.ts
+            apps/web/src/components/chat/useAutoBalanceUpdateBanner.tsx
+            apps/web/src/components/settings/ConnectionsSettings.tsx
+            apps/web/src/versionSkew.test.ts
+            apps/web/src/versionSkew.ts
+            packages/contracts/src/environment.ts
+            packages/shared/src/cliRelease.test.ts
+            packages/shared/src/cliRelease.ts
+            scripts/install-scripts.test.ts
+            scripts/install.ps1
+            scripts/install.sh
+            # The Lazurio distribution: its contract test. Its other files sit outside
+            # these folders (Dockerfile.lazurio, the lazurio-* workflows, the runbook and
+            # the rebuild's skill).
+            scripts/lazurio-release-contract.test.mjs
+            # Prepared prompt from the Lazurio shell by link (Lazurio/t3code#35): the link is
+            # taken off the address at boot (main.tsx, above), kept for the tab without the
+            # text across upstream's reload after pairing, and the chat layout opens it as an
+            # unsent draft.
+            apps/web/src/routes/_chat.tsx
+            # The Lazurio shell slot (issue #33): the loader, the rail, the padding and
+            # Buddy in index.html, and the column head at the top of the sidebar, measured
+            # with upstream's observeResize. The shell itself is served by the Environment's
+            # Launchpad; without it nothing renders. index.html also maps T3's sidebar tokens
+            # to the shell's colour roles.
+            apps/web/src/components/AppSidebarLayout.tsx
+            # The name in the app (root decision 0200): T3 Code (Lazurio), from the stage
+            # label of the distribution's builds (Lazurio where upstream says Beta), with the
+            # label beside the wordmark in the sidebar, the page title in index.html and the
+            # web manifest; a preview is a canary, not a nightly. The wordmark and the icons
+            # stay upstream's.
+            apps/web/public/manifest.webmanifest
+            apps/web/src/branding.logic.ts
+            apps/web/src/branding.test.ts
+            apps/web/src/branding.ts
+            apps/web/src/components/sidebar/SidebarChrome.tsx
+            # The Environment browser (root decision 0191, plan DEV-6646, LazurioPlatform F47):
+            # a thread's agents get its agent-browser session, Codex's through the thread's
+            # config (CodexAdapterV2.ts, whose test expects it) and the others' through the
+            # agent scope (server.ts, above). On a Lazurio Environment upstream's server browser
+            # is neither built nor advertised (server.ts and ServerEnvironment.ts, above), and
+            # T3's browser tools drive the Environment browser as upstream's preferred preview
+            # host with upstream's page engine, whose snapshot also measures a window Playwright
+            # does not emulate (ServerBrowserPage.ts and its test; offered upstream);
+            # preview_open's result carries a view and a message. One overlay layer (server.ts,
+            # above) keeps a thread's tabs in its holder file and streams them to the web, whose
+            # right panel shows them. The web's seams are the shared files above.
+            apps/server/src/mcp/toolkits/preview/tools.ts
+            apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts
+            apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
+            apps/server/src/preview/ServerBrowserPage.test.ts
+            apps/server/src/preview/ServerBrowserPage.ts
+            # The managed Lazurio Folder (LazurioPlatform F51): with T3CODE_LAZURIO_FOLDER, Chat
+            # starts in the Environment's Folder. Its code lives in apps/*/src/lazurio/; these are
+            # the hooks. The server adopts or creates the Folder's project at startup; decorators
+            # where runtimeLayer.ts (above) builds the project service, the orchestrator, the
+            # session manager and the Scratch folders keep projects, commands and agent turns
+            # there; the VCS service keeps repositories out of the Folder; the settings writer
+            # applies the Platform's recommended model as the Lazurio project's own model where
+            # the person chose none for that project; `t3 lazurio` (binCli.ts) reports both, and
+            # clients learn the Folder. The web starts new threads there, leaves out what leads
+            # elsewhere and shows the managed welcome. Upstream's project service tests run
+            # through the decorated layer; the VCS service's test covers its hook.
+            apps/server/src/binCli.ts
+            apps/server/src/serverRuntimeStartup.ts
+            apps/server/src/serverSettings.ts
+            apps/server/src/vcs/VcsProvisioningService.test.ts
+            apps/server/src/vcs/VcsProvisioningService.ts
+            apps/server/src/ws.ts
+            apps/web/src/components/CommandPalette.tsx
+            apps/web/src/components/GitActionsControl.tsx
+            apps/web/src/components/Sidebar.tsx
+            apps/web/src/components/chat/DraftHeroHeadline.tsx
+            apps/web/src/components/onboarding/FirstRunGate.tsx
+            apps/web/src/components/sidebar/SidebarThreadHeader.tsx
+            apps/web/src/hooks/useHandleNewThread.test.ts
+            apps/web/src/hooks/useHandleNewThread.ts
+            apps/web/src/routes/welcome.tsx
+            packages/contracts/src/server.ts
+            # Sign-in through Lazurio (root decision 0201, Lazurio/t3code#46): on a Lazurio
+            # Environment Codex and Claude sign in through their CLIs from the Launchpad's
+            # Getting started page. The web offers that page where it offered T3's own
+            # "Continue with ChatGPT"; the server refuses T3's own Codex sign-in (runtimeLayer.ts,
+            # above), and `t3 lazurio providers` turns providers on and reads them again. Its
+            # code lives in apps/*/src/lazurio/; these are the web's hooks.
+            apps/web/src/components/settings/AddProviderInstanceDialog.tsx
+            apps/web/src/components/settings/CodexSetupSection.tsx
+          )
+          unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
+            grep -E '^(apps|packages|scripts)/' |
+            grep -vE '^apps/[^/]+/src/lazurio/' |
+            grep -vxF -f <(printf '%s\n' "${allowed_upstream_changes[@]}") || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Fork overlay changed an upstream file that is not on its allowlist:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.13.1
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm exec vp fmt --check
+
+      # Upstream's lint script with upstream's rules (the same rules its own `vp check`
+      # holds).
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck server and web
+        run: |
+          pnpm exec vp run --filter t3 typecheck
+          pnpm exec vp run --filter @t3tools/web typecheck
+
+      # Upstream's server browser tests launch chrome-headless-shell, and the overlay
+      # changes ServerBrowserPage.ts, whose test the step below runs. Upstream's own
+      # server test job installs the same shell this way.
+      - name: Install Chromium for the server browser tests
+        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+
+      # The tests come from the diff against the exact upstream base, so a new
+      # seam is tested without editing this step: every test file the overlay
+      # adds or changes, and upstream's own test beside every file it changes
+      # (X.ts → X.test.ts). Plus the fixed gate below, whatever the diff says.
+      # Each package runs its files with its own test script.
+      - name: Test what the overlay changes
+        run: |
+          set -euo pipefail
+          # The fixed gate: every test under these paths runs. It keeps what fork CI
+          # always ran: the directories whose tests import overlay seams without
+          # being changed (src/auth: the external origin, the session TTL and the
+          # server config), both overlay folders, and the tests of the hosted
+          # configuration and the managed Folder (ProjectService.test.ts runs upstream's
+          # project tests through the decorated project service), plus the keyboard
+          # test of the right panel's "+" and Mod+T. A path that is gone or holds no
+          # tests fails the step, so a rebuild reviews the gate.
+          gate=(
+            apps/server/src/auth
+            apps/server/src/cli/config.test.ts
+            apps/server/src/environment/ServerEnvironmentLabel.test.ts
+            apps/server/src/lazurio
+            apps/server/src/project/ProjectService.test.ts
+            apps/server/src/serverSettings.test.ts
+            apps/server/src/vcs/VcsProvisioningService.test.ts
+            apps/web/src/components/RightPanelTabs.keyboard.test.tsx
+            apps/web/src/lazurio
+          )
+          tests="$RUNNER_TEMP/overlay-tests.tsv"
+          {
+            git diff --name-only --diff-filter=d "$UPSTREAM_SHA..HEAD" -- '*.ts' '*.tsx' |
+              while IFS= read -r file; do
+                case "$file" in
+                  *.test.ts | *.test.tsx) echo "$file" ;;
+                  *)
+                    for test in "${file%.*}.test.ts" "${file%.*}.test.tsx"; do
+                      if [ -f "$test" ]; then echo "$test"; fi
+                    done
+                    ;;
+                esac
+              done
+            for path in "${gate[@]}"; do
+              gated="$(git ls-files -- "$path" | grep -E '\.test\.tsx?$' || true)"
+              if [ -z "$gated" ]; then
+                echo "The test gate's $path is gone or holds no tests." >&2
+                exit 1
+              fi
+              echo "$gated"
+            done
+          } | sort -u |
+            while IFS= read -r test; do
+              package="$(dirname "$test")"
+              until [ -f "$package/package.json" ]; do package="$(dirname "$package")"; done
+              printf '%s\t%s\n' "$package" "${test#"$package"/}"
+            done > "$tests"
+          status=0
+          for package in $(cut -f1 "$tests" | sort -u); do
+            files=()
+            while IFS=$'\t' read -r owner test; do
+              if [ "$owner" = "$package" ]; then files+=("$test"); fi
+            done < "$tests"
+            echo "::group::$package: ${#files[@]} test files"
+            (cd "$package" && pnpm run test "${files[@]}") || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Validate Lazurio release contract
+        run: node --test scripts/lazurio-release-contract.test.mjs
+
+      - name: Build the release image without publishing
+        run: |
+          set -euo pipefail
+          docker build \
+            --file Dockerfile.lazurio \
+            --build-arg NODE_BASE_IMAGE=node:24.19.0-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584 \
+            --build-arg PACKAGE_VERSION="${UPSTREAM_TAG#v}-lazurio.0" \
+            --build-arg PNPM_VERSION=11.10.0 \
+            --build-arg RELEASE_TAG=ci \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+            --build-arg UPSTREAM_BASE="$UPSTREAM_SHA" \
+            --tag lazurio/t3code:ci \
+            .
+          docker run --rm --network none lazurio/t3code:ci --version | grep -Fx "t3 ${UPSTREAM_TAG}-lazurio.0"
+          docker image inspect lazurio/t3code:ci \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+            grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'
+          docker run --rm --network none --entrypoint cat lazurio/t3code:ci \
+            /opt/lazurio-t3/LICENSE | cmp - LICENSE
+          docker run --rm --network none --entrypoint cat lazurio/t3code:ci \
+            /opt/lazurio-t3/dist/client/favicon.ico | cmp - assets/prod/t3-black-web-favicon.ico
+
+  # The same archive build and launcher install the release runs, under the
+  # never-released version <upstream>-lazurio.0. Keep it in step with UPSTREAM_TAG.
+  cli-archives:
+    name: CLI archives
+    uses: ./.github/workflows/lazurio-cli-archives.yml
+    with:
+      version: 0.1.0-lazurio.0
+      source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      source_repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
