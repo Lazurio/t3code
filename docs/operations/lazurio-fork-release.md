@@ -589,15 +589,43 @@ předání stavu instance kvůli odpojení) a odkaz v `AddProviderInstanceDialog
 - **Vlastní oprava nebo změna overlaye** na stejné bázi: po merge do `main`
   vydejte další `-lazurio.N`.
 - **Canary před stable:** z téže špičky `main` nejdřív vydejte preview
-  `X.Y.Z-preview.YYYYMMDD.N`, nainstalujte ho na canary Environment a teprve
-  po jeho ověření vydejte stable. Oprava během canary je nový commit na `main`
-  a další preview `.N+1`.
+  `X.Y.Z-preview.YYYYMMDD.N`, nainstalujte ho na canary Environmenty
+  ([Ring 0](#ring-0-lazurioexampleorganization)) a teprve po jejich ověření
+  vydejte stable. Oprava během canary je nový commit na `main` a další
+  preview `.N+1`.
 - Nevydávejte nightly a nevydávejte z jiné branche než `main`.
 - PR do `main` se mergují jen rebase, bez merge commitu. Release i CI odmítnou
   merge commit nad upstream tagem. Main ruleset 21717536 to vynucuje:
   povoluje jen `rebase` a vyžaduje lineární historii. Readback:
   `gh api repos/Lazurio/t3code/rulesets/21717536 --jq '[.rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods], [.rules[].type]'`
   vrátí `[["rebase"]]` a mezi typy `required_linear_history`.
+
+## Ring 0: LazurioExampleOrganization
+
+Canary Environmenty tohoto runbooku jsou Environmenty veřejné referenční
+Organizace `LazurioExampleOrganization` (GitHub id 325048785, fiktivní data,
+bez tailnetu). Každé preview i stable na ně jde jako první. Určuje to root
+rozhodnutí 0204 bod 7
+([HumanAndMachines/Lazurio `manual/decision-register.md`](https://github.com/HumanAndMachines/Lazurio/blob/main/manual/decision-register.md),
+řádek 0204).
+
+- **Bez souhlasu a okna.** Instalace preview, Update, restarty, reinstalace
+  i nová nasazení jejích Environmentů nepotřebují souhlas lidí, kteří je
+  používají, ani okno. Agent je provede jako součást vydání na pokyn svého
+  Operátora, který má v této Organizaci živou roli Admin, a v jeho právech;
+  vlastní pravomoc tím nezíská.
+- **Zůstává:** pokyn Operátora, review zdrojů, brány Machines při posunu
+  pinu, schválení vydání v GitHub environmentu ([Schválení](#schválení)),
+  žádná tajemství v Gitu a vlastní souhlas každé jiné Organizace.
+- **Další vlna**, tedy osobní Environmenty a Environmenty ostatních
+  Organizací, přijde až po akceptaci v prohlížeči na Environmentech této
+  Organizace (root rozhodnutí 0178): Chat se otevře, spárování funguje a,
+  jakmile tam je AI, projde neškodný agentní turn.
+- **Environmenty pro návštěvníky** (`try-*`) se vracejí do stavu posledního
+  reviewovaného nasazení, takže se na nich databáze před `t3 update`
+  nezálohuje.
+- **Mimo Ring 0** zůstává vstup přes tailnet, který tato Organizace nemá;
+  ověří ho až další vlna.
 
 ## Nové stabilní vydání upstreamu
 
@@ -899,9 +927,9 @@ ověřené. Rozdíl mezi bázemi ukáže
   z `requiredScopeForRpcMethod`, takže se posunou samy; lidem změnu oznamte
   předem (etapa 8).
 - **Databáze.** Migrace jsou jednosměrné, starší server nemá down migrace.
-  Před aktualizací canary zálohujte databázi (Testování před vydáním, krok
-  3). Soubory `apps/server/src/config.ts` (`dbPath`) a
-  `apps/server/src/persistence/`: když nová báze databázi přesouvá nebo
+  Před aktualizací trvalého canary Environmentu zálohujte databázi
+  (`try-*` ne; Testování před vydáním, krok 3). Soubory
+  `apps/server/src/config.ts` (`dbPath`) a `apps/server/src/persistence/`: když nová báze databázi přesouvá nebo
   zakládá novou, upravte zálohu a [Rollback](#rollback) ve stejné přestavbě
   a do issue zapište, co s daty udělá návrat na starou bázi.
 - **Desktop a mobil.** Oficiální aplikace jsou upstream a se serverem se
@@ -1005,7 +1033,9 @@ Po výměně:
 Z nového `main` vydejte preview `X.Y.Z-preview.YYYYMMDD.1`
 ([Spuštění vydání](#spuštění-vydání), [Schválení](#schválení),
 [Ověření publikovaného vydání](#ověření-publikovaného-vydání))
-a nainstalujte ho na canary Environment po záloze databáze
+a nainstalujte ho na canary Environmenty
+([Ring 0](#ring-0-lazurioexampleorganization)) po záloze databáze na trvalých
+Environmentech (`try-*` bez zálohy)
 ([Testování před vydáním](#testování-před-vydáním), krok 3). Projděte
 všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
 řádku:
@@ -1015,8 +1045,10 @@ všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
 - `t3 lazurio capabilities`, `lazurio chat defaults --apply` Platformy
   a nová vlákna ve složce Lazuria s uvítáním;
 - „+ Nový modul“ z Launchpadu otevře neodeslané zadání;
-- agentní turn s Codexem i s Claude: agent pracuje ve vlastním okně
-  prohlížeče Environmentu a `preview_open` ukáže jeho záložku v panelu;
+- agentní turn s Codexem i s Claude na prvním canary Environmentu s AI
+  (Ring 0 ho bez AI nemá, tam stačí jeho akceptace v prohlížeči): agent
+  pracuje ve vlastním okně prohlížeče Environmentu a `preview_open` ukáže
+  jeho záložku v panelu;
 - rail, hlavička sloupce a Buddy, bez čáry mezi railem a sidebarem;
 - stará vlákna po migraci databáze a restart služby se zachovanými daty;
 - oficiální desktop aplikace verze nové báze proti serveru.
@@ -1225,10 +1257,12 @@ tabulky rozhodnutí a bran, posunuté piny kontraktního testu a co zůstává o
    ```
 
 3. **Canary přes preview.** Vydejte preview a nainstalujte ho přes SSH s TTY
-   na canary Environmenty pod launcherem: nejdřív testovací Environment
-   klientské Organizace, potom osobní a další Environmenty. Lokální
+   na canary Environmenty pod launcherem: nejdřív Environmenty
+   [Ring 0](#ring-0-lazurioexampleorganization), osobní a další Environmenty
+   až po akceptaci v prohlížeči na nich. Lokální
    `t3 update` nejde přes launcherův trial ani zálohu databáze (ty má jen
-   tlačítko Update, #22), proto nejdřív zálohujte databázi:
+   tlačítko Update, #22), proto na trvalých Environmentech nejdřív zálohujte
+   databázi (Environmenty pro návštěvníky `try-*` bez zálohy, viz Ring 0):
 
    ```bash
    # Konzistentní kopie za běhu (SQLite backup API)
@@ -1251,8 +1285,9 @@ t3code.service && systemctl --user start t3code.service` (#25).
 
    Ověřte přesnou verzi, `~/.t3/runtime/service-state.json` (protokol
    a `activeVersion`), přihlášení a pairing přes Launchpad Chat, terminál,
-   agentní turn, starý i nový thread, upload a download, reconnect a restart
-   služby se zachovanými daty. Ověřte také, že Environment na stable preview
+   agentní turn (jen na Environmentu s AI; Ring 0 bez AI ho přeskočí a ověří
+   ho první Environment s AI), starý i nový thread, upload a download,
+   reconnect a restart služby se zachovanými daty. Ověřte také, že Environment na stable preview
    nenabízí (`/.well-known/t3/environment` → `availableServerUpdate`). První
    selhání zastaví rozšiřování.
 
