@@ -66,7 +66,8 @@ jobs:
             # design system's light look, root decision 0200, whose one stylesheet is
             # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment
             # browser), RightPanelTabs.tsx and rightPanelStore.ts (Environment browser, Nová
-            # karta).
+            # karta), sidebar/SidebarChrome.tsx (the shell's column head under every sidebar's
+            # top row, and the name in the app).
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
             apps/server/src/environment/ServerEnvironment.ts
@@ -75,6 +76,7 @@ jobs:
             apps/web/index.html
             apps/web/src/components/ChatView.tsx
             apps/web/src/components/RightPanelTabs.tsx
+            apps/web/src/components/sidebar/SidebarChrome.tsx
             apps/web/src/main.tsx
             apps/web/src/rightPanelStore.ts
             # Hosted configuration: T3CODE_CLIENT_SESSION_TTL, T3CODE_EXTERNAL_ORIGIN (a
@@ -124,12 +126,6 @@ jobs:
             # text across upstream's reload after pairing, and the chat layout opens it as an
             # unsent draft.
             apps/web/src/routes/_chat.tsx
-            # The Lazurio shell slot (issue #33): the loader, the rail, the padding and
-            # Buddy in index.html, and the column head at the top of the sidebar, measured
-            # with upstream's observeResize. The shell itself is served by the Environment's
-            # Launchpad; without it nothing renders. index.html also maps T3's sidebar tokens
-            # to the shell's colour roles.
-            apps/web/src/components/AppSidebarLayout.tsx
             # The name in the app (root decision 0200): T3 Code (Lazurio), from the stage
             # label of the distribution's builds (Lazurio where upstream says Beta), with the
             # label beside the wordmark in the sidebar, the page title in index.html and the
@@ -139,7 +135,6 @@ jobs:
             apps/web/src/branding.logic.ts
             apps/web/src/branding.test.ts
             apps/web/src/branding.ts
-            apps/web/src/components/sidebar/SidebarChrome.tsx
             # The Environment browser (root decision 0191, plan DEV-6646, LazurioPlatform F47):
             # a thread's agents get its agent-browser session, Codex's through the thread's
             # config (CodexAdapterV2.ts, whose test expects it) and the others' through the

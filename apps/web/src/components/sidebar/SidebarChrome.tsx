@@ -1,6 +1,6 @@
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { createElement, memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -14,6 +14,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
+import { LazurioBadge } from "../../lazurio/LazurioBadge";
 import {
   SidebarFooter,
   SidebarMenu,
@@ -31,7 +32,7 @@ import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUp
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 
-export const SidebarChromeHeader = memo(function SidebarChromeHeader({
+const SidebarChromeTitlebar = memo(function SidebarChromeTitlebar({
   isElectron,
 }: {
   isElectron: boolean;
@@ -74,13 +75,31 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         <SidebarBrand onBackdrop={backdropVariant !== null} />
         {pillLabel ? (
           <div className="ml-1 flex h-7 items-center">
-            <Badge data-environment-identification="pill" size="sm" variant="secondary">
-              {pillLabel}
-            </Badge>
+            {pillLabel === "Lazurio" ? (
+              <LazurioBadge />
+            ) : (
+              <Badge data-environment-identification="pill" size="sm" variant="secondary">
+                {pillLabel}
+              </Badge>
+            )}
           </div>
         ) : null}
       </div>
     </div>
+  );
+});
+
+// Lazurio shell (docs/operations/lazurio-fork-release.md): every sidebar's top row, with its toggle
+// and the wordmark, has the column head under it: the Environment picker and the app switch.
+// Undefined, the element renders nothing.
+export const SidebarChromeHeader = memo(function SidebarChromeHeader(props: {
+  isElectron: boolean;
+}) {
+  return (
+    <>
+      <SidebarChromeTitlebar {...props} />
+      {createElement("lazurio-column-head", { active: "chat" })}
+    </>
   );
 });
 
