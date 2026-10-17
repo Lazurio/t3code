@@ -1088,6 +1088,8 @@ NodeTest.test("the app is T3 Code (Lazurio) and keeps T3 Code's mark", async () 
     /const pillLabel =\n\s+stageLabel === "Lazurio"\n\s+\? stageLabel\n\s+: environmentIdentificationMode === "pill"\n/,
   );
   NodeAssert.match(chrome, /data-environment-identification="pill"[^]*?\{pillLabel\}/);
+  // On Lazurio the label is the overlay's, with the design system's symbol at its 16 px minimum.
+  NodeAssert.match(chrome, /\{pillLabel === "Lazurio" \? \(\n\s*<LazurioBadge \/>\n\s*\) : \(/);
   NodeAssert.match(page, /<title>T3 Code \(Lazurio\)<\/title>/);
   NodeAssert.match(
     page,
