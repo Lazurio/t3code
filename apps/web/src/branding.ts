@@ -20,7 +20,8 @@ export const APP_BASE_NAME = injectedDesktopAppBranding?.baseName ?? "T3 Code";
 export const APP_STAGE_LABEL =
   injectedDesktopAppBranding?.stageLabel ??
   HOSTED_APP_CHANNEL_LABEL ??
-  (import.meta.env.DEV ? "Dev" : "Beta");
+  // Lazurio T3 Code (root decision 0200): the distribution's builds are "T3 Code (Lazurio)".
+  (import.meta.env.DEV ? "Dev" : "Lazurio");
 export const APP_DISPLAY_NAME =
   injectedDesktopAppBranding?.displayName ??
   formatAppDisplayName({ baseName: APP_BASE_NAME, stageLabel: APP_STAGE_LABEL });
