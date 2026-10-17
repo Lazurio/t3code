@@ -186,6 +186,13 @@ jobs:
             # code lives in apps/*/src/lazurio/; these are the web's hooks.
             apps/web/src/components/settings/AddProviderInstanceDialog.tsx
             apps/web/src/components/settings/CodexSetupSection.tsx
+            # The Environment pairs its own browser (the Admin's decision of 2026-10-17, which
+            # replaces the rule of 2026-09-21 that a direct visit shows T3's pairing page): without
+            # a link's or the desktop app's credential the web's auth gate asks its own origin for
+            # one, which the Launchpad mints with `t3 lazurio pairing` behind the gateway, and a
+            # session paired on 0.0.45 pairs again. Its code lives in apps/web/src/lazurio/; the
+            # gate holds two calls.
+            apps/web/src/environments/primary/auth.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
