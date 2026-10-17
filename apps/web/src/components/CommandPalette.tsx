@@ -1,5 +1,6 @@
 "use client";
 
+import { everyEnvironmentManaged, offeredInProjectPicker } from "../lazurio/managedFolder";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -888,8 +889,8 @@ function OpenCommandPaletteDialog(props: {
       buildSidebarProjectPickerEntries({
         groups: projectGroups,
         preferredProjectRef: contextualProjectRef,
-      }),
-    [contextualProjectRef, projectGroups],
+      }).filter(offeredInProjectPicker(environments)),
+    [contextualProjectRef, environments, projectGroups],
   );
   const pickerProjects = useMemo(
     () =>
@@ -913,6 +914,7 @@ function OpenCommandPaletteDialog(props: {
   const addProjectEnvironmentOptions = useMemo(() => {
     const options = environments
       .filter((environment) => canCreateProjectInEnvironment(environment.connection.phase))
+      .filter((environment) => environment.serverConfig?.lazurioFolder === undefined)
       .map((environment): AddProjectEnvironmentOption => {
         const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
         return {
@@ -2047,7 +2049,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
+  const addProjectItem: CommandPaletteActionItem = {
     kind: "action",
     value: "action:add-project",
     searchTerms: [
@@ -2076,7 +2078,9 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       openAddProjectFlow();
     },
-  });
+  };
+  // Lazurio (LazurioPlatform F51): when every Environment is managed, none takes another project.
+  if (!everyEnvironmentManaged(environments)) actionItems.push(addProjectItem);
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({

@@ -26,6 +26,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "./config.ts";
+import { ensureManagedFolderProject } from "./lazurio/managedFolderStartup.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import { flushCompileCache } from "./compileCache.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -539,6 +540,10 @@ const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
+      const managedWelcome = yield* runStartupPhase(
+        "lazurio.project",
+        ensureManagedFolderProject.pipe(Effect.provideService(Crypto.Crypto, crypto)),
+      );
       // Runs after activation: the status check fetches every enabled project's
       // remote, and awaiting it here held command readiness for that long.
       yield* runStartupPhase(
@@ -632,6 +637,7 @@ const make = (options?: StartupOptions) =>
           payload: {
             environment,
             ...welcomeBase,
+            ...managedWelcome,
             ...bootstrapTargets,
           },
         }),

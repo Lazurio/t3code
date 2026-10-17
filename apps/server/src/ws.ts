@@ -206,6 +206,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import { managedFolderClientConfig } from "./lazurio/managedFolder.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1717,6 +1718,7 @@ const layerWsRpc = (
             environment,
             auth,
             cwd: config.cwd,
+            ...managedFolderClientConfig(config),
             keybindingsConfigPath: config.keybindingsConfigPath,
             keybindings: keybindingsConfig.keybindings,
             issues: keybindingsConfig.issues,

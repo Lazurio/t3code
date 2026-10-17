@@ -1,3 +1,4 @@
+import { lazurioFolderOf } from "../../lazurio/managedFolder";
 import type { DraftId } from "~/composerDraftStore";
 import { composerDraftHasUserContent, useComposerDraftStore } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
@@ -267,7 +268,7 @@ export function DraftHeroHeadline({
     return true;
   };
 
-  const projectSelector = shouldShowProjectMenu ? (
+  const projectPicker = shouldShowProjectMenu ? (
     <Combobox
       items={pickerItems}
       filteredItems={filteredPickerItems}
@@ -362,6 +363,10 @@ export function DraftHeroHeadline({
       {activeProjectTitle ?? "Add a project"}
     </button>
   );
+  // Lazurio (LazurioPlatform F51): new chats of a managed Environment start in its Folder, so the
+  // hero names the Lazurio project instead of offering a picker or "Add a project".
+  const managedFolder = lazurioFolderOf(environments, activeProjectRef?.environmentId);
+  const projectSelector = managedFolder === undefined ? projectPicker : <span>Lazurio</span>;
 
   // The composer hero is a sentence, so the heading's accessible name must be
   // a complete sentence too. The project picker is a control rendered inline

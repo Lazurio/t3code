@@ -1,3 +1,4 @@
+import { ManagedFolderWelcome, usePrimaryLazurioFolder } from "../lazurio/ManagedFolderWelcome";
 import { createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -38,6 +39,10 @@ function WelcomeRouteView() {
   // no matter what hostname the browser used. Only hosted-static has no
   // local server to offer.
   const localAvailable = authGateState.status === "authenticated";
+  // Lazurio (LazurioPlatform F51): a managed Environment has its own welcome, behind the same
+  // route guard as the wizard.
+  const lazurioFolder = usePrimaryLazurioFolder();
+  if (lazurioFolder !== undefined) return isWelcomeRoute ? <ManagedFolderWelcome /> : null;
   return (
     <>
       <NoProjectsHero />

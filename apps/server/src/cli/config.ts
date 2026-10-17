@@ -23,6 +23,7 @@ import * as CliError from "effect/cli/CliError";
 
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
+import { resolveManagedFolderConfig } from "../lazurio/managedFolderConfig.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 
@@ -371,6 +372,7 @@ export const resolveServerConfig = (
     );
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    const managedFolder = yield* resolveManagedFolderConfig;
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
     });
@@ -525,6 +527,8 @@ export const resolveServerConfig = (
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,
+      // Lazurio (LazurioPlatform F51): T3CODE_LAZURIO_FOLDER makes the Folder the cwd, unbootstrapped.
+      ...managedFolder,
     };
 
     return config;

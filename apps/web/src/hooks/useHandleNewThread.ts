@@ -1,3 +1,4 @@
+import { managedNewThread } from "../lazurio/managedFolder";
 import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
@@ -85,6 +86,10 @@ export function useNewThreadHandler() {
       // up again and finding whichever draft it happens to hold.
     ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
       const projects = readProjects();
+      // Lazurio (LazurioPlatform F51): a managed Environment starts every thread in its Folder.
+      const managed = managedNewThread(environmentServerConfigs, projects, projectRef, options);
+      if (managed === null) return Promise.resolve(null);
+      ({ projectRef, options } = managed);
       const targetServerSettings =
         environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
       const {

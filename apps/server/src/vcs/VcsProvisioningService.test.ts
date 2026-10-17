@@ -1,10 +1,13 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/process";
 
+import * as ServerConfig from "../config.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsDriverRegistry from "./VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./VcsProvisioningService.ts";
@@ -74,7 +77,14 @@ it.effect("routes repository initialization through an explicit VCS driver kind"
     yield* provisioning.initRepository({ cwd: "/repo", kind: "git" });
 
     assert.deepStrictEqual(calls, ["git:/repo"]);
-  }).pipe(Effect.provide(layerTest));
+  }).pipe(
+    Effect.provide(
+      layerTest.pipe(
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-test-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
 });
 
 it.effect("defaults repository initialization to Git until callers choose a VCS kind", () => {
@@ -93,5 +103,50 @@ it.effect("defaults repository initialization to Git until callers choose a VCS 
     yield* provisioning.initRepository({ cwd: "/repo" });
 
     assert.deepStrictEqual(calls, ["default:/repo"]);
-  }).pipe(Effect.provide(layerTest));
+  }).pipe(
+    Effect.provide(
+      layerTest.pipe(
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-test-" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
 });
+
+it.effect("never makes a managed Environment's Lazurio Folder a repository", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const folder = yield* fs.realPath(
+      yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-lazurio-" }),
+    );
+    const repository = `${folder}/organizations/example`;
+    const calls: string[] = [];
+    const driver = makeDriver(calls);
+    const layerTest = VcsProvisioningService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          get: (kind) => (kind === "git" ? Effect.succeed(driver) : Effect.die("unexpected kind")),
+        }),
+      ),
+      Layer.provide(
+        Layer.effect(
+          ServerConfig.ServerConfig,
+          Effect.map(ServerConfig.ServerConfig, (config) => ({ ...config, lazurioFolder: folder })),
+        ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-vcs-test-" }))),
+      ),
+      Layer.provide(NodeServices.layer),
+    );
+
+    yield* Effect.gen(function* () {
+      const provisioning = yield* VcsProvisioningService.VcsProvisioningService;
+      const refused = yield* provisioning.initRepository({ cwd: folder }).pipe(Effect.flip);
+      if (refused._tag !== "VcsUnsupportedOperationError") return assert.fail(refused._tag);
+      assert.strictEqual(
+        refused.detail,
+        "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.",
+      );
+      yield* provisioning.initRepository({ cwd: repository });
+      assert.deepStrictEqual(calls, [`default:${repository}`]);
+    }).pipe(Effect.provide(layerTest));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

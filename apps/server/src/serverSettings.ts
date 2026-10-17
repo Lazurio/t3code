@@ -208,6 +208,16 @@ export class ServerSettingsService extends Context.Service<
       patch?: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
+    /**
+     * Lazurio overlay (LazurioPlatform F51, root decision 0201): a change the overlay makes to the
+     * settings, such as the Platform's recommended model or a provider turned on, applied by the
+     * same writer to the settings as they are when it writes, so a concurrent change is never lost.
+     * Only the server's own layer has it.
+     */
+    readonly updateSettingsWith?: (
+      apply: (current: ServerSettings) => ServerSettings,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+
     /** Run an effect against a settings snapshot while settings writes are paused. */
     readonly withSettingsSnapshot: <A, E, R>(
       use: (settings: ServerSettings) => Effect.Effect<A, E, R>,
@@ -1229,6 +1239,8 @@ const make = Effect.gen(function* () {
           return applyProviderInstanceMutation(patched, mutation);
         }),
       ),
+    updateSettingsWith: (apply) =>
+      updateAndPersistSettings((current) => Effect.succeed(apply(current))),
     withSettingsSnapshot,
     get streamChanges() {
       return materializeChanges(Stream.fromPubSub(changesPubSub));

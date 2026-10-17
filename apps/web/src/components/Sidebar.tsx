@@ -1,3 +1,4 @@
+import { everyEnvironmentManaged } from "../lazurio/managedFolder";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
@@ -5125,7 +5126,11 @@ export default function Sidebar() {
                   </ComboboxPopup>
                 </Combobox>
               }
-              onNewProject={openAddProjectCommandPalette}
+              onNewProject={
+                everyEnvironmentManaged(environments, serverConfigs)
+                  ? undefined
+                  : openAddProjectCommandPalette
+              }
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
