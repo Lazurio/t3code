@@ -379,3 +379,63 @@ overlaye proti skutečnému Chromiu běží jen s `LAZURIO_TEST_DEVTOOLS_ENDPOIN
 (jednorázový headless Chrome s vlastním profilem, nikdy prohlížeč, ve kterém
 někdo pracuje). Upstream `ServerBrowserPage.test.ts` spouští vlastní
 chrome-headless-shell, který si CI instaluje.
+
+## Párování prohlížeče
+
+**Rozhodnutí Admina 2026-10-17: Environment páruje svůj prohlížeč sám.**
+Nahrazuje pravidlo z 2026-09-21 (LazurioPlatform DEV-6616), že přímá návštěva
+ukáže párovací stránku T3 a fork zůstává beze změny. Do té doby se spároval jen
+prohlížeč, který přišel přes Chat z Launchpadu (jednorázový token na 60 s
+a `/pair#token=…`); záložka, přepínač shellu, Dashboard i Chat jiného
+Environmentu skončily na párovací stránce.
+
+- **Jak se prohlížeč spáruje.** Stránka bez platného sezení T3 se při načtení
+  zeptá vlastního originu: `GET /.lazurio/chat/pairing`
+  s `credentials: "same-origin"`, `redirect: "error"` a `cache: "no-store"`.
+  Brána Lazuria ho z originu T3 po své admisi (přihlášení účtem Lazuria) předá
+  Launchpadu Environmentu. Ten vydá jednorázový údaj příkazem
+  `t3 lazurio pairing` a odpoví přesně
+  `{"kind": "chat-pairing", "credential": "<údaj>", "expiresAt": "<čas>"}`
+  (`expiresAt` je volitelné, údaj `[A-Za-z0-9_-]{8,128}`, jiné klíče ne).
+  Stránka ho vymění jako každý jiný bootstrap údaj (`bootstrapServerAuth`), bez
+  přesměrování a bez nového načtení, takže člověk token neuvidí a hluboký odkaz
+  zůstane. Cokoli jiného (`index.html` T3 mimo Lazurio nebo se starší
+  Platformou, jiný stav, přesměrování, chyba sítě, žádná odpověď do 5 s) nespáruje
+  nic a stránka pokračuje jako upstream na párovací stránku.
+- **Kdy se ptá.** Údaj z odkazu (`/pair#token=…` i `#token=…`) a údaj desktopové
+  aplikace mají přednost: Environmentu se stránka zeptá jen bez obou. Desktopová
+  aplikace se neptá nikdy (má vlastní bootstrap údaj), stránka přes holé HTTP
+  také ne (brána Lazuria servíruje T3 jen přes HTTPS) a stránka s platným
+  sezením jen tehdy, když je staré (níže).
+- **Rozsahy operátora.** `t3 lazurio pairing` vydá upstream jednorázový grant
+  stejnou cestou jako `t3 auth pairing create` (`createPairingLink`) se
+  standardními klientskými rozsahy a s `access:read` a `access:write`
+  (`OPERATOR_PAIRING_SCOPES` z konstant `packages/contracts`). Settings →
+  Connections proto ukáže Authorized clients a dovolí vytvořit párovací odkaz
+  (níže). Nikdy `relay:write`: T3 Connect by byl veřejnou cestou kolem brány
+  a tailnetu. Sezení nesmí delegovat rozsah, který samo nemá, takže `relay:write`
+  nemá ani žádný odkaz z Connections. Týmové Environmenty dostanou totéž,
+  veřejné sdílené Environmenty dál standardní rozsahy; to rozhoduje Launchpad,
+  ne fork. Příkaz má volby `--base-dir`, `--ttl` a `--label` a vypíše JSON
+  přesně jako `t3 auth pairing create --json` (`id`, `credential`, `label`,
+  `scopes`, `expiresAt`), takže ho Launchpad čte stejně. `t3 lazurio capabilities`
+  uvádí `"operatorPairing": true`; podle něj Launchpad pozná T3, které příkaz má.
+- **Staré sezení se spáruje znovu.** Prohlížeč spárovaný na 0.0.45 má na v0.1.0
+  jen staré rozsahy (`sessionHasLegacyPermissions`), a tak nemá terminál,
+  soubory, Git, nastavení ani podržení záložek prohlížeče Environmentu. Takové
+  sezení se při načtení zeptá také a údaj vymění; server ho nahradí, takže
+  v Authorized clients nezůstane. Když Environment údaj nevydá nebo výměna
+  selže, zůstane staré sezení jako dřív. Sezení, které `sessionHasLegacyPermissions`
+  nepozná (třeba po dalším rozdělení rozsahů upstreamu), se samo znovu nespáruje.
+- **Desktop a mobil.** Na Environmentu v tailnetu si člověk pro desktopovou
+  a mobilní aplikaci T3 vytvoří párovací odkaz v Settings → Connections,
+  s rozsahy nejvýš těmi, které má jeho sezení.
+- **Šev.** Upstream `apps/web/src/environments/primary/auth.ts` nese dvě volání
+  v `bootstrapServerAuth`: `pairAgainWithEnvironment` před upstream návratem
+  `authenticated` pro přihlášený prohlížeč a `fetchEnvironmentPairingCredential`
+  jako třetí zdroj údaje za odkazem a desktopovou aplikací. Kód je
+  v `apps/web/src/lazurio/environmentPairing.ts` a `apps/server/src/lazurio/cli.ts`.
+  Kontraktní test hlídá obě volání, dotaz jen z vlastního originu přes HTTPS bez
+  přesměrování a mimo desktop, staré sezení, které neúspěch nechá, a rozsahy
+  operátora bez `relay:write`. Odkaz `/pair#token=…` se nemění a uložený grant
+  nahradí dál.
