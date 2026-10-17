@@ -17,7 +17,7 @@ v kořeni vlastního hostname (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS
 reverse proxy. Oficiální desktop a mobilní aplikace se připojují jako
 neupravení upstream klienti. Značka T3 Code zůstává. Do UI webového klienta
 zasahuje slot pro shell Lazuria (viz [Lazurio shell](#lazurio-shell)),
-prohlížeč Environmentu v pravém panelu, uvítání spravované složky Lazuria,
+prohlížeč Environmentu v pravém panelu, spravovaná složka Lazuria,
 jméno „T3 Code (Lazurio)“ a na Environmentu světlý vzhled design systému
 Lazuria (viz [Jméno a vzhled](#jméno-a-vzhled)).
 
@@ -253,7 +253,7 @@ Commity v pořadí na `main`:
   `components/onboarding/FirstRunGate.tsx`,
   `components/sidebar/SidebarThreadHeader.tsx`, `hooks/useHandleNewThread.ts`
   a jeho test, `routes/welcome.tsx`; `apps/web/src/lazurio/`:
-  `ManagedFolderWelcome.tsx`, `managedFolder.ts` a jeho test.
+  `managedFirstRun.ts`, `managedFolder.ts` a jeho test.
   `packages/contracts/src/server.ts`.
 - **16.** `543f0f9bfc`. `apps/web/src/`: `branding.ts`, `branding.logic.ts` a
   `branding.test.ts`, `components/sidebar/SidebarChrome.tsx`;
@@ -491,9 +491,11 @@ kde je skládá `orchestration-v2/runtimeLayer.ts` (projekty, příkazy
 orchestrace, otevření sezení agenta), takže platí pro každého klienta i MCP.
 Scratch (vlákna bez projektu) server na spravovaném Environmentu skrývá, i pro
 desktop a mobil. Nejde o sandbox souborového systému.
-`T3CODE_LAZURIO_TOOLS_URL` odkáže spravované uvítání na stránku Environmentu,
-kde se přihlašují agenti. Uvítání mluví česky (s vykáním), má-li prohlížeč
-češtinu, jinak anglicky, jako ostatní texty overlaye.
+Spravovaný Environment nemá vlastní uvítání ani průvodce nastavením upstreamu
+(rozhodnutí Admina 2026-10-17). První spuštění počká, až živý server ukáže
+projekt složky, a pak otevře aplikaci rovnou do nového chatu ve složce;
+`/welcome` vede na úvod aplikace. Připojení agenta, GitHubu a obsahu hlídá
+upozornění shellu „Dokončit nastavení“, ne T3.
 
 Machines ověří `t3 lazurio capabilities` (kontrakt verze 1) a po zřízení složky
 spustí `lazurio chat defaults --apply` Platformy. Doporučení vlastní Platforma.
@@ -529,7 +531,7 @@ drží výstup `t3 lazurio capabilities` a `t3 lazurio model` bajt po bajtu.
 
 Při přestavbě na nový upstream zachovejte testy spravovaného startu, nativní
 stráže projektů a příkazů, stráže tahů agenta, skrytého Scratch a spravovaného
-uvítání; samotný výběr modelu je záměrně mimo fork.
+prvního spuštění; samotný výběr modelu je záměrně mimo fork.
 
 ### Přihlášení přes Lazurio
 
@@ -1144,7 +1146,7 @@ všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
 - přihlášení přes Launchpad Chat a nové spárování prohlížeče; co umí
   a neumí prohlížeč spárovaný na staré bázi;
 - `t3 lazurio capabilities`, `lazurio chat defaults --apply` Platformy
-  a nová vlákna ve složce Lazuria s uvítáním;
+  a nová vlákna ve složce Lazuria bez uvítání;
 - „+ Nový modul“ z Launchpadu otevře neodeslané zadání;
 - agentní turn s Codexem i s Claude: agent pracuje ve vlastním okně prohlížeče
   Environmentu, `preview_open` ukáže jeho záložku v panelu a

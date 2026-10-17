@@ -1,4 +1,4 @@
-import { useManagedFirstRunDecision } from "../../lazurio/ManagedFolderWelcome";
+import { useManagedFirstRunDecision } from "../../lazurio/managedFirstRun";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";

@@ -110,25 +110,18 @@ describe("a new thread", () => {
 });
 
 describe("managed first run", () => {
-  it("waits for live server evidence of the native Folder project, even with saved onboarding", () => {
-    for (const completed of [true, false]) {
-      expect(
-        managedFirstRunDecision({ hydrated: true, live: false, projectReady: true, completed }),
-      ).toBe("pending");
-      expect(
-        managedFirstRunDecision({ hydrated: true, live: true, projectReady: false, completed }),
-      ).toBe("pending");
-      expect(
-        managedFirstRunDecision({ hydrated: false, live: true, projectReady: true, completed }),
-      ).toBe("pending");
-    }
+  it("waits for live server evidence of the native Folder project", () => {
+    expect(managedFirstRunDecision({ hydrated: true, live: false, projectReady: true })).toBe(
+      "pending",
+    );
+    expect(managedFirstRunDecision({ hydrated: true, live: true, projectReady: false })).toBe(
+      "pending",
+    );
+    expect(managedFirstRunDecision({ hydrated: false, live: true, projectReady: true })).toBe(
+      "pending",
+    );
   });
-  it("offers the Lazurio welcome once and then opens the app", () => {
-    expect(
-      managedFirstRunDecision({ hydrated: true, live: true, projectReady: true, completed: false }),
-    ).toBe("wizard");
-    expect(
-      managedFirstRunDecision({ hydrated: true, live: true, projectReady: true, completed: true }),
-    ).toBe("app");
+  it("then opens the app, never a welcome or upstream's wizard", () => {
+    expect(managedFirstRunDecision({ hydrated: true, live: true, projectReady: true })).toBe("app");
   });
 });
