@@ -15,6 +15,10 @@ import * as Schema from "effect/Schema";
 import { HttpClientError } from "effect/http";
 
 import {
+  fetchEnvironmentPairingCredential,
+  pairAgainWithEnvironment,
+} from "../../lazurio/environmentPairing";
+import {
   getPairingTokenFromUrl,
   stripPairingTokenFromUrl as stripPairingTokenUrl,
 } from "../../pairingUrl";
@@ -312,10 +316,18 @@ function isTransientBootstrapError(error: unknown): boolean {
 async function bootstrapServerAuth(urlCredential: string | null): Promise<ServerAuthGateState> {
   const currentSession = await fetchSessionState();
   if (currentSession.authenticated && !urlCredential) {
+    // Lazurio (the Admin's decision of 2026-10-17): a session paired on 0.0.45 pairs again with
+    // its Environment's credential, and keeps its scopes when that fails.
+    await pairAgainWithEnvironment(currentSession, exchangeBootstrapCredential);
     return { status: "authenticated" };
   }
 
-  const bootstrapCredential = urlCredential ?? getDesktopBootstrapCredential();
+  const bootstrapCredential =
+    urlCredential ??
+    getDesktopBootstrapCredential() ??
+    // Lazurio (the Admin's decision of 2026-10-17): without either, the Environment pairs its
+    // own browser.
+    (await fetchEnvironmentPairingCredential());
   if (!bootstrapCredential) {
     return {
       status: "requires-auth",

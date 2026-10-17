@@ -9,10 +9,10 @@ distribuce T3 Code pro Environmenty Lazuria: server a web klient přesného
 upstream stable vydání a nad nimi overlay Lazuria. Overlay chování T3 Code mění:
 hostované nastavení, aktualizace z kanálu Lazuria, zadání z Launchpadu, slot pro
 shell Lazuria, prohlížeč Environmentu, spravovaná složka Lazuria, jméno
-v aplikaci, vzhled na Environmentu a přihlášení poskytovatelů přes Lazurio. Co
-přesně a ve kterých souborech, říká
-[Overlay](#overlay); podrobnou specifikaci prohlížeče Environmentu drží
-[specifikace overlaye](./lazurio-overlay.md). T3 vždy běží
+v aplikaci, vzhled na Environmentu, přihlášení poskytovatelů přes Lazurio
+a párování prohlížeče, které obstará Environment sám. Co přesně a ve kterých
+souborech, říká [Overlay](#overlay); podrobnou specifikaci prohlížeče
+Environmentu a párování drží [specifikace overlaye](./lazurio-overlay.md). T3 vždy běží
 v kořeni vlastního hostname (`https://t3code.<vm>.<org>.lazurio.io/`) za TLS
 reverse proxy. Oficiální desktop a mobilní aplikace se připojují jako
 neupravení upstream klienti. Značka T3 Code zůstává. Do UI webového klienta
@@ -135,6 +135,7 @@ Lazurio/t3code#70.
 | 16  | `feat(web): the in-app name T3 Code (Lazurio)`                                                  | Rozhodnutí 0200 bod 2: v aplikaci se T3 Code jmenuje „T3 Code (Lazurio)“, vedle wordmarku stojí štítek „Lazurio“ a náhledová vydání se nejmenují „Nightly“ (viz [Jméno a vzhled](#jméno-a-vzhled)).                                                                                                                                                                                                                                                                                                                                                                                      | Upstream ekvivalent nemá, štítek fáze je konstanta buildu (v0.1.0 `Beta` místo `Alpha`, #20032): zůstává. Při přestavbě ověřte, že upstream nezměnil tvar verze náhledů ani místo pilulky vedle wordmarku (v0.1.0 ji dala do ořezaného řádku značky, #12141).                                                                                                                                                                                                                                                                                                     |
 | 17  | `feat(web): the design system's light look on a Lazurio Environment`                            | Rozhodnutí 0200 bod 4: ve standardním světlém vzhledu bere webový klient barvy, písmo a zaoblení design systému z tokenů `--lz-*`, které deklaruje shell Environmentu (LazurioPlatform F36). Jeden soubor `apps/web/src/lazurio/theme.css` a import v `main.tsx`; bez shellu se nepoužije nic (viz [Jméno a vzhled](#jméno-a-vzhled)).                                                                                                                                                                                                                                                   | Motivy Environmentu upstreamu (`t3 theme set`) dají jen barvy, při každém načtení bliknou a resetují volbu člověka: zůstává. Kontraktní test hlídá, že mapované tokeny `index.css` deklaruje ve stejném scope; v0.1.0 tam nový barevný token nepřidala.                                                                                                                                                                                                                                                                                                           |
 | 18  | `feat(lazurio): providers sign in through Lazurio, and the Launchpad turns them on`             | Rozhodnutí 0201 bod 4 (Lazurio/t3code#46): s `T3CODE_LAZURIO_FOLDER` se Codex a Claude přihlašují svými CLI ze stránky Začínáme Launchpadu (`T3CODE_LAZURIO_TOOLS_URL`). Web tam, kde nabízel vlastní „Continue with ChatGPT“, odkáže na Začínáme, server vlastní přihlášení Codexu v T3 odmítne pro každého klienta a `t3 lazurio providers` poskytovatele zapne a hned znovu načte (viz [Přihlášení přes Lazurio](#přihlášení-přes-lazurio)).                                                                                                                                          | Upstream ekvivalent nemá a v0.1.0 nový vstup do vlastního přihlášení Codexu nepřidala. Stráž je v `orchestration-v2/runtimeLayer.ts`, kde se `ProviderAuthService` od v0.1.0 skládá; po rozdělení rozsahů (#9786) chce cesta `orchestration:read` + `providers:manage` a per-projektové „vypnuto“ (#17879) nemění. Při přestavbě ověřte, že upstream nepřidal další vstup do vlastního přihlášení Codexu (nová tlačítka, MCP nástroj) mimo `ProviderAuthService.start` a `importProfile`.                                                                         |
+| 19  | `feat(lazurio): the Environment pairs its own browser`                                          | Rozhodnutí Admina 2026-10-17 nahrazuje pravidlo z 2026-09-21, že přímá návštěva ukáže párovací stránku T3 a fork zůstává beze změny: Environment páruje svůj prohlížeč sám. Stránka bez platného sezení T3 si řekne vlastnímu originu o údaj (`GET /.lazurio/chat/pairing`), který Launchpad vydá příkazem `t3 lazurio pairing` s rozsahy operátora, a vymění ho, takže člověk token nevidí a hluboký odkaz zůstane. Sezení spárované na 0.0.45 se spáruje znovu (viz [Párování prohlížeče](#párování-prohlížeče)).                                                                      | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá: zůstává. Šev jsou dvě volání v `bootstrapServerAuth` (`environments/primary/auth.ts`). Při přestavbě ověřte, že upstream nezměnil pořadí zdrojů bootstrap údaje (odkaz, desktop) ani `sessionHasLegacyPermissions` a že `AuthStandardClientScopes` nezískaly `relay:write` (hlídá `cli.test.ts`).                                                                                                                                                                                                        |
 
 Řádek 14 (`feat(web): reorder right panel tabs by dragging (#17730)`, backport
 upstream 410793042) přestavba na v0.1.0 odebrala: upstream ho má i se stejným
@@ -142,15 +143,19 @@ testem a povrchy overlaye se přetahují jako ostatní. Ostatní řádky si čí
 nechávají.
 
 Hostované proměnné a spravovaná složka platí, jen když jsou nastavené, a shell,
-prohlížeč Environmentu, Nová karta a vzhled design systému se ukážou, jen když je
-Environment nabízí. Proměnná `T3CODE_LAZURIO_FOLDER` přitom označuje Environment
-Lazuria: s ní server nestaví serverový prohlížeč upstreamu a nástroje prohlížeče
-T3 ovládají prohlížeč Environmentu, jakmile ho Environment deklaruje. Bez ohledu
-na to platí tři věci: server pod launcherem kontroluje vydání svého kanálu
-(vypne to `T3CODE_UPDATE_CHECK_ENABLED=false`), procesy agentů vlákna a příkazy
-agenta Codexu dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje (kterých
-procesů se to týká, říká řádek 8), a build distribuce se v aplikaci jmenuje
-„T3 Code (Lazurio)“. Řádek odeberte, jakmile upstream nabídne ekvivalent.
+prohlížeč Environmentu, Nová karta, vzhled design systému a párování
+Environmentem se ukážou, jen když je Environment nabízí. Proměnná
+`T3CODE_LAZURIO_FOLDER` přitom označuje Environment Lazuria: s ní server nestaví
+serverový prohlížeč upstreamu a nástroje prohlížeče T3 ovládají prohlížeč
+Environmentu, jakmile ho Environment deklaruje. Bez ohledu na to platí čtyři
+věci: server pod launcherem kontroluje vydání svého kanálu (vypne to
+`T3CODE_UPDATE_CHECK_ENABLED=false`), procesy agentů vlákna a příkazy agenta
+Codexu dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje (kterých procesů
+se to týká, říká řádek 8), stránka bez sezení T3 na HTTPS se nejdřív zeptá svého
+originu na `/.lazurio/chat/pairing` (mimo Lazurio dostane `index.html` T3
+a pokračuje na párovací stránku, řádek 19) a build distribuce se v aplikaci
+jmenuje „T3 Code (Lazurio)“. Řádek odeberte, jakmile upstream nabídne
+ekvivalent.
 Upstream soubory pod `apps/`, `packages/` a `scripts/` overlay mění jen
 v přesných souborech z allowlistu `allowed_upstream_changes` v
 `lazurio-fork-ci.yml`. Allowlist je seskupený podle funkce, které soubor patří.
@@ -172,7 +177,8 @@ skriptem `scripts/update-release-package-versions.ts`, do Gitu se necommitují.
 
 Příští přestavba přehraje overlay jako jeden commit na řádek tabulky, s jeho
 předmětem a v jeho pořadí, jen řádek 5 jde poslední. U každého řádku je jeho
-commit z přestavby na v0.1.0 a soubory, které mění.
+commit z přestavby na v0.1.0 a soubory, které mění; řádek, který přibyl až po
+přestavbě, říká, kde jeho commit na `main` je.
 
 - Soubory distribuce (`.dockerignore`, `Dockerfile.lazurio`,
   `.github/workflows/lazurio-*.yml`, `.github/ISSUE_TEMPLATE/1-lazurio-t3-code.yml`,
@@ -266,6 +272,12 @@ Commity v pořadí na `main`:
   jeho test\*, `overlay.ts`\*. Web: `components/settings/CodexSetupSection.tsx`,
   `components/settings/AddProviderInstanceDialog.tsx`; `apps/web/src/lazurio/`:
   `LazurioSignIn.tsx` a `providerSignIn.ts`, každý s testem.
+- **19.** Přibyl po přestavbě na v0.1.0 (rozhodnutí Admina 2026-10-17), na `main`
+  je za commitem řádku 5 s předmětem z tabulky. Server:
+  `apps/server/src/lazurio/cli.ts`\* a jeho test\* (`t3 lazurio pairing`
+  a `operatorPairing` v `capabilities`). Web:
+  `apps/web/src/environments/primary/auth.ts`; `apps/web/src/lazurio/`:
+  `environmentPairing.ts` a jeho test.
 - **5.** Tento commit, poslední. Soubory distribuce.
 
 ### Lazurio shell
@@ -596,6 +608,24 @@ hlídá stráž v `orchestration-v2/runtimeLayer.ts`, obě stráže
 v `CodexSetupSection.tsx` (včetně předání stavu instance kvůli odpojení)
 a odkaz v `AddProviderInstanceDialog.tsx`;
 `cli.test.ts` drží výstup příkazu bajt po bajtu.
+
+### Párování prohlížeče
+
+**Rozhodnutí Admina 2026-10-17 (řádek 19): Environment páruje svůj prohlížeč
+sám.** Nahrazuje pravidlo z 2026-09-21, že přímá návštěva ukáže párovací stránku
+T3 a fork zůstává beze změny. Stránka bez platného sezení T3, nebo se sezením
+spárovaným na 0.0.45, si řekne vlastnímu originu o údaj
+(`GET /.lazurio/chat/pairing`, brána ho předá Launchpadu), Launchpad ho vydá
+příkazem `t3 lazurio pairing` s rozsahy operátora (standardní rozsahy,
+`access:read` a `access:write`, nikdy `relay:write`) a stránka ho vymění bez
+přesměrování. Celou specifikaci, šev a to, co z něj hlídá kontraktní test, drží
+[specifikace overlaye](./lazurio-overlay.md#párování-prohlížeče).
+
+Fork se na Platformu nespoléhá: dokud Launchpad na cestě neodpoví přesně
+údajem, pokračuje stránka na párovací stránku jako dřív, takže vydání
+s řádkem 19 může jít na Environmenty před Platformou i po ní. Platforma pozná
+T3, které `t3 lazurio pairing` má, podle `"operatorPairing": true`
+v `t3 lazurio capabilities` (kontrakt verze 1).
 
 ## Kdy vydávat
 
@@ -961,11 +991,17 @@ každé bráně zapište do issue, co se na nové bázi mění, rozhodnutí a ja
 ověřené. Rozdíl mezi bázemi ukáže
 `git diff "$OLD_SHA" "$NEW_SHA" -- <soubory>` se soubory uvedenými u brány.
 
-- **`t3 lazurio capabilities`, `t3 lazurio model` a `t3 lazurio providers`.**
-  Machines ověřují `capabilities` (kontrakt verze 1), Platforma volá `model`
-  příkazem `lazurio chat defaults --apply` a Launchpad po přihlášení CLI volá
-  `providers`. `apps/server/src/lazurio/cli.test.ts` drží jejich výstup bajt
-  po bajtu a při přestavbě se nemění. `model` a `providers` jdou přes běžící
+- **`t3 lazurio capabilities`, `t3 lazurio model`, `t3 lazurio providers`
+  a `t3 lazurio pairing`.** Machines ověřují `capabilities` (kontrakt verze 1),
+  Platforma volá `model` příkazem `lazurio chat defaults --apply` a Launchpad
+  volá `providers` po přihlášení CLI a `pairing`, když Environment páruje svůj
+  prohlížeč (řádek 19). `apps/server/src/lazurio/cli.test.ts` drží výstup
+  prvních tří bajt po bajtu a výstup `pairing` jako výstup
+  `t3 auth pairing create --json` se stejnými rozsahy; při přestavbě se nemění.
+  Rozsahy operátora skládá `pairing` z `AuthStandardClientScopes`,
+  `access:read` a `access:write` v `packages/contracts/src/auth.ts`; když
+  upstream standardní rozsahy změní, posunou se s nimi a `cli.test.ts` hlídá,
+  že `relay:write` mezi nimi není. `model` a `providers` jdou přes běžící
   službu sezením, které si CLI samo vydá s rozsahy, jež cesty vyžadují: `model`
   rozsah upstreamu pro `serverUpdateSettings`, `providers` rozsah pro
   `serverRefreshProviders` a rozsahy, které upstream chce pro změnu instancí
@@ -1000,9 +1036,10 @@ ověřené. Rozdíl mezi bázemi ukáže
   launcheru; `~/.local/bin/t3` přesměruje `t3 update` nebo Machines, tlačítko
   ne. Server pod launcherem ho proto po své aktivaci přesměruje na vlastní
   runtime (řádek 4, Lazurio/t3code#30; jen odkaz do `runtime/versions` téže T3
-  home). Na tom stojí párování Chatu z Launchpadu,
-  `lazurio chat defaults --apply` i `t3 lazurio providers`: CLI staré verze by
-  na nové bázi zapisoval do databáze, kterou nový server nečte (na v0.1.0
+  home). Na tom stojí párování Chatu z Launchpadu (`t3 auth pairing create`
+  i `t3 lazurio pairing`), `lazurio chat defaults --apply`
+  i `t3 lazurio providers`: CLI staré verze by na nové bázi zapisoval do
+  databáze, kterou nový server nečte (na v0.1.0
   `state.sqlite` místo `statev2.sqlite`). Na canary po Update tlačítkem
   ověřte, že `readlink ~/.local/bin/t3` míří na
   `runtime/versions/<nová verze>/t3` a Chat z Launchpadu se spáruje. Soubory:
@@ -1016,9 +1053,14 @@ ověřené. Rozdíl mezi bázemi ukáže
   vyžadují, dokud se znovu nespáruje; na v0.1.0 (#9786–#9791) mimo jiné
   terminál, soubory, Git, nastavení, Update a podržení záložek prohlížeče
   Environmentu. Cesty overlaye berou rozsahy z `requiredScopeForRpcMethod`,
-  takže se posunou samy. Nové spárování na Environmentu Lazuria znamená jednou
-  otevřít Chat z Launchpadu v každém prohlížeči: Launchpad vydá nový odkaz
-  a `/pair` od v0.1.0 nahradí uložený grant, i když cookie ještě platí.
+  takže se posunou samy. Prohlížeč, jehož sezení má jen staré rozsahy
+  (`sessionHasLegacyPermissions`, na v0.1.0 prohlížeč spárovaný na 0.0.45), se
+  na Environmentu Lazuria při příštím načtení Chatu spáruje znovu sám
+  (řádek 19), i když cookie ještě platí; když to nejde, zůstane jako dřív.
+  Rozdělení nebo nový rozsah, které `sessionHasLegacyPermissions` nepozná, se
+  samo nespáruje: buď podmínku v `apps/web/src/lazurio/environmentPairing.ts`
+  rozšiřte (mění chování, schvaluje Admin), nebo platí jednou otevřít Chat
+  odkazem s párováním (`/pair#token=…` od v0.1.0 nahradí uložený grant).
   Desktop a mobilní aplikaci je potřeba spárovat znovu. Lidem změnu oznamte
   předem (etapa 8).
 - **Databáze.** Migrace jsou jednosměrné, starší server nemá down migrace.
@@ -1143,8 +1185,10 @@ Environmentech (`try-*` bez zálohy)
 všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
 řádku:
 
-- přihlášení přes Launchpad Chat a nové spárování prohlížeče; co umí
-  a neumí prohlížeč spárovaný na staré bázi;
+- přihlášení přes Launchpad Chat a spárování prohlížeče Environmentem: přímá
+  návštěva Chatu bez sezení (záložka, přepínač shellu) se spáruje sama a zůstane
+  na odkazované stránce, Settings → Connections ukáže Authorized clients;
+  co umí a neumí prohlížeč spárovaný na staré bázi a zda se spároval znovu;
 - `t3 lazurio capabilities`, `lazurio chat defaults --apply` Platformy
   a nová vlákna ve složce Lazuria bez uvítání;
 - „+ Nový modul“ z Launchpadu otevře neodeslané zadání;
@@ -1189,9 +1233,9 @@ přechod tlačítkem Update na něm ověříte v etapě 8.
    příště sáhnou, a stable kvůli nim nečeká. Do issue zapište, která změna je
    které povahy.
 2. **Oznámení lidem**, když přestavba mění, co uvidí nebo musí udělat: nové
-   spárování prohlížeče (jednou otevřít Chat z Launchpadu v každém
-   prohlížeči), aktualizace a nové spárování desktop a mobilní aplikace,
-   cokoli z tabulky rozhodnutí.
+   spárování prohlížeče tam, kde ho Environment neobstará sám (viz brána
+   Párování a rozsahy sezení), aktualizace a nové spárování desktop a mobilní
+   aplikace, cokoli z tabulky rozhodnutí.
 3. **Stable `X.Y.Z-lazurio.1`** ze stejného commitu jako canary preview, po
    výslovném souhlasu Admina (nebo s mandátem ze
    [zadání](#zadání-pro-task-agenta)). Canary Environment pak vraťte z preview
@@ -1480,7 +1524,8 @@ stavem tabulky rozhodnutí a bran.
 t3code.service && systemctl --user start t3code.service` (#25).
 
    Ověřte přesnou verzi, `~/.t3/runtime/service-state.json` (protokol
-   a `activeVersion`), přihlášení a pairing přes Launchpad Chat, terminál,
+   a `activeVersion`), přihlášení a pairing přes Launchpad Chat i přímou
+   návštěvou Chatu bez sezení, terminál,
    agentní turn (jen na Environmentu s AI; Ring 0 bez AI ho přeskočí a ověří
    ho první Environment s AI), starý i nový thread, upload a download,
    reconnect a restart služby se zachovanými daty. Ověřte také, že Environment na stable preview
