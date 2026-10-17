@@ -512,7 +512,9 @@ dřívější doporučení výchozím modelem T3 a projekt Lazurio dostane dopor
 při dalším `lazurio chat defaults --apply`. Kdo si na 0.0.45 vybral vlastní
 výchozí model, má ho dál mimo projekt Lazurio; v projektu Lazurio pak platí
 doporučení, dokud si tam v nastavení projektu nevybere jiný model (lidem to
-oznamte, etapa 8). Offline úprava nastavení nebo
+oznamte, etapa 8). Model platí jen tam, kde ho poskytovatel nabízí: Codex
+0.156.1 GPT-6.1 Sol nenabízí a nové vlákno pak vezme výchozí model
+poskytovatele, dokud se Codex neaktualizuje. Offline úprava nastavení nebo
 databáze nikdy není náhradní cestou nasazení. T3 a Platformu vydávejte spolu.
 
 Bez proměnné se chování nemění. „Add project“ zmizí z palety příkazů i ze
@@ -899,8 +901,14 @@ gh run list --repo Lazurio/t3code --workflow lazurio-fork-ci.yml --branch "lazur
   --limit 1 --json databaseId,event,headSha,status,conclusion
 ```
 
-Povinné checky PR pak hlásí tento běh. V `gh pr checks` ověřte, že vedou na
-běh, jehož `headSha` je přesný head PR.
+Povinné checky pak nese commit headu PR. `gh pr checks` je u PR v konfliktu
+nevypíše, ověřte je proto přímo na commitu:
+
+```bash
+candidate_head="$(gh pr view "lazurio/rebuild-$NEW_TAG" --repo Lazurio/t3code --json headRefOid --jq .headRefOid)"
+gh api "repos/Lazurio/t3code/commits/$candidate_head/check-runs" \
+  --jq '.check_runs[] | "\(.name): \(.conclusion)"'
+```
 
 PR slouží jen CI a review a tlačítkem se nikdy nemerguje: jeho head se stane
 `main` výměnou (etapa 6). Popis PR nese přesné vstupy (starou a novou bázi se
@@ -982,7 +990,10 @@ ověřené. Rozdíl mezi bázemi ukáže
   chyběla by v něm práce z mezidobí. Po vráceném Update ho proto odsuňte
   ([Rollback](#rollback)); Environment s velkou databází převeďte raději pinem
   v Machines. Dobu do připravenosti změřte na canary tlačítkem Update
-  (etapa 8).
+  (etapa 8). Přestavba na v0.1.0 naměřila: Update tlačítkem z 0.0.45 nad
+  malou databází `committed` do minuty od kliknutí; první start v0.1.0 nad
+  databází V1 o 5,2 GB (kopie i import) byl na Apple Silicon připravený za
+  33 s, na VM s pomalejším diskem počítejte s násobkem.
 - **CLI a server na jedné verzi.** Update tlačítkem přesune jen aktivní verzi
   launcheru; `~/.local/bin/t3` přesměruje `t3 update` nebo Machines, tlačítko
   ne. Server pod launcherem ho proto po své aktivaci přesměruje na vlastní
@@ -1138,12 +1149,15 @@ všechny kontroly kroku 3 a navíc to, čeho se přestavba dotkla v každém
 - agentní turn s Codexem i s Claude: agent pracuje ve vlastním okně prohlížeče
   Environmentu, `preview_open` ukáže jeho záložku v panelu a
   `printenv AGENT_BROWSER_SESSION` ve vlákně Codexu i Claude vypíše sezení
-  toho vlákna. Ring 0 AI nemá: turn ověřte na prvním Environmentu s AI, nebo
-  na Ring 0 s dočasným přihlášením poskytovatele, se kterým Operátor souhlasí;
+  toho vlákna. Na Ring 0 ověřte turn jen s poskytovatelem, který je tam už
+  přihlášený, jinak na prvním Environmentu s AI. Osobní účet poskytovatele na
+  sdílený Environment Ring 0 nepřihlašujte;
 - „+“ i Mod+T otevřou Novou kartu a serverový prohlížeč upstreamu se nikde
   neukáže;
 - rail, hlavička sloupce a Buddy, bez čáry mezi railem a sidebarem;
-- stará vlákna po migraci databáze a restart služby se zachovanými daty;
+- stará vlákna po migraci databáze a restart služby se zachovanými daty.
+  Bez přihlášeného poskytovatele vlákno se zprávou nevznikne (odeslání je
+  vypnuté), stará vlákna pak ověřte na prvním Environmentu s historií;
 - oficiální desktop aplikace verze nové báze proti serveru.
 
 Kontrolu v prohlížeči (root rozhodnutí 0178) udělá ten, kdo preview
@@ -1437,7 +1451,21 @@ stavem tabulky rozhodnutí a bran.
    ```
 
    Souhlas s preview chce vždy terminál (bez TTY ho CLI odmítne); `--yes`
-   odpoví jen na dotaz na restart služby, a to kladně.
+   odpoví jen na dotaz na restart služby, a to kladně. Na nestabilní lince
+   spusťte `t3 update` v relaci tmux, ať ho výpadek SSH nepřeruší uprostřed
+   instalace, a souhlas pošlete klávesami:
+
+   ```bash
+   VERSION=0.1.0-preview.20261017.1
+   tmux new-session -d -s t3upd "export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code; ~/.local/bin/t3 update $VERSION --yes; echo T3_UPDATE_EXIT=\$?; sleep 3600"
+   tmux capture-pane -p -t t3upd | tail -5   # čekejte na „Install the preview build anyway?“
+   tmux send-keys -t t3upd y && tmux send-keys -t t3upd Enter
+   tmux capture-pane -p -t t3upd | grep T3_UPDATE_EXIT && tmux kill-session -t t3upd
+   ```
+
+   Příkazy Platformy přes SSH (`lazurio chat defaults --apply`) potřebují
+   `~/.local/bin` v `PATH` (`export PATH="$HOME/.local/bin:$PATH"`), jinak
+   hlásí `t3-launcher-missing`.
 
    **Když nová verze mění protokol launcheru** (`SERVICE_LAUNCHER_PROTOCOL`
    v `apps/server/src/cloud/serviceProtocol.ts`, např. 2 → 3 mezi v0.0.42
