@@ -676,6 +676,8 @@ describe("CodexAdapterV2 process spawning", () => {
               },
             },
           },
+          // Lazurio overlay (root decision 0191): the thread's agent-browser session.
+          "shell_environment_policy.set.AGENT_BROWSER_SESSION": "t3-thread-codex-mcp",
         },
       },
     );

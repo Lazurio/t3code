@@ -33,6 +33,7 @@ import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
 import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
+import * as LazurioAgentBrowserSession from "./lazurio/agentBrowserSession.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
@@ -1119,7 +1120,8 @@ const layerMakeServer = Layer.unwrap(
       // PR reads, Git operations, and WebSocket discovery share one process limiter.
       Layer.provide(VcsProcess.layer),
       // Every agent and terminal spawn reads this, so it sits below everything.
-      Layer.provideMerge(AgentScopeLive.layer),
+      // Lazurio overlay (root decision 0191): each thread's agents get its agent-browser session.
+      Layer.provideMerge(LazurioAgentBrowserSession.decorateAgentScope(AgentScopeLive.layer)),
       Layer.provideMerge(layerPlatformServices),
     );
   }),
