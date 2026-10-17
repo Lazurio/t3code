@@ -5,6 +5,13 @@ When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that
 notice.
 
+A server running as a [background service](./background-service.md) also checks
+its own release train every few hours; a preview build never checks. When a
+newer release is out, the web app that server hosts shows the same notice and
+updates it to that release. The official desktop and mobile apps do not show
+this notice. Set `T3CODE_UPDATE_CHECK_ENABLED=false` in the service's
+environment to turn the check off.
+
 ## Update everything at once
 
 The update button at the bottom of the sidebar updates every connected machine

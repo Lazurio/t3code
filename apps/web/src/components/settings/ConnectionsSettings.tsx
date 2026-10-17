@@ -1610,7 +1610,7 @@ function SavedBackendListRow({
         : "Switched off"
   }${
     versionMismatch
-      ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}`
+      ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.targetVersion}`
       : ""
   }`;
 
@@ -1732,7 +1732,7 @@ function SavedBackendListRow({
           installation={environment.serverConfig?.environment.capabilities.serverInstallation}
           desktopAppUpdate={supportsDesktopAppUpdate(environment.serverConfig)}
           threadContinuation={supportsServerUpdateThreadContinuation(environment.serverConfig)}
-          targetVersion={versionMismatch.clientVersion}
+          targetVersion={versionMismatch.targetVersion}
           label={serverUpdateState.status === "failed" ? "Retry update" : "Update"}
           appearance="icon"
         />
@@ -2125,7 +2125,7 @@ export function ConnectionsSettings() {
             threadContinuation: supportsServerUpdateThreadContinuation(environment.serverConfig),
             continueThreadsAfterServerUpdate:
               environment.serverConfig?.settings.continueThreadsAfterServerUpdate ?? false,
-            targetVersion: mismatch.clientVersion,
+            targetVersion: mismatch.targetVersion,
           },
         ];
       }),
@@ -3696,11 +3696,11 @@ export function ConnectionsSettings() {
                       threadContinuation={supportsServerUpdateThreadContinuation(
                         primaryServerConfig,
                       )}
-                      targetVersion={primaryVersionMismatch.clientVersion}
+                      targetVersion={primaryVersionMismatch.targetVersion}
                       label={
                         primaryServerUpdateState.status === "failed"
                           ? "Retry update"
-                          : `Update to ${primaryVersionMismatch.clientVersion}`
+                          : `Update to ${primaryVersionMismatch.targetVersion}`
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (

@@ -35,6 +35,11 @@ maintainers' test train: its builds can be broken and are never offered as
 updates, so the installer and `t3 update` ask for confirmation before
 installing one.
 
+Set `T3CODE_RELEASE_REPOSITORY=owner/name` to install and update from a fork's
+releases, or `T3CODE_RELEASE_BASE_URL` to download from a mirror. The install
+script, `t3 update`, and the service honor both when they are set in their
+environment.
+
 `t3 uninstall` removes the background service, the `t3` launcher, and the
 downloaded versions after showing you the list and asking once. Your projects,
 threads, and settings under `~/.t3/userdata` are kept. Pass `--yes` from a
