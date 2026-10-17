@@ -110,18 +110,14 @@ export function managedNewThread(
 
 /**
  * A managed Environment's first run: pending until settings hydrate and the primary server's live
- * shell has the Folder's project, then its welcome until onboarding completes. It never completes
- * onboarding by itself, whatever else the workspace holds.
+ * shell has the Folder's project, then the app. It has no welcome of its own. Where a chat starts
+ * is the Folder, and an agent account that is not connected yet is a step of the Environment's
+ * own setup, outside T3 Code.
  */
 export function managedFirstRunDecision(input: {
   hydrated: boolean;
   live: boolean;
   projectReady: boolean;
-  completed: boolean;
-}): FirstRunDecision {
-  return !input.hydrated || !input.live || !input.projectReady
-    ? "pending"
-    : input.completed
-      ? "app"
-      : "wizard";
+}): Exclude<FirstRunDecision, "wizard"> {
+  return input.hydrated && input.live && input.projectReady ? "app" : "pending";
 }

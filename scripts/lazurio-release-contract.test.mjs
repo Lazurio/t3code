@@ -773,7 +773,8 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   );
 
   // Web: new threads start in the Folder, what leads elsewhere leaves only for a managed
-  // Environment, and the managed welcome sits behind upstream's route guard.
+  // Environment, and a managed Environment's /welcome goes to the index behind upstream's route
+  // guard.
   NodeAssert.match(
     source.palette,
     /\}\)\.filter\(offeredInProjectPicker\(environments\)\),\n\s+\[contextualProjectRef, environments, projectGroups\],/,
@@ -810,8 +811,8 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   before(
     source.welcome,
     "const isWelcomeRoute = useLocation(",
-    "if (lazurioFolder !== undefined) return isWelcomeRoute ? <ManagedFolderWelcome /> : null;",
-    "the managed welcome follows upstream's welcome-route guard",
+    'if (lazurioFolder !== undefined) return isWelcomeRoute ? <Navigate to="/" replace /> : null;',
+    "a managed Environment leaves /welcome behind upstream's welcome-route guard",
   );
 
   // Every file is the overlay's own or a reviewed allowlist entry.
