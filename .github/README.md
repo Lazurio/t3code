@@ -57,6 +57,11 @@ there stays yours.
 - **Signing in to Codex and Claude.** On a Lazurio Environment they sign in with their own CLIs from
   the Environment's Getting started page, so the sign-in works for T3 Code, the terminal and every
   agent alike. T3 Code's own ChatGPT sign-in is not offered there.
+- **Pairing.** A Lazurio Environment pairs your browser itself: however you open Chat, a browser
+  without a session signs in without a pairing token and stays on the page you opened, and a
+  browser paired with an older release pairs again. **Settings → Connections** shows your
+  authorized clients; on an Environment in your tailnet you create pairing links there for the
+  desktop and mobile apps. The Environment's pairing never lets a browser manage T3 Connect.
 - **Hosting behind a reverse proxy.** `T3CODE_EXTERNAL_ORIGIN` serves T3 Code at the root of its
   own HTTPS hostname with a Secure session cookie, `T3CODE_CLIENT_SESSION_TTL` sets how long a
   paired browser stays signed in, and `T3CODE_ENVIRONMENT_LABEL` names the Environment.
@@ -66,7 +71,8 @@ there stays yours.
 
 Apart from the name, each change stays off until its setting is present or the page runs on a
 Lazurio Environment. Without them, the server and the web client behave like upstream T3 Code;
-agent processes still get an `AGENT_BROWSER_SESSION` variable, which does nothing on its own.
+agent processes still get an `AGENT_BROWSER_SESSION` variable, which does nothing on its own, and
+a page served over HTTPS without a session first asks its own origin whether Lazurio pairs it.
 
 ## Tracking upstream
 
