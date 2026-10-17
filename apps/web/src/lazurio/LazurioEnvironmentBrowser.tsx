@@ -1,6 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ContextMenuItem, ScopedThreadRef } from "@t3tools/contracts";
 import { ExternalLink, Globe2, LogIn, Plus } from "lucide-react";
+import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import { createElement, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -44,6 +45,7 @@ import {
   receiveSnapshot,
   reloadSurface,
   rememberTitle,
+  routeShowsThread,
   showForeignTab,
   showOwnTab,
   snapshotOf,
@@ -74,6 +76,13 @@ function useEnvironmentBrowserThread(threadRef: ScopedThreadRef | null): ScopedT
     ? threadRef
     : null;
 }
+
+/**
+ * Whether the person is still on the thread when its view closes. It is read from the route the
+ * router is on by then, so a view that only mounts anew keeps what the device saw (threadTabs.ts).
+ */
+const stillShown = (router: AnyRouter, threadRef: ScopedThreadRef) =>
+  routeShowsThread(router.state.matches.at(-1)?.params ?? {}, threadRef);
 
 /** A row of the chat's timeline: a message, or the work the agent did. */
 const CHAT_ROW = "[data-timeline-root]";
@@ -161,6 +170,7 @@ export function useLazurioThreadTabs(
 ): void {
   const threadRef = useEnvironmentBrowserThread(input);
   const { inlinePanel, draft } = options;
+  const router = useRouter();
 
   // Before the stream's effect, so a thread that comes into view has its panel's kind already.
   useEffect(() => {
@@ -170,8 +180,8 @@ export function useLazurioThreadTabs(
   useEffect(() => {
     if (threadRef === null || !draft) return;
     enterDraft(threadRef);
-    return () => leaveDraft(threadRef);
-  }, [threadRef, draft]);
+    return () => leaveDraft(threadRef, stillShown(router, threadRef));
+  }, [threadRef, draft, router]);
 
   useEffect(() => {
     if (threadRef === null || draft) return;
@@ -191,9 +201,9 @@ export function useLazurioThreadTabs(
     return () => {
       events.close();
       stopWatching();
-      leaveThreadTabs(threadRef);
+      leaveThreadTabs(threadRef, stillShown(router, threadRef));
     };
-  }, [threadRef, draft]);
+  }, [threadRef, draft, router]);
 
   useEffect(() => {
     if (threadRef === null) return;

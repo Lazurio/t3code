@@ -35,6 +35,17 @@ import {
 
 // The threads below are of the page's own environment.
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "env-1" }));
+// The router's route: the chat's hook reads which thread it shows when a thread's view closes.
+const router = vi.hoisted(() => ({
+  state: { matches: [] as Array<{ readonly params: Record<string, string> }> },
+}));
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useRouter: () => router,
+}));
+const showRoute = (params: Record<string, string>) => {
+  router.state.matches = [{ params }];
+};
 
 // The page is T3 on a Lazurio Environment, beside its people's view (vitest's jsdom instance).
 const pageUrl = "https://t3code.vm-01.example.lazurio.io/";
@@ -111,6 +122,7 @@ let held: ThreadTab[] = [];
 
 beforeEach(() => {
   jsdom.reconfigure({ url: pageUrl });
+  showRoute({});
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal(
@@ -559,8 +571,10 @@ describe("the chat's hook", () => {
       </div>
     );
   }
-  const showChat = (threadRef: ScopedThreadRef = threadA, inlinePanel = true) =>
-    act(async () => root.render(<Chat threadRef={threadRef} inlinePanel={inlinePanel} />));
+  const showChat = (threadRef: ScopedThreadRef = threadA, inlinePanel = true) => {
+    showRoute({ environmentId: threadRef.environmentId, threadId: threadRef.threadId });
+    return act(async () => root.render(<Chat threadRef={threadRef} inlinePanel={inlinePanel} />));
+  };
   const stream = () => {
     const source = FakeEventSource.instances.at(-1);
     if (source === undefined) throw new Error("No event stream");
@@ -626,6 +640,27 @@ describe("the chat's hook", () => {
     act(() => useRightPanelStore.getState().close(threadA));
     await showChat(threadA, false);
     stream().emit("snapshot", snapshot([{ tabId: id(2), revealRequest: { id: "epoch-1:3" } }]));
+    expect(panel().isOpen).toBe(false);
+  });
+
+  it("opens the panel on a page revealed while the thread's view was closed, unless the person left the thread", async () => {
+    await showChat();
+    stream().emit("snapshot", snapshot([]));
+    // The view closes and opens again while the route still shows the thread (ChatView mounting
+    // anew), and the agent reveals a page in between: the new stream's first snapshot opens it.
+    const first = stream();
+    await act(async () => root.render(<p>Loading</p>));
+    expect(first.closed).toBe(true);
+    await showChat();
+    stream().emit("snapshot", snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:1" } }]));
+    expect(panel()).toMatchObject({ isOpen: true, activeSurfaceId: tab(1).id });
+    // The person closes the panel and goes to Settings, and the agent reveals a page meanwhile.
+    // Back on the thread, its first snapshot is a baseline: the panel stays closed.
+    act(() => useRightPanelStore.getState().close(threadA));
+    showRoute({});
+    await act(async () => root.render(<p>Settings</p>));
+    await showChat();
+    stream().emit("snapshot", snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:2" } }]));
     expect(panel().isOpen).toBe(false);
   });
 
