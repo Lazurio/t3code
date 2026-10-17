@@ -182,12 +182,21 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   starší než poslední přijatý z téhož běhu serveru (nový `epoch` začne znovu,
   opuštěný se nevrátí), takže opožděná odpověď na POST nevrátí pás, který už
   změnil proud.
-- **Panel se otevře sám jen na žádost serveru.** První snímek po příchodu vlákna
-  do zobrazení (a po restartu serveru) je základ; každá novější `revealRequest`
-  otevře inline panel na své záložce jako automatická změna (`openProactive`,
-  volba člověka mezitím má přednost). Panel se tedy otevře na `preview_open`
-  (pokud nežádá `open: false`) a na nové okno agenta, ne na každé kliknutí
-  agenta. Na úzké obrazovce, kde je panel sheet přes chat, se sám neotevře.
+- **Panel se otevře sám jen na žádost serveru.** Základem je první snímek po
+  načtení stránky, po restartu serveru a po návratu na vlákno, které člověk
+  opustil; každá novější `revealRequest` otevře inline panel na své záložce
+  jako automatická změna (`openProactive`, volba člověka mezitím má přednost).
+  Panel se tedy otevře na `preview_open` (pokud nežádá `open: false`) a na nové
+  okno agenta, ne na každé kliknutí agenta. Na úzké obrazovce, kde je panel
+  sheet přes chat, se sám neotevře.
+  - Zda člověk vlákno opustil, rozhodne trasa routeru ve chvíli, kdy se pohled
+    vlákna zavře (`routeShowsThread`). Ukazuje-li trasa dál totéž vlákno
+    (vlastní trasu vlákna, nebo trasu konceptu, ze kterého vzniká), šlo jen o
+    nové připojení: ChatView se připojil znovu, koncept se stal vláknem, nebo se
+    znovu načetl shell. Zařízení si pak pamatuje, co vidělo, a `revealRequest`,
+    která přišla bez otevřeného proudu, panel otevře.
+  - Po Nastavení nebo jiném vlákně je první snímek opět základ: stránka, kterou
+    agent ukázal mezitím, panel neotevře.
 - **Nová karta.** Kde shell Environmentu definuje `<lazurio-new-tab>`, server
   záložky vlákna drží a vlákno je Environmentu stránky, otevře „+“ místo upstream
   nabídky záložku Nová karta (`environment-browser:new-tab:<uuid>`) a prázdný
