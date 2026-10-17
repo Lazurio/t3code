@@ -30,6 +30,8 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
+  // Lazurio overlay: the web's Browser on a Lazurio Environment (apps/web/src/lazurio).
+  "environment-browser",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -85,7 +87,10 @@ export type RightPanelSurface =
       url?: string;
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
-  | { id: "pull-requests"; kind: "pull-requests" };
+  | { id: "pull-requests"; kind: "pull-requests" }
+  /** Lazurio overlay: a remote tab of the Environment browser, `view` only for another
+   *  Environment's, or Nová karta (apps/web/src/lazurio/threadTabs.ts). */
+  | { id: `environment-browser:${string}`; kind: "environment-browser"; view?: string };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -141,7 +146,11 @@ interface RightPanelStoreState {
    */
   openProactive: (
     ref: ScopedThreadRef,
-    surface: Extract<RightPanelSurface, { kind: "diff" | "pull-request" | "pull-requests" }>,
+    surface: Extract<
+      RightPanelSurface,
+      // Lazurio overlay: an Environment browser tab an agent revealed (lazurio/threadTabs.ts).
+      { kind: "diff" | "pull-request" | "pull-requests" | "environment-browser" }
+    >,
     expectedUserActionRevision: number,
   ) => boolean;
   open: (
@@ -151,6 +160,12 @@ interface RightPanelStoreState {
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
+  /** Lazurio overlay: a pure update of the thread's panel, the person's or automatic. */
+  lazurio: (
+    ref: ScopedThreadRef,
+    automatic: boolean,
+    update: (current: ThreadRightPanelState) => ThreadRightPanelState,
+  ) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
@@ -691,6 +706,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return upsertSurface({ ...current, surfaces: withoutPlaceholder }, surface);
           }),
         ),
+      lazurio: (ref, automatic, update) =>
+        set((state) =>
+          (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), update),
+        ),
       openPullRequest: (ref, target) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
@@ -1095,7 +1114,9 @@ useRightPanelStore.subscribe((next, previous) => {
     for (const surface of closedInOrder) {
       if (
         surface.kind === "terminal" ||
-        (surface.kind === "preview" && surface.resourceId !== null)
+        (surface.kind === "preview" && surface.resourceId !== null) ||
+        // Lazurio overlay: Vrátit brings an Environment browser tab back (lazurio/threadTabs.ts).
+        surface.kind === "environment-browser"
       )
         continue;
       useClosedViewStore.getState().remember({ kind: "panel-tab", threadRef, surface });

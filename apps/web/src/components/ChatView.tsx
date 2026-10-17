@@ -273,6 +273,10 @@ import {
 import { BrowserSettingsReadError, openUrlInPreview } from "../browser/openFileInPreview";
 import { resolveDiscoveredServerUrl } from "../browser/browserTargetResolver";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
+import {
+  LazurioRightPanelSurfaces,
+  useLazurioThreadTabs,
+} from "../lazurio/LazurioEnvironmentBrowser";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
@@ -2463,6 +2467,11 @@ export default function ChatView(props: ChatViewProps) {
     );
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
+  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio).
+  useLazurioThreadTabs(activeThreadRef, {
+    inlinePanel: !shouldUsePlanSidebarSheet,
+    draft: !isServerThread,
+  });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
@@ -10832,7 +10841,7 @@ export default function ChatView(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
-  const rightPanelContent = activeThreadRef ? (
+  const rightPanelActiveContent = activeThreadRef ? (
     renderedRightPanelSurface?.kind === "preview" ? (
       <Suspense fallback={null}>
         <PreviewPanel
@@ -10989,6 +10998,17 @@ export default function ChatView(props: ChatViewProps) {
         />
       </Suspense>
     ) : null
+  ) : null;
+  // Lazurio overlay: every Environment browser tab of the thread keeps its frame beside the
+  // surface in view (apps/web/src/lazurio).
+  const rightPanelContent = activeThreadRef ? (
+    <LazurioRightPanelSurfaces
+      threadRef={activeThreadRef}
+      surfaces={renderedRightPanelSurfaces}
+      activeSurfaceId={renderedRightPanelSurface?.id ?? null}
+    >
+      {rightPanelActiveContent}
+    </LazurioRightPanelSurfaces>
   ) : null;
   const threadDetailsPanelProps: ThreadDetailsPanelProps = {
     anchor: threadPanelPopoverAnchorRef,
