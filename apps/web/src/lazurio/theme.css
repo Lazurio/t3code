@@ -4,16 +4,20 @@
  * The Environment's shell (/.lazurio/shell.js, LazurioPlatform F36's addendum of 2026-10-13)
  * declares the design system's tokens (--lz-*) on the document's root and marks it
  * data-lazurio-theme="light". Here they become T3 Code's own raw tokens, for T3 Code's standard
- * light look only: no theme picked (no data-theme-id) and not dark. A theme the person picks, the
- * theme editor's preview and the dark mode keep T3 Code's palettes, the contrast setting keeps
- * working because T3 derives its --contrast-* tokens from these, and a font chosen in Appearance
- * still wins. Without the shell nothing here matches, and T3 Code looks as upstream.
+ * look only: no theme picked (no data-theme-id), and light, or dark too where the Environment's
+ * theme has a dark variant (root decision 0208: the shell then sets the dark values of the same
+ * names under .dark and marks the root data-lazurio-theme-dark). So the standard look is the
+ * Environment's theme, chosen in the Launchpad. A theme the person picks, the theme editor's
+ * preview and the dark mode of a light-only theme (Lazurio's own) keep T3 Code's palettes, the
+ * contrast setting keeps working because T3 derives its --contrast-* tokens from these, and a font
+ * chosen in Appearance still wins. Without the shell nothing here matches, and T3 Code looks as
+ * upstream.
  *
  * Only raw tokens that index.css declares in the same scope, only --lz-* names the shell promises,
  * no colour literals. scripts/lazurio-release-contract.test.mjs keeps all of it.
  */
 
-:root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark) {
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark]) {
   --background: var(--lz-surface);
   --foreground: var(--lz-ink);
   --card: var(--lz-surface);
@@ -64,7 +68,8 @@
 /* T3 recomputes its sidebar's palette here; the shell's rail joins this scope, so it reads as one
    paper surface with the sidebar. The switch's active tab (row-active) stays apart from its track
    (control-surface). */
-:root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark) [data-app-sidebar] {
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  [data-app-sidebar] {
   --background: var(--lz-paper);
   --foreground: var(--lz-ink);
   --card: var(--lz-surface);
