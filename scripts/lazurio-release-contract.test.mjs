@@ -1280,6 +1280,21 @@ NodeTest.test("the design system's light look maps the shell's tokens onto T3's 
   NodeAssert.match(styles, /\nhtml\[data-theme-id\] \[data-app-sidebar\] \{\n/);
 });
 
+// The Environment's theme is right from the first paint (root decision 0208, LazurioPlatform F36's
+// addendum of 2026-10-18): `/.lazurio/shell.js` declares the tokens and the theme its origin
+// remembers as it evaluates, so it runs before T3's own module. Both are module scripts, which run
+// in document order, and Vite's build keeps the shell's tag before the entry it emits.
+NodeTest.test("the Environment's shell runs before T3's own module", async () => {
+  const html = await read("apps/web/index.html");
+  const shell = html.indexOf(
+    '<script type="module" src="/.lazurio/shell.js" vite-ignore></script>',
+  );
+  const entry = html.indexOf('<script type="module" src="/src/bootstrap.ts"></script>');
+  NodeAssert.ok(shell >= 0, "the shell's script tag");
+  NodeAssert.ok(entry >= 0, "T3's entry module");
+  NodeAssert.ok(shell < entry);
+});
+
 // Root decision 0191 (plan DEV-6646): the agents of every thread drive a window of their own in
 // the Environment browser through the agent-browser CLI, which takes the session from
 // AGENT_BROWSER_SESSION. Every agent process T3 starts for one thread starts through the server's
