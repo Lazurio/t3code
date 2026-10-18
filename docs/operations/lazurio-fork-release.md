@@ -412,22 +412,32 @@ Lazuria; wordmark ani ikony nepřebarvujeme ani nepřekreslujeme.
   LazurioPlatform F36, dodatek z 2026-10-13) deklaruje tokeny design systému
   `--lz-*` na kořeni dokumentu a označí ho `data-lazurio-theme="light"`.
   `apps/web/src/lazurio/theme.css` je mapuje na vlastní tokeny T3 jen ve
-  standardním světlém vzhledu: obě jeho pravidla platí pod
-  `:root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark)`, jedno na
-  kořeni a jedno ve scope palety sidebaru (`[data-app-sidebar]`), kam patří
-  i rail. Bílé plochy a papírový sidebar, inkoustový text, černá tlačítka,
+  standardním vzhledu: obě jeho pravidla platí pod
+  `:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])`,
+  jedno na kořeni a jedno ve scope palety sidebaru (`[data-app-sidebar]`), kam
+  patří i rail. Bílé plochy a papírový sidebar, inkoustový text, černá tlačítka,
   šedý výběr o stupeň tmavší, vlasové linky, neutrální fokus, signální barvy,
   jedna modrá pro odkazy a oznámení o aktualizaci, písmo Inter Tight a Geist
   Mono, `--control-radius` 6 px a bez zrnitosti. Aktivní záložka přepínače
   (`--sidebar-row-active`, bílá) se liší od jeho dráhy
   (`--sidebar-control-surface`, gray-100).
+- **Téma Prostředí (rozhodnutí 0208, 2026-10-18).** Barvy tokenů `--lz-*` jsou
+  téma Prostředí, které se vybírá v Apps → Nastavení: výchozí Lazurio (výše)
+  nebo vestavěné téma T3 (Grove, Ocean, Ember, Iris) promítnuté Platformou na
+  tytéž slíbené názvy. Fork nezná hodnoty, jen názvy, takže jiné téma přijde
+  s vydáním Platformy, ne forku. Má-li téma tmavou variantu, shell nastaví i
+  tmavé hodnoty týchž názvů pod `.dark` a kořen označí
+  `data-lazurio-theme-dark`; pravidla pak platí i v tmavém režimu T3. Téma
+  Lazurio je jen světlé, takže v tmavém režimu zůstává tmavá paleta T3. První
+  karta Vzhledu („T3 Code“) tak na Environmentu znamená téma Prostředí a jiný
+  motiv, který si člověk vybere, je jeho osobní výjimka v tom prohlížeči.
+  Upstream `t3 theme set` se na Environmentu nepoužívá.
 - **Co zůstává T3.** Soubor píše jen surové tokeny T3, nikdy `--contrast-*`,
   `--app-theme-*` ani `--lazurio-*`, a žádnou barvu přímo. Nastavení kontrastu
   proto dál funguje, motiv, který si člověk vybere, editor motivů a tmavý
   režim zůstávají paletami T3, písmo zvolené ve Vzhledu vyhraje a barevné
   role shellu se přizpůsobí samy. Stíny, sklo, širší škála zaoblení, velikosti
-  písma, ikony a jantarové zvýraznění hledání ve vlákně zůstávají T3; design
-  systém zatím nemá tmavé rozhraní.
+  písma, ikony a jantarové zvýraznění hledání ve vlákně zůstávají T3.
 - **Bez shellu** (samostatný server, vývoj upstreamu, Environment se starší
   Platformou) neplatí nic z toho: T3 vypadá jako upstream, jen se jmenuje
   „T3 Code (Lazurio)“. Hodnoty tokenů patří design systému a mění se vydáním

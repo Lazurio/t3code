@@ -1172,9 +1172,12 @@ function topLevelRules(css) {
 // design system's colours, type and radii. The Environment's shell declares the design system's
 // tokens (--lz-*) on the document's root and marks it data-lazurio-theme="light" (LazurioPlatform
 // F36's addendum of 2026-10-13); one overlay stylesheet maps them onto T3's raw tokens, only where
-// no theme is picked and the mode is light. T3 derives its --contrast-* tokens from the raw ones,
-// so the contrast setting keeps working; a picked theme and the dark mode keep T3's palettes; the
-// shell's colour roles (the test above) follow by themselves. Without the shell nothing matches.
+// no theme is picked, and in light mode, or in dark mode too where the Environment's theme has a
+// dark variant (root decision 0208: the shell marks the root data-lazurio-theme-dark and sets the
+// dark values of the same names). T3 derives its --contrast-* tokens from the raw ones, so the
+// contrast setting keeps working; a picked theme and the dark mode of a light-only theme keep T3's
+// palettes; the shell's colour roles (the test above) follow by themselves. Without the shell
+// nothing matches.
 NodeTest.test("the design system's light look maps the shell's tokens onto T3's own", async () => {
   const [main, theme, styles] = await Promise.all(
     ["apps/web/src/main.tsx", "apps/web/src/lazurio/theme.css", "apps/web/src/index.css"].map(read),
@@ -1183,9 +1186,11 @@ NodeTest.test("the design system's light look maps the shell's tokens onto T3's 
   NodeAssert.match(main, /\nimport "\.\/index\.css";\nimport "\.\/lazurio\/theme\.css";\n/);
   NodeAssert.equal(main.match(/theme\.css/g)?.length, 1);
   NodeAssert.ok(overlayMayChange("apps/web/src/main.tsx"));
-  // Two rules, both behind the shell's mark and its value, outside a picked theme and dark mode:
-  // the document's root and the sidebar's palette scope, which the shell's rail joins.
-  const gate = ':root[data-lazurio-theme="light"]:not([data-theme-id]):not(.dark)';
+  // Two rules, both behind the shell's mark and its value, outside a picked theme, and outside
+  // dark mode unless the Environment's theme has a dark variant: the document's root and the
+  // sidebar's palette scope, which the shell's rail joins.
+  const gate =
+    ':root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])';
   const rules = topLevelRules(theme);
   NodeAssert.deepEqual(
     rules.map((rule) => rule.selector),
