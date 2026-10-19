@@ -89,3 +89,33 @@
   --sidebar-row-selected: var(--lz-gray-100);
   --sidebar-border: var(--lz-line);
 }
+
+/* The rail takes the Environment theme's values. The shell declares the design system's tokens on
+   each of its own elements (:host), and those declarations hold on the element itself too. The rail
+   joins the sidebar's palette scope above, so on the rail that scope would read the design system's
+   values, not the theme's, and the rail would stay Lazurio's paper beside a sidebar in another
+   theme, in light and dark alike. So the rail inherits the colours a theme sets (LazurioPlatform
+   src/shell/contract.ts shellThemeColors) from the document. Outside a theme the document has the
+   design system's own values, so nothing changes. */
+lazurio-rail[data-app-sidebar] {
+  --lz-surface: inherit;
+  --lz-paper: inherit;
+  --lz-ink: inherit;
+  --lz-ink-muted: inherit;
+  --lz-line: inherit;
+  --lz-accent: inherit;
+  --lz-accent-button: inherit;
+  --lz-accent-button-hover: inherit;
+  --lz-on-accent: inherit;
+  --lz-gray-50: inherit;
+  --lz-gray-100: inherit;
+  --lz-red-500: inherit;
+  --lz-danger: inherit;
+  --lz-danger-bg: inherit;
+  --lz-warning: inherit;
+  --lz-warning-bg: inherit;
+  --lz-green-500: inherit;
+  --lz-success: inherit;
+  --lz-info: inherit;
+  --lz-info-bg: inherit;
+}
