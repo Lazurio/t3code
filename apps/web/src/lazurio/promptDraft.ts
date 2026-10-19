@@ -207,6 +207,21 @@ export async function openPromptDraft(
   }
 }
 
+/**
+ * The toast when a prepared prompt does not open (Lazurio/t3code#75): Czech where the person's
+ * browser is, as everywhere the overlay speaks, English elsewhere.
+ */
+export const failedPromptDraftText = (czech: boolean) =>
+  czech
+    ? {
+        title: "Připravené zadání se nepodařilo otevřít",
+        description: "Do pole zprávy se nic nepřidalo.",
+      }
+    : {
+        title: "Could not open the prepared prompt",
+        description: "Nothing was added to the composer.",
+      };
+
 let takePending: () => PromptLink | null = () => null;
 
 /** Call once in `main.tsx`, before the router is created. */

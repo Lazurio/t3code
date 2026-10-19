@@ -495,7 +495,8 @@ se nikdy neodešle samo; odešle ho až člověk.
   odmítne. `cwd` zadání Organizace leží uvnitř složky a text Organizaci
   jmenuje. Text vloží do pole zprávy, nic neodešle.
 - Neznámé `id`, neúspěšný nebo přesměrovaný fetch, jiný tvar odpovědi nebo
-  cizí origin nevloží nic. Člověk uvidí jen chybový toast „Could not open the
+  cizí origin nevloží nic. Člověk uvidí jen chybový toast „Připravené zadání
+  se nepodařilo otevřít“, v prohlížeči bez češtiny „Could not open the
   prepared prompt“.
 - Kdo zadání dostane, rozhoduje Launchpad. Dnes jediné zadání `new-module`
   dostane jen Environment, jehož GitHub identita je Owner Organizace. Komukoli

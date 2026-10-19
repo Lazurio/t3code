@@ -13,7 +13,8 @@ import { projectEnvironment } from "../state/projects";
 import { primaryServerConfigAtom } from "../state/server";
 import { environmentShell } from "../state/shell";
 import { useAtomCommand } from "../state/use-atom-command";
-import { openPromptDraft, takeLazurioPromptLink } from "./promptDraft";
+import { failedPromptDraftText, openPromptDraft, takeLazurioPromptLink } from "./promptDraft";
+import { prefersCzech } from "./threadTabs";
 
 // The primary environment once its shell is live: its project list is
 // complete, so a missing project is really missing, and commands reach it.
@@ -79,11 +80,7 @@ export function LazurioPromptDraft() {
     }).then((outcome) => {
       if (outcome === "failed") {
         toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not open the prepared prompt",
-            description: "Nothing was added to the composer.",
-          }),
+          stackedThreadToast({ type: "error", ...failedPromptDraftText(prefersCzech()) }),
         );
       }
     });
