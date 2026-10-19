@@ -71,8 +71,9 @@ there stays yours.
 
 Apart from the name, each change stays off until its setting is present or the page runs on a
 Lazurio Environment. Without them, the server and the web client behave like upstream T3 Code;
-agent processes still get an `AGENT_BROWSER_SESSION` variable, which does nothing on its own, and
-a page served over HTTPS without a session first asks its own origin whether Lazurio pairs it.
+agent processes and thread terminals still get an `AGENT_BROWSER_SESSION` variable, which does
+nothing on its own, and a page served over HTTPS without a session first asks its own origin
+whether Lazurio pairs it.
 
 ## Tracking upstream
 

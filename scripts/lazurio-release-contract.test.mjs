@@ -1339,13 +1339,16 @@ NodeTest.test("the Environment's shell runs before T3's own module", async () =>
 // AGENT_BROWSER_SESSION. Every agent process T3 starts for one thread starts through the server's
 // agent scope, which the overlay decorates with the thread's session. Codex runs one app-server
 // for every thread of an instance, so each Codex thread's config sets the session for the commands
-// its agent runs instead.
+// its agent runs instead. A thread's terminals reach the agent scope without their thread, by which
+// upstream keys its bookkeeping of a thread's agents, so the terminal manager puts the session into
+// the environment it starts their shells with (Lazurio/t3code#73).
 NodeTest.test(
-  "every provider process of a thread gets the thread's agent-browser session",
+  "every provider process and terminal of a thread gets the thread's agent-browser session",
   async () => {
-    const [server, codex, session] = await Promise.all([
+    const [server, codex, terminals, session] = await Promise.all([
       read("apps/server/src/server.ts"),
       read("apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts"),
+      read("apps/server/src/terminal/Manager.ts"),
       import("../apps/server/src/lazurio/agentBrowserSession.ts"),
     ]);
     NodeAssert.equal(session.AGENT_BROWSER_SESSION_ENV, "AGENT_BROWSER_SESSION");
@@ -1371,6 +1374,29 @@ NodeTest.test(
       "shell_environment_policy.set.AGENT_BROWSER_SESSION": "t3-thread-1",
     });
     NodeAssert.deepEqual(session.codexThreadConfig(undefined), {});
+    // A thread's terminal: one call, right where the terminal manager builds the environment of
+    // the thread's shell and before any shell starts with it. The agent scope still gets no thread
+    // for a terminal, so upstream's per-thread bookkeeping stays its agents'.
+    NodeAssert.match(
+      terminals,
+      /\n\s+const terminalEnv = createTerminalSpawnEnv\([^)]*\);\n(?:\s*\/\/[^\n]*\n)?\s+LazurioAgentBrowserSession\.setTerminalSession\(terminalEnv, session\.threadId, platform\);\n/,
+    );
+    NodeAssert.equal(terminals.match(/LazurioAgentBrowserSession\./g)?.length, 1);
+    NodeAssert.ok(
+      terminals.indexOf("LazurioAgentBrowserSession.setTerminalSession(") <
+        terminals.indexOf("yield* trySpawn(shellCandidates, terminalEnv, session);"),
+    );
+    NodeAssert.equal(terminals.match(/agentScope\.wrap\(/g)?.length, 1);
+    const terminalScope = /agentScope\.wrap\(\{([^}]*)\}\)/.exec(terminals)?.[1] ?? "";
+    NodeAssert.match(terminalScope, /\bname: "terminal",/);
+    NodeAssert.doesNotMatch(terminalScope, /threadId/);
+    const terminalEnv = { PATH: "/usr/bin" };
+    session.setTerminalSession(terminalEnv, "thread-1", "linux");
+    NodeAssert.deepEqual(terminalEnv, { PATH: "/usr/bin", AGENT_BROWSER_SESSION: "t3-thread-1" });
+    const windowsTerminalEnv = { PATH: "C:\\Windows" };
+    session.setTerminalSession(windowsTerminalEnv, "thread-1", "win32");
+    NodeAssert.deepEqual(windowsTerminalEnv, { PATH: "C:\\Windows" });
+    NodeAssert.ok(overlayMayChange("apps/server/src/terminal/Manager.ts"));
   },
 );
 

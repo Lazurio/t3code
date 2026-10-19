@@ -40,6 +40,7 @@ import {
   agentBrowserSessionName,
   codexThreadConfig,
   decorateAgentScope,
+  setTerminalSession,
 } from "./agentBrowserSession.ts";
 
 const threadId = ThreadId.make("4a1f9c2e-7b3d-4e5f-8a6b-9c0d1e2f3a4b");
@@ -97,6 +98,41 @@ describe("agent-browser session name", () => {
     );
     // The same thread always gets the same session.
     assert.deepStrictEqual(ids.map(agentBrowserSessionName), names);
+  });
+});
+
+describe("a thread's terminal", () => {
+  // The environment the terminal manager built for the thread's shell.
+  const terminalEnvironment = () => ({ PATH: "/usr/bin", TERM: "xterm-256color" });
+
+  it("carries the thread's session, the one the thread's agents carry", () => {
+    const env: NodeJS.ProcessEnv = terminalEnvironment();
+    setTerminalSession(env, threadId, "linux");
+    assert.deepStrictEqual(env, {
+      ...terminalEnvironment(),
+      [AGENT_BROWSER_SESSION_ENV]: sessionName,
+    });
+    // Another thread's terminal has that thread's own, and an imported thread's id is named as
+    // for its agents.
+    const imported = `import:codex:${otherThreadId}`;
+    const other: NodeJS.ProcessEnv = terminalEnvironment();
+    setTerminalSession(other, imported, "darwin");
+    assert.strictEqual(other[AGENT_BROWSER_SESSION_ENV], agentBrowserSessionName(imported));
+    // A session the server inherited never names the thread's terminal.
+    const inherited: NodeJS.ProcessEnv = { ...terminalEnvironment(), AGENT_BROWSER_SESSION: "x" };
+    setTerminalSession(inherited, threadId, "linux");
+    assert.strictEqual(inherited[AGENT_BROWSER_SESSION_ENV], sessionName);
+  });
+
+  it("leaves the environment of a terminal without a thread, and on Windows, as it is", () => {
+    for (const thread of [undefined, ""]) {
+      const env: NodeJS.ProcessEnv = terminalEnvironment();
+      setTerminalSession(env, thread, "linux");
+      assert.deepStrictEqual(env, terminalEnvironment());
+    }
+    const windows: NodeJS.ProcessEnv = terminalEnvironment();
+    setTerminalSession(windows, threadId, "win32");
+    assert.deepStrictEqual(windows, terminalEnvironment());
   });
 });
 

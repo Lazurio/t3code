@@ -18,13 +18,13 @@ chrome-headless-shell s izolovanými kontexty. Na Environmentu Lazuria je ale
 jediným prohlížečem webového T3 prohlížeč Environmentu (rozhodnutí Admina
 k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
 
-- **Server: sezení vlákna.** Procesy agentů, které T3 spouští pro jedno vlákno,
-  dostanou `AGENT_BROWSER_SESSION=t3-<id vlákna>`. Jméno smí mít jen `[A-Za-z0-9_-]` a
-  nejvýš 64 znaků (gramatika agent-browser a limit jeho dashboardu). Běžné id
-  vlákna (UUID) se do jména vejde beze změny. Id s jinými znaky nebo delší
-  (například importované vlákno `import:<instance>:<sezení>`) dostane místo
-  nich `-`, zkrátí se a na konec dostane hash celého id, takže dvě vlákna
-  nikdy nesdílejí sezení ani okno. Jméno nesou dva švy. Každý proces agenta
+- **Server: sezení vlákna.** Procesy agentů, které T3 spouští pro jedno vlákno, a
+  terminály vlákna dostanou `AGENT_BROWSER_SESSION=t3-<id vlákna>`. Jméno smí mít
+  jen `[A-Za-z0-9_-]` a nejvýš 64 znaků (gramatika agent-browser a limit jeho
+  dashboardu). Běžné id vlákna (UUID) se do jména vejde beze změny. Id s jinými
+  znaky nebo delší (například importované vlákno `import:<instance>:<sezení>`)
+  dostane místo nich `-`, zkrátí se a na konec dostane hash celého id, takže dvě
+  vlákna nikdy nesdílejí sezení ani okno. Jméno nesou tři švy. Každý proces agenta
   jednoho vlákna startuje přes `AgentScope` serveru (upstream #17662); overlay
   ho obalí dekorátorem (`decorateAgentScope`, jeden řádek v `server.ts`), který
   takovému spuštění předřadí `/usr/bin/env AGENT_BROWSER_SESSION=<jméno>`. Tak
@@ -34,11 +34,17 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   (`shell_environment_policy.set.AGENT_BROWSER_SESSION` v `thread/start`,
   `thread/resume` a `thread/fork`, jeden řádek v `CodexAdapterV2.ts`) a Codex
   ho nastaví příkazům, které agent vlákna spouští; samotný app-server a jeho MCP
-  servery ho nemají. Sezení nedostanou servery OpenCode, Cursor (běží v procesu
-  serveru), Grok na Linuxu (vlastní cgroup lease), Claude Code spuštěný jako
-  skript, Windows a terminály vlákna (Lazurio/t3code#73). Proměnná jen
-  pojmenovává sezení, nic nepovoluje a platí i při vypnutém přístupu agentů k
-  prohlížeči T3.
+  servery ho nemají. Terminál vlákna startuje přes `AgentScope` bez vlákna, jen
+  se jménem `terminal`, protože upstream podle vlákna vede evidenci procesů jeho
+  agentů (`oomKilled`, `clear`). Jméno proto dostane v prostředí, se kterým
+  správce terminálů spouští shell vlákna (`setTerminalSession`, jeden řádek
+  v `terminal/Manager.ts`, Lazurio/t3code#73), a stránka, kterou v terminálu
+  otevře `BROWSER` nebo `xdg-open` (na Remote Environmentu `lazurio browser open`),
+  přibude do záložek vlákna jako stránka jeho agenta. Terminál, který už běží,
+  ho dostane až po svém restartu. Sezení nedostanou servery OpenCode, Cursor
+  (běží v procesu serveru), Grok na Linuxu (vlastní cgroup lease), Claude Code
+  spuštěný jako skript a Windows. Proměnná jen pojmenovává sezení, nic
+  nepovoluje a platí i při vypnutém přístupu agentů k prohlížeči T3.
 - **Server: serverový prohlížeč upstreamu.** S `T3CODE_LAZURIO_FOLDER` ho
   server nestaví: místo upstream `ServerBrowser` dostane vypnutou službu bez
   záložek (`lazurio/serverBrowser.ts`, brána v `server.ts`). Prohlížeč upstreamu
@@ -357,7 +363,8 @@ stavu na konceptu, název, ikona, tooltip a menu záložky), `ChatView.tsx` (jed
 volání háčku s příznakem konceptu a obal, který drží rámy vedle povrchu
 v popředí), `server.ts` (dekorátor `AgentScope`, brána serverového prohlížeče
 upstreamu a jedna vrstva overlaye mezi cestami), `CodexAdapterV2.ts` a jeho
-test (jedno rozšíření konfigurace vlákna Codexu), `ServerEnvironment.ts`
+test (jedno rozšíření konfigurace vlákna Codexu), `terminal/Manager.ts` (sezení
+v prostředí terminálu vlákna), `ServerEnvironment.ts`
 (deskriptor bez `serverBrowser` na Environmentu Lazuria),
 `toolkits/preview/tools.ts` (`view` a `message` ve výsledku `preview_open`)
 a `preview/ServerBrowserPage.ts` s testem (velikost snímku stránky bez
