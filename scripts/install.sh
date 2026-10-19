@@ -11,7 +11,8 @@
 #   T3CODE_HOME              T3 home directory (default: ~/.t3)
 #   T3CODE_INSTALL_BIN_DIR   where the `t3` symlink goes (default: ~/.local/bin)
 #   T3CODE_RELEASE_REPOSITORY  GitHub repository (owner/name) whose releases to
-#                            install (default: pingdotgg/t3code)
+#                            install (default: Lazurio/t3code, the Lazurio
+#                            distribution's own; upstream's is pingdotgg/t3code)
 #   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: the
 #                            repository's GitHub Releases)
 #
@@ -20,7 +21,7 @@
 # instead of fetching the release again.
 set -eu
 
-repo="${T3CODE_RELEASE_REPOSITORY:-pingdotgg/t3code}"
+repo="${T3CODE_RELEASE_REPOSITORY:-Lazurio/t3code}"
 base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 t3_home="${T3CODE_HOME:-$HOME/.t3}"
 bin_dir="${T3CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"

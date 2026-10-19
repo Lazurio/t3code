@@ -34,7 +34,7 @@ describe("cliRelease", () => {
 
   it("resolves download URLs under the tagged release, honoring a mirror", () => {
     expect(cliReleaseDownloadBaseUrl("1.2.3")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/download/v1.2.3",
+      "https://github.com/Lazurio/t3code/releases/download/v1.2.3",
     );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
@@ -42,9 +42,11 @@ describe("cliRelease", () => {
   });
 
   it("follows a configured release repository unless a mirror is set", () => {
-    expect(cliReleaseRepository(undefined)).toBe("pingdotgg/t3code");
-    expect(cliReleaseRepository("  ")).toBe("pingdotgg/t3code");
+    // The Lazurio distribution's own releases unless the variable names another repository.
+    expect(cliReleaseRepository(undefined)).toBe("Lazurio/t3code");
+    expect(cliReleaseRepository("  ")).toBe("Lazurio/t3code");
     expect(cliReleaseRepository(" acme/t3code ")).toBe("acme/t3code");
+    expect(cliReleaseRepository("pingdotgg/t3code")).toBe("pingdotgg/t3code");
     expect(cliReleaseDownloadBaseUrl("1.2.3-acme.1", undefined, "acme/t3code")).toBe(
       "https://github.com/acme/t3code/releases/download/v1.2.3-acme.1",
     );
@@ -121,7 +123,7 @@ describe("cliRelease", () => {
 
   it("pages through the release index at the largest page GitHub allows", () => {
     expect(cliReleaseIndexPageUrl(1)).toBe(
-      "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=1",
+      "https://api.github.com/repos/Lazurio/t3code/releases?per_page=100&page=1",
     );
     expect(cliReleaseIndexPageUrl(3)).toContain("page=3");
   });
