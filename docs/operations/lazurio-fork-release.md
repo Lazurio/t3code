@@ -64,7 +64,10 @@ stará verze serveru. `T3CODE_RELEASE_BASE_URL` je jen pro zrcadlo a Machines ho
 nenastavují.
 
 Publikace nikoho automaticky nepřepne. Mašina přejde na novou verzi, až
-uživatel klikne na Update, nebo až někdo spustí `t3 update`.
+uživatel klikne na Update, nebo až někdo spustí `t3 update`. Stránka, která byla
+při Update tlačítkem otevřená, se sama znovu nenačte a do dalšího načtení v ní
+běží starý klient (upstream chování, Lazurio/t3code#32). Po Update ji proto
+načtěte znovu a řekněte to i lidem v oznámení vydání.
 
 Kanál vydání se odvozuje z verze stejně jako upstream (`cliReleaseChannelOf`):
 
@@ -1301,7 +1304,9 @@ přechod tlačítkem Update na něm ověříte v etapě 8.
    nový Environment rovnou začínat na nové bázi.
 5. **Desktop a mobil** až po Update ve webové T3 (viz
    [Desktop a mobil](#desktop-a-mobil-proti-serveru-z-forku)); u v0.1.0
-   desktop 0.1.0 a mobilní aplikace 2.0.
+   desktop 0.1.0 a mobilní aplikace 2.0. Mobilní aplikace 1.x se
+   k Environmentu na 0.1.0 nepřipojí; verze 2.0 je v App Store a Google Play
+   od 2026-10-15. Řekněte to lidem v oznámení (bod 2).
 6. **Plán dalších vln** předložte Organization Adminovi ke schválení; mimo
    Ring 0 se bez něj nic nenasazuje. Plán jmenuje Environmenty a jejich
    pořadí, okna, přepnutí tailnetu, změny Machines a Platformy (bod 1)
