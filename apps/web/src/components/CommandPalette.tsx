@@ -1879,8 +1879,9 @@ function OpenCommandPaletteDialog(props: {
       : paletteRouteTarget.draftId
     : null;
   const promptLinkProjectRef = activeThread ?? activeDraftThread;
+  // Lazurio (Lazurio/t3code#77): on a managed Environment a prompt link opens no thread.
   const promptLinkInput =
-    promptLinkTarget === null
+    promptLinkTarget === null || everyEnvironmentManaged(environments)
       ? null
       : {
           target: promptLinkTarget,

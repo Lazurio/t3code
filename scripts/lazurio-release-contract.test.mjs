@@ -705,6 +705,8 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
     newThread: "apps/web/src/hooks/useHandleNewThread.ts",
     gitActions: "apps/web/src/components/GitActionsControl.tsx",
     welcome: "apps/web/src/routes/welcome.tsx",
+    timeline: "apps/web/src/components/chat/MessagesTimeline.tsx",
+    promptLinks: "apps/web/src/lazurio/managedPromptLinks.ts",
   };
   const source = Object.fromEntries(
     await Promise.all(Object.entries(files).map(async ([key, file]) => [key, await read(file)])),
@@ -866,6 +868,45 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
     'if (lazurioFolder !== undefined) return isWelcomeRoute ? <Navigate to="/" replace /> : null;',
     "a managed Environment leaves /welcome behind upstream's welcome-route guard",
   );
+  // T3's "Copy prompt link" leaves where "Add project" does (Lazurio/t3code#77): its links go to
+  // upstream's hosted app with the text in the address and open no thread on a managed
+  // Environment. Both palette entries come from one input; every sent message reads one value
+  // for the whole chat.
+  NodeAssert.match(
+    source.palette,
+    /const promptLinkInput =\n\s+promptLinkTarget === null \|\| everyEnvironmentManaged\(environments\)\n\s+\? null\n/,
+  );
+  NodeAssert.match(
+    source.timeline,
+    /\nimport \{ usePromptLinksOffered \} from "\.\.\/\.\.\/lazurio\/managedPromptLinks";\n/,
+  );
+  NodeAssert.match(
+    source.timeline,
+    /const promptLink = useMemo\(\(\) => promptLinkFor\(plainText\), \[plainText\]\);\n(?:\s*\/\/[^\n]*\n)?\s+const promptLinksOffered = usePromptLinksOffered\(\);\n/,
+  );
+  NodeAssert.match(
+    source.timeline,
+    /\{promptLink !== null && promptLinksOffered && \(\n\s+<MessageCopyButton\n\s+text=\{promptLink\}\n\s+label="Copy prompt link"/,
+  );
+  NodeAssert.match(
+    source.promptLinks,
+    /\(get\) =>\n\s+!everyEnvironmentManaged\(\n\s+get\(environmentSummaries\.identitiesAtom\),\n\s+get\(environmentServerConfigsAtom\),\n\s+\),/,
+  );
+  // Those are all the places the web builds a prompt link to share; a new one is a review.
+  const webSources = (await NodeFSP.readdir("apps/web/src", { recursive: true })).filter(
+    (file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file),
+  );
+  const linkBuilders = [];
+  for (const file of webSources) {
+    if (/\b(promptLinkFor|composerPromptLink)\(/.test(await read(`apps/web/src/${file}`))) {
+      linkBuilders.push(file);
+    }
+  }
+  NodeAssert.deepEqual(linkBuilders.toSorted(), [
+    "components/CommandPalette.tsx",
+    "components/chat/MessagesTimeline.tsx",
+    "components/promptLinks/copyPromptLink.ts",
+  ]);
 
   // Every file is the overlay's own or a reviewed allowlist entry.
   for (const file of Object.values(files)) {
