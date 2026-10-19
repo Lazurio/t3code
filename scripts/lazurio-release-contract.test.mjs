@@ -1943,6 +1943,25 @@ NodeTest.test("another Environment's tabs and agent-opened tabs reach the panel"
     tools,
     /success: Schema\.Struct\(\{\n\s+\.\.\.PreviewAutomationStatus\.fields,\n\s+view: Schema\.optional\(Schema\.String\),\n\s+message: Schema\.optional\(Schema\.String\),\n\s+\}\),/,
   );
+  // Every tab preview_open opens here is answered with this Environment's view of it, on the origin
+  // its declaration names, and the tool's description says who opens that address: a person
+  // without the inline preview, in the desktop or mobile app (Lazurio/t3code#88).
+  NodeAssert.match(
+    host,
+    /const ownView = \(targetId: string\) =>\n\s+ownViewOrigin === undefined \? \{\} : \{ view: `\$\{ownViewOrigin\}\/t\/\$\{targetId\}` \};/,
+  );
+  NodeAssert.match(
+    open,
+    /return \{\n\s+\.\.\.statusOf\(targetId, state, shown\(request\.threadId, targetId\)\),\n\s+\.\.\.ownView\(targetId\),\n\s+\};/,
+  );
+  const openTool = tools.slice(
+    tools.indexOf('Tool.make("preview_open", {'),
+    tools.indexOf("parameters: PreviewAutomationOpenInput,"),
+  );
+  NodeAssert.match(
+    openTool,
+    /\." \+\n(?:\s*\/\/[^\n]*\n)?\s+" When the result has a view, that is the address where a person sees the tab: someone without the inline preview, such as in the desktop or mobile app, opens it in their own browser\.",\n/,
+  );
   // The web keeps of another Environment's tab only its id and view, and frames T3 by the origin
   // its request names (LazurioPlatform).
   NodeAssert.match(

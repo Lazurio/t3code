@@ -148,9 +148,10 @@ jobs:
             # T3's browser tools drive the Environment browser as upstream's preferred preview
             # host with upstream's page engine, whose snapshot also measures a window Playwright
             # does not emulate (ServerBrowserPage.ts and its test; offered upstream);
-            # preview_open's result carries a view and a message. One overlay layer (server.ts,
-            # above) keeps a thread's tabs in its holder file and streams them to the web, whose
-            # right panel shows them. The web's seams are the shared files above.
+            # preview_open's result carries a view and a message, and its description says that a
+            # person without the inline preview opens the view (Lazurio/t3code#88). One overlay
+            # layer (server.ts, above) keeps a thread's tabs in its holder file and streams them
+            # to the web, whose right panel shows them. The web's seams are the shared files above.
             apps/server/src/mcp/toolkits/preview/tools.ts
             apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts
             apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts

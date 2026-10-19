@@ -93,7 +93,13 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   `preview_open` a `preview_navigate` vlákna odpovídají `visible: true`, dokud je
   jeho aktuální záložka otevřená; rozhoduje poslední `preview_open`. Webové T3
   na takovou žádost otevře pravý panel samo. Obrazovku člověka host nevidí:
-  zavřený panel i klient bez panelu se počítají jako ukázané. Stránky ovládá
+  zavřený panel i klient bez panelu se počítají jako ukázané. Proto `preview_open`
+  u každé záložky, kterou otevře nebo převezme, vrátí i `view`, adresu jejího
+  pohledu `<origin pohledu>/t/<id>` na originu z `link` deklarace, stejnou, jakou
+  rámuje pravý panel (Lazurio/t3code#88). Popis nástroje agentovi říká, že ji
+  otevře člověk bez inline náhledu, tedy v desktopové nebo mobilní aplikaci; ve
+  webovém T3 se odkaz na ni otevře v pravém panelu. Deklarace bez `link` dává
+  odpověď bez `view`. Stránky ovládá
   upstream engine `preview/ServerBrowserPage.ts` (snímek s refy, klik, psaní,
   hover, výběr, tažení, soubory, klávesy, scroll, evaluate a čekání) nad
   Playwrightem připojeným přes CDP; overlay má jen navigaci a diagnostiku
@@ -366,7 +372,8 @@ upstreamu a jedna vrstva overlaye mezi cestami), `CodexAdapterV2.ts` a jeho
 test (jedno rozšíření konfigurace vlákna Codexu), `terminal/Manager.ts` (sezení
 v prostředí terminálu vlákna), `ServerEnvironment.ts`
 (deskriptor bez `serverBrowser` na Environmentu Lazuria),
-`toolkits/preview/tools.ts` (`view` a `message` ve výsledku `preview_open`)
+`toolkits/preview/tools.ts` (`view` a `message` ve výsledku `preview_open` a věta
+o `view` v jeho popisu)
 a `preview/ServerBrowserPage.ts` s testem (velikost snímku stránky bez
 viewportu). Zbytek je ve složkách `apps/web/src/lazurio/`
 a `apps/server/src/lazurio/`. Řádky časové
