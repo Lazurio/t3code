@@ -166,8 +166,10 @@ jobs:
             # applies the Platform's recommended model as the Lazurio project's own model where
             # the person chose none for that project; `t3 lazurio` (binCli.ts) reports both, and
             # clients learn the Folder. The web starts new threads there, leaves out what leads
-            # elsewhere and shows the managed welcome. Upstream's project service tests run
-            # through the decorated layer; the VCS service's test covers its hook.
+            # elsewhere, including T3's "Copy prompt link" on sent messages (MessagesTimeline.tsx)
+            # and in the palette, whose links open no thread there (Lazurio/t3code#77), and shows
+            # the managed welcome. Upstream's project service tests run through the decorated
+            # layer; the VCS service's test covers its hook.
             apps/server/src/binCli.ts
             apps/server/src/serverRuntimeStartup.ts
             apps/server/src/serverSettings.ts
@@ -178,6 +180,7 @@ jobs:
             apps/web/src/components/GitActionsControl.tsx
             apps/web/src/components/Sidebar.tsx
             apps/web/src/components/chat/DraftHeroHeadline.tsx
+            apps/web/src/components/chat/MessagesTimeline.tsx
             apps/web/src/components/onboarding/FirstRunGate.tsx
             apps/web/src/components/sidebar/SidebarThreadHeader.tsx
             apps/web/src/hooks/useHandleNewThread.test.ts

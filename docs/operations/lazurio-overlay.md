@@ -371,7 +371,9 @@ a `preview/ServerBrowserPage.ts` s testem (velikost snímku stránky bez
 viewportu). Zbytek je ve složkách `apps/web/src/lazurio/`
 a `apps/server/src/lazurio/`. Řádky časové
 osy chatu poznává overlay podle atributu `data-timeline-root`, kterým je značí
-upstream `MessagesTimeline.tsx`; ten se nemění. Čtení adresy pohledu
+upstream `MessagesTimeline.tsx`; kvůli prohlížeči se nemění, overlay v něm jen
+skrývá „Copy prompt link“ ([odkazy na zadání upstreamu](#odkazy-na-zadání-upstreamu)).
+Čtení adresy pohledu
 (`browserView.ts`) mají server i web každý ve vlastní kopii: sdílení přes
 `packages/shared` by vyžadovalo záznam v jeho mapě exportů a tu upstream
 přepisuje každých pár dní. Jméno sezení zná jen server; web ho dostává ve snímku
@@ -386,6 +388,39 @@ overlaye proti skutečnému Chromiu běží jen s `LAZURIO_TEST_DEVTOOLS_ENDPOIN
 (jednorázový headless Chrome s vlastním profilem, nikdy prohlížeč, ve kterém
 někdo pracuje). Upstream `ServerBrowserPage.test.ts` spouští vlastní
 chrome-headless-shell, který si CI instaluje.
+
+## Odkazy na zadání upstreamu
+
+**Varianta, kterou Organization Admin schválil pro `0.1.0-lazurio.4`
+(Lazurio/t3code#77): skrýt.** Upstream od v0.1.0 sdílí zadání odkazem (#18454).
+„Copy prompt link“ u každé odeslané zprávy a v paletě příkazů (tam i „Copy
+prompt link with repo and model“) zkopíruje odkaz na hostovanou aplikaci
+upstreamu `https://app.t3.codes/new?prompt=…` s textem zadání v adrese. Na
+spravovaném Environmentu (`T3CODE_LAZURIO_FOLDER`) takový odkaz vlákno neotevře:
+nová vlákna začínají jen v projektu Lazurio a Scratch server nenabízí. Web proto
+tyto položky nenabízí tam, kde mizí „Add project“: když zná aspoň jeden
+Environment a každý z nich je spravovaný (`everyEnvironmentManaged`). Vlastní
+odkaz overlaye na připravené zadání (řádek 6), který text v adrese nenese, se
+nemění.
+
+- **Švy.** `MessagesTimeline.tsx`: import, jedno volání háčku
+  `usePromptLinksOffered` v řádku odeslané zprávy a podmínka tlačítka. Háček čte
+  jednu odvozenou hodnotu pro celý chat (`apps/web/src/lazurio/managedPromptLinks.ts`),
+  takže se zpráva znovu vykreslí jen při změně odpovědi, ne s každou změnou
+  konfigurace serveru. `CommandPalette.tsx`: jedna podmínka ve vstupu obou
+  položek (`promptLinkInput`). Kontraktní test hlídá obojí a to, že odkaz ke
+  sdílení web staví jen na těchto dvou místech.
+- **Odkaz, který přijde.** Stránku odkazu `/new` (`NewThreadLinkView.tsx`)
+  overlay nemění. Na spravovaném Environmentu skončí odkaz bez `repo` hláškou
+  „None of your machines can start a thread without a project right now.“, pokud
+  Scratch nenabízí jiný Environment. Odkaz s `repo`, které odpovídá projektu
+  z historie, otevře neodeslaný koncept se zadáním v projektu Lazurio, kam nová
+  vlákna přesměrovává `useHandleNewThread.ts`. Bez takového projektu stránka
+  nabídne Clone, který stráž složky odmítne („In this Environment, the Lazurio
+  project is the Lazurio Folder itself.“), a „Use without project“ dopadne
+  jako odkaz bez `repo`.
+- **Co se nemění.** Desktopová a mobilní aplikace jsou upstreamu a položky
+  nabízejí dál.
 
 ## Párování prohlížeče
 
