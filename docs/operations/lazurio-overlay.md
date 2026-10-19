@@ -403,8 +403,9 @@ chrome-headless-shell, který si CI instaluje.
 „Copy prompt link“ u každé odeslané zprávy a v paletě příkazů (tam i „Copy
 prompt link with repo and model“) zkopíruje odkaz na hostovanou aplikaci
 upstreamu `https://app.t3.codes/new?prompt=…` s textem zadání v adrese. Na
-spravovaném Environmentu (`T3CODE_LAZURIO_FOLDER`) takový odkaz vlákno neotevře:
-nová vlákna začínají jen v projektu Lazurio a Scratch server nenabízí. Web proto
+spravovaném Environmentu (`T3CODE_LAZURIO_FOLDER`) takový odkaz vlákno většinou
+neotevře (přesně v bodu „Odkaz, který přijde“): nová vlákna začínají jen
+v projektu Lazurio a Scratch server nenabízí. Web proto
 tyto položky nenabízí tam, kde mizí „Add project“: když zná aspoň jeden
 Environment a každý z nich je spravovaný (`everyEnvironmentManaged`). Vlastní
 odkaz overlaye na připravené zadání (řádek 6), který text v adrese nenese, se
