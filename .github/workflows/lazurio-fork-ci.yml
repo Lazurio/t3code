@@ -138,7 +138,9 @@ jobs:
             # The Environment browser (root decision 0191, plan DEV-6646, LazurioPlatform F47):
             # a thread's agents get its agent-browser session, Codex's through the thread's
             # config (CodexAdapterV2.ts, whose test expects it) and the others' through the
-            # agent scope (server.ts, above). On a Lazurio Environment upstream's server browser
+            # agent scope (server.ts, above), and so do a thread's terminals, through the
+            # environment the terminal manager starts their shells with (terminal/Manager.ts,
+            # Lazurio/t3code#73). On a Lazurio Environment upstream's server browser
             # is neither built nor advertised (server.ts and ServerEnvironment.ts, above), and
             # T3's browser tools drive the Environment browser as upstream's preferred preview
             # host with upstream's page engine, whose snapshot also measures a window Playwright
@@ -151,6 +153,7 @@ jobs:
             apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
             apps/server/src/preview/ServerBrowserPage.test.ts
             apps/server/src/preview/ServerBrowserPage.ts
+            apps/server/src/terminal/Manager.ts
             # The managed Lazurio Folder (LazurioPlatform F51): with T3CODE_LAZURIO_FOLDER, Chat
             # starts in the Environment's Folder. Its code lives in apps/*/src/lazurio/; these are
             # the hooks. The server adopts or creates the Folder's project at startup; decorators

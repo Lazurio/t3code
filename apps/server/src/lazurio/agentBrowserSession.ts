@@ -9,13 +9,14 @@
  * keeps its tabs (threadTabs.ts); the web client reaches them only through the server. The
  * variable only names the session: it permits nothing.
  *
- * Two seams carry it. Every agent process of one thread starts through the server's AgentScope
+ * Three seams carry it. Every agent process of one thread starts through the server's AgentScope
  * (`decorateAgentScope`, server.ts): Claude Code as a native binary, Pi, Muse and the ACP agents.
  * Codex runs one app-server for every thread of an instance, so its process names no thread;
  * each Codex thread's config sets the variable for the commands its agent runs instead
- * (`codexThreadConfig`, CodexAdapterV2.ts). Processes T3 does not start for one thread
- * (OpenCode's servers, Cursor in the server process, Grok's cgroup lease on Linux, Claude Code
- * through a script entry) and Windows get no session.
+ * (`codexThreadConfig`, CodexAdapterV2.ts). A thread's terminals get it in the environment the
+ * terminal manager starts their shells with (`setTerminalSession`, terminal/Manager.ts).
+ * Processes T3 does not start for one thread (OpenCode's servers, Cursor in the server process,
+ * Grok's cgroup lease on Linux, Claude Code through a script entry) and Windows get no session.
  */
 
 import * as NodeCrypto from "node:crypto";
@@ -71,6 +72,24 @@ export const codexThreadConfig = (
           mcpSession.threadId,
         ),
       };
+
+/**
+ * Lazurio/t3code#73: the thread's session in the environment the terminal manager starts one of
+ * the thread's shells with, so a page the shell opens through `BROWSER` or `xdg-open` (on a Remote
+ * Environment the Environment browser's `lazurio browser open`) joins the thread's strip, as a page
+ * of the thread's agents does. A terminal reaches upstream's agent scope without its thread, which
+ * keys its bookkeeping of a thread's agents (`oomKilled`, `clear`) by thread, so the session
+ * travels in the environment instead. Without a thread, and on Windows as for the thread's agents,
+ * the environment stays as it is.
+ */
+export function setTerminalSession(
+  env: NodeJS.ProcessEnv,
+  threadId: string | undefined,
+  platform: NodeJS.Platform,
+): void {
+  if (platform === "win32" || !threadId) return;
+  env[AGENT_BROWSER_SESSION_ENV] = agentBrowserSessionName(threadId);
+}
 
 /** Agent processes that serve every thread of an instance: Codex's app-server. */
 const SHARED_AGENT_PROCESSES: ReadonlySet<string> = new Set(["codex"]);
