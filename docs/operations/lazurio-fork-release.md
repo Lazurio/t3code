@@ -52,11 +52,16 @@ Archivy mají upstream layout (`t3`, `client/`, `resource-monitor/`,
 binárky přidá `LICENSE` T3 Code. Webový klient v archivech i v image nese
 produkční ikony upstreamu (`assets/prod`), ne vývojové, které aplikuje build
 serveru. Launcher boot service archivy stahuje z `<base>/v<verze>/SHA256SUMS` a
-`<base>/v<verze>/t3-<verze>-<platforma>.tar.gz`. Mašina míří na náš kanál
-jedinou proměnnou `T3CODE_RELEASE_REPOSITORY=Lazurio/t3code` v drop-inu služby:
-podle ní server čte index vydání, ukazuje banner a stahuje z
-`https://github.com/Lazurio/t3code/releases/download`. `T3CODE_RELEASE_BASE_URL`
-je jen pro zrcadlo a Machines ho nenastavují.
+`<base>/v<verze>/t3-<verze>-<platforma>.tar.gz`. Od `0.1.0-lazurio.4` je náš
+kanál výchozím repozitářem vydání distribuce (Lazurio/t3code#22): bez proměnné
+`T3CODE_RELEASE_REPOSITORY` server čte index vydání, ukazuje banner a stahuje
+z `https://github.com/Lazurio/t3code/releases/download`, a stejně tak
+`t3 update`, `t3 service install` i instalační skripty. Proměnná výchozí
+repozitář přepíše. Machines ji v drop-inu služby dál nastavují na
+`Lazurio/t3code`, protože `t3` i server ve verzi `0.1.0-lazurio.3` a starší
+bez ní hledají vydání v `pingdotgg/t3code`, a Update tlačítkem stahuje ještě
+stará verze serveru. `T3CODE_RELEASE_BASE_URL` je jen pro zrcadlo a Machines ho
+nenastavují.
 
 Publikace nikoho automaticky nepřepne. Mašina přejde na novou verzi, až
 uživatel klikne na Update, nebo až někdo spustí `t3 update`.
@@ -121,7 +126,7 @@ Lazurio/t3code#70.
 | 1   | `hosted: configurable client session TTL`                                                       | `T3CODE_CLIENT_SESSION_TTL` (Machines nastavuje `365d`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Upstream má dál pevných 30 dní (`DEFAULT_SESSION_TTL`); od v0.1.0 zavře socket, když sezení vyprší (#17370), a 365 dní funguje: zůstává.                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 2   | `hosted: serve behind an explicit HTTPS external origin`                                        | `T3CODE_EXTERNAL_ORIGIN`: server na loopbacku za proxy je dosažitelný zvenku a používá Secure cookie `__Host-t3_session`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                | v0.1.0 kontroluje Origin u každého požadavku s cookie sama (#18509): kontrola overlaye odpadla. Proměnná, Secure `__Host-` cookie a politika loopbacku zůstávají, testy cookie jsou v `apps/server/src/lazurio/hostedSessionCookie.test.ts`. Nabídnout upstreamu.                                                                                                                                                                                                                                                                                                 |
 | 3   | `hosted: explicit environment label`                                                            | `T3CODE_ENVIRONMENT_LABEL` pojmenuje kontejnerový Workspace (například `Acme / Management`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Upstream čte jen `PRETTY_HOSTNAME` a hostname, Machines nastavují proměnnou: zůstává. Háček čte proměnnou přes `HostProcess.Environment` (#17641).                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 4   | `feat: in-app update from the configured release channel`                                       | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Server pod launcherem po aktivaci přesměruje `~/.local/bin/t3` na svůj runtime, takže CLI běží ve stejné verzi jako server (Lazurio/t3code#30). Navrženo upstreamu.                                                                                                                                                                                                                                      | Upstream má dál pevné `pingdotgg/t3code` a protokol launcheru 3; „update everything“ (#18053) míří na verzi klienta z npm a overlay ho nezapojuje: zůstává celý. Přesměrování `t3` je nové: Update tlačítkem přesune jen aktivní verzi launcheru a CLI staré verze by na v0.1.0 zapisoval párování do `state.sqlite`, zatímco server čte `statev2.sqlite`. Nabídnout upstreamu.                                                                                                                                                                                   |
+| 4   | `feat: in-app update from the configured release channel`                                       | `T3CODE_RELEASE_REPOSITORY` a server-advertised `availableServerUpdate`: Mašina nabízí aktualizaci na nejvyšší vydání z nastaveného repozitáře a instaluje ho tlačítkem Update. Bez proměnné je to od `0.1.0-lazurio.4` `Lazurio/t3code`, i pro `t3 update` v shellu bez proměnné služby (Lazurio/t3code#22). Server pod launcherem po aktivaci přesměruje `~/.local/bin/t3` na svůj runtime, takže CLI běží ve stejné verzi jako server (Lazurio/t3code#30). Navrženo upstreamu.                                                                                                        | Upstream má dál pevné `pingdotgg/t3code` a protokol launcheru 3; „update everything“ (#18053) míří na verzi klienta z npm a overlay ho nezapojuje: zůstává celý. Výchozí repozitář `Lazurio/t3code` je jen distribuce, upstreamu se nenabízí. Přesměrování `t3` je nové: Update tlačítkem přesune jen aktivní verzi launcheru a CLI staré verze by na v0.1.0 zapisoval párování do `state.sqlite`, zatímco server čte `statev2.sqlite`. Nabídnout upstreamu.                                                                                                      |
 | 5   | `release: Lazurio distribution`                                                                 | Tento runbook, [specifikace overlaye](./lazurio-overlay.md), skill [`lazurio-upstream-rebuild`](../../.agents/skills/lazurio-upstream-rebuild/SKILL.md), `Dockerfile.lazurio`, `.dockerignore`, kontraktní test a workflow `lazurio-fork-ci.yml`, `lazurio-cli-archives.yml`, `lazurio-release.yml` (včetně preview vydání pro canary, `X.Y.Z-preview.YYYYMMDD.N` jako GitHub pre-release) a `lazurio-upstream-watch.yml`, formulář issue, `.github/README.md` a bezpečnostní politika `.github/SECURITY.md`. Jméno distribuce nesou vydání, image, formulář a README (rozhodnutí 0200). | Zůstává; v přestavbě jde poslední. v0.1.0 přidala upstream workflow `mobile-android-apk.yml` s hodinovým cronem, který se po výměně `main` vypne ([Hranice automatizace](#hranice-automatizace)).                                                                                                                                                                                                                                                                                                                                                                 |
 | 6   | `lazurio: unsent prompt draft by link from the shell`                                           | „+ Nový modul“ otevře Chat se zadáním v poli zprávy nového vlákna, neodeslaným ([Zadání z Launchpadu](#zadání-z-launchpadu)).                                                                                                                                                                                                                                                                                                                                                                                                                                                            | v0.1.0 přidala odkazy `/new?prompt=` (#18454), které nesou text v adrese a projekt vybírají podle `repo`; odkaz overlaye text nenese (D13) a zůstává vedle nich. Párování od v0.1.0 po přihlášení stránku znovu načte (#9785), proto odkaz přečká reload v `sessionStorage` (jen id a Organizace).                                                                                                                                                                                                                                                                |
 | 7   | `feat(web): Lazurio shell slot`                                                                 | Slot pro shell Lazuria ve webovém klientovi: načtení `/.lazurio/shell.js`, rail vedle aplikace, hlavička sloupce pod horním řádkem sidebaru a Buddy (viz [Lazurio shell](#lazurio-shell)). Mimo Lazurio se nic nevykreslí.                                                                                                                                                                                                                                                                                                                                                               | Upstream ekvivalent nemá: zůstává. Od 2026-10-17 je hlavička sloupce pod horním řádkem T3 (schválený design levého sloupce), takže `AppSidebarLayout.tsx` a přepínač sidebaru jsou upstreamu.                                                                                                                                                                                                                                                                                                                                                                     |
@@ -148,7 +153,8 @@ Environmentem se ukážou, jen když je Environment nabízí. Proměnná
 `T3CODE_LAZURIO_FOLDER` přitom označuje Environment Lazuria: s ní server nestaví
 serverový prohlížeč upstreamu a nástroje prohlížeče T3 ovládají prohlížeč
 Environmentu, jakmile ho Environment deklaruje. Bez ohledu na to platí čtyři
-věci: server pod launcherem kontroluje vydání svého kanálu (vypne to
+věci: server pod launcherem kontroluje vydání svého kanálu a on i `t3 update`
+je bez `T3CODE_RELEASE_REPOSITORY` berou z `Lazurio/t3code` (kontrolu vypne
 `T3CODE_UPDATE_CHECK_ENABLED=false`), procesy agentů vlákna, jeho terminály a
 příkazy agenta Codexu dostávají `AGENT_BROWSER_SESSION`, které nic nepovoluje
 (kterých procesů se to týká, říká řádek 8), stránka bez sezení T3 na HTTPS se
@@ -213,7 +219,8 @@ Commity v pořadí na `main`:
   aktualizace), `components/chat/useAutoBalanceUpdateBanner.tsx`,
   `components/settings/ConnectionsSettings.tsx`, `versionSkew.ts` a jeho test.
   `packages/contracts/src/environment.ts`, `packages/shared/src/cliRelease.ts`
-  a jeho test, `scripts/install.sh`, `scripts/install.ps1`,
+  a jeho test, `packages/ssh/src/tunnel.test.ts` (výchozí repozitář sdílí běh
+  přes SSH desktopové aplikace), `scripts/install.sh`, `scripts/install.ps1`,
   `scripts/install-scripts.test.ts`, `docs/user/updating.md`,
   `docs/user/background-service.md`.
 - **6.** `f38d538389`. `apps/web/src/main.tsx`\*, `apps/web/src/routes/_chat.tsx`,
@@ -1049,9 +1056,10 @@ ověřené. Rozdíl mezi bázemi ukáže
   a `packages/contracts/src/settings.ts`. Na canary ověřte po Update tlačítkem
   `lazurio chat defaults --apply` a přihlášení na stránce Začínáme.
 - **Kanál aktualizací.** Environmenty se aktualizují z vydání tohoto
-  repozitáře přes `T3CODE_RELEASE_REPOSITORY` (řádek 4). Hlídají ho testy
-  řádku 4 v CI a job `Launcher install linux-x64`. Soubor
-  `apps/server/src/cloud/serviceProtocol.ts`: když se změní
+  repozitáře, výchozího repozitáře distribuce, na který je Machines vedou
+  i proměnnou `T3CODE_RELEASE_REPOSITORY` (řádek 4). Hlídají ho testy řádku 4
+  v CI, kontraktní test výchozího repozitáře a job `Launcher install linux-x64`.
+  Soubor `apps/server/src/cloud/serviceProtocol.ts`: když se změní
   `SERVICE_LAUNCHER_PROTOCOL`, tlačítko Update na Environmentu se starým
   launcherem odmítne a Environment je potřeba jednou převést (Testování před
   vydáním, krok 3). Update tlačítkem běží pod launcherem, který na
@@ -1525,8 +1533,9 @@ stavem tabulky rozhodnutí a bran.
        shutil.copy2(os.path.join(userdata, "settings.json"), backup)
    print(backup)
    EOF
-   # Proměnná je jen v drop-inu služby; SSH shell ji nemá a bez ní by
-   # `t3 update` hledal vydání v pingdotgg/t3code.
+   # Od 0.1.0-lazurio.4 bere `t3 update` vydání z Lazurio/t3code i bez proměnné.
+   # Na Environmentu s 0.1.0-lazurio.3 a starším ji SSH shell nemá (je jen
+   # v drop-inu služby) a bez ní by `t3 update` hledal vydání v pingdotgg/t3code.
    export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code
    ~/.local/bin/t3 update 0.1.0-preview.20261017.1 --yes   # preview potvrďte v terminálu
    ~/.local/bin/t3 --version
@@ -1590,7 +1599,7 @@ t3code.service && systemctl --user start t3code.service` (#25).
 
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
    zeleném canary a výslovném souhlasu Admina. Canary Environmenty vraťte
-   z preview (se stejnou proměnnou):
+   z preview (se stejnou proměnnou, kde ji potřebuje, viz krok 3):
    `t3 update --channel stable --allow-downgrade` (bez `--allow-downgrade` je
    to odmítnuté, SemVer řadí `-lazurio.N` pod `-preview.…`). Environmenty na
    předchozím stable ukážou banner Update po příští kontrole kanálu (při
@@ -1763,7 +1772,7 @@ mimo službu (`app-t3code-agents.slice`), proto se zastavují zvlášť.
   `state.sqlite`:
 
   ```bash
-  export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code
+  export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code   # jen pro t3 0.1.0-lazurio.3 a starší
   ~/.local/bin/t3 update <předchozí verze> --allow-downgrade   # restart: ne
   systemctl --user stop t3code.service app-t3code-agents.slice
   cp ~/.t3/backups/<záloha>/statev2.sqlite ~/.t3/userdata/statev2.sqlite
@@ -1779,7 +1788,7 @@ mimo službu (`app-t3code-agents.slice`), proto se zastavují zvlášť.
   pokračoval z něj místo nové kopie.
 
   ```bash
-  export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code
+  export T3CODE_RELEASE_REPOSITORY=Lazurio/t3code   # jen pro t3 0.1.0-lazurio.3 a starší
   ~/.local/bin/t3 update 0.0.45-lazurio.<N> --allow-downgrade   # restart: ne
   systemctl --user stop t3code.service app-t3code-agents.slice
   aside=~/.t3/backups/statev2-$(date -u +%Y%m%dT%H%M%SZ)

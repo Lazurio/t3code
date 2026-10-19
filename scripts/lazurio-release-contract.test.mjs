@@ -5,7 +5,12 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeTest from "node:test";
 
-import { cliReleaseChannelOf } from "../packages/shared/src/cliRelease.ts";
+import {
+  cliReleaseChannelOf,
+  cliReleaseDownloadBaseUrl,
+  cliReleaseIndexPageUrl,
+  cliReleaseRepository,
+} from "../packages/shared/src/cliRelease.ts";
 
 const read = (path) => NodeFSP.readFile(path, "utf8");
 const promptOverlay = [
@@ -579,6 +584,48 @@ NodeTest.test(
     NodeAssert.ok(overlayMayChange("apps/server/src/server.ts"));
   },
 );
+
+// Lazurio/t3code#22: only the service's drop-in sets T3CODE_RELEASE_REPOSITORY, so a shell on an
+// Environment (SSH, Codex Desktop over SSH) lacks it, and there `t3 update` read upstream's
+// releases, where upstream's X.Y.Z ranks above X.Y.Z-lazurio.N, and installed upstream T3 Code over
+// the distribution. The distribution's default is its own releases: the update notice, `t3 update`,
+// the service install and the Update read the index and download from Lazurio/t3code, and so do
+// the install scripts; an explicit variable still names another repository.
+NodeTest.test("the distribution installs and updates from Lazurio/t3code by default", async () => {
+  for (const unset of [undefined, "", "  "]) {
+    NodeAssert.equal(cliReleaseRepository(unset), "Lazurio/t3code");
+  }
+  NodeAssert.equal(cliReleaseRepository("pingdotgg/t3code"), "pingdotgg/t3code");
+  // The index and the downloads follow the same repository.
+  NodeAssert.equal(
+    cliReleaseIndexPageUrl(1),
+    "https://api.github.com/repos/Lazurio/t3code/releases?per_page=100&page=1",
+  );
+  NodeAssert.equal(
+    cliReleaseDownloadBaseUrl("0.1.0-lazurio.4"),
+    "https://github.com/Lazurio/t3code/releases/download/v0.1.0-lazurio.4",
+  );
+  NodeAssert.equal(
+    cliReleaseDownloadBaseUrl("0.1.0", undefined, "pingdotgg/t3code"),
+    "https://github.com/pingdotgg/t3code/releases/download/v0.1.0",
+  );
+  // The install scripts carry their own copy of the default.
+  const [installSh, installPs1] = await Promise.all(
+    ["scripts/install.sh", "scripts/install.ps1"].map(read),
+  );
+  NodeAssert.match(installSh, /\nrepo="\$\{T3CODE_RELEASE_REPOSITORY:-Lazurio\/t3code\}"\n/);
+  NodeAssert.match(
+    installPs1,
+    /\n\$repo = if \(\$env:T3CODE_RELEASE_REPOSITORY\) \{ \$env:T3CODE_RELEASE_REPOSITORY\.Trim\(\) \} else \{ "Lazurio\/t3code" \}\n/,
+  );
+  for (const file of [
+    "packages/shared/src/cliRelease.ts",
+    "scripts/install.sh",
+    "scripts/install.ps1",
+  ]) {
+    NodeAssert.ok(overlayMayChange(file), file);
+  }
+});
 
 // Lazurio/t3code#35: the Lazurio shell opens Chat with a prompt id and an
 // Organization login in the link; the overlay fetches the text from its own

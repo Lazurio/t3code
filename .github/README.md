@@ -65,15 +65,16 @@ there stays yours.
 - **Hosting behind a reverse proxy.** `T3CODE_EXTERNAL_ORIGIN` serves T3 Code at the root of its
   own HTTPS hostname with a Secure session cookie, `T3CODE_CLIENT_SESSION_TTL` sets how long a
   paired browser stays signed in, and `T3CODE_ENVIRONMENT_LABEL` names the Environment.
-- **Updates from this repository.** With `T3CODE_RELEASE_REPOSITORY=Lazurio/t3code`, the server
-  offers the newest release of this repository and installs it with the Update button. After the
+- **Updates from this repository.** The server offers the newest release of this repository and
+  installs it with the Update button, and `t3 update` and the install scripts take it from here
+  too. `T3CODE_RELEASE_REPOSITORY=owner/name` picks another repository's releases. After the
   update, the `t3` command follows the version the server runs.
 
-Apart from the name, each change stays off until its setting is present or the page runs on a
-Lazurio Environment. Without them, the server and the web client behave like upstream T3 Code;
-agent processes and thread terminals still get an `AGENT_BROWSER_SESSION` variable, which does
-nothing on its own, and a page served over HTTPS without a session first asks its own origin
-whether Lazurio pairs it.
+Apart from the name and the release repository, each change stays off until its setting is
+present or the page runs on a Lazurio Environment. Without them, the server and the web client
+behave like upstream T3 Code; agent processes and thread terminals still get an
+`AGENT_BROWSER_SESSION` variable, which does nothing on its own, and a page served over HTTPS
+without a session first asks its own origin whether Lazurio pairs it.
 
 ## Tracking upstream
 

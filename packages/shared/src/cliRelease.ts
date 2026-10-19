@@ -7,14 +7,17 @@
 
 import { compareSemverVersions } from "./semver.ts";
 
-const CLI_RELEASE_DEFAULT_REPOSITORY = "pingdotgg/t3code";
+// Lazurio overlay (Lazurio/t3code#22): the Lazurio distribution installs and updates from its own
+// releases, also from a shell that lacks the service's T3CODE_RELEASE_REPOSITORY. Upstream's is
+// pingdotgg/t3code.
+const CLI_RELEASE_DEFAULT_REPOSITORY = "Lazurio/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
 /** The `owner/name` GitHub repository whose releases are installed and offered as updates. */
 export const CLI_RELEASE_REPOSITORY_ENV = "T3CODE_RELEASE_REPOSITORY";
 
-/** The configured release repository, or upstream when unset. */
+/** The configured release repository, or the Lazurio distribution's own when unset. */
 export function cliReleaseRepository(repository: string | undefined): string {
   return repository?.trim() || CLI_RELEASE_DEFAULT_REPOSITORY;
 }

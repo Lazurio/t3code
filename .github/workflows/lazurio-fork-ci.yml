@@ -97,7 +97,9 @@ jobs:
             # scripts, a semver release index, and the optional availableServerUpdate
             # descriptor field behind the web client's update notice. Once the launcher
             # activates the new version, the user's `t3` follows it (Lazurio/t3code#30,
-            # server.ts above).
+            # server.ts above). Without the variable, the distribution's own releases
+            # (Lazurio/t3code) are the default (Lazurio/t3code#22); the desktop app's SSH
+            # runner shares it, and packages/ssh's test expects it.
             apps/server/src/cli/update.ts
             apps/server/src/cloud/bootService.ts
             apps/server/src/cloud/pinnedRuntime.test.ts
@@ -114,6 +116,7 @@ jobs:
             packages/contracts/src/environment.ts
             packages/shared/src/cliRelease.test.ts
             packages/shared/src/cliRelease.ts
+            packages/ssh/src/tunnel.test.ts
             scripts/install-scripts.test.ts
             scripts/install.ps1
             scripts/install.sh
