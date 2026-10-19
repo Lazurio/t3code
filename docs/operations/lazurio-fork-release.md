@@ -428,7 +428,14 @@ Lazuria; wordmark ani ikony nepřebarvujeme ani nepřekreslujeme.
   s vydáním Platformy, ne forku. Má-li téma tmavou variantu, shell nastaví i
   tmavé hodnoty týchž názvů pod `.dark` a kořen označí
   `data-lazurio-theme-dark`; pravidla pak platí i v tmavém režimu T3. Téma
-  Lazurio je jen světlé, takže v tmavém režimu zůstává tmavá paleta T3. První
+  Lazurio je jen světlé, takže v tmavém režimu zůstává tmavá paleta T3.
+  Shell deklaruje tokeny design systému na každém svém prvku (`:host`) a ty
+  platí i na samotném prvku. Rail patří do scope palety sidebaru, takže by tam
+  četl hodnoty design systému místo tématu a zůstal by papírem Lazuria vedle
+  sidebaru v jiném tématu, ve světlém i tmavém režimu (Ring 0, 2026-10-19).
+  Třetí pravidlo `theme.css` proto railu dědí z dokumentu všechny barvy, které
+  téma nastavuje (`shellThemeColors` LazurioPlatform), a kontraktní test to
+  hlídá. První
   karta Vzhledu („T3 Code“) tak na Environmentu znamená téma Prostředí a jiný
   motiv, který si člověk vybere, je jeho osobní výjimka v tom prohlížeči.
   Upstream `t3 theme set` se na Environmentu nepoužívá.

@@ -1186,16 +1186,18 @@ NodeTest.test("the design system's light look maps the shell's tokens onto T3's 
   NodeAssert.match(main, /\nimport "\.\/index\.css";\nimport "\.\/lazurio\/theme\.css";\n/);
   NodeAssert.equal(main.match(/theme\.css/g)?.length, 1);
   NodeAssert.ok(overlayMayChange("apps/web/src/main.tsx"));
-  // Two rules, both behind the shell's mark and its value, outside a picked theme, and outside
+  // Two mappings, both behind the shell's mark and its value, outside a picked theme, and outside
   // dark mode unless the Environment's theme has a dark variant: the document's root and the
-  // sidebar's palette scope, which the shell's rail joins.
+  // sidebar's palette scope, which the shell's rail joins. Then the rail's own rule (below).
   const gate =
     ':root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])';
-  const rules = topLevelRules(theme);
+  const [rootRule, sidebarRule, railRule, ...extra] = topLevelRules(theme);
   NodeAssert.deepEqual(
-    rules.map((rule) => rule.selector),
-    [gate, `${gate} [data-app-sidebar]`],
+    [rootRule, sidebarRule, railRule].map((rule) => rule?.selector),
+    [gate, `${gate} [data-app-sidebar]`, "lazurio-rail[data-app-sidebar]"],
   );
+  NodeAssert.equal(extra.length, 0);
+  const rules = [rootRule, sidebarRule];
   // The tokens T3 declares in those scopes in index.css: its root (and the font tokens of its
   // @theme, which Tailwind emits on the root), and its sidebar palette scope.
   const declared = (selectors) =>
@@ -1264,6 +1266,43 @@ NodeTest.test("the design system's light look maps the shell's tokens onto T3's 
     );
   }
   NodeAssert.deepEqual([...used].toSorted(), promised.toSorted());
+  // The rail inherits from the document every colour an Environment theme sets (LazurioPlatform
+  // src/shell/contract.ts shellThemeColors), and nothing else. The shell declares the design
+  // system's tokens on its own elements (:host), which holds on the rail itself, so without this
+  // the sidebar's scope on the rail would read the design system's colours, not the theme's: the
+  // rail stayed Lazurio's paper beside an Ocean sidebar, light and dark, on Ring 0 (2026-10-19).
+  const themeColors = [
+    "--lz-surface",
+    "--lz-paper",
+    "--lz-ink",
+    "--lz-ink-muted",
+    "--lz-line",
+    "--lz-accent",
+    "--lz-accent-button",
+    "--lz-accent-button-hover",
+    "--lz-on-accent",
+    "--lz-gray-50",
+    "--lz-gray-100",
+    "--lz-red-500",
+    "--lz-danger",
+    "--lz-danger-bg",
+    "--lz-warning",
+    "--lz-warning-bg",
+    "--lz-green-500",
+    "--lz-success",
+    "--lz-info",
+    "--lz-info-bg",
+  ];
+  NodeAssert.deepEqual(
+    railRule.declarations,
+    themeColors.map((name) => [name, "inherit"]),
+  );
+  // Every colour the sidebar's scope reads is one of them; type and corners are not a theme's.
+  for (const [name, value] of sidebarRule.declarations) {
+    const token = /^var\((--lz-[a-z0-9-]+)\)$/.exec(value)?.[1];
+    if (token === undefined || /^--lz-(font|radius)-/.test(token)) continue;
+    NodeAssert.ok(themeColors.includes(token), `${name}: ${token} is not a theme colour`);
+  }
   NodeAssert.doesNotMatch(
     theme.replace(/\/\*[^]*?\*\//g, ""),
     /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(|!important/i,
