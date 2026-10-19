@@ -418,6 +418,7 @@ it.effect("opens the thread's own window through lazurio and answers with its ta
         url: "https://example.test/",
         title: null,
         loading: false,
+        view: `https://browser.example.test/t/${threadWindow}`,
       });
       expect(host.runs.at(-1)).toEqual({
         command: lazurio,
@@ -835,6 +836,72 @@ it.effect("hands the agent the other Environment's view and what to do there", (
         view: foreignView,
         message: expect.stringContaining("work in it with agent-browser on that Environment"),
       });
+    }),
+  ),
+);
+
+it.effect(
+  "hands the agent this Environment's view of every tab preview_open opens, for a person without the panel",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const host = yield* startHost({
+          link: declared,
+          window: () => {
+            host.browser.addPage(threadWindow, "https://example.test/");
+            return windowAnswer(threadWindow, true);
+          },
+        });
+        host.browser.addPage(personTab, "https://person.example.test/");
+        yield* host.registered;
+        const viewOf = (tabId: string) => `https://browser.example.test/t/${tabId}`;
+
+        // The thread's own window, a tab handed over by its id, and another window.
+        const own = yield* invoke<{ readonly view?: string }>(host.broker, "open", {});
+        expect(own.view).toBe(viewOf(threadWindow));
+        const handedOver = yield* invoke<{ readonly view?: string }>(
+          host.broker,
+          "open",
+          {},
+          { tabId: personTab },
+        );
+        expect(handedOver.view).toBe(viewOf(personTab));
+        const another = yield* invoke<{ readonly tabId: string; readonly view?: string }>(
+          host.broker,
+          "open",
+          { url: "https://another.example.test/", reuseExistingTab: false },
+        );
+        expect(another.view).toBe(viewOf(another.tabId));
+        // Background work too: the person may still want the address.
+        expect(
+          (yield* invoke<{ readonly view?: string }>(host.broker, "open", { open: false })).view,
+        ).toBe(viewOf(another.tabId));
+        // The view survives preview_open's result encoding, and only open answers with it.
+        expect(yield* encodeOpenResult(own)).toMatchObject({
+          tabId: threadWindow,
+          view: viewOf(threadWindow),
+        });
+        expect(yield* encodeOpenResult(own)).not.toHaveProperty("message");
+        expect(yield* invoke(host.broker, "status", {})).not.toHaveProperty("view");
+      }),
+    ),
+);
+
+it.effect("answers preview_open without a view where the Environment names none", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({
+        link: { code: 0, stdout: JSON.stringify({ kind: "browser-link", session: null }) },
+        window: () => {
+          host.browser.addPage(threadWindow, "https://example.test/");
+          return windowAnswer(threadWindow, true);
+        },
+      });
+      yield* host.registered;
+
+      const status = yield* invoke(host.broker, "open", {});
+      expect(status).toMatchObject({ tabId: threadWindow, visible: true });
+      expect(status).not.toHaveProperty("view");
     }),
   ),
 );

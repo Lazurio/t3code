@@ -18,8 +18,10 @@
  * thread without one gets its own window, the one `lazurio browser window` keeps bound to the
  * thread's agent-browser session, so T3's tools and agent-browser drive the same window and a
  * restarted server finds it again. A tab id from the people's view or another agent hands that
- * tab over. Operations run one at a time per tab; a person working in the same tab at the same
- * time is expected and not locked out. Resizing, color schemes and a page's dialogs belong to the
+ * tab over. preview_open answers with the view of the tab it opens or adopts, the address where a
+ * person sees it, so an agent can hand it to someone without the right panel (the desktop and
+ * mobile apps). Operations run one at a time per tab; a person working in the same tab at the
+ * same time is expected and not locked out. Resizing, color schemes and a page's dialogs belong to the
  * person who sees the tab, and recording is not available, so those are answered with what to do
  * instead; closing a tab lets go of it for the thread, as the person's × does, and leaves it open.
  * Another Environment's view of a tab (an agent working in that Environment over SSH) is never
@@ -255,6 +257,14 @@ export const make = Effect.gen(function* () {
   let hostConnectionId: string | undefined;
   /** The origin of this Environment's own view, from its declaration. */
   let ownViewOrigin: string | undefined;
+  /**
+   * This Environment's view of one of its tabs (Lazurio/t3code#88), on the origin its declaration
+   * names, as the web's right panel frames it: in web Chat a link to it opens there, and a person
+   * without the panel (the desktop and mobile apps) opens it in their own browser. None while the
+   * declaration names no view.
+   */
+  const ownView = (targetId: string) =>
+    ownViewOrigin === undefined ? {} : { view: `${ownViewOrigin}/t/${targetId}` };
   /** Tabs of other Environments' browsers that preview_open answered with, by target id, the
    * latest last; only the latest MAX_FOREIGN_TABS are kept. */
   const foreignTabs = new Map<string, LazurioBrowserView>();
@@ -586,7 +596,10 @@ export const make = Effect.gen(function* () {
             },
             catch: toOperationError,
           });
-          return statusOf(targetId, state, shown(request.threadId, targetId));
+          return {
+            ...statusOf(targetId, state, shown(request.threadId, targetId)),
+            ...ownView(targetId),
+          };
         }),
       );
     });
