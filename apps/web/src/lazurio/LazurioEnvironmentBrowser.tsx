@@ -581,9 +581,11 @@ function LazurioEnvironmentBrowser(props: {
             <Globe2 />
           </EmptyMedia>
           <EmptyHeader>
-            <EmptyTitle>Browser unavailable</EmptyTitle>
+            <EmptyTitle>{czech ? "Prohlížeč není k dispozici" : "Browser unavailable"}</EmptyTitle>
             <EmptyDescription>
-              This environment does not offer its browser now. Its tabs come back when it does.
+              {czech
+                ? "Toto Prostředí teď prohlížeč nenabízí. Jeho záložky se vrátí, až ho zase nabídne."
+                : "This Environment does not offer its browser now. Its tabs come back when it does."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

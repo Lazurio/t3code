@@ -234,7 +234,18 @@ describe("the panel's Environment browser frames", () => {
     expect(container.querySelector("iframe")).toBeNull();
     expect(container.textContent).not.toContain("Browser unavailable");
     act(() => withSnapshot(null));
-    expect(container.textContent).toContain("Browser unavailable");
+    expect(container.textContent).toBe(
+      "Browser unavailableThis Environment does not offer its browser now. Its tabs come back when it does.",
+    );
+  });
+
+  it("say it in Czech where the browser is Czech", async () => {
+    vi.spyOn(window.navigator, "language", "get").mockReturnValue("cs-CZ");
+    withSnapshot(null);
+    await showPanel(threadA, [tab(1)], tab(1).id);
+    expect(container.textContent).toBe(
+      "Prohlížeč není k dispoziciToto Prostředí teď prohlížeč nenabízí. Jeho záložky se vrátí, až ho zase nabídne.",
+    );
   });
 
   it("leave the desktop app's panel as it is", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   capturePromptLink,
+  failedPromptDraftText,
   fetchPrompt,
   type LinkStorage,
   openPromptDraft,
@@ -282,5 +283,18 @@ describe("the draft", () => {
       await expect(openPromptDraft(link, deps)).resolves.toBe("failed");
       expect(calls.some((call) => call.startsWith("prompt"))).toBe(false);
     }
+  });
+});
+
+describe("the toast when the prompt does not open", () => {
+  it("says so in Czech where the browser is Czech, and in English elsewhere", () => {
+    expect(failedPromptDraftText(true)).toEqual({
+      title: "Připravené zadání se nepodařilo otevřít",
+      description: "Do pole zprávy se nic nepřidalo.",
+    });
+    expect(failedPromptDraftText(false)).toEqual({
+      title: "Could not open the prepared prompt",
+      description: "Nothing was added to the composer.",
+    });
   });
 });

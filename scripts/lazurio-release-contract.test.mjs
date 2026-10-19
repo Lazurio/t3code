@@ -661,6 +661,11 @@ NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", asyn
     NodeAssert.doesNotMatch(source, /turn\.start|startTurn|dispatchCommand|queuedMessage|onSend/);
   }
   NodeAssert.match(component, /\.setPrompt\(draftId, text\)/);
+  // A prompt that does not open says so in the person's language (Lazurio/t3code#75).
+  NodeAssert.match(
+    component,
+    /stackedThreadToast\(\{ type: "error", \.\.\.failedPromptDraftText\(prefersCzech\(\)\) \}\)/,
+  );
   // Upstream's pairing page reloads the tab after sign-in (#9785), so the link waits in this tab's
   // sessionStorage, briefly and for one read: its id and Organization, never the text.
   NodeAssert.match(
