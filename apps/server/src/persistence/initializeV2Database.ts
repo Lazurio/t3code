@@ -67,7 +67,14 @@ const isUnusedUncommittedCopy = (copyPath: string) => {
     copy.exec("COMMIT");
     return uncommitted;
   } catch (cause) {
-    if (cause instanceof Error && "errcode" in cause && cause.errcode === 5) return false;
+    // node:sqlite reports extended codes such as SQLITE_BUSY_RECOVERY (261); the low byte is SQLITE_BUSY.
+    if (
+      cause instanceof Error &&
+      "errcode" in cause &&
+      typeof cause.errcode === "number" &&
+      (cause.errcode & 0xff) === 5
+    )
+      return false;
     throw cause;
   } finally {
     copy.close();
