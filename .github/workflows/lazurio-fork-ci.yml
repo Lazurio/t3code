@@ -57,8 +57,10 @@ jobs:
             # Shared seams, each with the hooks of several features below: the server's
             # CLI and runtime config (hosted settings, the managed Folder), ServerEnvironment.ts
             # (the update notice's descriptor field, and no serverBrowser capability on a
-            # Lazurio Environment), orchestration-v2/runtimeLayer.ts (the managed Folder's
-            # guards and the sign-in guard, as decorators where it builds upstream's services),
+            # Lazurio Environment), CodexAdapterV2.ts and its test (a Codex thread's agent-browser
+            # session in its config, and the question tool's feature on the app-server T3 starts),
+            # orchestration-v2/runtimeLayer.ts (the managed Folder's guards and the sign-in guard,
+            # as decorators where it builds upstream's services),
             # server.ts (the overlay's one route layer, the gate over upstream's server browser,
             # the agent scope that gives a thread's agents its agent-browser session, and the
             # `t3` command following the version the launcher activated), index.html (the shell
@@ -71,6 +73,8 @@ jobs:
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
             apps/server/src/environment/ServerEnvironment.ts
+            apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts
+            apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
             apps/server/src/orchestration-v2/runtimeLayer.ts
             apps/server/src/server.ts
             apps/web/index.html
@@ -140,7 +144,7 @@ jobs:
             apps/web/src/branding.ts
             # The Environment browser (root decision 0191, plan DEV-6646, LazurioPlatform F47):
             # a thread's agents get its agent-browser session, Codex's through the thread's
-            # config (CodexAdapterV2.ts, whose test expects it) and the others' through the
+            # config (CodexAdapterV2.ts, above, whose test expects it) and the others' through the
             # agent scope (server.ts, above), and so do a thread's terminals, through the
             # environment the terminal manager starts their shells with (terminal/Manager.ts,
             # Lazurio/t3code#73). On a Lazurio Environment upstream's server browser
@@ -153,8 +157,6 @@ jobs:
             # layer (server.ts, above) keeps a thread's tabs in its holder file and streams them
             # to the web, whose right panel shows them. The web's seams are the shared files above.
             apps/server/src/mcp/toolkits/preview/tools.ts
-            apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts
-            apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
             apps/server/src/preview/ServerBrowserPage.test.ts
             apps/server/src/preview/ServerBrowserPage.ts
             apps/server/src/terminal/Manager.ts
@@ -218,6 +220,13 @@ jobs:
             # `t3 events` is the item `t3_thread_list` returns, which OrchestratorMcpService.ts
             # exports for it.
             apps/server/src/mcp/OrchestratorMcpService.ts
+            # Agents ask people through the question tool (root decision 0211, plan DEV-6676): the
+            # app-server T3 starts gets Codex's feature for request_user_input in Default mode on its
+            # command line (CodexAdapterV2.ts, above), and every turn's context tells the agent to ask
+            # with it; the Default mode's text no longer asks for a plain-text question. Its code
+            # lives in apps/server/src/lazurio/questionTool.ts.
+            apps/server/src/provider/CodexDeveloperInstructions.test.ts
+            apps/server/src/provider/CodexDeveloperInstructions.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

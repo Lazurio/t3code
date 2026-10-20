@@ -2127,3 +2127,41 @@ NodeTest.test("agents work with threads through the agent CLI's seams", async ()
   ])
     NodeAssert.ok(overlayMayChange(file), file);
 });
+
+// Root decision 0211 (row 22): agents ask people through the question tool. Codex offers
+// request_user_input in Default mode only with its feature default_mode_request_user_input, under
+// development and off by default. The feature leads the arguments of every app-server T3 starts for
+// its threads, so the launch arguments after it can still turn it off, and the user's config.toml
+// stays untouched (root decision 0161). Every turn's context tells the agent to ask with the tool,
+// for each model, and the Default mode's own text no longer sends it to a plain-text question.
+NodeTest.test("agents ask people through the question tool through its seams", async () => {
+  const [adapter, instructions, source, questionTool] = await Promise.all([
+    read("apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts"),
+    read("apps/server/src/provider/CodexDeveloperInstructions.ts"),
+    read("apps/server/src/lazurio/questionTool.ts"),
+    import("../apps/server/src/lazurio/questionTool.ts"),
+  ]);
+  NodeAssert.deepEqual(questionTool.CODEX_APP_SERVER_ARGS, [
+    "-c",
+    "features.default_mode_request_user_input=true",
+  ]);
+  NodeAssert.match(
+    adapter,
+    /\n\s+args: \[\n\s+\/\/ Lazurio overlay \(root decision 0211\)[^\n]*\n\s+\.\.\.LazurioQuestionTool\.CODEX_APP_SERVER_ARGS,\n\s+\.\.\.codexAppServerArgs\(\n\s+resolveCodexLaunchArgs\(input\.settings\.launchArgs, input\.environment\),\n/,
+  );
+  NodeAssert.equal(adapter.match(/LazurioQuestionTool\./g)?.length, 1);
+  NodeAssert.match(
+    instructions,
+    /\n {4}\.\.\.LazurioQuestionTool\.codexAdditionalContext,\n {2}\};\n\}\n$/,
+  );
+  NodeAssert.doesNotMatch(instructions, /plain-text question/);
+  NodeAssert.deepEqual(Object.keys(questionTool.codexAdditionalContext), ["lazurio_questions"]);
+  NodeAssert.equal(questionTool.codexAdditionalContext.lazurio_questions.kind, "application");
+  // Only constants: the module reads and writes nothing, Codex's config files included.
+  NodeAssert.doesNotMatch(source, /^import /m);
+  for (const file of [
+    "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts",
+    "apps/server/src/provider/CodexDeveloperInstructions.ts",
+  ])
+    NodeAssert.ok(overlayMayChange(file), file);
+});
