@@ -40,9 +40,11 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
 import { afterAll } from "vite-plus/test";
+import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -109,6 +111,9 @@ const printedJson = <A, E, R>(command: Effect.Effect<A, E, R>) =>
     const lines = (yield* TestConsole.logLines).slice(before);
     return { exit, output: decodeJson(lines.join("")) as Record<string, unknown> };
   });
+/** The exit code `t3` ends a command with, read from its exit as `t3`'s runner reads it. */
+const exitCodeOf = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isSuccess(exit) ? 0 : Runtime.getErrorExitCode(Cause.squash(exit.cause));
 
 const at = (iso: string) => DateTime.makeUnsafe(iso);
 const environmentId = EnvironmentId.make("environment-agent-cli-test");
@@ -959,6 +964,28 @@ describe("t3 request", () => {
             },
           });
 
+          // Both at once cannot work: refused like any failure, and nothing is decided.
+          const both = yield* printedJson(
+            run([
+              "request",
+              "approve",
+              "request-approval",
+              "--for-session",
+              "--always",
+              "--base-dir",
+              baseDir,
+              "--json",
+            ]),
+          );
+          assert.deepStrictEqual(both.output, {
+            error: {
+              code: "invalid_request",
+              message: "Pass --for-session or --always, not both.",
+            },
+          });
+          assert.strictEqual(exitCodeOf(both.exit), AGENT_CLI_EXIT_CODES.failed);
+          assert.strictEqual(world.ownerDispatched.length, 1);
+
           yield* printedJson(
             run(["request", "deny", "request-approval", "--base-dir", baseDir, "--json"]),
           );
@@ -1057,11 +1084,15 @@ describe("t3 events", () => {
         );
       yield* withLiveServer(baseDir, world, () =>
         Effect.gen(function* () {
-          const before = (yield* TestConsole.logLines).length;
-          yield* run(["events", "--base-dir", baseDir]);
-          const lines = (yield* TestConsole.logLines)
-            .slice(before)
-            .map((line) => decodeJson(line) as Record<string, unknown>);
+          const printedLines = (args: ReadonlyArray<string>) =>
+            Effect.gen(function* () {
+              const before = (yield* TestConsole.logLines).length;
+              yield* run(args);
+              return (yield* TestConsole.logLines)
+                .slice(before)
+                .map((line) => decodeJson(line) as Record<string, unknown>);
+            });
+          const lines = yield* printedLines(["events", "--base-dir", baseDir]);
           assert.deepStrictEqual(
             lines.map((line) => [
               line.kind,
@@ -1075,9 +1106,42 @@ describe("t3 events", () => {
               ["synced", null, null, 10],
             ],
           );
-          assert.deepStrictEqual(world.subscriptions, [{ requestCompletionMarker: true }]);
+          // Every agent command takes --json; for this one the output is JSON lines either way.
+          assert.deepStrictEqual(
+            yield* printedLines(["events", "--base-dir", baseDir, "--json"]),
+            lines,
+          );
+          assert.deepStrictEqual(world.subscriptions, [
+            { requestCompletionMarker: true },
+            { requestCompletionMarker: true },
+          ]);
         }),
       );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("prints a failure as JSON with --json, as every agent command does", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      for (const args of [["events"], ["events", "--follow"]]) {
+        const printed = yield* printedJson(run([...args, "--base-dir", baseDir, "--json"]));
+        assert.deepStrictEqual(printed.output, {
+          error: {
+            code: "server_not_running",
+            message: "T3 Code is not running for this T3 home, so nothing was read or changed.",
+          },
+        });
+        assert.strictEqual(exitCodeOf(printed.exit), AGENT_CLI_EXIT_CODES.serverNotRunning);
+      }
+      // Without --json the message goes to standard error, and standard output stays empty.
+      const logsBefore = (yield* TestConsole.logLines).length;
+      const errorsBefore = (yield* TestConsole.errorLines).length;
+      const exit = yield* Effect.exit(run(["events", "--base-dir", baseDir]));
+      assert.strictEqual((yield* TestConsole.logLines).length, logsBefore);
+      assert.deepStrictEqual((yield* TestConsole.errorLines).slice(errorsBefore), [
+        "T3 Code is not running for this T3 home, so nothing was read or changed.",
+      ]);
+      assert.strictEqual(exitCodeOf(exit), AGENT_CLI_EXIT_CODES.serverNotRunning);
     }).pipe(Effect.provide(TestConsole.layer)),
   );
 
@@ -1148,6 +1212,107 @@ describe("t3 events", () => {
           ]);
         }),
       );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+});
+
+describe("a command line that cannot work", () => {
+  it.effect("fails as JSON with exit 1 before anything is read, whether or not T3 Code runs", () =>
+    Effect.gen(function* () {
+      // No server runs for this T3 home: each command fails on its command line alone.
+      const baseDir = makeBaseDir();
+      const cases: ReadonlyArray<readonly [ReadonlyArray<string>, string]> = [
+        [
+          ["request", "approve", "request-1", "--for-session", "--always"],
+          "Pass --for-session or --always, not both.",
+        ],
+        [
+          ["thread", "launch", "--title", "Fix", "--base", "main", "--existing-worktree", "/w"],
+          "Pass --base or --existing-worktree, not both.",
+        ],
+        [["thread", "launch", "--title", "Fix", "--from-origin"], "--from-origin needs --base."],
+        [
+          ["thread", "launch", "--title", "Fix", "--branch", "fix"],
+          "--branch needs --base or --existing-worktree.",
+        ],
+        [
+          ["thread", "launch", "--title", "Fix", "--scratch", "--project", "web-app"],
+          "Pass --project or --scratch, not both.",
+        ],
+        [
+          ["thread", "launch", "Go", "--title", "Fix", "--message-file", "/message"],
+          "Pass the message or --message-file, not both.",
+        ],
+        [["thread", "send", "thread-1"], "Pass the message, or --message-file."],
+        [["thread", "organize", "thread-1", "snooze"], "snooze needs --until."],
+        [
+          ["thread", "organize", "thread-1", "snooze", "--until", "soon"],
+          "--until takes a time or a duration such as 2h, not soon.",
+        ],
+        [
+          ["thread", "fork", "thread-1", "--run", "run-1", "--checkpoint", "checkpoint-1"],
+          "Pass --run or --checkpoint, not both.",
+        ],
+        [["request", "respond", "request-1"], "Pass --answer or --answers."],
+        [
+          ["request", "respond", "request-1", "--answers", '["Yes"]'],
+          "--answers must be a JSON object.",
+        ],
+        [["queue", "edit", "thread-1", "queued-1"], "Pass the message, or --message-file."],
+        [
+          ["queue", "reorder", "thread-1", "queued-1", "--before", "queued-2", "--last"],
+          "Pass --before or --last.",
+        ],
+      ];
+      for (const [args, message] of cases) {
+        const printed = yield* printedJson(run([...args, "--base-dir", baseDir, "--json"]));
+        assert.deepStrictEqual(
+          printed.output,
+          { error: { code: "invalid_request", message } },
+          args.join(" "),
+        );
+        assert.strictEqual(exitCodeOf(printed.exit), AGENT_CLI_EXIT_CODES.failed, args.join(" "));
+      }
+      const unreadable = yield* printedJson(
+        run([
+          "thread",
+          "send",
+          "thread-1",
+          "--message-file",
+          NodePath.join(baseDir, "missing.txt"),
+          "--base-dir",
+          baseDir,
+          "--json",
+        ]),
+      );
+      assert.strictEqual(
+        (unreadable.output.error as Record<string, unknown>).code,
+        "invalid_request",
+      );
+      assert.strictEqual(exitCodeOf(unreadable.exit), AGENT_CLI_EXIT_CODES.failed);
+
+      // Without --json the message goes to standard error, and standard output stays empty.
+      const logsBefore = (yield* TestConsole.logLines).length;
+      const errorsBefore = (yield* TestConsole.errorLines).length;
+      const exit = yield* Effect.exit(
+        run([
+          "request",
+          "approve",
+          "request-1",
+          "--for-session",
+          "--always",
+          "--base-dir",
+          baseDir,
+        ]),
+      );
+      assert.strictEqual((yield* TestConsole.logLines).length, logsBefore);
+      assert.deepStrictEqual((yield* TestConsole.errorLines).slice(errorsBefore), [
+        "Pass --for-session or --always, not both.",
+      ]);
+      assert.strictEqual(exitCodeOf(exit), AGENT_CLI_EXIT_CODES.failed);
+
+      // Nothing was read or written: even resolving the T3 home's paths would create its folders.
+      assert.deepStrictEqual(NodeFS.readdirSync(baseDir), []);
     }).pipe(Effect.provide(TestConsole.layer)),
   );
 });

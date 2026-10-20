@@ -18,6 +18,7 @@ import {
   RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
@@ -35,6 +36,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { DurationFromString, projectLocationFlags } from "../cli/config.ts";
 import {
   type AgentCliConnection,
+  type AgentCliFailure,
   agentCliFailure,
   AGENT_CLI_SESSION_TTL,
   isAgentCliFailure,
@@ -59,25 +61,44 @@ const common = { ...projectLocationFlags, json: jsonFlag };
 type CommonFlags = { readonly baseDir: Option.Option<string>; readonly json: boolean };
 
 /**
- * Run a command against the running server and print its result as text or JSON. A failure is
- * printed the same way and then fails the command, so its exit code follows.
+ * Print a command's failure: with --json as `{"error":…}` on standard output, otherwise its message
+ * on standard error.
  */
+const printFailure = (flags: { readonly json: boolean }, error: unknown) =>
+  isAgentCliFailure(error)
+    ? flags.json
+      ? Console.log(encodeJson({ error: { code: error.code, message: error.message } }))
+      : Console.error(error.message)
+    : Effect.void;
+
+/**
+ * Run a command against the running server and print its result as text or JSON. `check` reads
+ * the command line first, so one that cannot work fails before anything is read, whether or not
+ * T3 Code is running; `body` gets what it returns. Every failure is printed the same way and then
+ * fails the command, so its exit code follows.
+ */
+const runChecked = <C, RC, A, E, R>(
+  flags: CommonFlags,
+  check: Effect.Effect<C, AgentCliFailure, RC>,
+  body: (connection: AgentCliConnection, checked: C) => Effect.Effect<A, E, R>,
+  text: (value: A) => string,
+  options?: { readonly sessionTtl?: Duration.Duration },
+) =>
+  check.pipe(
+    Effect.flatMap((checked) =>
+      withAgentCliConnection(flags, (connection) => body(connection, checked), options),
+    ),
+    Effect.tap((value) => Console.log(flags.json ? encodeJson(value) : text(value))),
+    Effect.tapError((error) => printFailure(flags, error)),
+  );
+
+/** `runChecked` for a command line with nothing to check beyond what `t3` parses. */
 const run = <A, E, R>(
   flags: CommonFlags,
   body: (connection: AgentCliConnection) => Effect.Effect<A, E, R>,
   text: (value: A) => string,
   options?: { readonly sessionTtl?: Duration.Duration },
-) =>
-  withAgentCliConnection(flags, body, options).pipe(
-    Effect.tap((value) => Console.log(flags.json ? encodeJson(value) : text(value))),
-    Effect.tapError((error) =>
-      isAgentCliFailure(error)
-        ? flags.json
-          ? Console.log(encodeJson({ error: { code: error.code, message: error.message } }))
-          : Console.error(error.message)
-        : Effect.void,
-    ),
-  );
+) => runChecked(flags, Effect.void, body, text, options);
 
 /** Call a tool and decode the part of its answer the command reads. */
 const callAs = <S extends Schema.Top>(
@@ -447,36 +468,38 @@ const threadLaunchCommand = Command.make("launch", {
     "Start a new thread. It uses the project's default model; the message is its first task.",
   ),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
-      (connection) =>
+      Effect.gen(function* () {
+        if (Option.isSome(flags.base) && Option.isSome(flags.existingWorktree)) {
+          return yield* agentCliFailure(
+            "invalid_request",
+            "Pass --base or --existing-worktree, not both.",
+          );
+        }
+        if (flags.fromOrigin && Option.isNone(flags.base)) {
+          return yield* agentCliFailure("invalid_request", "--from-origin needs --base.");
+        }
+        if (
+          Option.isSome(flags.branch) &&
+          Option.isNone(flags.base) &&
+          Option.isNone(flags.existingWorktree)
+        ) {
+          return yield* agentCliFailure(
+            "invalid_request",
+            "--branch needs --base or --existing-worktree.",
+          );
+        }
+        if (flags.scratch && Option.isSome(flags.project)) {
+          return yield* agentCliFailure(
+            "invalid_request",
+            "Pass --project or --scratch, not both.",
+          );
+        }
+        return yield* readMessage({ ...flags, required: false });
+      }),
+      (connection, message) =>
         Effect.gen(function* () {
-          if (Option.isSome(flags.base) && Option.isSome(flags.existingWorktree)) {
-            return yield* agentCliFailure(
-              "invalid_request",
-              "Pass --base or --existing-worktree, not both.",
-            );
-          }
-          if (flags.fromOrigin && Option.isNone(flags.base)) {
-            return yield* agentCliFailure("invalid_request", "--from-origin needs --base.");
-          }
-          if (
-            Option.isSome(flags.branch) &&
-            Option.isNone(flags.base) &&
-            Option.isNone(flags.existingWorktree)
-          ) {
-            return yield* agentCliFailure(
-              "invalid_request",
-              "--branch needs --base or --existing-worktree.",
-            );
-          }
-          if (flags.scratch && Option.isSome(flags.project)) {
-            return yield* agentCliFailure(
-              "invalid_request",
-              "Pass --project or --scratch, not both.",
-            );
-          }
-          const message = yield* readMessage({ ...flags, required: false });
           const projectId = flags.scratch
             ? undefined
             : Option.isSome(flags.project)
@@ -546,20 +569,18 @@ const threadSendCommand = Command.make("send", {
 }).pipe(
   Command.withDescription("Send a message to a thread, as its user would."),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
-      (connection) =>
-        Effect.gen(function* () {
-          const message = yield* readMessage({ ...flags, required: true });
-          return yield* connection.callTool(
-            "t3_thread_send",
-            defined({
-              threadId: flags.threadId,
-              message: Option.getOrUndefined(message),
-              mode: Option.getOrUndefined(flags.mode),
-            }),
-          );
-        }),
+      readMessage({ ...flags, required: true }),
+      (connection, message) =>
+        connection.callTool(
+          "t3_thread_send",
+          defined({
+            threadId: flags.threadId,
+            message: Option.getOrUndefined(message),
+            mode: Option.getOrUndefined(flags.mode),
+          }),
+        ),
       textAs(
         SendResult,
         (result) =>
@@ -716,25 +737,23 @@ const threadOrganizeCommand = Command.make("organize", {
 }).pipe(
   Command.withDescription("Pin, settle, archive or snooze a thread, or undo it."),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
-      (connection) =>
-        Effect.gen(function* () {
-          if (flags.action === "snooze" && Option.isNone(flags.until)) {
-            return yield* agentCliFailure("invalid_request", "snooze needs --until.");
-          }
-          const snoozedUntil = Option.isSome(flags.until)
-            ? yield* untilTime(flags.until.value)
-            : undefined;
-          return yield* connection.callTool(
-            "t3_thread_organize",
-            defined({
-              threadId: flags.threadId,
-              action: flags.action === "mark-unread" ? "mark_unread" : flags.action,
-              snoozedUntil,
-            }),
-          );
-        }),
+      Effect.gen(function* () {
+        if (flags.action === "snooze" && Option.isNone(flags.until)) {
+          return yield* agentCliFailure("invalid_request", "snooze needs --until.");
+        }
+        return Option.isSome(flags.until) ? yield* untilTime(flags.until.value) : undefined;
+      }),
+      (connection, snoozedUntil) =>
+        connection.callTool(
+          "t3_thread_organize",
+          defined({
+            threadId: flags.threadId,
+            action: flags.action === "mark-unread" ? "mark_unread" : flags.action,
+            snoozedUntil,
+          }),
+        ),
       () => `${flags.action}: ${flags.threadId}.`,
     ),
   ),
@@ -759,30 +778,27 @@ const threadForkCommand = Command.make("fork", {
     "Fork a thread into a new one with its history, from its latest stable point unless --run or --checkpoint.",
   ),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
-      (connection) =>
-        Effect.gen(function* () {
-          if (Option.isSome(flags.run) && Option.isSome(flags.checkpoint)) {
-            return yield* agentCliFailure(
-              "invalid_request",
-              "Pass --run or --checkpoint, not both.",
-            );
-          }
-          const sourcePoint = Option.isSome(flags.run)
-            ? { type: "run", runId: flags.run.value }
-            : Option.isSome(flags.checkpoint)
-              ? { type: "checkpoint", checkpointId: flags.checkpoint.value }
-              : { type: "latest_stable" };
-          return yield* connection.callTool(
-            "t3_thread_fork",
-            defined({
-              threadId: flags.threadId,
-              sourcePoint,
-              title: Option.getOrUndefined(flags.title),
-            }),
-          );
-        }),
+      Effect.gen(function* () {
+        if (Option.isSome(flags.run) && Option.isSome(flags.checkpoint)) {
+          return yield* agentCliFailure("invalid_request", "Pass --run or --checkpoint, not both.");
+        }
+        return Option.isSome(flags.run)
+          ? { type: "run", runId: flags.run.value }
+          : Option.isSome(flags.checkpoint)
+            ? { type: "checkpoint", checkpointId: flags.checkpoint.value }
+            : { type: "latest_stable" };
+      }),
+      (connection, sourcePoint) =>
+        connection.callTool(
+          "t3_thread_fork",
+          defined({
+            threadId: flags.threadId,
+            sourcePoint,
+            title: Option.getOrUndefined(flags.title),
+          }),
+        ),
       textAs(ForkResult, (result) => `Forked ${flags.threadId} into ${result.targetThreadId}.`),
     ),
   ),
@@ -923,13 +939,22 @@ const requestRespondCommand = Command.make("respond", {
 }).pipe(
   Command.withDescription("Answer a thread's question in its user's name."),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
-      (connection) =>
+      // The answers by question id that --answers gives, or none for --answer.
+      Effect.gen(function* () {
+        if (Option.isSome(flags.answer) === Option.isSome(flags.answers)) {
+          return yield* agentCliFailure("invalid_request", "Pass --answer or --answers.");
+        }
+        if (Option.isNone(flags.answers)) return Option.none<object>();
+        const parsed = Option.getOrUndefined(decodeJson(flags.answers.value));
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          return yield* agentCliFailure("invalid_request", "--answers must be a JSON object.");
+        }
+        return Option.some(parsed);
+      }),
+      (connection, answersById) =>
         Effect.gen(function* () {
-          if (Option.isSome(flags.answer) === Option.isSome(flags.answers)) {
-            return yield* agentCliFailure("invalid_request", "Pass --answer or --answers.");
-          }
           const request = yield* findRequest(connection, flags.requestId, flags.thread);
           if (request.type !== "question") {
             return yield* agentCliFailure(
@@ -939,12 +964,8 @@ const requestRespondCommand = Command.make("respond", {
           }
           const questions = Option.getOrElse(decodeQuestionIds(request.questions ?? []), () => []);
           let answers: unknown;
-          if (Option.isSome(flags.answers)) {
-            const parsed = Option.getOrUndefined(decodeJson(flags.answers.value));
-            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-              return yield* agentCliFailure("invalid_request", "--answers must be a JSON object.");
-            }
-            answers = parsed;
+          if (Option.isSome(answersById)) {
+            answers = answersById.value;
           } else {
             const [only, ...more] = questions;
             if (only === undefined || more.length > 0) {
@@ -974,9 +995,11 @@ const requestRespondCommand = Command.make("respond", {
 const decide = (
   flags: CommonFlags & { readonly requestId: string; readonly thread: Option.Option<string> },
   decision: ProviderApprovalDecision,
+  check: Effect.Effect<void, AgentCliFailure> = Effect.void,
 ) =>
-  run(
+  runChecked(
     flags,
+    check,
     (connection) =>
       Effect.gen(function* () {
         const request = yield* findRequest(connection, flags.requestId, flags.thread);
@@ -1029,12 +1052,15 @@ const requestApproveCommand = Command.make("approve", {
 }).pipe(
   Command.withDescription("Approve a thread's permission request, as its user would."),
   Command.withHandler((flags) =>
-    flags.forSession && flags.always
-      ? Effect.fail(agentCliFailure("invalid_request", "Pass --for-session or --always, not both."))
-      : decide(
-          flags,
-          flags.always ? "acceptAlways" : flags.forSession ? "acceptForSession" : "accept",
-        ),
+    decide(
+      flags,
+      flags.always ? "acceptAlways" : flags.forSession ? "acceptForSession" : "accept",
+      flags.forSession && flags.always
+        ? Effect.fail(
+            agentCliFailure("invalid_request", "Pass --for-session or --always, not both."),
+          )
+        : Effect.void,
+    ),
   ),
 );
 
@@ -1132,18 +1158,15 @@ const queueEditCommand = Command.make("edit", {
 }).pipe(
   Command.withDescription("Replace a queued message's text; its attachments stay."),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
-      (connection) =>
-        readMessage({ ...flags, required: true }).pipe(
-          Effect.flatMap((text) =>
-            connection.callTool("t3_queue_edit", {
-              threadId: flags.threadId,
-              queuedRunId: flags.queuedRunId,
-              text: Option.getOrElse(text, () => ""),
-            }),
-          ),
-        ),
+      readMessage({ ...flags, required: true }),
+      (connection, text) =>
+        connection.callTool("t3_queue_edit", {
+          threadId: flags.threadId,
+          queuedRunId: flags.queuedRunId,
+          text: Option.getOrElse(text, () => ""),
+        }),
       () => `Edited ${flags.queuedRunId}.`,
     ),
   ),
@@ -1183,16 +1206,17 @@ const queueReorderCommand = Command.make("reorder", {
 }).pipe(
   Command.withDescription("Move a queued message before another one, or to the end."),
   Command.withHandler((flags) =>
-    run(
+    runChecked(
       flags,
+      Option.isSome(flags.before) === flags.last
+        ? Effect.fail(agentCliFailure("invalid_request", "Pass --before or --last."))
+        : Effect.void,
       (connection) =>
-        Option.isSome(flags.before) === flags.last
-          ? Effect.fail(agentCliFailure("invalid_request", "Pass --before or --last."))
-          : connection.callTool("t3_queue_reorder", {
-              threadId: flags.threadId,
-              queuedRunId: flags.queuedRunId,
-              beforeRunId: Option.getOrNull(flags.before),
-            }),
+        connection.callTool("t3_queue_reorder", {
+          threadId: flags.threadId,
+          queuedRunId: flags.queuedRunId,
+          beforeRunId: Option.getOrNull(flags.before),
+        }),
       () => `Moved ${flags.queuedRunId}.`,
     ),
   ),
@@ -1263,7 +1287,7 @@ const EVENTS_SESSION_TTL = Duration.hours(1);
 const RECONNECT_DELAYS = [0, 1, 2, 5, 10, 30].map((seconds) => Duration.seconds(seconds));
 
 export const eventsCommand = Command.make("events", {
-  ...projectLocationFlags,
+  ...common,
   follow: Flag.Boolean("follow").pipe(
     Flag.withDescription("Keep printing changes until stopped; reconnects when T3 Code restarts."),
     Flag.withDefault(false),
@@ -1279,7 +1303,7 @@ export const eventsCommand = Command.make("events", {
   ),
 }).pipe(
   Command.withDescription(
-    "Print each thread's state as a JSON line, then a synced line; with --follow, a line whenever one changes.",
+    "Print each thread's state as a JSON line, then a synced line; with --follow, a line whenever one changes. The output is JSON lines with or without --json.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -1313,14 +1337,11 @@ export const eventsCommand = Command.make("events", {
               ),
             ),
         { sessionTtl: EVENTS_SESSION_TTL },
-      ).pipe(
-        Effect.tapError((error) =>
-          isAgentCliFailure(error) ? Console.error(error.message) : Effect.void,
-        ),
       );
       if (!flags.follow) return yield* connect;
       // Once the stream has started, a dropped connection means T3 restarted or the session
-      // expired: reconnect and resume after the last sequence, so no change is missed.
+      // expired: say why on standard error, then reconnect and resume after the last sequence, so
+      // no change is missed and standard output stays JSON lines.
       let started = false;
       let attempt = 0;
       while (true) {
@@ -1329,12 +1350,17 @@ export const eventsCommand = Command.make("events", {
           started = true;
           attempt = 0;
         }
-        if (!started && exit._tag === "Failure") return yield* Effect.failCause(exit.cause);
+        if (exit._tag === "Failure") {
+          // Before the stream ever ran, the failure is the command's, such as T3 not running.
+          if (!started) return yield* Effect.failCause(exit.cause);
+          const dropped = Cause.findErrorOption(exit.cause);
+          if (Option.isSome(dropped)) yield* Console.error(dropped.value.message);
+        }
         const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)]!;
         if (Duration.isGreaterThan(delay, Duration.zero)) yield* Effect.sleep(delay);
         attempt += 1;
       }
-    }),
+    }).pipe(Effect.tapError((error) => printFailure(flags, error))),
   ),
 );
 
