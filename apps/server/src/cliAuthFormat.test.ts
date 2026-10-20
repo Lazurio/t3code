@@ -87,3 +87,27 @@ it("formats issued sessions with the bearer token but omits tokens from listings
   expect(issuedOutput).toContain("secret-session-token");
   expect(listedOutput).not.toContain("secret-session-token");
 });
+
+it("names an issued MCP client session's runtime-mode ceiling, and nothing for other sessions", () => {
+  const session = {
+    sessionId: "session-1" as never,
+    token: "secret-session-token",
+    method: "bearer-access-token" as const,
+    scopes: ["orchestration:read", "orchestration:operate"] as const,
+    subject: "mcp-client",
+    client: { deviceType: "bot" as const },
+    expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
+  };
+
+  const capped = { ...session, runtimeModeCeiling: "full-access" as const };
+  expect(JSON.parse(formatIssuedSession(capped, { json: true })).runtimeModeCeiling).toBe(
+    "full-access",
+  );
+  expect(formatIssuedSession(capped, { json: false })).toContain(
+    "Runtime-mode ceiling: full-access",
+  );
+  expect(JSON.parse(formatIssuedSession(session, { json: true }))).not.toHaveProperty(
+    "runtimeModeCeiling",
+  );
+  expect(formatIssuedSession(session, { json: false })).not.toContain("ceiling");
+});
