@@ -203,6 +203,15 @@ jobs:
             # session paired on 0.0.45 pairs again. Its code lives in apps/web/src/lazurio/; the
             # gate holds two calls.
             apps/web/src/environments/primary/auth.ts
+            # A headless MCP client's runtime-mode ceiling (root decision 0210, addendum 3; proposed
+            # upstream): `t3 auth session issue --subject mcp-client --runtime-mode-ceiling <mode>`
+            # issues the ceiling the MCP sign-in's approval grants, so an agent without a browser
+            # can change threads that run above Supervised. Without the flag nothing changes.
+            apps/server/src/auth/EnvironmentAuth.ts
+            apps/server/src/cli/auth.test.ts
+            apps/server/src/cli/auth.ts
+            apps/server/src/cliAuthFormat.test.ts
+            apps/server/src/cliAuthFormat.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
