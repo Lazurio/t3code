@@ -39,7 +39,11 @@ filter with `--status waiting`, `--settled` or `--project <name>`.
 ## Output and exit codes
 
 Add `--json` to print the result as one JSON document. A command that fails
-prints `{"error": {"code": "...", "message": "..."}}` instead.
+prints `{"error": {"code": "...", "message": "..."}}` instead, and without
+`--json` says why on standard error. That includes a command line that cannot
+work, such as `--for-session` with `--always`: it fails before anything is read.
+Only a command line `t3` cannot parse, such as one with an unknown flag or a
+missing argument, prints the command's help and the error as text.
 
 ```sh
 t3 thread list --status waiting --json
@@ -47,12 +51,12 @@ t3 thread read 4f1c0b2e-… --json
 t3 thread send 4f1c0b2e-… "Use the staging database" --mode steer --json
 ```
 
-| Exit code | Meaning                                                                                    |
-| --------- | ------------------------------------------------------------------------------------------ |
-| 0         | Done.                                                                                      |
-| 1         | T3 Code refused or failed the request, or the command line was invalid. `--json` says why. |
-| 3         | T3 Code is not running for this T3 home. Nothing was read or changed.                      |
-| 4         | `t3 thread wait` timed out. The run goes on.                                               |
+| Exit code | Meaning                                                                        |
+| --------- | ------------------------------------------------------------------------------ |
+| 0         | Done.                                                                          |
+| 1         | T3 Code refused or failed the request, or the command line was invalid.        |
+| 3         | T3 Code is not running for this T3 home. Nothing was read or changed.          |
+| 4         | `t3 thread wait` timed out. It prints the thread's state, and the run goes on. |
 
 A command is not retried for you. If one ends without an answer, check the
 thread with `t3 thread read` or `t3 thread list` before you send it again.
@@ -91,7 +95,7 @@ offers that, and `t3 request deny --cancel` also stops the agent's turn.
 ## Follow changes
 
 `t3 events` prints one JSON line for each thread in the sidebar, then a
-`synced` line. With `--follow` it keeps going, and prints a line whenever a
+`synced` line, with or without `--json`. With `--follow` it keeps going, and prints a line whenever a
 thread starts or finishes a run, waits on a question or permission, is renamed,
 settled, snoozed or archived, or leaves the list. Output that only streams in
 does not print a line; read the thread for it. Shortened, two lines look like
@@ -104,7 +108,8 @@ this:
 
 A thread's line has the same fields as an item of `t3 thread list`. A followed
 stream reconnects by itself when T3 Code restarts and continues after the last
-`sequence` it printed, so no change is missed.
+`sequence` it printed, so no change is missed. It says why it reconnected on
+standard error.
 
 ## An MCP token without a sign-in
 
