@@ -104,6 +104,47 @@ describe("T3 browser developer instructions", () => {
   });
 });
 
+// Lazurio overlay (root decision 0211): agents ask the user through request_user_input. The
+// guidance travels in the turn's context, which reaches every model: a model whose catalog ships
+// its own mode text, as GPT-6 models do, never sees T3's developer instructions.
+describe("Asking the user", () => {
+  const runtime = { model: "gpt-6-astra", reasoningEffort: "medium" };
+
+  it("steers Default mode to request_user_input instead of a plain-text question", () => {
+    const defaultMode = buildCodexDeveloperInstructions("default");
+    NodeAssert.doesNotMatch(defaultMode, /plain-text question/);
+    NodeAssert.doesNotMatch(defaultMode, /Never write a multiple choice question/);
+
+    const questions = buildCodexAdditionalContext(runtime).lazurio_questions;
+    NodeAssert.equal(questions?.kind, "application");
+    // Also for a question the agent cannot continue without, not only optional ones.
+    NodeAssert.match(questions?.value ?? "", /ask the user through the `request_user_input` tool/);
+    NodeAssert.match(questions?.value ?? "", /not only for optional questions/);
+    NodeAssert.match(questions?.value ?? "", /never ask for what you can find out yourself/);
+    // Without the tool this turn, the question goes in the message with numbered options.
+    NodeAssert.match(questions?.value ?? "", /numbered options and say that you are waiting/);
+  });
+
+  it("offers the options of the user's own decision without a recommendation", () => {
+    const questions = buildCodexAdditionalContext(runtime).lazurio_questions?.value ?? "";
+    NodeAssert.match(questions, /whether to publish your work/);
+    NodeAssert.match(questions, /mark no option as recommended/);
+  });
+
+  it("goes with every turn, whatever T3 tools the turn has", () => {
+    for (const tools of [true, false, { browser: false, device: true }]) {
+      NodeAssert.ok(buildCodexAdditionalContext(runtime, tools).lazurio_questions);
+    }
+  });
+
+  it("keeps Plan mode's own guidance on questions", () => {
+    NodeAssert.match(
+      buildCodexDeveloperInstructions("plan"),
+      /Strongly prefer using the `request_user_input` tool to ask any questions\./,
+    );
+  });
+});
+
 function runtimeInstructions(runtime: Parameters<typeof buildCodexAdditionalContext>[0]) {
   return buildCodexAdditionalContext(runtime).t3_code_runtime!.value;
 }

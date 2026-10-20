@@ -508,6 +508,16 @@ describe("CodexAdapterV2 runtime policy", () => {
       });
 
       assert.equal(params.collaborationMode?.mode, "default");
+      // Lazurio overlay (root decision 0211): the agent asks the user with request_user_input,
+      // told in the turn's context, which a model with its own mode text also sees.
+      assert.include(
+        params.additionalContext?.lazurio_questions?.value ?? "",
+        "ask the user through the `request_user_input` tool",
+      );
+      assert.notInclude(
+        params.collaborationMode?.settings.developer_instructions ?? "",
+        "plain-text question",
+      );
       assert.include(
         params.additionalContext?.t3_code_orchestration?.value ?? "",
         "Use `delegate_task`",
@@ -779,9 +789,18 @@ describe("CodexAdapterV2 process spawning", () => {
       yield* open({});
       yield* open({ T3CODE_CODEX_LAUNCH_ARGS: " --enable env-feature " });
 
+      // Lazurio overlay (root decision 0211): request_user_input in Default mode too. The
+      // launch arguments come after it, so a `-c` or `--disable` there still wins.
+      const questionTool = ["-c", "features.default_mode_request_user_input=true"];
       assert.deepEqual(spawnedArgs, [
-        ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
-        ["app-server", "--enable", "env-feature"],
+        [
+          ...questionTool,
+          "app-server",
+          "--strict-config",
+          "-c",
+          "model_reasoning_summary=detailed",
+        ],
+        [...questionTool, "app-server", "--enable", "env-feature"],
       ]);
     }).pipe(Effect.provideService(HostProcess.Platform, "linux")),
   );
@@ -2782,6 +2801,110 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           });
         }
         assert.isEmpty(assistantMessages(harness.events));
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  // Lazurio overlay (root decision 0211): in Default mode Codex marks a request_user_input
+  // question as not blocking, and its own TUI answers it empty after two minutes. T3 holds it until
+  // the user picks an answer, which goes back to Codex as the tool's result: the transcript accepts
+  // no other response to the request.
+  it.effect("holds a Default-mode Codex question until the user answers it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const nativeThreadId = "default-question-thread";
+        const nativeTurnId = "default-question-turn";
+        const options = [
+          { label: "Publish", description: "Merge the pull request now." },
+          { label: "Ask a colleague", description: "Request a review and hand it over." },
+        ];
+        const transcript = makeCodexReplayTranscript({
+          scenario: "default-mode-question",
+          entries: [
+            ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Hand it over." }),
+            {
+              type: "emit_inbound",
+              label: "question",
+              frame: {
+                id: 100,
+                method: "item/tool/requestUserInput",
+                params: {
+                  threadId: nativeThreadId,
+                  turnId: nativeTurnId,
+                  itemId: "publish-question",
+                  questions: [
+                    {
+                      id: "publish",
+                      header: "Publish",
+                      question: "Shall I publish these changes in your name?",
+                      isOther: true,
+                      isSecret: false,
+                      options,
+                    },
+                  ],
+                  isBlocking: false,
+                },
+              },
+            },
+            {
+              type: "expect_outbound",
+              label: "answer",
+              frame: {
+                id: 100,
+                result: { answers: { publish: { answers: ["Ask a colleague"] } } },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "complete",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("default-question-attempt"),
+            text: "Hand it over.",
+          }),
+        );
+        const requests = () =>
+          harness.events.flatMap((event) =>
+            event.type === "runtime_request.updated" ? [event.runtimeRequest] : [],
+          );
+        yield* awaitUntil(() => requests().length > 0, "the question");
+        assert.equal(requests().at(-1)?.status, "pending");
+        assert.isEmpty(harness.terminalEvents());
+        const question = harness.events.find(
+          (event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "user_input_request",
+        );
+        assert.deepEqual(
+          question?.type === "turn_item.updated" && question.turnItem.type === "user_input_request"
+            ? question.turnItem.questions[0]?.options
+            : undefined,
+          options,
+        );
+
+        yield* harness.runtime.respondToRuntimeRequest({
+          requestId: requests()[0]!.id,
+          answers: { publish: "Ask a colleague" },
+        });
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
