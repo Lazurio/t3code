@@ -86,7 +86,8 @@ Add the environment as a custom MCP app in ChatGPT's apps settings:
 
 Any agent that supports remote MCP servers over HTTP with OAuth can connect. Give
 it the MCP URL and choose OAuth, and the agent finds the sign-in settings itself.
-Agents without OAuth support cannot connect.
+An agent without OAuth support can use a token issued on the host instead; see
+[Agents on the host](./agent-cli.md#an-mcp-token-without-a-sign-in).
 
 ## Remove an agent
 

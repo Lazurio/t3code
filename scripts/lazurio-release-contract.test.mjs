@@ -2080,3 +2080,50 @@ NodeTest.test("the Environment pairs its own browser through its seam", async ()
   NodeAssert.match(cli, /operatorPairing: true/);
   NodeAssert.ok(overlayMayChange("apps/web/src/environments/primary/auth.ts"));
 });
+
+// Root decision 0210, addendum 3 (rows 20 and 21): agents in an Environment work with T3's threads
+// as its owner through `t3 thread`, `t3 request`, `t3 queue` and `t3 events`, and a headless MCP
+// client gets a runtime-mode ceiling from `t3 auth session issue`. The seams are the commands' one
+// spread in binCli.ts, the flag in cli/auth.ts, the optional ceiling of `issueSession`, and the item
+// `t3_thread_list` returns, which a thread's line in `t3 events` reuses.
+NodeTest.test("agents work with threads through the agent CLI's seams", async () => {
+  const [bin, auth, environmentAuth, mcpService, connection, lazurioCli] = await Promise.all(
+    [
+      "apps/server/src/binCli.ts",
+      "apps/server/src/cli/auth.ts",
+      "apps/server/src/auth/EnvironmentAuth.ts",
+      "apps/server/src/mcp/OrchestratorMcpService.ts",
+      "apps/server/src/lazurio/agentCliConnection.ts",
+      "apps/server/src/lazurio/cli.ts",
+    ].map(read),
+  );
+  NodeAssert.match(bin, /import \{ agentCliCommands \} from "\.\/lazurio\/agentCli\.ts";/);
+  NodeAssert.match(bin, /\n\s+\.\.\.agentCliCommands,\n/);
+  NodeAssert.match(auth, /Flag\.Literals\("runtime-mode-ceiling", RuntimeMode\.literals\)/);
+  NodeAssert.match(auth, /yield\* checkRuntimeModeCeiling\(flags\);/);
+  NodeAssert.match(environmentAuth, /export const MCP_CLIENT_SUBJECT = "mcp-client";/);
+  NodeAssert.match(environmentAuth, /runtimeModeCeiling: input\.runtimeModeCeiling/);
+  NodeAssert.match(mcpService, /export function listItemFromShell\(/);
+  // On /mcp the CLI is a full-access client, the most an approved agent may be; on the person's
+  // client surface it holds the orchestration scopes alone, never access or relay.
+  NodeAssert.match(
+    connection,
+    /scopes: EnvironmentAuth\.mcpClientScopes\("full-access"\),\n\s+runtimeModeCeiling: "full-access",/,
+  );
+  NodeAssert.match(
+    connection,
+    /const OWNER_SCOPES = \[AuthOrchestrationReadScope, AuthOrchestrationOperateScope\];/,
+  );
+  NodeAssert.doesNotMatch(
+    connection,
+    /AuthAdministrativeScopes|AuthAccessWriteScope|AuthRelayWriteScope/,
+  );
+  NodeAssert.match(lazurioCli, /agentCli: true/);
+  for (const file of [
+    "apps/server/src/binCli.ts",
+    "apps/server/src/cli/auth.ts",
+    "apps/server/src/auth/EnvironmentAuth.ts",
+    "apps/server/src/mcp/OrchestratorMcpService.ts",
+  ])
+    NodeAssert.ok(overlayMayChange(file), file);
+});

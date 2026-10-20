@@ -282,6 +282,7 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         modelRecommendation: true,
         providerRefresh: true,
         operatorPairing: true,
+        agentCli: true,
       }),
     ),
   ),
