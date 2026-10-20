@@ -146,7 +146,7 @@ Lazurio/t3code#70.
 | 19  | `feat(lazurio): the Environment pairs its own browser`                                          | Rozhodnutí Admina 2026-10-17 nahrazuje pravidlo z 2026-09-21, že přímá návštěva ukáže párovací stránku T3 a fork zůstává beze změny: Environment páruje svůj prohlížeč sám. Stránka bez platného sezení T3 si řekne vlastnímu originu o údaj (`GET /.lazurio/chat/pairing`), který Launchpad vydá příkazem `t3 lazurio pairing` s rozsahy operátora, a vymění ho, takže člověk token nevidí a hluboký odkaz zůstane. Sezení spárované na 0.0.45 se spáruje znovu (viz [Párování prohlížeče](#párování-prohlížeče)).                                                                      | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá: zůstává. Šev jsou dvě volání v `bootstrapServerAuth` (`environments/primary/auth.ts`). Při přestavbě ověřte, že upstream nezměnil pořadí zdrojů bootstrap údaje (odkaz, desktop) ani `sessionHasLegacyPermissions` a že `AuthStandardClientScopes` nezískaly `relay:write` (hlídá `cli.test.ts`).                                                                                                                                                                                                        |
 | 20  | `feat(server): t3 auth session issue sets an MCP client's runtime-mode ceiling`                 | Rozhodnutí 0210, dodatek 3: agent bez prohlížeče (Buddy přes SSH, skript) dostane MCP sezení se stropem režimu, jaký jinak dává jen schválení přihlášení MCP. `t3 auth session issue --subject mcp-client --runtime-mode-ceiling <režim>` ho vydá; bez přepínače má takové sezení strop Supervised a vlákno ve full-access mu změnu odmítne (`runtime_mode_escalation_denied`).                                                                                                                                                                                                          | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá. Je to úzká volba konfigurace existující schopnosti (strop schvaluje přihlášení MCP), proto ho lze upstreamu nabídnout bez předchozí diskuse. Šev je nepovinný `runtimeModeCeiling` v `EnvironmentAuth.issueSession`, přepínač v `cli/auth.ts` a řádek výpisu v `cliAuthFormat.ts`.                                                                                                                                                                                                                       |
 | 21  | `feat(lazurio): agents work with T3 Code threads through t3 thread, request, queue and events`  | Rozhodnutí 0210, dodatek 3: Buddy, a s ním každý agent v Environmentu, pracuje s vlákny T3 jako jejich vlastník. Čte a shrnuje je, spouští, posílá zprávy, řídí a zastavuje je, odpovídá na jejich otázky, rozhoduje jejich žádosti o oprávnění a sleduje jejich změny (viz [Agenti a vlákna](#agenti-a-vlákna)).                                                                                                                                                                                                                                                                        | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá: zůstává. Upstreamu ho lze nabídnout až po schválení v Ideas, kód by se přestěhoval do `cli/`. Celý kód je v `apps/server/src/lazurio/agentCli*.ts`; šev je řádek v `binCli.ts` a export `listItemFromShell` v `mcp/OrchestratorMcpService.ts`. Při přestavbě ověřte, že nástroje MCP, které příkazy volají, mají stejná jména a parametry (hlídá `agentCli.test.ts` proti skutečným deklaracím).                                                                                                         |
-| 22  | `feat(server): T3's Codex threads ask the user through request_user_input`                      | Rozhodnutí 0211: agent se člověka ptá nástrojem na otázky, ne jen textem ve zprávě. Codex nabízí `request_user_input` v režimu Default jen se zapnutou funkcí `default_mode_request_user_input`; T3 ji zapne app-serveru, který pro svá vlákna spouští, a do kontextu každého tahu dá pokyn ptát se jím, i když bez odpovědi nejde pokračovat (viz [Nástroj na otázky](#nástroj-na-otázky)). Uživatelův `~/.codex/config.toml` se nemění (rozhodnutí 0161).                                                                                                                              | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá. Je to politika Lazuria nad funkcí Codexu ve vývoji (ve výchozím stavu vypnutá), proto zůstává v overlayi a upstreamu se nenabízí. Šev je přepínač `-c` v `CodexAdapterV2.ts`, položka `lazurio_questions` v `buildCodexAdditionalContext` a věta o otázce prostým textem, kterou overlay z textu režimu Default odebral. Při přestavbě ověřte v `codex features list`, že Codex funkci zná a nezapnul ji sám; pak řádek odeberte.                                                                        |
+| 22  | `feat(server): T3's Codex threads ask the user through request_user_input`                      | Rozhodnutí 0211: agent se člověka ptá nástrojem na otázky, ne jen textem ve zprávě. Codex nabízí `request_user_input` v režimu Default jen se zapnutou funkcí `default_mode_request_user_input`; T3 ji zapne app-serveru, který pro svá vlákna spouští, a do kontextu každého tahu dá pokyn ptát se jím, i když bez odpovědi nejde pokračovat (viz [Nástroj na otázky](#nástroj-na-otázky)). Uživatelův `~/.codex/config.toml` se nemění (rozhodnutí 0161).                                                                                                                              | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá. Je to politika Lazuria nad funkcí Codexu ve vývoji (ve výchozím stavu vypnutá), proto zůstává v overlayi a upstreamu se nenabízí. Šev je přepínač `-c` v `CodexAdapterV2.ts`, položka `lazurio_questions` v `buildCodexAdditionalContext` a věta o otázce prostým textem, kterou overlay z textu režimu Default odebral. Při přestavbě ověřte v `codex features list`, že Codex funkci pořád zná; jakmile ji zapne ve výchozím stavu sám, přepínač odeberte, pokyn zůstává.                              |
 
 Řádek 14 (`feat(web): reorder right panel tabs by dragging (#17730)`, backport
 upstream 410793042) přestavba na v0.1.0 odebrala: upstream ho má i se stejným
@@ -748,14 +748,15 @@ T3 otázku nástroje ukáže ve vlákně s volbami a drží ji, dokud člověk n
   a ve výchozím stavu vypnutou v 0.156.1, 0.163.0 i 0.164.0-alpha.7. Každý `codex app-server`, který
   T3 spouští pro svá vlákna, dostane `-c features.default_mode_request_user_input=true` před
   podpříkazem. Uživatelův `~/.codex/config.toml` se nemění (rozhodnutí 0161); sonda poskytovatele
-  a generování názvů (`codex exec`) přepínač nedostávají. Spouštěcí argumenty z nastavení
+  a generování textu (`codex exec`) přepínač nedostávají. Spouštěcí argumenty z nastavení
   poskytovatele nebo z `T3CODE_CODEX_LAUNCH_ARGS` jdou za ním, takže v nich
   `--disable default_mode_request_user_input` nebo `-c features.default_mode_request_user_input=false`
   funkci vypne bez vydání. Overlay používá `-c`, ne `--enable`: Codex, který klíč nezná, jen varuje
   (s `--strict-config` ve spouštěcích argumentech start odmítne), kdežto `--enable` neznámou funkci
   odmítne vždy.
-- **Pokyn agentovi.** Kontext každého tahu (`turn/start.additionalContext`) má položku
-  `lazurio_questions`. Codex ji pošle modelu znovu, jen když se změní, a T3 ji po kompakci vrátí.
+- **Pokyn agentovi.** Kontext T3 v tahu (`turn/start.additionalContext`, posílá ho s každým tahem,
+  ke kterému připojí svůj server MCP, tedy v provozu s každým) má položku `lazurio_questions`.
+  Codex ji pošle modelu znovu, jen když se změní, a T3 ji po kompakci vrátí.
   Říká, že se agent ptá nástrojem, kdykoli potřebuje odpověď nebo rozhodnutí člověka, i když bez
   odpovědi nejde bezpečně pokračovat. Nejdřív udělá, co na odpovědi nezávisí, a neptá se na nic, co
   zjistí sám. U rozhodnutí, které patří jen člověku, jako je Publikace (merge, odeslání, nasazení),
@@ -770,9 +771,9 @@ T3 otázku nástroje ukáže ve vlákně s volbami a drží ji, dokud člověk n
   `autoResolutionMs` nečte, takže otázka čeká, dokud člověk neodpoví nebo tah nezastaví, a odpověď
   dostane Codex jako výsledek nástroje. Zavřít bez odpovědi jde v T3 jen asynchronní otázka, tato ne
   (upstream).
-- **Kde nástroj chybí.** Podagent Codexu nástroj nemá („can only be used by the root thread“) a ptá
-  se podle pokynu ve zprávě. Otázku vlákna delegovaného úkolu předá T3 rodiči jako upstream
-  (`DelegatedTaskQuestionReactor`).
+- **Kde nástroj chybí.** Podagentům Codexu ho Codex nedává („can only be used by the root thread“);
+  jejich výstup dostane rodičovský agent. Otázku vlákna delegovaného úkolu T3 předá rodiči jako
+  upstream (`DelegatedTaskQuestionReactor`).
 
 Kontraktní test („agents ask people through the question tool through its seams“) hlídá funkci před
 spouštěcími argumenty v `CodexAdapterV2.ts`, položku kontextu v `CodexDeveloperInstructions.ts`, text
@@ -1710,9 +1711,9 @@ t3code.service && systemctl --user start t3code.service` (#25).
    odlišenou od dráhy; česká diakritika v řádcích sidebaru se neořízne. Na
    Environmentu se starší Platformou vypadá T3 jako upstream.
 
-   U vydání s nástrojem na otázky (rozhodnutí 0211, řádek 22) ověřte, že
-   `ps -o args= -u "$USER" | grep 'app-server'` ukazuje
-   `codex -c features.default_mode_request_user_input=true app-server` (stačí
+   U vydání s nástrojem na otázky (rozhodnutí 0211, řádek 22) ověřte, že proces
+   `codex … app-server` (`ps -o args= -u "$USER" | grep '[a]pp-server'`) má
+   v argumentech `-c features.default_mode_request_user_input=true` (stačí
    jedno vlákno Codexu, i na Ring 0 bez AI). Na Environmentu s AI ve vlákně
    Codexu v režimu Default požádejte o práci, která skončí rozhodnutím, třeba
    o Publikaci: agent se zeptá v panelu otázek s volbami bez doporučené, vlákno

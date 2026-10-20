@@ -6,17 +6,17 @@
  *
  * Codex offers `request_user_input` in Plan mode, and in Default mode only with its feature
  * `default_mode_request_user_input` (under development and off by default since Codex 0.106.0).
- * Two seams turn it on for T3's Codex threads without writing the user's `config.toml` (root
+ * Two seams make T3's Codex threads ask with it, without writing the user's `config.toml` (root
  * decision 0161):
  *
  * - `CODEX_APP_SERVER_ARGS` lead every `codex app-server` T3 starts for its threads
- *   (CodexAdapterV2.ts). The launch arguments from the settings or `T3CODE_CODEX_LAUNCH_ARGS`
- *   follow, so their own `-c` or `--disable` still wins: the way to turn the feature off without a
- *   release.
+ *   (CodexAdapterV2.ts) and turn the feature on. The launch arguments from the settings or
+ *   `T3CODE_CODEX_LAUNCH_ARGS` follow, so their own `-c` or `--disable` still wins: the way to turn
+ *   it off without a release.
  * - `codexAdditionalContext` tells the agent when and how to ask (CodexDeveloperInstructions.ts).
- *   It goes in the turn's context and not in the collaboration mode: Codex drops T3's mode text
- *   for a model whose catalog ships its own, as GPT-6 models do, and their text keeps the tool for
- *   optional questions and has the agent go on when a question comes back without answers.
+ *   It goes in T3's context of the turn and not in the collaboration mode: Codex drops T3's mode
+ *   text for a model whose catalog ships its own, as GPT-6 models do, and their text keeps the tool
+ *   for optional questions and has the agent go on when a question comes back without answers.
  */
 
 /** Codex's feature that offers `request_user_input` in Default mode too, not only in Plan mode. */
