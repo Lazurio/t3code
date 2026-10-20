@@ -145,6 +145,7 @@ Lazurio/t3code#70.
 | 18  | `feat(lazurio): providers sign in through Lazurio, and the Launchpad turns them on`             | Rozhodnutí 0201 bod 4 (Lazurio/t3code#46): s `T3CODE_LAZURIO_FOLDER` se Codex a Claude přihlašují svými CLI ze stránky Začínáme Launchpadu (`T3CODE_LAZURIO_TOOLS_URL`). Web tam, kde nabízel vlastní „Continue with ChatGPT“, odkáže na Začínáme, server vlastní přihlášení Codexu v T3 odmítne pro každého klienta a `t3 lazurio providers` poskytovatele zapne a hned znovu načte (viz [Přihlášení přes Lazurio](#přihlášení-přes-lazurio)).                                                                                                                                          | Upstream ekvivalent nemá a v0.1.0 nový vstup do vlastního přihlášení Codexu nepřidala. Stráž je v `orchestration-v2/runtimeLayer.ts`, kde se `ProviderAuthService` od v0.1.0 skládá; po rozdělení rozsahů (#9786) chce cesta `orchestration:read` + `providers:manage` a per-projektové „vypnuto“ (#17879) nemění. Při přestavbě ověřte, že upstream nepřidal další vstup do vlastního přihlášení Codexu (nová tlačítka, MCP nástroj) mimo `ProviderAuthService.start` a `importProfile`.                                                                         |
 | 19  | `feat(lazurio): the Environment pairs its own browser`                                          | Rozhodnutí Admina 2026-10-17 nahrazuje pravidlo z 2026-09-21, že přímá návštěva ukáže párovací stránku T3 a fork zůstává beze změny: Environment páruje svůj prohlížeč sám. Stránka bez platného sezení T3 si řekne vlastnímu originu o údaj (`GET /.lazurio/chat/pairing`), který Launchpad vydá příkazem `t3 lazurio pairing` s rozsahy operátora, a vymění ho, takže člověk token nevidí a hluboký odkaz zůstane. Sezení spárované na 0.0.45 se spáruje znovu (viz [Párování prohlížeče](#párování-prohlížeče)).                                                                      | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá: zůstává. Šev jsou dvě volání v `bootstrapServerAuth` (`environments/primary/auth.ts`). Při přestavbě ověřte, že upstream nezměnil pořadí zdrojů bootstrap údaje (odkaz, desktop) ani `sessionHasLegacyPermissions` a že `AuthStandardClientScopes` nezískaly `relay:write` (hlídá `cli.test.ts`).                                                                                                                                                                                                        |
 | 20  | `feat(server): t3 auth session issue sets an MCP client's runtime-mode ceiling`                 | Rozhodnutí 0210, dodatek 3: agent bez prohlížeče (Buddy přes SSH, skript) dostane MCP sezení se stropem režimu, jaký jinak dává jen schválení přihlášení MCP. `t3 auth session issue --subject mcp-client --runtime-mode-ceiling <režim>` ho vydá; bez přepínače má takové sezení strop Supervised a vlákno ve full-access mu změnu odmítne (`runtime_mode_escalation_denied`).                                                                                                                                                                                                          | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá. Je to úzká volba konfigurace existující schopnosti (strop schvaluje přihlášení MCP), proto ho lze upstreamu nabídnout bez předchozí diskuse. Šev je nepovinný `runtimeModeCeiling` v `EnvironmentAuth.issueSession`, přepínač v `cli/auth.ts` a řádek výpisu v `cliAuthFormat.ts`.                                                                                                                                                                                                                       |
+| 21  | `feat(lazurio): agents work with T3 Code threads through t3 thread, request, queue and events`  | Rozhodnutí 0210, dodatek 3: Buddy, a s ním každý agent v Environmentu, pracuje s vlákny T3 jako jejich vlastník. Čte a shrnuje je, spouští, posílá zprávy, řídí a zastavuje je, odpovídá na jejich otázky, rozhoduje jejich žádosti o oprávnění a sleduje jejich změny (viz [Agenti a vlákna](#agenti-a-vlákna)).                                                                                                                                                                                                                                                                        | Přibyl po přestavbě na v0.1.0; upstream ekvivalent nemá: zůstává. Upstreamu ho lze nabídnout až po schválení v Ideas, kód by se přestěhoval do `cli/`. Celý kód je v `apps/server/src/lazurio/agentCli*.ts`; šev je řádek v `binCli.ts` a export `listItemFromShell` v `mcp/OrchestratorMcpService.ts`. Při přestavbě ověřte, že nástroje MCP, které příkazy volají, mají stejná jména a parametry (hlídá `agentCli.test.ts` proti skutečným deklaracím).                                                                                                         |
 
 Řádek 14 (`feat(web): reorder right panel tabs by dragging (#17730)`, backport
 upstream 410793042) přestavba na v0.1.0 odebrala: upstream ho má i se stejným
@@ -297,6 +298,13 @@ Commity v pořadí na `main`:
   commitem řádku 5 s předmětem z tabulky. Server: `auth/EnvironmentAuth.ts` (nepovinný strop
   v `issueSession`, export `MCP_CLIENT_SUBJECT`), `cli/auth.ts` a nový `cli/auth.test.ts`,
   `cliAuthFormat.ts` a jeho test.
+- **21.** Přibyl po přestavbě na v0.1.0 (rozhodnutí 0210, dodatek 3), na `main` je za
+  commitem řádku 20 s předmětem z tabulky. Server: `binCli.ts`\* (příkazy),
+  `mcp/OrchestratorMcpService.ts` (export `listItemFromShell`); `apps/server/src/lazurio/`:
+  `agentCli.ts`, `agentCliConnection.ts` a `agentCliViews.ts`, testy `agentCli.test.ts` a
+  `agentCliViews.test.ts`, `cli.ts`\* a jeho test\* (`agentCli` v `capabilities`). Uživatelský
+  návod `docs/user/agent-cli.md` a odkazy na něj v `README.md`, `docs/README.md` a
+  `docs/user/outside-agents.md`.
 - **5.** Tento commit, poslední. Soubory distribuce.
 
 ### Lazurio shell
@@ -682,6 +690,42 @@ Fork se na Platformu nespoléhá: dokud Launchpad na cestě neodpoví přesně
 s řádkem 19 může jít na Environmenty před Platformou i po ní. Platforma pozná
 T3, které `t3 lazurio pairing` má, podle `"operatorPairing": true`
 v `t3 lazurio capabilities` (kontrakt verze 1).
+
+### Agenti a vlákna
+
+**Rozhodnutí 0210, dodatek 3 (řádky 20 a 21, plán DEV-6676).** Buddy pracuje s vlákny T3
+Code jako jeho člověk, a to v každém Environmentu, kam dosáhne: přihlásí se přes SSH a jedná
+s přístupy toho Environmentu. Hranicí je celý Environment (rozhodnutí 0172). Kdo smí jako uživatel
+Environmentu spustit `t3`, vydá už dnes libovolné sezení příkazem `t3 auth session issue`; agentní
+příkazy tedy nepřidávají žádné oprávnění, jen ho dávají agentovi bez ručně vydaného tokenu.
+
+- **Příkazy.** `t3 thread list|read|search|launch|send|interrupt|wait|organize|fork`,
+  `t3 request list|read|respond|approve|deny`, `t3 queue list|read|edit|cancel|reorder|promote`
+  a `t3 events [--follow]`. S `--json` každý vypíše výsledek, nebo
+  `{"error": {"code", "message"}}`. Návratový kód 0 je hotovo, 1 odmítnutí nebo chybný příkaz,
+  3 neběžící T3 (nic se nečetlo ani nezměnilo) a 4 vypršené `t3 thread wait`. Uživatelský návod
+  je [docs/user/agent-cli.md](../user/agent-cli.md).
+- **Sezení.** Příkaz najde běžící server podle stavu běhu v T3 home (`--base-dir`), z jeho úložiště
+  tajemství si vydá krátká sezení (10 minut; sledování událostí hodinu a pak nové), drží je jen
+  v paměti a na konci je odvolá. Nic nového se neukládá. Na `/mcp` je klientem MCP se stropem
+  full-access, tedy nejvíc, co smí schválený agent mít: stejné nástroje, kontroly i chyby jako
+  u každého agenta. Plochu člověka používá s rozsahy `orchestration:read` a
+  `orchestration:operate` jen na to, co žádný nástroj MCP nedělá: na seznam vláken s jejich
+  čekajícími žádostmi, na rozhodnutí žádosti o oprávnění (stejný příkaz jako tlačítko v aplikaci)
+  a na živý stream seznamu vláken. Rozhodování o oprávněních upstream na MCP záměrně nedává a fork
+  ho tam nepřidává.
+- **Nové vlákno.** `t3 thread launch` bez `--project` začne v projektu Lazurio, který si zapsal
+  spravovaný start (`lazurio/model-recommendation.json`), běží ve full-access a model nenese
+  (rozhodnutí 0189), takže dostane výchozí model projektu.
+- **Token MCP bez přihlášení.** `t3 auth session issue --subject mcp-client
+--runtime-mode-ceiling <režim>` (řádek 20). Bez přepínače zůstává strop Supervised.
+
+Platforma, Machines i Buddy poznají T3, které příkazy má, podle `"agentCli": true` v
+`t3 lazurio capabilities` (kontrakt verze 1). Bez proměnných Lazuria příkazy fungují stejně, jen
+`t3 thread launch` chce `--project`. Kontraktní test („agents work with threads through the agent
+CLI's seams“) hlídá šev v `binCli.ts`, přepínač v `cli/auth.ts`, strop v `EnvironmentAuth.ts`,
+export v `OrchestratorMcpService.ts` a rozsahy obou sezení; `agentCli.test.ts` spouští skutečné
+CLI proti skutečnému `/mcp` s kontrolami přístupu T3.
 
 ## Kdy vydávat
 

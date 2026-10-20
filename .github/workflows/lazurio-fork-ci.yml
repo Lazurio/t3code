@@ -212,6 +212,12 @@ jobs:
             apps/server/src/cli/auth.ts
             apps/server/src/cliAuthFormat.test.ts
             apps/server/src/cliAuthFormat.ts
+            # Agents work with threads as the Environment's owner (root decision 0210, addendum 3;
+            # plan DEV-6676): `t3 thread`, `t3 request`, `t3 queue` and `t3 events`. Their code lives
+            # in apps/server/src/lazurio/ and binCli.ts (above) adds the commands; a thread in
+            # `t3 events` is the item `t3_thread_list` returns, which OrchestratorMcpService.ts
+            # exports for it.
+            apps/server/src/mcp/OrchestratorMcpService.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

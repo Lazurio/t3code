@@ -158,7 +158,7 @@ describe("t3 lazurio", () => {
     Effect.gen(function* () {
       yield* run(["lazurio", "capabilities"]);
       assert.deepStrictEqual(yield* printed, [
-        '{"version":1,"managedFolder":true,"modelRecommendation":true,"providerRefresh":true,"operatorPairing":true}',
+        '{"version":1,"managedFolder":true,"modelRecommendation":true,"providerRefresh":true,"operatorPairing":true,"agentCli":true}',
       ]);
     }).pipe(Effect.provide(TestConsole.layer)),
   );
