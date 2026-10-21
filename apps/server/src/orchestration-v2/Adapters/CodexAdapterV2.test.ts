@@ -1132,7 +1132,26 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             nativeThreadId: "launch-mcp-thread",
             nativeTurnId: "unused",
             prompt: "unused",
-          }).slice(0, 5),
+          })
+            .slice(0, 5)
+            .map((entry) =>
+              entry.type === "expect_outbound" && entry.label === "thread/start"
+                ? {
+                    ...entry,
+                    frame: {
+                      id: 2,
+                      method: "thread/start",
+                      params: {
+                        config: {
+                          ...CodexAdapterV2.CODEX_THREAD_CONFIG,
+                          // Lazurio overlay (root decision 0191): the thread's agent-browser session.
+                          "shell_environment_policy.set.AGENT_BROWSER_SESSION": `t3-thread-${scenario}`,
+                        },
+                      },
+                    },
+                  }
+                : entry,
+            ),
         }),
         () => Effect.void,
         (method, params) =>
@@ -1152,6 +1171,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               tool_timeout_sec: 3_900,
               http_headers: { Authorization: "Bearer secret-codex-token" },
             },
+            "shell_environment_policy.set.AGENT_BROWSER_SESSION": "t3-thread-launch-mcp-servers",
           },
         },
       ]);
