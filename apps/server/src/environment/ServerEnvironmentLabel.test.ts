@@ -61,6 +61,26 @@ afterEach(() => {
 });
 
 describe("resolveServerEnvironmentLabel", () => {
+  it.effect("prefers the explicit T3CODE_ENVIRONMENT_LABEL", () =>
+    Effect.gen(function* () {
+      const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
+        cwdBaseName: "t3code",
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            withHostPlatform(layerTest, "linux", "buildbox"),
+            Layer.succeed(HostProcess.Environment, {
+              T3CODE_ENVIRONMENT_LABEL: "  Acme / Management  ",
+            }),
+          ),
+        ),
+      );
+
+      expect(result).toBe("Acme / Management");
+      expect(runMock).not.toHaveBeenCalled();
+    }),
+  );
+
   it.effect("uses hostname fallback regardless of launch mode", () =>
     Effect.gen(function* () {
       const result = yield* ServerEnvironmentLabel.resolveServerEnvironmentLabel({
