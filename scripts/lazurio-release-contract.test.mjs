@@ -1044,7 +1044,7 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
   NodeAssert.match(sidebarUi, /data-slot="sidebar-wrapper"/);
   NodeAssert.match(
     page,
-    /<body>\s*<lazurio-rail data-app-sidebar><\/lazurio-rail>\s*<div id="root">/,
+    /<body>\s*<lazurio-rail data-app-sidebar app="chat"><\/lazurio-rail>\s*<div id="root">/,
   );
   NodeAssert.match(
     page,
@@ -1103,7 +1103,7 @@ NodeTest.test("the Lazurio shell takes T3's sidebar colours through the colour r
   NodeAssert.equal(roles.match(/--lazurio-/g)?.length, Object.keys(tokens).length);
   // The rail joins T3's sidebar palette scope, so it reads as one surface with the sidebar beside
   // it (the default dark sidebar is darker than the document's own --sidebar), grain included.
-  NodeAssert.match(page, /<lazurio-rail data-app-sidebar><\/lazurio-rail>/);
+  NodeAssert.match(page, /<lazurio-rail data-app-sidebar app="chat"><\/lazurio-rail>/);
   NodeAssert.match(
     page,
     /lazurio-rail:defined \{\s*background-image: var\(--surface-grain\);\s*background-repeat: repeat;\s*background-size: var\(--surface-grain-size\);\s*\}/,
