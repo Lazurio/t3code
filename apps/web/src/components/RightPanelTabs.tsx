@@ -84,6 +84,7 @@ import {
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
+import * as Lazurio from "~/lazurio/LazurioEnvironmentBrowser";
 
 import { PreviewPanelShell, type PreviewPanelMode } from "./preview/PreviewPanelShell";
 import { FaviconImage } from "./preview/PreviewFaviconIcon";
@@ -203,7 +204,8 @@ type TabContextMenuAction =
   | "close"
   | "close-others"
   | "close-to-right"
-  | "close-all";
+  | "close-all"
+  | Lazurio.TabMenuAction;
 
 const TAB_SCROLL_EDGE_TOLERANCE = 1;
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
@@ -322,6 +324,8 @@ function RightPanelEmptyState(props: {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
+  /** Lazurio overlay: why the Environment browser is not here yet, instead of upstream's line. */
+  browserNote: string | null;
 }) {
   const [highlight, setHighlight] = useState(-1);
 
@@ -331,7 +335,7 @@ function RightPanelEmptyState(props: {
       icon: Globe2,
       shortcut: "B",
       available: props.browserAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.browser,
+      disabledReason: props.browserNote ?? SURFACE_UNAVAILABLE_HINTS.browser,
       onClick: props.onAddBrowser,
     },
     {
@@ -537,6 +541,9 @@ function RightPanelEmptyState(props: {
             ),
           )}
         </div>
+        {props.browserNote === null ? null : (
+          <p className="mt-3 text-center text-muted-foreground text-xs">{props.browserNote}</p>
+        )}
       </div>
     </div>
   );
@@ -546,6 +553,7 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  lazurioTitles: Lazurio.FrameTitles,
 ): string {
   switch (surface.kind) {
     case "diff":
@@ -567,6 +575,8 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "environment-browser":
+      return Lazurio.surfaceTitle(surface, lazurioTitles);
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -655,6 +665,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "environment-browser":
+      return <Lazurio.SurfaceIcon surface={surface} />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -927,7 +939,7 @@ function RightPanelTab(
                 title={title}
               />
             ) : (
-              title
+              <Lazurio.TabTooltip surface={surface} title={title} />
             )}
           </TooltipPopup>
         </Tooltip>
@@ -1085,6 +1097,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddDevice,
     },
   ] as const;
+  const lazurio = Lazurio.useRightPanel(addSurfaceActions);
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -1123,6 +1136,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         }),
       });
     }
+    items.push(...Lazurio.tabMenuItems(surface));
     items.push(
       { id: "close", label: "Close" },
       {
@@ -1176,6 +1190,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         break;
       case null:
         break;
+      default:
+        Lazurio.runTabMenuAction(action, surface);
     }
   };
   const handleTabAuxClick = (event: ReactMouseEvent, surface: RightPanelSurface) => {
@@ -1289,7 +1305,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
                     active={surface.id === props.activeSurfaceId}
                     pending={props.pendingSurfaceIds.has(surface.id)}
-                    title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
+                    title={surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      lazurio.titles,
+                    )}
                     audio={tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
                     )}
@@ -1464,6 +1485,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestAvailable={props.pullRequestAvailable}
             pullRequestsAvailable={props.pullRequestsAvailable}
             deviceAvailable={props.deviceAvailable}
+            browserNote={lazurio.browserNote}
           />
         ) : (
           props.children
