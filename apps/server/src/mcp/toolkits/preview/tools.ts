@@ -74,9 +74,18 @@ const PreviewStatusTool = Tool.make("preview_status", {
 const PreviewOpenTool = browserTool(
   Tool.make("preview_open", {
     description:
-      "Initialize a collaborative browser tab and open its thread-bound inline preview by default. Set open=false for background-only automation. Pass tabId to reuse a specific existing tab, set reuseExistingTab=false to create another tab, or omit both to use this agent session's current tab. Parallel subagents sharing a provider session must each open with reuseExistingTab=false and pass their returned tabId on every call. Pass profileId (an id or name from preview_status profiles) to open under a browser profile and its saved logins; omit it for the user's default profile. Another agent session's tabs can be read but not operated.",
+      "Initialize a collaborative browser tab and open its thread-bound inline preview by default. Set open=false for background-only automation. Pass tabId to reuse a specific existing tab, set reuseExistingTab=false to create another tab, or omit both to use this agent session's current tab. Parallel subagents sharing a provider session must each open with reuseExistingTab=false and pass their returned tabId on every call. Pass profileId (an id or name from preview_status profiles) to open under a browser profile and its saved logins; omit it for the user's default profile. Another agent session's tabs can be read but not operated." +
+      // Lazurio overlay (Lazurio/t3code#88): the Environment browser host answers with the view.
+      " When the result has a view, that is the address where a person sees the tab: someone without the inline preview, such as in the desktop or mobile app, opens it in their own browser.",
     parameters: PreviewAutomationOpenInput,
-    success: PreviewAutomationStatus,
+    // Lazurio overlay (plan DEV-6646): the Environment browser host answers with the view of the
+    // tab it opens, and another Lazurio Environment's view with what to do instead
+    // (apps/server/src/lazurio).
+    success: Schema.Struct({
+      ...PreviewAutomationStatus.fields,
+      view: Schema.optional(Schema.String),
+      message: Schema.optional(Schema.String),
+    }),
     failure: PreviewToolFailure,
     dependencies,
   })
