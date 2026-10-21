@@ -1721,10 +1721,16 @@ t3code.service && systemctl --user start t3code.service` (#25).
    U vydání s nástrojem na otázky (rozhodnutí 0211, řádek 22) ověřte, že proces
    `codex … app-server` (`ps -o args= -u "$USER" | grep '[a]pp-server'`) má
    v argumentech `-c features.default_mode_request_user_input=true` (stačí
-   jedno vlákno Codexu, i na Ring 0 bez AI). Na Environmentu s AI ve vlákně
-   Codexu v režimu Default požádejte o práci, která skončí rozhodnutím, třeba
-   o Publikaci: agent se zeptá v panelu otázek s volbami bez doporučené, vlákno
-   na odpověď čeká a zvolená odpověď dojde agentovi.
+   jedno vlákno Codexu). Dokud Ring 0 nemá AI (poskytovatele záměrně nemá),
+   kontrola vydání tam končí tímto spuštěním app-serveru s přepínačem,
+   nezměněným stavem poskytovatelů bez nové chyby startu a fungujícím CLI
+   a prohlížečem. Živý tah Codexu s otázkou `request_user_input` pak proběhne
+   po Ring 0 na trvalém Environmentu s AI, na osobním Environmentu Admina s jeho
+   souhlasem: ve vlákně Codexu v režimu Default požádejte o práci, která skončí
+   rozhodnutím, třeba o Publikaci. Agent se zeptá v panelu otázek s volbami bez
+   doporučené a vlákno na odpověď čeká, `t3 request list` otázku ukáže,
+   `t3 request respond` ji zodpoví a tah pokračuje. Jakmile Ring 0 dostane
+   poskytovatele, živý tah s otázkou se ověřuje znovu na něm.
 
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
    zeleném canary a výslovném souhlasu Admina. Canary Environmenty vraťte
