@@ -336,8 +336,9 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
 `allowed_upstream_changes`:
 
 - `apps/web/index.html`: modulový skript `/.lazurio/shell.js` s atributem
-  `vite-ignore` (Vite značku nechá být a nic nebunduje), `<lazurio-rail>` před
-  `#root` a `<lazurio-buddy>` za ním. Dál
+  `vite-ignore` (Vite značku nechá být a nic nebunduje), `<lazurio-rail app="chat">` před
+  `#root` a `<lazurio-buddy>` za ním. Podle `app` zůstává klik na Organizaci
+  v railu v Chatu (rozhodnutí 0185 bod 1). Dál
   `#root { box-sizing: border-box; padding-left: var(--lazurio-rail-width, 0px); }`:
   odsazení, ne posun, protože `#root` má v upstreamu `width: 100%` pod
   `body` s `overflow: hidden` a `margin-left` by pravý okraj uřízl. Sidebar T3
