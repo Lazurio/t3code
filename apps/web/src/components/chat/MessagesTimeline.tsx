@@ -189,6 +189,7 @@ import {
 } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
+import { usePromptLinksOffered } from "../../lazurio/managedPromptLinks";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
@@ -2203,6 +2204,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     (reference) => reference.label,
   );
   const promptLink = promptLinkFor(plainText);
+  // Lazurio (Lazurio/t3code#77): on a managed Environment a prompt link opens no thread.
+  const promptLinksOffered = usePromptLinksOffered();
   const contextClipboardFragment =
     resolvedContext.records.length === 0
       ? null
@@ -2489,7 +2492,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                 variant="ghost"
               />
             )}
-            {promptLink !== null && (
+            {promptLink !== null && promptLinksOffered && (
               <MessageCopyButton
                 text={promptLink}
                 label="Copy prompt link"

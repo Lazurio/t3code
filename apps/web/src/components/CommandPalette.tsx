@@ -1,5 +1,6 @@
 "use client";
 
+import { everyEnvironmentManaged, offeredInProjectPicker } from "../lazurio/managedFolder";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -886,7 +887,7 @@ function OpenCommandPaletteDialog(props: {
   const projectPickerEntries = buildSidebarProjectPickerEntries({
     groups: projectGroups,
     preferredProjectRef: contextualProjectRef,
-  });
+  }).filter(offeredInProjectPicker(environments));
   const pickerProjects = projectPickerEntries.map(({ group, targetProject }) => ({
     ...targetProject,
     displayName: group.displayName,
@@ -901,6 +902,7 @@ function OpenCommandPaletteDialog(props: {
   const addProjectEnvironmentOptions = (() => {
     const options = environments
       .filter((environment) => canCreateProjectInEnvironment(environment.connection.phase))
+      .filter((environment) => environment.serverConfig?.lazurioFolder === undefined)
       .map((environment): AddProjectEnvironmentOption => {
         const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
         return {
@@ -1656,8 +1658,9 @@ function OpenCommandPaletteDialog(props: {
       : paletteRouteTarget.draftId
     : null;
   const promptLinkProjectRef = activeThread ?? activeDraftThread;
+  // Lazurio (Lazurio/t3code#77): on a managed Environment a prompt link opens no thread.
   const promptLinkInput =
-    promptLinkTarget === null
+    promptLinkTarget === null || everyEnvironmentManaged(environments)
       ? null
       : {
           target: promptLinkTarget,
@@ -1820,7 +1823,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push({
+  const addProjectItem: CommandPaletteActionItem = {
     kind: "action",
     value: "action:add-project",
     searchTerms: [
@@ -1848,7 +1851,9 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       openAddProjectFlow();
     },
-  });
+  };
+  // Lazurio (LazurioPlatform F51): when every Environment is managed, none takes another project.
+  if (!everyEnvironmentManaged(environments)) actionItems.push(addProjectItem);
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({

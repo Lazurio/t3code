@@ -1,3 +1,4 @@
+import { useEveryEnvironmentManaged } from "../lazurio/managedPromptLinks";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
@@ -2721,6 +2722,7 @@ export default function Sidebar() {
     projectGroupByScopeKey,
     projectScopeItems,
   } = useSidebarLookups();
+  const everyEnvironmentIsManaged = useEveryEnvironmentManaged();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -4686,7 +4688,7 @@ export default function Sidebar() {
                   </ComboboxPopup>
                 </Combobox>
               }
-              onNewProject={openAddProjectCommandPalette}
+              onNewProject={everyEnvironmentIsManaged ? undefined : openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
