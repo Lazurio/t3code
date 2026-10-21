@@ -998,6 +998,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     event.preventDefault();
     event.stopPropagation();
     if (!event.repeat) {
+      if (Lazurio.openNewTab()) return;
       addSurfaceTriggerRef.current?.focus();
       setAddSurfaceMenuOpen(true);
     }
@@ -1335,7 +1336,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 );
               })}
             </SortableTabList>
-            {props.open !== false ? (
+            {props.open !== false && lazurio.newTab ? <Lazurio.NewTabButton /> : null}
+            {props.open !== false && !lazurio.newTab ? (
               <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
                 <MenuTrigger
                   ref={addSurfaceTriggerRef}
@@ -1467,7 +1469,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         ) : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
-        {props.activeSurfaceId === null ? (
+        {props.activeSurfaceId === null && lazurio.newTab ? (
+          <Lazurio.NewTab />
+        ) : props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}
             onAddBrowserInProfile={props.onAddBrowserInProfile}
