@@ -6,13 +6,17 @@
  * of that browser in its holder file (threadTabs.ts), which the web reaches through
  * threadTabsRoute.ts, and archiving or deleting a thread lets go of them (threadLifecycle.ts). The
  * model recommendation route takes the Platform's recommended model for the managed Folder's
- * project (modelRecommendationRoute.ts).
+ * project (modelRecommendationRoute.ts), and the provider refresh route turns Codex or Claude on
+ * and reads their sign-in again after it happened through their CLIs (providerRefreshRoute.ts,
+ * root decision 0201).
  */
 
 import * as Layer from "effect/Layer";
 
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
+import * as ProviderRefresh from "./providerRefresh.ts";
+import * as ProviderRefreshRoute from "./providerRefreshRoute.ts";
 import * as ThreadLifecycle from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import * as ThreadTabsRoute from "./threadTabsRoute.ts";
@@ -21,4 +25,5 @@ export const layer = Layer.mergeAll(
   EnvironmentBrowser.layer,
   ThreadTabsRoute.layer,
   ModelRecommendationRoute.layer,
+  ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
 ).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));
