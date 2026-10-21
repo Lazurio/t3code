@@ -11,13 +11,16 @@
  */
 import {
   CommandId,
+  ModelSelection,
   OrchestrationV2RunStatus,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
+  ProjectId,
   type ProviderApprovalDecision,
   RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
@@ -425,6 +428,26 @@ const folderProject = (connection: AgentCliConnection) =>
     Effect.map(Option.map((record) => record.projectId)),
   );
 
+/** The model a project's own record holds, as `t3_project_read` returns it. */
+const ProjectModel = Schema.Struct({ defaultModelSelection: Schema.NullOr(ModelSelection) });
+
+/**
+ * The model a new thread in the project starts with in the app: the web's resolver over the
+ * Environment's settings and the project's record, so the project's own model, otherwise the
+ * Environment's. Undefined when neither is set.
+ */
+const newThreadModel = (connection: AgentCliConnection, projectId: string) =>
+  Effect.all(
+    [connection.serverSettings, callAs(connection, "t3_project_read", { projectId }, ProjectModel)],
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.map(
+      ([settings, project]) =>
+        resolveProjectSettings(settings, ProjectId.make(projectId), project).settings
+          .defaultModelSelection ?? undefined,
+    ),
+  );
+
 const LaunchResult = Schema.Struct({
   threadId: Schema.String,
   projectId: Schema.String,
@@ -465,7 +488,7 @@ const threadLaunchCommand = Command.make("launch", {
   ),
 }).pipe(
   Command.withDescription(
-    "Start a new thread. It uses the project's default model; the message is its first task.",
+    "Start a new thread with the model a new thread in its project gets in the app; the message is its first task.",
   ),
   Command.withHandler((flags) =>
     runChecked(
@@ -526,8 +549,12 @@ const threadLaunchCommand = Command.make("launch", {
                   startFromOrigin: flags.fromOrigin ? true : undefined,
                 })
               : undefined;
-          // No model: like a hand-off from the Launchpad (root decision 0189), the thread takes
-          // the project's default.
+          // No model flag, like a hand-off from the Launchpad (root decision 0189): the thread
+          // starts with the model a new thread in its project gets in the app. Where none is set,
+          // it passes none and leaves the choice, or the refusal, to T3. Scratch's project is the
+          // launch's own pick, so a scratch launch leaves the model to T3 as well.
+          const modelSelection =
+            projectId === undefined ? undefined : yield* newThreadModel(connection, projectId);
           return yield* connection.callTool(
             "t3_thread_launch",
             defined({
@@ -535,6 +562,7 @@ const threadLaunchCommand = Command.make("launch", {
               projectId,
               scratch: flags.scratch ? true : undefined,
               message: Option.getOrUndefined(message),
+              modelSelection,
               workspaceStrategy,
             }),
           );

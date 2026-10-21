@@ -13,8 +13,9 @@
  *   ceiling, the most an approved agent may have: the same tools, checks and failures as any
  *   other agent.
  * - Only what no MCP tool does uses the person's client surface, with orchestration scopes: the
- *   thread list and a thread's pending requests as the web reads them, a decision on a permission
- *   request as the Approve button sends it, and the live thread list as the sidebar follows it.
+ *   thread list and a thread's pending requests as the web reads them, the Environment's settings
+ *   the web picks a new thread's model from, a decision on a permission request as the Approve
+ *   button sends it, and the live thread list as the sidebar follows it.
  *
  * It talks only to the loopback origin the running server recorded for this T3 home.
  */
@@ -34,7 +35,9 @@ import {
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2SubscribeShellInput,
   type OrchestrationV2ThreadProjection,
+  type ServerSettings,
   type ThreadId,
+  WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { discardResponseBody, responsePayloads } from "@t3tools/shared/mcpResponsePayloads";
@@ -260,6 +263,8 @@ export interface AgentCliConnection {
   ) => Effect.Effect<unknown, AgentCliFailure>;
   /** Every active thread with its pending request, as the web reads the thread list. */
   readonly shellSnapshot: Effect.Effect<OrchestrationV2ShellSnapshot, AgentCliFailure>;
+  /** The Environment's settings without their secrets, as the web reads them. */
+  readonly serverSettings: Effect.Effect<ServerSettings, AgentCliFailure>;
   /**
    * A thread's control state, as the web opens a thread: every runtime request and the recent
    * timeline. `full` reads the whole timeline.
@@ -392,6 +397,10 @@ export const withAgentCliConnection = <A, E, R>(
           mcp.pipe(Effect.flatMap((session) => session.callTool(tool, args))),
         shellSnapshot: ownerHeaders.pipe(
           Effect.flatMap((headers) => http.orchestration.shellSnapshot({ headers })),
+          Effect.mapError((cause) => (isAgentCliFailure(cause) ? cause : requestFailed(cause))),
+        ),
+        serverSettings: ws.pipe(
+          Effect.flatMap((client) => client[WS_METHODS.serverGetSettings]({})),
           Effect.mapError((cause) => (isAgentCliFailure(cause) ? cause : requestFailed(cause))),
         ),
         threadSnapshot: (threadId, readOptions) =>
