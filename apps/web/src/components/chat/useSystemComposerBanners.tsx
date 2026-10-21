@@ -269,7 +269,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
               />
               <TooltipPopup side="top">
                 {versionMismatchServerLabel} {versionMismatch.serverVersion}{" "}
-                <span aria-hidden="true">→</span> {versionMismatch.clientVersion}
+                <span aria-hidden="true">→</span> {versionMismatch.targetVersion}
               </TooltipPopup>
             </Tooltip>
           ) : (
@@ -297,7 +297,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
             installation={versionMismatchInstallation}
             desktopAppUpdate={versionMismatchDesktopAppUpdate}
             threadContinuation={versionMismatchThreadContinuation}
-            targetVersion={versionMismatch.clientVersion}
+            targetVersion={versionMismatch.targetVersion}
             label={updateFailed ? "Retry" : "Update"}
             variant="ghost"
           />

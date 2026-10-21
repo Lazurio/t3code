@@ -208,7 +208,7 @@ export function ConnectionsSettings() {
           threadContinuation: supportsServerUpdateThreadContinuation(environment.serverConfig),
           continueThreadsAfterServerUpdate:
             environment.serverConfig?.settings.continueThreadsAfterServerUpdate ?? false,
-          targetVersion: mismatch.clientVersion,
+          targetVersion: mismatch.targetVersion,
         },
       ];
     },
@@ -1108,11 +1108,11 @@ export function ConnectionsSettings() {
                       threadContinuation={supportsServerUpdateThreadContinuation(
                         primaryServerConfig,
                       )}
-                      targetVersion={primaryVersionMismatch.clientVersion}
+                      targetVersion={primaryVersionMismatch.targetVersion}
                       label={
                         primaryServerUpdateState.status === "failed"
                           ? "Retry update"
-                          : `Update to ${primaryVersionMismatch.clientVersion}`
+                          : `Update to ${primaryVersionMismatch.targetVersion}`
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (

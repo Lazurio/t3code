@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { CLI_RELEASE_INDEX_PAGE_SIZE } from "@t3tools/shared/cliRelease";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -12,19 +13,24 @@ import { repointLauncher, resolveLauncherPath, resolveNewestVersion } from "./up
 
 afterEach(() => vi.restoreAllMocks());
 
-it.effect("authenticates each release page until the requested channel is found", () =>
+it.effect("authenticates each release page up to the last one", () =>
   Effect.gen(function* () {
     const pages: string[] = [];
     const httpClient = HttpClient.make((request) => {
       const url = new URL(request.url);
       assert.equal(url.origin, "https://api.github.com");
-      assert.equal(url.pathname, "/repos/pingdotgg/t3code/releases");
+      assert.equal(url.pathname, "/repos/Lazurio/t3code/releases");
       assert.equal(request.headers.accept, "application/vnd.github+json");
       assert.equal(request.headers.authorization, "Bearer gh-token");
       const page = url.searchParams.get("page") ?? "";
       pages.push(page);
-      const tag_name = page === "1" ? "v1.2.4-preview.20260101.1" : "v1.2.3";
-      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json([{ tag_name }])));
+      const releases =
+        page === "1"
+          ? Array.from({ length: CLI_RELEASE_INDEX_PAGE_SIZE }, (_, index) => ({
+              tag_name: `v1.2.4-preview.20260101.${index + 1}`,
+            }))
+          : [{ tag_name: "v1.2.3" }];
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(releases)));
     });
     const version = yield* resolveNewestVersion("stable").pipe(
       Effect.provideService(HostProcess.Environment, { GH_TOKEN: "gh-token" }),
