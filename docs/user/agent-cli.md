@@ -63,8 +63,11 @@ thread with `t3 thread read` or `t3 thread list` before you send it again.
 
 ## Start and message threads
 
-`t3 thread launch` starts a thread with the project's default model, in full
-access, and gives it the message as its first task. Without `--project`, a
+`t3 thread launch` starts a thread in full access and gives it the message as
+its first task. It starts with the model a new thread in that project starts
+with in the app: the project's own model, otherwise the environment's (see
+[Defaults and inheritance](./project-settings.md#defaults-and-inheritance)). If
+neither is set, T3 Code refuses the launch and says why. Without `--project`, a
 Lazurio Environment starts it in its Lazurio project. `--base main` starts it in
 a new worktree from `main`, and `--existing-worktree <path>` in one you already
 have.

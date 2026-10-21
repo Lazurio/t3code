@@ -8,9 +8,11 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationReadScope,
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentAuthorizationError,
   EnvironmentId,
   MessageId,
+  ModelSelection,
   NodeId,
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationV2DispatchCommandError,
@@ -28,14 +30,18 @@ import {
   type OrchestratorMcpThreadReadInput,
   type OrchestratorMcpThreadSendInput,
   OrchestratorMcpFailure,
+  Project,
   ProjectId,
   ProviderInstanceId,
   ProviderSessionId,
   RpcScopeAuthorization,
   RunId,
   RuntimeRequestId,
+  ServerSettings,
+  ServerSettingsError,
   ThreadId,
   TurnItemId,
+  WS_METHODS,
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
@@ -158,8 +164,36 @@ const listItem = (
   updatedAt,
 });
 
+const modelSelection = (instanceId: string, model: string): ModelSelection => ({
+  instanceId: ProviderInstanceId.make(instanceId),
+  model,
+});
+/** What a person picked as the model of new threads on this Environment. */
+const environmentModel = modelSelection("claudeAgent", "claude-opus-5-5");
+
+/** A project as `t3_project_read` returns it, with the model its own record still holds. */
+const projectRecord = (
+  project: { readonly id: ProjectId; readonly title: string },
+  defaultModelSelection: ModelSelection | null,
+): Project => ({
+  ...project,
+  workspaceRoot: `/${project.title}`,
+  defaultModelSelection,
+  scripts: [],
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+  deletedAt: null,
+});
+
 /** What the fakes behind the server hold, and what the CLI asked of them. */
 const makeWorld = () => ({
+  /** The Environment's settings, as the web reads them. */
+  settings: {
+    ...DEFAULT_SERVER_SETTINGS,
+    defaultModelSelection: environmentModel,
+  } as ServerSettings,
+  /** The model each project's own record holds; folded settings leave it behind. */
+  projectModels: new Map<string, ModelSelection>(),
   shells: new Map<string, OrchestrationV2ThreadShell>(),
   projections: new Map<string, OrchestrationV2ThreadProjection>(),
   /** Threads whose bounded snapshot leaves out their request items, as a long run's would. */
@@ -290,6 +324,14 @@ const ProjectToolkit = Toolkit.make(
     failureMode: "return",
     dependencies: [McpInvocationContext.McpInvocationContext],
   }),
+  Tool.make("t3_project_read", {
+    description: "Reads a project.",
+    parameters: Schema.Struct({ projectId: ProjectId }),
+    success: Project,
+    failure: OrchestratorMcpFailure,
+    failureMode: "return",
+    dependencies: [McpInvocationContext.McpInvocationContext],
+  }),
   Tool.make("t3_thread_launch", {
     description: "Launches a thread.",
     parameters: Schema.Struct({
@@ -297,12 +339,13 @@ const ProjectToolkit = Toolkit.make(
       scratch: Schema.optional(Schema.Boolean),
       title: Schema.String,
       message: Schema.optional(Schema.String),
-      modelSelection: Schema.optional(Schema.Unknown),
+      modelSelection: Schema.optional(ModelSelection),
       workspaceStrategy: Schema.optional(Schema.Unknown),
     }),
     success: Schema.Struct({
       threadId: Schema.String,
       projectId: Schema.String,
+      modelSelection: ModelSelection,
       runId: Schema.NullOr(Schema.String),
       status: Schema.NullOr(Schema.String),
     }),
@@ -319,14 +362,37 @@ const projectHandlers = (world: World) =>
     t3_project_list: McpToolAccess.reads(() =>
       Effect.succeed({ projects: [lazurio, web], nextCursor: null }),
     ),
+    t3_project_read: McpToolAccess.reads((input) => {
+      const project = [lazurio, web].find((candidate) => candidate.id === input.projectId);
+      return project === undefined
+        ? Effect.fail(
+            new OrchestratorMcpFailure({
+              code: "invalid_request",
+              message: "The project was not found.",
+            }),
+          )
+        : Effect.succeed(projectRecord(project, world.projectModels.get(project.id) ?? null));
+    }),
     t3_thread_launch: McpToolAccess.startsThreads(
       () => ({}),
       (input, modes) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          // T3's own choice for a caller outside a thread: the model passed, else the project
+          // record's own field, else a refusal.
+          const model =
+            input.modelSelection ??
+            (input.projectId === undefined ? undefined : world.projectModels.get(input.projectId));
+          if (model === undefined)
+            return yield* new OrchestratorMcpFailure({
+              code: "invalid_request",
+              message:
+                "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
+            });
           world.launches.push({ input, modes });
           return {
             threadId: "thread-launched",
             projectId: input.projectId ?? "scratch",
+            modelSelection: model,
             runId: "run-launched",
             status: "preparing",
           };
@@ -334,7 +400,8 @@ const projectHandlers = (world: World) =>
     ),
   });
 
-// The person's client surface: the dispatch and the shell stream, under T3's own scope checks.
+// The person's client surface: the dispatch, the shell stream and the settings, under T3's own
+// scope checks.
 const TestWsGroup = RpcGroup.make(
   Rpc.make(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, {
     payload: OrchestrationV2RpcSchemas.dispatchCommand.input,
@@ -346,6 +413,11 @@ const TestWsGroup = RpcGroup.make(
     success: OrchestrationV2RpcSchemas.subscribeShell.output,
     error: Schema.Union([OrchestrationV2GetShellSnapshotError, EnvironmentAuthorizationError]),
     stream: true,
+  }),
+  Rpc.make(WS_METHODS.serverGetSettings, {
+    payload: Schema.Struct({}),
+    success: ServerSettings,
+    error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
   }),
 ).middleware(RpcScopeAuthorization);
 
@@ -422,6 +494,7 @@ const ownerRoutes = (world: World) =>
               world.subscriptions.push(input);
               return world.shellStream(input, world.subscriptions.length - 1);
             },
+            [WS_METHODS.serverGetSettings]: () => Effect.succeed(world.settings),
           });
           const httpEffect = yield* RpcServer.toHttpEffectWebsocket(TestWsGroup).pipe(
             Effect.provide(
@@ -685,12 +758,19 @@ describe("t3 thread", () => {
           assert.deepStrictEqual(launched.output, {
             threadId: "thread-launched",
             projectId: lazurio.id,
+            modelSelection: environmentModel,
             runId: "run-launched",
             status: "preparing",
           });
-          // No model: the thread takes the project's default (root decision 0189).
+          // No model flag (root decision 0189): the model a new thread in the project gets in the
+          // app, here the Environment's.
           assert.deepStrictEqual(world.launches[0], {
-            input: { title: "Build", projectId: lazurio.id, message: "Fix the build" },
+            input: {
+              title: "Build",
+              projectId: lazurio.id,
+              message: "Fix the build",
+              modelSelection: environmentModel,
+            },
             modes: { runtimeMode: "full-access", interactionMode: "default" },
           });
 
@@ -714,6 +794,7 @@ describe("t3 thread", () => {
           assert.deepStrictEqual(world.launches[1]?.input, {
             title: "Fix",
             projectId: web.id,
+            modelSelection: environmentModel,
             workspaceStrategy: { type: "worktree", baseRef: "main", branch: "fix-login" },
           });
 
@@ -731,6 +812,99 @@ describe("t3 thread", () => {
       );
     }).pipe(Effect.provide(TestConsole.layer)),
   );
+
+  describe("a launch's model", () => {
+    // A launch names no model (root decision 0189), so it gets the one a new thread in its
+    // project gets in the app, which the web resolves with `resolveProjectSettings`: the
+    // project's override in the settings, the record's own field only until the settings are
+    // folded, then the Environment's (Lazurio/t3code#94).
+    const projectModel = modelSelection("codex", "gpt-6.1-sol");
+    /** `t3 thread launch` in the Lazurio Folder, which the managed startup records. */
+    const launch = (world: World, args: ReadonlyArray<string> = []) =>
+      Effect.gen(function* () {
+        const baseDir = makeBaseDir();
+        const recordDir = NodePath.join(baseDir, "userdata", "lazurio");
+        NodeFS.mkdirSync(recordDir, { recursive: true });
+        NodeFS.writeFileSync(
+          NodePath.join(recordDir, "model-recommendation.json"),
+          `{"projectId":"${lazurio.id}","selection":null}`,
+        );
+        return yield* withLiveServer(baseDir, world, () =>
+          printedJson(
+            run([
+              "thread",
+              "launch",
+              "Fix the build",
+              "--title",
+              "Build",
+              ...args,
+              "--base-dir",
+              baseDir,
+              "--json",
+            ]),
+          ),
+        );
+      });
+
+    it.effect("is the project's override in folded settings, not the record's own field", () =>
+      Effect.gen(function* () {
+        const world = makeWorld();
+        world.settings = {
+          ...world.settings,
+          projectSettingsFolded: true,
+          projectSettingsOverrides: { [lazurio.id]: { defaultModelSelection: projectModel } },
+        };
+        // What the record still holds, which the folded settings no longer read.
+        world.projectModels.set(lazurio.id, modelSelection("codex", "gpt-5"));
+        const launched = yield* launch(world);
+        assert.strictEqual(exitCodeOf(launched.exit), 0);
+        assert.deepStrictEqual(launched.output.modelSelection, projectModel);
+        assert.deepStrictEqual(world.launches[0]?.input, {
+          title: "Build",
+          projectId: lazurio.id,
+          message: "Fix the build",
+          modelSelection: projectModel,
+        });
+      }).pipe(Effect.provide(TestConsole.layer)),
+    );
+
+    it.effect("is the Environment's default for a project without an override", () =>
+      Effect.gen(function* () {
+        const world = makeWorld();
+        world.settings = {
+          ...world.settings,
+          projectSettingsFolded: true,
+          projectSettingsOverrides: { [lazurio.id]: { defaultModelSelection: projectModel } },
+        };
+        const launched = yield* launch(world, ["--project", "web-app"]);
+        assert.strictEqual(exitCodeOf(launched.exit), 0);
+        assert.deepStrictEqual(launched.output.modelSelection, environmentModel);
+        assert.deepStrictEqual(world.launches[0]?.input, {
+          title: "Build",
+          projectId: web.id,
+          message: "Fix the build",
+          modelSelection: environmentModel,
+        });
+      }).pipe(Effect.provide(TestConsole.layer)),
+    );
+
+    it.effect("is none where nothing sets one, so T3 refuses the launch and it exits 1", () =>
+      Effect.gen(function* () {
+        const world = makeWorld();
+        world.settings = { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true };
+        const refused = yield* launch(world, ["--project", "web-app"]);
+        assert.deepStrictEqual(refused.output, {
+          error: {
+            code: "invalid_request",
+            message:
+              "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
+          },
+        });
+        assert.strictEqual(exitCodeOf(refused.exit), AGENT_CLI_EXIT_CODES.failed);
+        assert.deepStrictEqual(world.launches, []);
+      }).pipe(Effect.provide(TestConsole.layer)),
+    );
+  });
 
   it.effect("a wait that times out prints the thread's state and exits 4", () =>
     Effect.gen(function* () {
