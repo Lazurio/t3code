@@ -23,6 +23,7 @@ import {
   type AuthWebSocketTicketResult,
   DpopFailureReason,
   type DpopFailureReason as DpopFailureReasonType,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
 import * as Context from "effect/Context";
@@ -67,6 +68,7 @@ export interface IssuedBearerSession {
   readonly subject: string;
   readonly client: AuthClientMetadata;
   readonly expiresAt: DateTime.Utc;
+  readonly runtimeModeCeiling?: RuntimeMode;
 }
 
 /**
@@ -74,7 +76,7 @@ export interface IssuedBearerSession {
  * the user approved; the HTTP API and WebSocket reject them so an agent token
  * cannot reach the full RPC surface around that cap.
  */
-const MCP_CLIENT_SUBJECT = "mcp-client";
+export const MCP_CLIENT_SUBJECT = "mcp-client";
 const MCP_CLIENT_SESSION_TTL = Duration.days(30);
 
 export const mcpClientScopes = (
@@ -517,6 +519,12 @@ export class EnvironmentAuth extends Context.Service<
       readonly subject?: string;
       readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
       readonly label?: string;
+      /**
+       * For an `mcp-client` session with `orchestration:operate`: the most the threads it starts
+       * or changes may run with. Without it such a session is capped at approval-required, and
+       * every other session ignores it.
+       */
+      readonly runtimeModeCeiling?: RuntimeMode;
     }) => Effect.Effect<IssuedBearerSession, ServerAuthInternalError>;
     readonly listSessions: () => Effect.Effect<
       ReadonlyArray<AuthClientSession>,
@@ -1105,6 +1113,7 @@ export const make = Effect.gen(function* () {
           deviceType: "bot",
         },
         ...(input?.ttl ? { ttl: input.ttl } : {}),
+        ...(input?.runtimeModeCeiling ? { runtimeModeCeiling: input.runtimeModeCeiling } : {}),
       })
       .pipe(
         Effect.map(
@@ -1117,6 +1126,9 @@ export const make = Effect.gen(function* () {
               subject: input?.subject ?? DEFAULT_SESSION_SUBJECT,
               client: issued.client,
               expiresAt: DateTime.toUtc(issued.expiresAt),
+              ...(input?.runtimeModeCeiling
+                ? { runtimeModeCeiling: input.runtimeModeCeiling }
+                : {}),
             }) satisfies IssuedBearerSession,
         ),
         Effect.mapError((cause) => new ServerAuthSessionTokenIssueError({ cause })),
