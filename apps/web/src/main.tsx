@@ -14,8 +14,11 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+import { captureLazurioPromptLink } from "./lazurio/promptDraft";
 
 prepareProviderAuthDelivery();
+// Lazurio overlay: take a prompt link off the address before the router reads it.
+captureLazurioPromptLink();
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
