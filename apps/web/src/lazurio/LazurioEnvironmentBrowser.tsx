@@ -61,7 +61,7 @@ import {
 } from "./threadTabs";
 
 // RightPanelTabs reaches the overlay through this one module: Nová karta is LazurioNewTab.tsx's.
-export { NewTab, NewTabButton } from "./LazurioNewTab";
+export { NewTab, NewTabButton, openNewTab } from "./LazurioNewTab";
 
 /**
  * The thread where the Environment browser can serve it, else null: a thread of this page's own
