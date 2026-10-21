@@ -600,6 +600,9 @@ export const ServerEventLoopStall = Schema.Struct({
 export type ServerEventLoopStall = typeof ServerEventLoopStall.Type;
 
 export const ServerConfig = Schema.Struct({
+  /** The one initial project of a managed Lazurio Environment. Older clients still follow server enforcement. */
+  lazurioFolder: Schema.optionalKey(TrimmedNonEmptyString),
+  lazurioToolsUrl: Schema.optionalKey(TrimmedNonEmptyString),
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
   cwd: TrimmedNonEmptyString,

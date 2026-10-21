@@ -1,3 +1,4 @@
+import { useManagedFirstRunDecision } from "../../lazurio/managedFirstRun";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -119,7 +120,7 @@ export function FirstRunGate({
       threads: soleThread === null ? [] : [soleThread],
     });
 
-  const { decision: nextDecision, persistCompletion } = hostedStatic
+  const upstreamDecision = hostedStatic
     ? resolveHostedFirstRunDecision(hydrated)
     : resolveFirstRunDecision({
         enabled,
@@ -138,6 +139,9 @@ export function FirstRunGate({
         projectCount: projects.length,
         threadCount,
       });
+  // Lazurio (LazurioPlatform F51): a managed Environment decides its own first run.
+  const { decision: nextDecision, persistCompletion } =
+    useManagedFirstRunDecision(upstreamDecision);
 
   if (hydrated) {
     const transitioned = transitionFirstRunGateState(gateState, {
