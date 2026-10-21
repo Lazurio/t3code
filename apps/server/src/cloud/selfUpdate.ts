@@ -23,7 +23,7 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/http";
 
-import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import { CLI_RELEASE_BASE_URL_ENV, CLI_RELEASE_REPOSITORY_ENV } from "@t3tools/shared/cliRelease";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
@@ -186,6 +186,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
   );
+  const releaseRepository = Option.getOrUndefined(
+    yield* Config.String(CLI_RELEASE_REPOSITORY_ENV).pipe(Config.option),
+  );
   const inFlight = yield* Ref.make(false);
 
   // A managed server starting means its launcher has settled on a version, so runtimes left by
@@ -245,6 +248,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         platform,
         arch,
         releaseBaseUrl,
+        releaseRepository,
         validate: (runtime) =>
           runner
             .run({
@@ -318,7 +322,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         Effect.mapError((error) =>
           error._tag === "PinnedRuntimePreflightBlockedError"
             ? failWith(error.reason, error)
-            : failWith(`Could not prepare t3@${targetVersion}.`, error),
+            : error._tag === "PinnedRuntimeReleaseNotPublishedError"
+              ? failWith(error.message, error)
+              : failWith(`Could not prepare t3@${targetVersion}.`, error),
         ),
       );
 

@@ -32,6 +32,9 @@ const archiveBytes = new TextEncoder().encode("not really a tarball");
 const releaseHttpClient = (order: string[], beforeDownload?: Effect.Effect<void>) =>
   HttpClient.make((request) =>
     Effect.gen(function* () {
+      if (!request.url.includes("/v1.1.0/")) {
+        return HttpClientResponse.fromWeb(request, new Response("Not Found", { status: 404 }));
+      }
       if (request.url.endsWith("/SHA256SUMS")) {
         const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", archiveBytes));
         const hex = Array.from(new Uint8Array(digest), (byte) =>
@@ -390,6 +393,17 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       expect(result).toEqual({ targetVersion: "1.2.0", method: "desktop-app" });
       expect(stages).toEqual(["downloading", "installing"]);
       expect(order).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses a version the release repository never published", () =>
+    Effect.gen(function* () {
+      const { selfUpdate, order } = yield* makeHarness();
+      const error = yield* selfUpdate.update({ targetVersion: "1.2.0" }).pipe(Effect.flip);
+      expect(error.reason).toMatch(/^t3@1\.2\.0 is not published in \S+/);
+      expect(order).toEqual([]);
+      // The refusal does not leave the update slot taken.
+      expect((yield* selfUpdate.update({ targetVersion: "1.1.0" })).targetVersion).toBe("1.1.0");
     }),
   );
 

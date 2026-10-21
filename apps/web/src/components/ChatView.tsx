@@ -2412,7 +2412,7 @@ export default function ChatView(props: ChatViewProps) {
               />
               <TooltipPopup side="top">
                 {versionMismatchServerLabel} {versionMismatch.serverVersion}{" "}
-                <span aria-hidden="true">→</span> {versionMismatch.clientVersion}
+                <span aria-hidden="true">→</span> {versionMismatch.targetVersion}
               </TooltipPopup>
             </Tooltip>
           ) : (
@@ -2440,7 +2440,7 @@ export default function ChatView(props: ChatViewProps) {
             installation={versionMismatchInstallation}
             desktopAppUpdate={versionMismatchDesktopAppUpdate}
             threadContinuation={versionMismatchThreadContinuation}
-            targetVersion={versionMismatch.clientVersion}
+            targetVersion={versionMismatch.targetVersion}
             label={updateFailed ? "Retry" : "Update"}
             variant="ghost"
           />

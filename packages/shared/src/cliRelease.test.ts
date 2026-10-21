@@ -7,6 +7,7 @@ import {
   cliReleaseDownloadBaseUrl,
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
+  cliReleaseRepository,
   newestCliReleaseVersion,
   parseChecksums,
 } from "./cliRelease.ts";
@@ -32,10 +33,27 @@ describe("cliRelease", () => {
 
   it("resolves download URLs under the tagged release, honoring a mirror", () => {
     expect(cliReleaseDownloadBaseUrl("1.2.3")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/download/v1.2.3",
+      "https://github.com/Lazurio/t3code/releases/download/v1.2.3",
     );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
+    );
+  });
+
+  it("follows a configured release repository unless a mirror is set", () => {
+    // The Lazurio distribution's own releases unless the variable names another repository.
+    expect(cliReleaseRepository(undefined)).toBe("Lazurio/t3code");
+    expect(cliReleaseRepository("  ")).toBe("Lazurio/t3code");
+    expect(cliReleaseRepository(" acme/t3code ")).toBe("acme/t3code");
+    expect(cliReleaseRepository("pingdotgg/t3code")).toBe("pingdotgg/t3code");
+    expect(cliReleaseDownloadBaseUrl("1.2.3-acme.1", undefined, "acme/t3code")).toBe(
+      "https://github.com/acme/t3code/releases/download/v1.2.3-acme.1",
+    );
+    expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3", "acme/t3code")).toBe(
+      "https://mirror.example/t3/v1.2.3",
+    );
+    expect(cliReleaseIndexPageUrl(2, "acme/t3code")).toBe(
+      "https://api.github.com/repos/acme/t3code/releases?per_page=100&page=2",
     );
   });
 
@@ -83,9 +101,27 @@ describe("cliRelease", () => {
     expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
   });
 
+  it("picks by semver precedence, not listing order", () => {
+    // A fork's own prerelease train rides the stable channel.
+    const releases = [
+      { tag_name: "v1.2.2-acme.3" },
+      { tag_name: "v1.2.3-acme.10", draft: true },
+      { tag_name: "v1.2.3-acme.2" },
+      { tag_name: "v1.2.3-acme.9" },
+      { tag_name: "v1.2.3-acme.1" },
+    ];
+    expect(newestCliReleaseVersion(releases, "stable")).toBe("1.2.3-acme.9");
+    expect(
+      newestCliReleaseVersion([{ tag_name: "v1.2.3-acme.9" }, { tag_name: "v1.2.3" }], "stable"),
+    ).toBe("1.2.3");
+    expect(
+      newestCliReleaseVersion([{ tag_name: "v1.1.9" }, { tag_name: "v1.2.0" }], "stable"),
+    ).toBe("1.2.0");
+  });
+
   it("pages through the release index at the largest page GitHub allows", () => {
     expect(cliReleaseIndexPageUrl(1)).toBe(
-      "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=1",
+      "https://api.github.com/repos/Lazurio/t3code/releases?per_page=100&page=1",
     );
     expect(cliReleaseIndexPageUrl(3)).toContain("page=3");
   });
