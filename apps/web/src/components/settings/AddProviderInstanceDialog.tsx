@@ -54,6 +54,7 @@ import { ProviderWizardAuthenticationStep } from "./ProviderWizardAuthentication
 import { resolveOfficialAcpRegistryIconUrl } from "./AcpRegistryIcon";
 import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
 import { ProviderEnvironmentSection } from "./ProviderInstanceCard";
+import { LazurioSignInChoice } from "../../lazurio/LazurioSignIn";
 
 /**
  * Output is trimmed to 48 chars so the final composed id stays under the 64-char slug cap
@@ -665,10 +666,13 @@ export function AddProviderInstanceDialog({
                   <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
                     Configure manually
                   </Button>
-                  <ChatGptConnectionButton
-                    size="sm"
-                    onClick={() => setAddingChatGptAccount(true)}
-                  />
+                  {/* Lazurio: Codex signs in on Getting started (root decision 0201). */}
+                  <LazurioSignInChoice environmentId={environmentId}>
+                    <ChatGptConnectionButton
+                      size="sm"
+                      onClick={() => setAddingChatGptAccount(true)}
+                    />
+                  </LazurioSignInChoice>
                 </>
               ) : wizardStep < (isAcpRegistry ? 1 : 2) ? (
                 <Button
