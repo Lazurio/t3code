@@ -1,11 +1,14 @@
 /**
  * Lazurio overlay (LazurioPlatform F51, root decision 0201): `t3 lazurio`. Machines checks
  * `t3 lazurio capabilities` (contract version 1), the Platform's `lazurio chat defaults --apply`
- * runs `t3 lazurio model` and the Launchpad runs `t3 lazurio providers` after Codex or Claude signed
- * in through its CLI, so the commands' output is a contract: cli.test.ts pins it byte for byte.
+ * runs `t3 lazurio model`, the Launchpad runs `t3 lazurio providers` after Codex or Claude signed
+ * in through its CLI and `t3 lazurio pairing` when the Environment pairs its own browser, so the
+ * commands' output is a contract: cli.test.ts pins it.
  */
 import {
   type AuthEnvironmentScope,
+  AuthRelayWriteScope,
+  AuthStandardClientScopes,
   ModelSelection,
   type ProjectId,
   WS_METHODS,
@@ -18,13 +21,15 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Argument, Command, GlobalFlag } from "effect/cli";
+import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpBody, HttpClient } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "../cli/config.ts";
+import { DurationFromString, projectLocationFlags, resolveCliAuthConfig } from "../cli/config.ts";
+import { formatIssuedPairingCredential } from "../cliAuthFormat.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -207,6 +212,63 @@ const providersCommand = Command.make("providers", {
     }),
   ),
 );
+
+/**
+ * The operator's scopes, which the Environment's own browser pairs with (the Admin's decision of
+ * 2026-10-17): T3's standard client scopes, which include access to Settings → Connections, where
+ * the person sees the authorized clients and pairs the desktop and mobile apps. Never relay:write,
+ * though upstream's standard scopes have it: T3 Connect would be a public way in around the
+ * Environment's gateway and the tailnet. A session cannot delegate a scope it does not hold, so no
+ * link made in Connections has it either.
+ */
+export const OPERATOR_PAIRING_SCOPES = AuthStandardClientScopes.filter(
+  (scope) => scope !== AuthRelayWriteScope,
+);
+
+const pairingCommand = Command.make("pairing", {
+  ...projectLocationFlags,
+  ttl: Flag.String("ttl").pipe(
+    Flag.withSchema(DurationFromString),
+    Flag.withDescription(
+      "TTL, for example `60s` or `5m`. Without it, T3's default for a one-time token.",
+    ),
+    Flag.optional,
+  ),
+  label: Flag.String("label").pipe(
+    Flag.withDescription("Optional human-readable label."),
+    Flag.optional,
+  ),
+}).pipe(
+  Command.withDescription(
+    "Issue a one-time pairing token with the operator's scopes for the Environment's own browser, printed as `t3 auth pairing create --json` prints one.",
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveCliAuthConfig(flags, logLevel);
+      // Upstream's one-time pairing grant, as `t3 auth pairing create` issues it, only with these
+      // scopes. The Launchpad reads both commands' JSON alike, so logs stay quiet as with --json.
+      const issued = yield* Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        return yield* auth.createPairingLink({
+          scopes: OPERATOR_PAIRING_SCOPES,
+          subject: "one-time-token",
+          ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
+          ...(Option.isSome(flags.label) ? { label: flags.label.value } : {}),
+        });
+      }).pipe(
+        Effect.provide(
+          EnvironmentAuth.layerRuntime.pipe(
+            Layer.provide(ServerConfig.layer(config)),
+            Layer.provide(Layer.succeed(References.MinimumLogLevel, "Error")),
+          ),
+        ),
+      );
+      yield* Console.log(formatIssuedPairingCredential(issued, { json: true }));
+    }),
+  ),
+);
+
 const capabilitiesCommand = Command.make("capabilities").pipe(
   Command.withDescription(
     "Report the versioned Lazurio hosting contract without reading or changing user state.",
@@ -218,11 +280,12 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         managedFolder: true,
         modelRecommendation: true,
         providerRefresh: true,
+        operatorPairing: true,
       }),
     ),
   ),
 );
 
 export const lazurioCommand = Command.make("lazurio").pipe(
-  Command.withSubcommands([modelCommand, providersCommand, capabilitiesCommand]),
+  Command.withSubcommands([modelCommand, providersCommand, pairingCommand, capabilitiesCommand]),
 );
