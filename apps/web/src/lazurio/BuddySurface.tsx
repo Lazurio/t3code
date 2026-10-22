@@ -22,6 +22,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
+import { pageRecordOf } from "./buddySurfacePage";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
@@ -74,6 +75,7 @@ const TEXT = {
     notReady: "Buddy se teprve instaluje.",
     failed: "Buddyho se nepodařilo otevřít.",
     retry: "Zkusit znovu",
+    removePage: "Neposílat stránku",
   },
   en: {
     fullscreen: "Full screen",
@@ -86,8 +88,27 @@ const TEXT = {
     notReady: "Buddy is still being set up.",
     failed: "Buddy could not be opened.",
     retry: "Try again",
+    removePage: "Don't send the page",
   },
 } as const;
+
+/**
+ * The page the next message in Buddy's composer carries: the last valid page context of the host,
+ * until the person removes it. Another page brings its chip back. None outside Buddy's T3 Code.
+ */
+export function useBuddyPage() {
+  const buddy = useBuddySurfaceMode() === true;
+  const { context } = useBuddyFrame(buddy);
+  const text = useCzech() ? TEXT.cs : TEXT.en;
+  const [removed, setRemoved] = useState<string | null>(null);
+  const page = context === null ? null : pageRecordOf(context);
+  const record = page !== null && page.contextId !== removed ? page : null;
+  return {
+    record,
+    removeLabel: text.removePage,
+    remove: () => setRemoved(page?.contextId ?? null),
+  };
+}
 
 const localDayOf = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

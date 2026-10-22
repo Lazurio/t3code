@@ -47,6 +47,7 @@ import {
   useBuddyDayLines,
   useBuddySurfaceMode,
 } from "../../lazurio/BuddySurface";
+import { buddyPageReferenceChip } from "../../lazurio/BuddySurfacePageChip";
 import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import {
@@ -4584,7 +4585,11 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
         ),
     },
   ],
-  fallback: (_kind, _record, context) => <UnavailableUserMessageContextChip {...context} />,
+  // Lazurio overlay (plan DEV-6676): the page Buddy was asked from is a context of its own.
+  fallback: (kind, _record, context) =>
+    buddyPageReferenceChip(kind, context.reference.label, context.copyMarkdown) ?? (
+      <UnavailableUserMessageContextChip {...context} />
+    ),
 });
 
 function UserMessageContextReferenceChip(props: {

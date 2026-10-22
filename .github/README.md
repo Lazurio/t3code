@@ -70,7 +70,8 @@ there stays yours.
   what the person sends: their words, their attachments and the page they ask from, never T3
   Code's own instructions. The web client is Buddy's one conversation: one thread with its days
   beside it, no thread list, forks or rollbacks, and a message sent during a turn steers it. In
-  Buddy's bubble it talks to the page around it through the bubble's `lazurio.buddy.*` messages.
+  Buddy's bubble it talks to the page around it through the bubble's `lazurio.buddy.*` messages,
+  and that page travels with the person's message as a chip they can remove.
 - **Updates from this repository.** The server offers the newest release of this repository and
   installs it with the Update button, and `t3 update` and the install scripts take it from here
   too. `T3CODE_RELEASE_REPOSITORY=owner/name` picks another repository's releases. After the

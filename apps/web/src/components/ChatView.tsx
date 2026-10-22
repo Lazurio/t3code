@@ -253,7 +253,13 @@ import {
   LazurioRightPanelSurfaces,
   useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
-import { BuddyThreadDetailsPanel, useBuddySurfaceMode } from "../lazurio/BuddySurface";
+import {
+  BuddyThreadDetailsPanel,
+  useBuddyPage,
+  useBuddySurfaceMode,
+} from "../lazurio/BuddySurface";
+import { BuddyPageChip } from "../lazurio/BuddySurfacePageChip";
+import { withPageRecord, withPageReference } from "../lazurio/buddySurfacePage";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "./preview/usePreviewSession";
@@ -1256,6 +1262,8 @@ export default function ChatView(props: ChatViewProps) {
   // Lazurio overlay (plan DEV-6676): in Buddy's one conversation a follow-up steers by default,
   // and queueing is the explicit alternative.
   const buddySurface = useBuddySurfaceMode() === true;
+  // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
+  const buddyPage = useBuddyPage();
   const environmentSettings = useEnvironmentSettings(environmentId);
   const settings = buddySurface
     ? { ...environmentSettings, followUpBehavior: "steer" as const }
@@ -6364,11 +6372,14 @@ export default function ChatView(props: ChatViewProps) {
       });
     // A direct "send annotation" writes the draft and sends in the same tick; the reference
     // must be in the text now, not after the next render.
-    const promptForSend = directAnnotation
-      ? ensureInlineContextReferences(promptRef.current, [
-          previewAnnotationContextReference(directAnnotation.annotation),
-        ])
-      : promptRef.current;
+    const promptForSend = withPageReference(
+      directAnnotation
+        ? ensureInlineContextReferences(promptRef.current, [
+            previewAnnotationContextReference(directAnnotation.annotation),
+          ])
+        : promptRef.current,
+      buddyPage.record,
+    );
     const strandedThread = threadContextsOutsideEnvironment({
       text: promptForSend,
       records: composerThreadContexts,
@@ -6620,16 +6631,20 @@ export default function ChatView(props: ChatViewProps) {
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
     const buildOutgoingMessageContext = (attachmentIds: ReadonlyArray<string>) =>
-      buildMessageContext({
-        terminalContexts: composerTerminalContextsSnapshot,
-        reviewComments: composerReviewCommentsSnapshot,
-        previewAnnotations: composerPreviewAnnotationsSnapshot,
-        threadContexts: composerThreadContextsSnapshot,
-        attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
-          attachment,
-          attachmentId: attachmentIds[index] ?? attachment.id,
-        })),
-      });
+      withPageRecord(
+        buildMessageContext({
+          terminalContexts: composerTerminalContextsSnapshot,
+          reviewComments: composerReviewCommentsSnapshot,
+          previewAnnotations: composerPreviewAnnotationsSnapshot,
+          threadContexts: composerThreadContextsSnapshot,
+          attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
+            attachment,
+            attachmentId: attachmentIds[index] ?? attachment.id,
+          })),
+        }),
+        buddyPage.record,
+        messageTextForSend,
+      );
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
     );
@@ -8456,6 +8471,13 @@ export default function ChatView(props: ChatViewProps) {
                               }
                             />
                           ) : null}
+                          {buddyPage.record === null ? null : (
+                            <BuddyPageChip
+                              label={buddyPage.record.label}
+                              removeLabel={buddyPage.removeLabel}
+                              onRemove={buddyPage.remove}
+                            />
+                          )}
                           {!composerMounted ? null : (
                             <ChatComposer
                               canOperateThread={canOperateThread}
