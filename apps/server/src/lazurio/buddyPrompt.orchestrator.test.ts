@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - The mock ACP agent logs its requests to a temporary file.
 // Buddy's prompts through the production V2 runtime, as Buddy's T3 Code builds it: the provider
 // instance `buddy` of the ACP registry runs the repository's mock ACP agent in Hermes' place, and
 // the agent logs every request it receives.
