@@ -38,8 +38,9 @@ prohlížeče, které fork převezme z artefaktu Platformy (F50 bod 5).
 Značkové soubory Lazuria pod licencí MIT nejsou (rozhodnutí Organization Admina
 z 2026-10-22, plán DEV-6676): symbol Lazuria v `apps/web/src/lazurio/brand/`
 a Mattyčus v `apps/web/public/assets/avatar.webp`. Podmínky jejich použití drží
-`apps/web/src/lazurio/brand/README.md` a `.github/README.md` na ně odkazuje;
-`LICENSE` upstreamu se nemění.
+`apps/web/src/lazurio/brand/README.md`; odkazují na ně `.github/README.md`
+a licenční řádky na konci poznámek každého vydání. `LICENSE` upstreamu se
+nemění.
 
 ## Kanál aktualizací
 

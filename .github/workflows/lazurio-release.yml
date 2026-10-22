@@ -392,7 +392,10 @@ jobs:
             echo
             echo
             echo "Source code: https://github.com/$GITHUB_REPOSITORY/tree/$SOURCE_SHA. Licensed under the"
-            echo "MIT License, like T3 Code; each archive and the image include T3 Code's LICENSE."
+            echo "MIT License, like T3 Code, except the Lazurio brand assets (the Lazurio symbol and Buddy's"
+            echo "character), which are not under it:"
+            echo "https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/apps/web/src/lazurio/brand/README.md."
+            echo "Each archive and the image include T3 Code's LICENSE."
           } > "$RUNNER_TEMP/RELEASE_NOTES.md"
 
       # Release tags can only be created by the Lazurio T3 Code Release App,
