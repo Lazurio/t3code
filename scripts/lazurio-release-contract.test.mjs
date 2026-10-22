@@ -2420,14 +2420,28 @@ NodeTest.test(
     // from that same text. The queued edit and the plan follow-up send `promptForSend`, which
     // never carries the page, so no path sends a reference without its record.
     NodeAssert.equal(chat.match(/withPageReference\(/g)?.length, 1);
+    // T3's messageTextForSend stays the person's own words, and the page joins a text of its own.
+    // A failed send gives the composer back messageTextForSend, so a retry after the person removed
+    // the chip, or after the host moved to another page, carries only the page of its record.
     NodeAssert.match(
       chat,
-      /const messageTextForSend = withPageReference\(\n\s+composerTerminalContexts\n[^]*?promptForSend,\n\s+\),\n\s+buddyPage\.record,\n\s+\)\.trim\(\);/,
+      /const messageTextForSend = composerTerminalContexts\n[^]*?promptForSend,\n\s+\)\n\s+\.trim\(\);\n(?:\s+\/\/.*\n)*\s+const pageTextForSend = withPageReference\(messageTextForSend, buddyPage\.record\)\.trim\(\);/,
+    );
+    // Only the record and the text on the wire, of the single and of the multi-model send, read
+    // the page's text; neither restore of a failed send does.
+    NodeAssert.equal(chat.match(/\bpageTextForSend\b/g)?.length, 4);
+    NodeAssert.equal(
+      chat.match(/text: pageTextForSend \|\| ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,/g)?.length,
+      2,
+    );
+    NodeAssert.equal(
+      chat.match(/setComposerDraftPrompt\(composerDraftTarget, messageTextForSend\);/g)?.length,
+      2,
     );
     NodeAssert.match(chat, /buddyPage\.record === null \|\| queuedRunEdit\.isEditing \? null : \(/);
     NodeAssert.match(
       chat,
-      /const buildOutgoingMessageContext = \(attachmentIds: ReadonlyArray<string>\) =>\n\s+withPageRecord\(\n\s+buildMessageContext\(\{[^]*?\}\),\n\s+buddyPage\.record,\n\s+messageTextForSend,\n\s+\);/,
+      /const buildOutgoingMessageContext = \(attachmentIds: ReadonlyArray<string>\) =>\n\s+withPageRecord\(\n\s+buildMessageContext\(\{[^]*?\}\),\n\s+buddyPage\.record,\n\s+pageTextForSend,\n\s+\);/,
     );
     NodeAssert.match(chat, /<BuddyPageChip\n\s+label=\{buddyPage\.record\.label\}/);
     NodeAssert.match(
