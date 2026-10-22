@@ -65,6 +65,10 @@ there stays yours.
 - **Hosting behind a reverse proxy.** `T3CODE_EXTERNAL_ORIGIN` serves T3 Code at the root of its
   own HTTPS hostname with a Secure session cookie, `T3CODE_CLIENT_SESSION_TTL` sets how long a
   paired browser stays signed in, and `T3CODE_ENVIRONMENT_LABEL` names the Environment.
+- **Buddy's chat.** With `T3CODE_LAZURIO_BUDDY=1`, a T3 Code server is Buddy's chat on a person's
+  Osobní Prostředí. Its provider instance `buddy` runs Buddy's Hermes Agent over ACP and gets only
+  what the person sends: their words, their attachments and the page they ask from, never T3
+  Code's own instructions.
 - **Updates from this repository.** The server offers the newest release of this repository and
   installs it with the Update button, and `t3 update` and the install scripts take it from here
   too. `T3CODE_RELEASE_REPOSITORY=owner/name` picks another repository's releases. After the

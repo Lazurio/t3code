@@ -62,8 +62,9 @@ jobs:
             # orchestration-v2/runtimeLayer.ts (the managed Folder's guards and the sign-in guard,
             # as decorators where it builds upstream's services),
             # server.ts (the overlay's one route layer, the gate over upstream's server browser,
-            # the agent scope that gives a thread's agents its agent-browser session, and the
-            # `t3` command following the version the launcher activated), index.html (the shell
+            # the agent scope that gives a thread's agents its agent-browser session, the `t3`
+            # command following the version the launcher activated, and Buddy's instance without
+            # T3's instructions where it builds its provider instances), index.html (the shell
             # slot, the name in the app), main.tsx (the prepared prompt, and the import of the
             # design system's light look, root decision 0200, whose one stylesheet is
             # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment
@@ -228,6 +229,15 @@ jobs:
             # lives in apps/server/src/lazurio/questionTool.ts.
             apps/server/src/provider/CodexDeveloperInstructions.test.ts
             apps/server/src/provider/CodexDeveloperInstructions.ts
+            # Buddy's Hermes gets only the person's words (root decision 0210, plan DEV-6676): in
+            # Buddy's own T3 Code (T3CODE_LAZURIO_BUDDY=1) the ACP instance `buddy` runs Hermes,
+            # which keeps every prompt in Buddy's memory. The ACP adapter leaves T3's instructions
+            # out of an instance's prompts where its host says so (AcpT3Instructions; server.ts,
+            # above, says so for Buddy's instance), and the turn start projects a page context as a
+            # labelled Czech block for that instance. Its code lives in
+            # apps/server/src/lazurio/buddyPrompt.ts.
+            apps/server/src/orchestration-v2/ProviderTurnStartService.ts
+            packages/provider-acp/src/server/adapter.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
