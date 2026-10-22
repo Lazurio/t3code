@@ -59,19 +59,20 @@ jobs:
             # (the update notice's descriptor field, and no serverBrowser capability on a
             # Lazurio Environment), CodexAdapterV2.ts and its test (a Codex thread's agent-browser
             # session in its config, and the question tool's feature on the app-server T3 starts),
-            # orchestration-v2/runtimeLayer.ts (the managed Folder's guards and the sign-in guard,
-            # as decorators where it builds upstream's services),
+            # orchestration-v2/runtimeLayer.ts (the managed Folder's guards, the sign-in guard
+            # and Buddy's one conversation, as decorators where it builds upstream's services),
             # server.ts (the overlay's one route layer, the gate over upstream's server browser,
             # the agent scope that gives a thread's agents its agent-browser session, the `t3`
             # command following the version the launcher activated, Buddy's instance without
-            # T3's instructions where it builds its provider instances, and one request namespace
-            # for the agent commands' MCP sessions), index.html (the shell
+            # T3's instructions where it builds its provider instances, one request namespace
+            # for the agent commands' MCP sessions, and no checkpoints in Buddy's project),
+            # index.html (the shell
             # slot, the name in the app), main.tsx (the prepared prompt, and the import of the
             # design system's light look, root decision 0200, whose one stylesheet is
             # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment
-            # browser), RightPanelTabs.tsx and rightPanelStore.ts (Environment browser, Nová
-            # karta), sidebar/SidebarChrome.tsx (the shell's column head under every sidebar's
-            # top row, and the name in the app).
+            # browser, Buddy's surface), RightPanelTabs.tsx and rightPanelStore.ts (Environment
+            # browser, Nová karta), sidebar/SidebarChrome.tsx (the shell's column head under
+            # every sidebar's top row, and the name in the app).
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
             apps/server/src/environment/ServerEnvironment.ts
@@ -239,6 +240,21 @@ jobs:
             # apps/server/src/lazurio/buddyPrompt.ts.
             apps/server/src/orchestration-v2/ProviderTurnStartService.ts
             packages/provider-acp/src/server/adapter.ts
+            # Buddy's one conversation (root decision 0210, plan DEV-6676): Buddy's T3 Code is one
+            # thread in Buddy's layer of the Lazurio Folder, its managed Folder. The server refuses
+            # forks, rollbacks and any other thread (runtimeLayer.ts, above), takes no checkpoints
+            # in Buddy's project (server.ts, above), applies Buddy's defaults once at startup
+            # (serverRuntimeStartup.ts, above) and tells clients (ws.ts and the contracts'
+            # server.ts, above). The web shows Buddy's surface in place of T3's sidebar and command
+            # palette (__root.tsx) and opens Buddy's thread at `/` (_chat.index.tsx); the chat
+            # layout leaves out the new-thread shortcuts and the prepared prompt (_chat.tsx,
+            # above), the chat its header and rollbacks (ChatView.tsx, above), and the timeline
+            # forks and draws a line above each day (MessagesTimeline.tsx, above). avatar.webp is
+            # Buddy's character from the design system. Its code lives in apps/*/src/lazurio/
+            # (buddySurface* and BuddySurface.tsx).
+            apps/web/public/assets/avatar.webp
+            apps/web/src/routes/__root.tsx
+            apps/web/src/routes/_chat.index.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

@@ -31,6 +31,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { LazurioPromptDraft } from "~/lazurio/LazurioPromptDraft";
+import { useBuddySurfaceMode } from "~/lazurio/BuddySurface";
 
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -210,10 +211,12 @@ function ChatRouteLayout() {
   // Both thread routes render here, not in their own leaf components, so the
   // draft-to-thread promotion keeps one ChatView mounted across the swap.
   const threadTarget = useThreadRouteTarget();
+  // Lazurio overlay (plan DEV-6676): Buddy's one conversation has no new threads or prompt links.
+  const buddySurface = useBuddySurfaceMode() === true;
   return (
     <>
-      <ChatRouteGlobalShortcuts />
-      <LazurioPromptDraft />
+      {buddySurface ? null : <ChatRouteGlobalShortcuts />}
+      {buddySurface ? null : <LazurioPromptDraft />}
       {threadTarget?.kind === "server" ? (
         <ThreadLinkPrompt threadRef={threadTarget.threadRef} />
       ) : null}

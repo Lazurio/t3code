@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import { HttpRouter, HttpServerResponse } from "effect/http";
 
+import * as ServerConfig from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import { BUDDY_THREAD_ROUTE, resolveBuddyThread } from "./buddySurfaceThread.ts";
@@ -32,6 +33,7 @@ export const layer = HttpRouter.use((router) =>
     const orchestrator = yield* OrchestratorV2;
     const projects = yield* ProjectStoreV2;
     const path = yield* Path.Path;
+    const config = yield* ServerConfig.ServerConfig;
     yield* router.add(
       "POST",
       BUDDY_THREAD_ROUTE,
@@ -41,6 +43,7 @@ export const layer = HttpRouter.use((router) =>
           Effect.provideService(OrchestratorV2, orchestrator),
           Effect.provideService(ProjectStoreV2, projects),
           Effect.provideService(Path.Path, path),
+          Effect.provideService(ServerConfig.ServerConfig, config),
           Effect.map((thread) => HttpServerResponse.jsonUnsafe(thread)),
           Effect.catchTags({
             BuddyThreadUnavailable: (error) =>

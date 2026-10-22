@@ -68,7 +68,9 @@ there stays yours.
 - **Buddy's chat.** With `T3CODE_LAZURIO_BUDDY=1`, a T3 Code server is Buddy's chat on a person's
   Osobní Prostředí. Its provider instance `buddy` runs Buddy's Hermes Agent over ACP and gets only
   what the person sends: their words, their attachments and the page they ask from, never T3
-  Code's own instructions.
+  Code's own instructions. The web client is Buddy's one conversation: one thread with its days
+  beside it, no thread list, forks or rollbacks, and a message sent during a turn steers it. In
+  Buddy's bubble it talks to the page around it through the bubble's `lazurio.buddy.*` messages.
 - **Updates from this repository.** The server offers the newest release of this repository and
   installs it with the Update button, and `t3 update` and the install scripts take it from here
   too. `T3CODE_RELEASE_REPOSITORY=owner/name` picks another repository's releases. After the
