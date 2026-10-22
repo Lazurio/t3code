@@ -45,6 +45,8 @@ describe("the server's answer", () => {
         { messageId: "m6", sender: { kind: "buddy", for: "Tomáš", forAccusative: 7 } },
         { messageId: 7, sender: { kind: "delegace" } },
         { messageId: "m8", sender: { kind: "delegace" } },
+        // The kind's earlier name is no alias.
+        { messageId: "m9", sender: { kind: "budicek" } },
       ],
       requests: [{ requestId: "r1", sender: { kind: "buddy", for: "Petr" } }, { requestId: "r2" }],
     });
