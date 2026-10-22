@@ -10,11 +10,13 @@
  * - Which steps: a message the session sent (`t3 thread launch`, `t3 thread send`) and a question
  *   or permission request it decided (`t3 request respond`, `approve`, `deny`). The decorator
  *   around upstream's orchestrator (`recordSteps`, runtimeLayer.ts) records one after its command
- *   committed, and only when the committed events are that message or that request's resolution:
- *   a late decision T3 refuses, because the person decided first, records nothing. T3's own
+ *   committed, and only when this dispatch committed that message or that request's resolution:
+ *   a late decision T3 refuses, because the person decided first, records nothing, and neither
+ *   does a command id sent again, which T3 answers with the first dispatch's events. T3's own
  *   messages (automations, notifications, continuations, another thread's agent) are never one.
  * - Where: a JSON line per step in `<state dir>/lazurio/acting-senders/<SHA-256 of the thread
  *   id>.jsonl`, so it survives restarts while T3's database and its migrations stay upstream's.
+ *   A step's first line stands: none is written after it, and a later one is never read.
  *
  * A step is recorded right after its command commits, so a reader could see the message before
  * its record. `read` therefore waits briefly for the thread's acting dispatches still running and
@@ -24,6 +26,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import type {
+  CommandId,
   OrchestrationV2ServerCommand,
   OrchestrationV2StoredEvent,
   ThreadId,
@@ -121,6 +124,21 @@ const RecordLine = Schema.Struct({
 const encodeLine = Schema.encodeSync(Schema.fromJsonString(RecordLine));
 const decodeLine = Schema.decodeUnknownOption(Schema.fromJsonString(RecordLine));
 
+const keyOf = (step: ActingSenderStep) => `${step.kind}:${step.id}`;
+/** The thread's records in its file, by step: a step's first line stands, a later one is skipped. */
+const recordsIn = (text: string, threadId: ThreadId): ReadonlyMap<string, ActingSenderRecord> => {
+  const records = new Map<string, ActingSenderRecord>();
+  for (const line of text.split("\n")) {
+    // A line cut short by a crash, or another thread's under the same name, is skipped.
+    const decoded = decodeLine(line);
+    if (Option.isNone(decoded) || decoded.value.threadId !== threadId) continue;
+    const { kind, id, sender } = decoded.value;
+    const key = keyOf({ kind, id });
+    if (!records.has(key)) records.set(key, { kind, id, sender });
+  }
+  return records;
+};
+
 const sha256Hex = (value: string): string =>
   NodeCrypto.createHash("sha256").update(value, "utf8").digest("hex");
 
@@ -146,34 +164,39 @@ export const make = Effect.gen(function* () {
   const appends = yield* Semaphore.make(1);
   const running = yield* SubscriptionRef.make<Running>(new Map());
 
-  const record = (
-    threadId: ThreadId,
-    steps: ReadonlyArray<ActingSenderStep>,
-    sender: ActingSender,
-  ) =>
-    steps.length === 0
-      ? Effect.void
-      : Clock.currentTimeMillis.pipe(
-          Effect.map((recordedAt) =>
-            steps
-              .map((step) => `${encodeLine({ threadId, ...step, sender, recordedAt })}\n`)
-              .join(""),
-          ),
-          Effect.flatMap((lines) =>
-            fs
-              .makeDirectory(directory, { recursive: true, mode: 0o700 })
-              .pipe(
-                Effect.andThen(
-                  fs.writeFileString(fileOf(threadId), lines, { flag: "a", mode: 0o600 }),
-                ),
-              ),
-          ),
-          appends.withPermits(1),
-          // The command already committed: a record that cannot be written only loses the mark.
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Could not record an acting sender's step.", { threadId, cause }),
-          ),
-        );
+  const readText = (threadId: ThreadId) =>
+    fs
+      .readFileString(fileOf(threadId))
+      .pipe(
+        Effect.catch((error) =>
+          error.reason._tag === "NotFound"
+            ? Effect.succeed("")
+            : Effect.fail(new ActingSendersUnavailableError({ cause: error })),
+        ),
+      );
+
+  const record = Effect.fn("LazurioActingSenders.record")(
+    function* (threadId: ThreadId, steps: ReadonlyArray<ActingSenderStep>, sender: ActingSender) {
+      const recorded = recordsIn(yield* readText(threadId), threadId);
+      const unrecorded = steps.filter((step) => !recorded.has(keyOf(step)));
+      if (unrecorded.length === 0) return;
+      const recordedAt = yield* Clock.currentTimeMillis;
+      yield* fs.makeDirectory(directory, { recursive: true, mode: 0o700 });
+      yield* fs.writeFileString(
+        fileOf(threadId),
+        unrecorded
+          .map((step) => `${encodeLine({ threadId, ...step, sender, recordedAt })}\n`)
+          .join(""),
+        { flag: "a", mode: 0o600 },
+      );
+    },
+    appends.withPermits(1),
+    // The command already committed: a record that cannot be written only loses the mark.
+    (effect, threadId) =>
+      Effect.catchCause(effect, (cause) =>
+        Effect.logWarning("Could not record an acting sender's step.", { threadId, cause }),
+      ),
+  );
 
   const read = Effect.fn("LazurioActingSenders.read")(function* (threadId: ThreadId) {
     yield* SubscriptionRef.changes(running).pipe(
@@ -184,23 +207,7 @@ export const make = Effect.gen(function* () {
     );
     const starts = (yield* SubscriptionRef.get(running)).get(threadId) ?? [];
     const at = Math.min(yield* Clock.currentTimeMillis, ...starts);
-    const text = yield* fs
-      .readFileString(fileOf(threadId))
-      .pipe(
-        Effect.catch((error) =>
-          error.reason._tag === "NotFound"
-            ? Effect.succeed("")
-            : Effect.fail(new ActingSendersUnavailableError({ cause: error })),
-        ),
-      );
-    const records = new Map<string, ActingSenderRecord>();
-    for (const line of text.split("\n")) {
-      // A line cut short by a crash, or another thread's under the same name, is skipped.
-      const decoded = decodeLine(line);
-      if (Option.isNone(decoded) || decoded.value.threadId !== threadId) continue;
-      const { kind, id, sender } = decoded.value;
-      records.set(`${kind}:${id}`, { kind, id, sender });
-    }
+    const records = recordsIn(yield* readText(threadId), threadId);
     return { at, records: [...records.values()] } satisfies ActingSendersAnswer;
   });
 
@@ -243,22 +250,36 @@ const stepOf = (
   }
 };
 
-/** Whether the committed events took the step: the message itself, or the request's resolution. */
+/**
+ * Whether the dispatch committed the step: the message itself, or the request's resolution, in
+ * the step's thread and newer than `before`, the thread's last event when the dispatch began.
+ */
 const tookStep = (
-  step: ActingSenderStep,
+  taken: { readonly threadId: ThreadId; readonly step: ActingSenderStep },
+  before: number,
   storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>,
 ) =>
-  storedEvents.some(({ event }) =>
-    step.kind === "message"
-      ? event.type === "message.updated" && event.payload.id === step.id
-      : event.type === "runtime-request.updated" &&
-        event.payload.id === step.id &&
-        event.payload.status === "resolved",
+  storedEvents.some(
+    ({ sequence, event }) =>
+      sequence > before &&
+      event.threadId === taken.threadId &&
+      (taken.step.kind === "message"
+        ? event.type === "message.updated" && event.payload.id === taken.step.id
+        : event.type === "runtime-request.updated" &&
+          event.payload.id === taken.step.id &&
+          event.payload.status === "resolved"),
   );
 
 /**
  * Upstream's orchestrator from `live`, which records the steps a session acting as someone takes.
  * Every other dispatch passes as it is.
+ *
+ * T3 answers a command id it already accepted with the events of the dispatch that committed it
+ * (Orchestrator.ts, and EventSink.ts for one that commits meanwhile), and that may be another
+ * session's: the person's own `t3` with the same `--idempotency-key`, or anyone who knows the id.
+ * A dispatch therefore records only events newer than the thread's last one when it began, and
+ * only if no other dispatch of its command id ran meanwhile. Such a step loses its mark rather
+ * than take someone else's.
  */
 export const recordSteps = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV2, E, R>) =>
   Layer.effect(
@@ -266,25 +287,52 @@ export const recordSteps = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV2,
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const senders = yield* ActingSenders;
+      // The dispatches running through here, one entry per command id while any of them runs.
+      const dispatches = new Map<CommandId, { count: number; overlapped: boolean }>();
+      const begin = (commandId: CommandId) =>
+        Effect.sync(() => {
+          const entry = dispatches.get(commandId) ?? { count: 0, overlapped: false };
+          entry.count += 1;
+          if (entry.count > 1) entry.overlapped = true;
+          dispatches.set(commandId, entry);
+          return entry;
+        });
+      const end = (commandId: CommandId) =>
+        Effect.sync(() => {
+          const entry = dispatches.get(commandId);
+          if (entry !== undefined && --entry.count === 0) dispatches.delete(commandId);
+        });
       return Orchestrator.OrchestratorV2.of({
         ...orchestrator,
         dispatch: (command) =>
           Effect.flatMap(currentActingSender, (sender) => {
             const taken = sender === undefined ? undefined : stepOf(command);
-            return sender === undefined || taken === undefined
-              ? orchestrator.dispatch(command)
-              : senders.tracking(
-                  taken.threadId,
-                  orchestrator
-                    .dispatch(command)
-                    .pipe(
-                      Effect.tap((result) =>
-                        tookStep(taken.step, result.storedEvents)
-                          ? senders.record(taken.threadId, [taken.step], sender)
-                          : Effect.void,
+            return Effect.acquireUseRelease(
+              begin(command.commandId),
+              (entry) =>
+                sender === undefined || taken === undefined
+                  ? orchestrator.dispatch(command)
+                  : senders.tracking(
+                      taken.threadId,
+                      orchestrator.getThreadEventSequence(taken.threadId).pipe(
+                        // Without the thread's last event every step looks old: no mark, never
+                        // a wrong one.
+                        Effect.orElseSucceed(() => Number.POSITIVE_INFINITY),
+                        Effect.flatMap((before) =>
+                          orchestrator
+                            .dispatch(command)
+                            .pipe(
+                              Effect.tap((result) =>
+                                !entry.overlapped && tookStep(taken, before, result.storedEvents)
+                                  ? senders.record(taken.threadId, [taken.step], sender)
+                                  : Effect.void,
+                              ),
+                            ),
+                        ),
                       ),
                     ),
-                );
+              () => end(command.commandId),
+            );
           }),
       });
     }),

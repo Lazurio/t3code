@@ -258,13 +258,14 @@ const threadNotFound = (threadId: string) =>
     message: `Thread ${threadId} was not found.`,
   });
 
-/** What the orchestrator commits for a command, as far as the overlay reads it. */
+/** What the orchestrator commits for a command, as far as the overlay reads it: new events. */
+let lastSequence = 0;
 const committedEvents = (
   command: Parameters<Orchestrator.OrchestratorV2["Service"]["dispatch"]>[0],
 ): ReadonlyArray<OrchestrationV2StoredEvent> => {
   const stored = (event: object) =>
     ({
-      sequence: 0,
+      sequence: ++lastSequence,
       commandId: command.commandId,
       event: { id: `event-${command.commandId}`, ...event },
     }) as unknown as OrchestrationV2StoredEvent;
@@ -297,8 +298,12 @@ const committedEvents = (
 const layerOrchestrator = () =>
   ActingSenders.recordSteps(
     Layer.mock(Orchestrator.OrchestratorV2)({
+      getThreadEventSequence: () => Effect.sync(() => lastSequence),
       dispatch: (command) =>
-        Effect.succeed({ sequence: 0, storedEvents: committedEvents(command) }),
+        Effect.sync(() => {
+          const storedEvents = committedEvents(command);
+          return { sequence: lastSequence, storedEvents };
+        }),
     }),
   );
 

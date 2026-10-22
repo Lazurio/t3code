@@ -979,6 +979,9 @@ drží [specifikace overlaye](./lazurio-overlay.md#kdo-jednal-buddy-a-delegace).
 - **Záznam.** Server zapíše zprávy (`t3 thread launch`, `send`) a rozhodnutí otázek a žádostí o
   oprávnění (`t3 request respond`, `approve`, `deny`), které sezení s tvrzením poslalo, do
   `<state dir>/lazurio/acting-senders/` a web je čte cestou `/api/lazurio/acting-senders`.
+  Zapíše je jen dispatch, který krok sám commitnul: znovu poslané command id (třeba stejný
+  `--idempotency-key`) značku nepřidá, nezmění ani nezapíše podruhé. Při přestavbě to na
+  orchestrátoru upstreamu hlídá `actingSendersReplay.test.ts`.
 - **Kdo proměnné nastavuje.** Prostředí Buddyho (proměnné instance poskytovatele Buddyho v jeho
   T3 a služba brány Hermesu) a služba Delegace, nikdy služba T3 sama: agenti vláken, které T3
   spouští, by je zdědili.
