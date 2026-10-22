@@ -6,7 +6,11 @@
  * surface has no terminal and no right panel, so T3's keys for them stay the browser's
  * (Lazurio/t3code#109).
  */
-import type { KeybindingCommand, ServerProviderModel } from "@t3tools/contracts";
+import type {
+  KeybindingCommand,
+  ResolvedKeybindingsConfig,
+  ServerProviderModel,
+} from "@t3tools/contracts";
 
 import type { ChatShortcutsInput } from "~/components/chat/useChatShortcuts";
 
@@ -56,12 +60,18 @@ export const PANEL_SHORTCUTS: ReadonlySet<KeybindingCommand> = new Set([
   "diff.toggle",
 ]);
 
+const NO_KEYBINDINGS: ResolvedKeybindingsConfig = [];
+
 /**
- * The chat's shortcuts without the terminal's and the right panel's, and without project scripts,
- * which run in a terminal. Their keys reach the browser, as on any page that has no use for them.
+ * The chat's shortcuts without the bindings of the terminal's and the right panel's, and without
+ * project scripts, which run in a terminal. Without a binding no key matches them, not even the
+ * chat's guards that hold Mod+W for a closing terminal before any command runs, so their keys reach
+ * the browser, as on any page that has no use for them.
  */
 export function withoutPanelShortcuts(input: ChatShortcutsInput): ChatShortcutsInput {
-  const commands = { ...input.commands };
-  for (const command of PANEL_SHORTCUTS) delete commands[command];
-  return { ...input, commands, fallback: () => undefined };
+  return {
+    ...input,
+    keybindings: input.keybindings.filter((binding) => !PANEL_SHORTCUTS.has(binding.command)),
+    scriptKeybindings: NO_KEYBINDINGS,
+  };
 }
