@@ -2596,7 +2596,7 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   NodeAssert.match(composer, /: \(buddyComposer\.placeholder \?\? "Ask anything\.\.\."\)\)\}/);
   NodeAssert.match(
     composer,
-    /: \(buddyComposer\.placeholder \?\?\n\s+"Ask anything, @tag files\/folders, \$use skills, or \/ for commands"\)/,
+    /: \(buddyComposer\.placeholder \?\?\n\s+\(phase === "disconnected"\n\s+\? DISCONNECTED_COMPOSER_PLACEHOLDER\n\s+: "Ask anything, @tag files\/folders, \$use skills, or \/ for commands"\)\)/,
   );
   NodeAssert.match(
     chat,
