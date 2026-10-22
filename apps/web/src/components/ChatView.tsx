@@ -253,7 +253,7 @@ import {
   LazurioRightPanelSurfaces,
   useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
-import { useBuddySurfaceMode } from "../lazurio/BuddySurface";
+import { BuddyThreadDetailsPanel, useBuddySurfaceMode } from "../lazurio/BuddySurface";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "./preview/usePreviewSession";
@@ -443,7 +443,6 @@ import {
   RightPanelMaximizeControl,
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
@@ -8731,7 +8730,7 @@ export default function ChatView(props: ChatViewProps) {
               onConfirm={handleSwitchCheckoutToThreadStable}
             />
 
-            <ThreadDetailsPanel
+            <BuddyThreadDetailsPanel
               anchor={threadPanelPopoverAnchorRef}
               handle={threadPanelPopoverHandle}
               onPresentationChange={setThreadPanelPresentation}

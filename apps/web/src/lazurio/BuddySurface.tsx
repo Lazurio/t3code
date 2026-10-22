@@ -13,6 +13,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useState, useSyncExternalStore } from "react";
 
+import {
+  ThreadDetailsPanel,
+  type ThreadDetailsPanelProps,
+} from "~/components/chat/ThreadDetailsPanel";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -38,6 +42,14 @@ interface BuddyDay {
   readonly firstMessageId: string;
   readonly preview: string;
   readonly messages: number;
+}
+
+/**
+ * Upstream's thread details (editor, project scripts, branch) where the chat renders them; Buddy's
+ * surface has none, since Buddy's thread is a conversation, not work in a checkout.
+ */
+export function BuddyThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+  return useBuddySurfaceMode() === true ? null : <ThreadDetailsPanel {...props} />;
 }
 
 /** The surface's language: the host page's when framed, else the browser's. */
@@ -105,7 +117,8 @@ const subscribeJump = (listener: () => void) => {
 
 /**
  * Inside the timeline: brings the message a day pane asked for into view, loading earlier history
- * through it first when it is not loaded yet.
+ * through it first when it is not loaded yet. Like the timeline's minimap, it first turns off
+ * following the conversation's end, which would pin the list back to the bottom.
  */
 export function useBuddyDayJump(input: {
   readonly rows: ReadonlyArray<{
@@ -114,6 +127,7 @@ export function useBuddyDayJump(input: {
     readonly message?: { readonly id: string };
   }>;
   readonly listRef: RefObject<LegendListRef | null>;
+  readonly onManualNavigation: () => void;
   readonly history?:
     | {
         readonly hasMoreHistory: boolean;
@@ -127,20 +141,23 @@ export function useBuddyDayJump(input: {
     () => requestedMessageId,
     () => null,
   );
+  const { rows, listRef, onManualNavigation, history } = input;
   useEffect(() => {
     if (target === null) return;
-    const index = input.rows.findIndex(
-      (row) => row.kind === "message" && row.message?.id === target,
-    );
+    onManualNavigation();
+    const index = rows.findIndex((row) => row.kind === "message" && row.message?.id === target);
     if (index >= 0) {
-      void input.listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+      void listRef.current?.scrollToIndex({
+        index,
+        animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        viewOffset: 24,
+      });
       requestJump(null);
       return;
     }
-    if (input.history?.hasMoreHistory && !input.history.loading)
-      input.history.onLoadEarlier(target);
-    else if (!input.history?.hasMoreHistory) requestJump(null);
-  }, [input.history, input.listRef, input.rows, target]);
+    if (history?.hasMoreHistory && !history.loading) history.onLoadEarlier(target);
+    else if (!history?.hasMoreHistory) requestJump(null);
+  }, [history, listRef, onManualNavigation, rows, target]);
 }
 
 /** The id of each user message that opens a local day, with the day's label. */

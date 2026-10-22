@@ -338,9 +338,8 @@ Commity v pořadí na `main`:
   `buddySurface.testkit.ts`\*, `buddyPrompt.orchestrator.test.ts`\*, `overlay.ts`\*.
   `packages/contracts/src/server.ts`\*. Web: `routes/__root.tsx`, `routes/_chat.index.tsx`,
   `routes/_chat.tsx`\*, `components/ChatView.tsx`\*, `components/chat/MessagesTimeline.tsx`\*,
-  `public/assets/avatar.webp`; `apps/web/src/lazurio/`: `BuddySurface.tsx`,
-  `buddySurfaceFrame.ts`, `useBuddyFrame.ts`, `buddySurfaceProtocol.ts` a jeho test,
-  `brand/README.md`\*.
+  `public/assets/avatar.webp`; `apps/web/src/lazurio/`: `BuddySurface.tsx`, `useBuddyFrame.ts`,
+  `buddySurfaceFrame.ts` a `buddySurfaceProtocol.ts`, každý s testem, `brand/README.md`\*.
 - **5.** Tento commit, poslední. Soubory distribuce.
 
 ### Lazurio shell
@@ -908,14 +907,17 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   rozhovoru, kde je místo (od šířky 640 px), a v rozhovoru čáru s datem nad první zprávou každého
   dne. Den v panelu přeskočí na svou první zprávu, i když ji musí nejdřív načíst ze starší
   historie. `/` otevře Buddyho vlákno. Seznam vláken, nové vlákno, větvení, návrat, hlavička vlákna
-  T3 ani průvodce prvním spuštěním na povrchu nejsou. Zpráva poslaná za běhu tahu ho usměrní;
+  T3, podrobnosti vlákna (editor, skripty projektu, větev) ani průvodce prvním spuštěním na povrchu
+  nejsou. Zpráva poslaná za běhu tahu ho usměrní;
   frontu člověk volí výslovně opačnou volbou tlačítka odeslání (Ctrl/⌘-klik), jako v upstreamu.
 - **Rám bubliny.** V bublině shellu (rám se sandboxem bubliny) mluví povrch s hostitelem protokolem
   `lazurio.buddy.*` verze 1 z LazurioPlatform: pošle `ready`, od rodiče přijme jen platný kontext
   stránky z originu hostitele (`launchpad`, `t3code` nebo `mausbot` pod základem Prostředí)
   a o velikost okna žádá zprávou `layout`. Tlačítka hlavičky žádají celou obrazovku, panel
-  a zavření. Esc bez modifikátoru požádá o panel pokaždé, když ho nevezme otevřený dialog, nabídka
-  nebo seznam, i na celé obrazovce úzkého okna: rozložení povrch nikdy neodvozuje ze šířky. Mimo
+  a zavření. Esc bez modifikátoru požádá o panel pokaždé, když je v povrchu zavřený každý dialog,
+  nabídka i seznam a klávesu nezastavilo nic uvnitř, jako ji zastaví nabídky composeru. Editor
+  composeru označí každý Esc za obsloužený, proto obsloužená klávesa sama nestačí. Platí to i na
+  celé obrazovce úzkého okna: rozložení povrch nikdy neodvozuje ze šířky. Mimo
   rám hostitele nebo mimo Buddyho T3 Code s nikým nemluví.
 - **Co zůstává upstreamu.** Když se Hermesovo sezení nenačte (`session/load`), T3 začne nové se
   shrnutím vlákna. To je obnova kontextu, ne pokyn, a řádek ji nemění.
