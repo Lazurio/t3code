@@ -45,6 +45,7 @@ import {
   isAgentCliFailure,
   withAgentCliConnection,
 } from "./agentCliConnection.ts";
+import { agentCliSendKey } from "./agentCliRequests.ts";
 import {
   makeEventTracker,
   mergeThreadLists,
@@ -611,15 +612,20 @@ const threadSendCommand = Command.make("send", {
       flags,
       readMessage({ ...flags, required: true }),
       (connection, message) =>
-        connection.callTool(
-          "t3_thread_send",
-          defined({
-            threadId: flags.threadId,
-            message: Option.getOrUndefined(message),
-            mode: Option.getOrUndefined(flags.mode),
-            clientRequestId: Option.getOrUndefined(flags.idempotencyKey),
-          }),
-        ),
+        Effect.gen(function* () {
+          const clientRequestId = Option.isSome(flags.idempotencyKey)
+            ? yield* agentCliSendKey({ threadId: flags.threadId, key: flags.idempotencyKey.value })
+            : undefined;
+          return yield* connection.callTool(
+            "t3_thread_send",
+            defined({
+              threadId: flags.threadId,
+              message: Option.getOrUndefined(message),
+              mode: Option.getOrUndefined(flags.mode),
+              clientRequestId,
+            }),
+          );
+        }),
       textAs(
         SendResult,
         (result) =>

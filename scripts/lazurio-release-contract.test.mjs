@@ -2251,11 +2251,13 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
     NodeAssert.ok(overlayMayChange(file), file);
 });
 
-// Root decision 0210, plan DEV-6676 (row 24): budíček wakes Buddy with `t3 thread send` and sends
-// again after a crash. The key is the MCP tool's clientRequestId, which T3 makes idempotent in the
-// request namespace of its MCP client; every agent command signs in with a session of its own, so
-// server.ts puts the agent commands' sessions in one namespace, and only theirs. Buddy's thread is
-// found or made behind one overlay route, which `t3 lazurio buddy thread` asks.
+// Root decision 0210, plan DEV-6676 (row 24): budíček wakes Buddy with `t3 thread send` through
+// /mcp, as an agent, and sends again after a crash. The key becomes the MCP tool's clientRequestId,
+// which T3 makes idempotent in the request namespace of its MCP client; every agent command signs in
+// with a session of its own, so server.ts puts the agent commands' sessions in one namespace, and
+// only theirs. In that namespace the command passes a digest of the key with the thread and the
+// sender, so another thread or sender never gets the first send's result. Buddy's thread is found or
+// made behind one overlay route, which `t3 lazurio buddy thread` asks.
 NodeTest.test(
   "an agent command's idempotency key and Buddy's thread keep their seams",
   async () => {
@@ -2276,7 +2278,12 @@ NodeTest.test(
     NodeAssert.match(connection, /export const AGENT_CLI_SESSION_LABEL = "t3 agent cli";/);
     NodeAssert.match(connection, /label: AGENT_CLI_SESSION_LABEL/);
     NodeAssert.match(requests, /scope\.client\?\.label === AGENT_CLI_SESSION_LABEL/);
-    NodeAssert.match(agentCli, /clientRequestId: Option\.getOrUndefined\(flags\.idempotencyKey\),/);
+    NodeAssert.match(
+      agentCli,
+      /\? yield\* agentCliSendKey\(\{ threadId: flags\.threadId, key: flags\.idempotencyKey\.value \}\)/,
+    );
+    NodeAssert.match(agentCli, /connection\.callTool\(\n\s+"t3_thread_send",/);
+    NodeAssert.match(requests, /export const agentCliSendKey = /);
     NodeAssert.match(lazurioCli, /threadSendIdempotency: true,\n\s+buddyThread: true,/);
     NodeAssert.ok(overlayMayChange("apps/server/src/server.ts"));
   },
