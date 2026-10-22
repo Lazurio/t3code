@@ -46,6 +46,8 @@ describe("an environment that names no sender the mark can carry", () => {
         [{ T3CODE_ACTING_SENDER: "Tomáš" }, "T3CODE_ACTING_SENDER must be buddy or delegace."],
         [{ T3CODE_ACTING_SENDER: "Buddy" }, "T3CODE_ACTING_SENDER must be buddy or delegace."],
         [{ T3CODE_ACTING_SENDER: "Delegace" }, "T3CODE_ACTING_SENDER must be buddy or delegace."],
+        // The kind's earlier name is no alias.
+        [{ T3CODE_ACTING_SENDER: "budicek" }, "T3CODE_ACTING_SENDER must be buddy or delegace."],
         [
           { T3CODE_ACTING_SENDER: "buddy" },
           "T3CODE_ACTING_SENDER=buddy needs T3CODE_ACTING_FOR, the user's name.",
@@ -85,6 +87,7 @@ describe("an environment that names no sender the mark can carry", () => {
       { kind: "buddy", for: "Tomáš", label: "Admin" },
       { kind: "delegace", for: "Tomáš" },
       "delegace",
+      { kind: "budicek" },
     ])
       assert.isTrue(Option.isNone(decode(claim)), JSON.stringify(claim));
   });
