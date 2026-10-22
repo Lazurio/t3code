@@ -3,7 +3,7 @@
  * `t3 lazurio capabilities` (contract version 1), the Platform's `lazurio chat defaults --apply`
  * runs `t3 lazurio model`, the Launchpad runs `t3 lazurio providers` after Codex or Claude signed
  * in through its CLI and `t3 lazurio pairing` when the Environment pairs its own browser, and
- * budíček runs `t3 lazurio buddy thread` (buddySurfaceCli.ts), so the commands' output is a
+ * Delegace runs `t3 lazurio buddy thread` (buddySurfaceCli.ts), so the commands' output is a
  * contract: cli.test.ts pins it.
  */
 import {
@@ -287,6 +287,7 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         threadSendIdempotency: true,
         threadSendOutcome: true,
         buddyThread: true,
+        actingSender: true,
       }),
     ),
   ),

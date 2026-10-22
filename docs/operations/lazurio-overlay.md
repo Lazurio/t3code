@@ -514,3 +514,88 @@ Environmentu skončily na párovací stránce.
   přesměrování a mimo desktop, staré sezení, které neúspěch nechá, a rozsahy
   operátora bez `relay:write`. Odkaz `/pair#token=…` se nemění a uložený grant
   nahradí dál.
+
+## Kdo jednal: Buddy a Delegace
+
+**Rozhodnutí 0210, večerní dodatek, bod 5 (řádek 24, plán DEV-6676).** Co Buddy
+napíše nebo schválí ve vlákně, nese viditelnou značku „Buddy za <jméno
+uživatele>“, anglicky „Buddy for <jméno>“. Probuzení od Delegace, deterministické
+služby Prostředí, která Buddyho budí v jeho vlastním vlákně, nese „Delegace“ (jeho
+jméno v obou jazycích). Kroky uživatele samotného žádnou novou značku nemají.
+
+- **Kdo jedná, nese sezení.** Tvrzení (`ActingSender`, `lazurio/actingSender.ts`)
+  má uzavřenou sadu druhů: `buddy` se jménem uživatele `for` (1 až 64 znaků na
+  jednom řádku, bez řídicích, formátovacích a oddělovacích znaků) a volitelným
+  českým tvarem po „za“ `forAccusative`, nebo `delegace` bez jména. Volný štítek
+  neexistuje: s ním by se jakékoli sezení mohlo vydávat za uživatele. Tvrzení je
+  podepsané v tokenu sezení jako `act`, vedle stropu režimu `rtc`
+  (`SessionStore.ts`). Do tokenu vydaného bez něj ho přidat nejde a tvrzení, které
+  značka nenese, se nevydá ani neověří.
+- **Jak ho dostane CLI.** Agentní příkazy (`t3 thread`, `t3 request`, `t3 queue`,
+  `t3 events`) ho čtou z prostředí: `T3CODE_ACTING_SENDER=buddy` s
+  `T3CODE_ACTING_FOR` a volitelně `T3CODE_ACTING_FOR_ACCUSATIVE`, nebo
+  `T3CODE_ACTING_SENDER=delegace` bez jmen. Obě sezení příkazu (na `/mcp` i na
+  ploše uživatele) pak tvrzení nesou. Prázdná hodnota je jako nenastavená, stejně
+  jako u ostatních proměnných T3. Cokoli jiného příkaz odmítne (`invalid_request`,
+  kód 1) dřív, než cokoli přečte nebo zapíše, takže špatně nastavený agent selže
+  nahlas a nejedná bez značky. Proměnné nastavuje prostředí Buddyho a Delegace,
+  nikdy služba T3: agenti vláken, které T3 spouští, by je zdědili.
+  `t3 lazurio capabilities` uvádí `"actingSender": true`.
+- **Odkud ho čte server.** Ze sezení, nikdy z příkazu ani z textu zprávy: klient
+  MCP ho má ve svém vyvolání (`McpOAuth.ts` ho přenese do
+  `McpInvocationContext`) a plocha uživatele spouští dispatch jako své sezení
+  (jedno volání `actingAs` v `ws.ts`). Agent uvnitř vlákna T3 volá nástroje jako
+  své vlákno, ne jako klient, takže tvrzení mít nemůže.
+- **Co se zapíše.** Dekorátor orchestrátoru upstreamu (`recordSteps`, jedno
+  obalení v `orchestration-v2/runtimeLayer.ts`) zapíše krok, jen když dispatch
+  sezení s tvrzením prošel a jeho události jsou právě ta zpráva (`message.updated`)
+  nebo vyřízení právě té žádosti (`runtime-request.updated` se stavem
+  `resolved`). Kroky jsou zpráva (`t3 thread launch` a `send`) a rozhodnutí
+  otázky nebo žádosti o oprávnění (`t3 request respond`, `approve`, `deny`).
+  Pozdní rozhodnutí, které T3 odmítne, protože uživatel rozhodl dřív, nezapíše
+  nic. Zprávy T3 samotného (automatizace, oznámení, pokračování, agent jiného
+  vlákna) nejsou krokem nikoho, ani když jedou v dispatchi Buddyho.
+- **Kde to leží.** Jeden řádek JSON na krok v
+  `<state dir>/lazurio/acting-senders/<SHA-256 id vlákna>.jsonl` (soubor `0600`,
+  složka `0700`). Přežije restart a aktualizaci; databáze T3 a její migrace
+  zůstávají upstreamu. Řádek useknutý pádem se přeskočí. Zápis, který selže,
+  dispatch nezmění (příkaz už prošel), jen značka chybí. Smazání vlákna záznam
+  nemaže; je malý a bez vlákna se nikde neukáže.
+- **Cesta pro web.** `GET /api/lazurio/acting-senders?threadId=<id>` vrátí
+  `{"at", "messages": [{"messageId", "sender"}], "requests": [{"requestId",
+"sender"}]}` s `cache-control: no-store`; 400 bez id vlákna, 503 nečitelný
+  záznam. Ověřuje se jako ostatní cesty overlaye (`routeAuth.ts`) s rozsahem
+  čtení vlákna z tabulky upstreamu (`orchestration:read`). Krok se zapíše až po
+  commitu, takže web by mohl zprávu vidět dřív než její záznam. Cesta proto až
+  dvě sekundy počká na běžící dispatche vlákna se sezením s tvrzením a `at`
+  řekne, do kdy je odpověď úplná: nikdy ne za začátkem dispatche, který ještě
+  běží. Dekorátor a cesta proto berou tutéž vrstvu úložiště, kterou T3 sestaví
+  jednou.
+- **Web.** Ptá se jen u řádků, které Buddy nebo Delegace mohl napsat nebo
+  rozhodnout: u zprávy, kterou agent poslal zvenku vlákna (upstream „Sent by
+  another agent“ bez odesílajícího vlákna), a u otázky nebo žádosti o oprávnění,
+  kterou někdo rozhodl. Pro vlákno pošle jeden dotaz a další jen pro řádky, které
+  mezitím přibyly a odpověď je nepokryje; řádek starší než `at` bez záznamu je
+  uživatele nebo T3. Server, který záznam nevrátí (starší T3, chyba), se pro to
+  vlákno už neptá a zůstane upstream text. Značka nahradí „Sent by another
+  agent“ nad zprávou a stojí vedle času u rozhodnuté žádosti. Česky, má-li
+  prohlížeč češtinu (`prefersCzech`), jinak anglicky. Jen pro vlákna
+  Environmentu, který stránku servíruje, jako záložky prohlížeče.
+- **Co se nemění.** Desktop a mobil ukazují dál upstream text: desktop se na
+  cestu přes cookie nedostane a mobilní aplikace je upstreamu. Úprava zprávy ve
+  frontě, přerušení běhu a další kroky značku nedostanou (jen zpráva a
+  rozhodnutí). `t3 thread read` ji agentům zatím neukazuje.
+
+Hranice je celý Environment (rozhodnutí 0172): kdo smí vydat sezení z T3 home,
+vydá i sezení s tvrzením. Mechanismus zaručuje, že značka nevznikne bez sezení,
+které jedná jako Buddy nebo Delegace; že ho dostanou jen oni, drží proces (kdo
+proměnné nastavuje). Švy: `SessionStore.ts` (tvrzení `act`), `EnvironmentAuth.ts`
+(`actingSender` při vydání, v ověřeném sezení klienta MCP i plochy uživatele),
+`McpOAuth.ts` a `McpInvocationContext.ts` (tvrzení ve vyvolání klienta MCP),
+`ws.ts` (jedno volání `actingAs`), `runtimeLayer.ts` (jedno obalení
+`recordSteps`) a ve webu `MessagesTimeline.tsx` (popisek nad zprávou a značka
+vedle rozhodnuté žádosti). Zbytek je v `apps/server/src/lazurio/actingSender*.ts`
+a `apps/web/src/lazurio/` (`actingSender.ts`, `LazurioActingSender.tsx`).
+Kontraktní test hlídá švy; `actingSenders.test.ts` hlídá odmítnutí dřív než
+úspěch a `agentCli.test.ts` spouští skutečné CLI proti skutečnému `/mcp` a ploše
+uživatele až po cestu, kterou čte web.

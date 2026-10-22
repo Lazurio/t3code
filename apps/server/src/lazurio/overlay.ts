@@ -11,11 +11,16 @@
  * root decision 0201). In Buddy's T3 Code the Buddy thread route finds or makes Buddy's one thread
  * (buddySurfaceThreadRoute.ts, root decision 0210), and the days route lists the days of that
  * conversation for the surface's day pane (buddySurfaceDays.ts). The send state route tells an
- * agent command what became of its keyed send (agentCliSendState.ts).
+ * agent command what became of its keyed send (agentCliSendState.ts). The acting senders route
+ * tells the web which of a thread's messages and decisions Buddy or Delegace sent
+ * (actingSendersRoute.ts, root decision 0210); its store is the one the orchestrator's decorator
+ * writes (actingSenders.ts, runtimeLayer.ts), one instance because both take the same layer.
  */
 
 import * as Layer from "effect/Layer";
 
+import * as ActingSenders from "./actingSenders.ts";
+import * as ActingSendersRoute from "./actingSendersRoute.ts";
 import * as AgentCliSendState from "./agentCliSendState.ts";
 import * as BuddySurfaceDays from "./buddySurfaceDays.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
@@ -35,4 +40,5 @@ export const layer = Layer.mergeAll(
   BuddySurfaceThreadRoute.layer,
   AgentCliSendState.layer,
   BuddySurfaceDays.layer,
+  ActingSendersRoute.layer.pipe(Layer.provide(ActingSenders.layer)),
 ).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));

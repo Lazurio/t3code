@@ -55,24 +55,32 @@ jobs:
           # change there fails.
           allowed_upstream_changes=(
             # Shared seams, each with the hooks of several features below: the server's
-            # CLI and runtime config (hosted settings, the managed Folder), ServerEnvironment.ts
+            # CLI and runtime config (hosted settings, the managed Folder), SessionStore.ts (the
+            # hosted session's TTL and cookie, and who a session acts as, signed into its token),
+            # EnvironmentAuth.ts (a headless MCP client's runtime-mode ceiling, and who a session
+            # is issued and authenticated as acting for), ServerEnvironment.ts
             # (the update notice's descriptor field, and no serverBrowser capability on a
             # Lazurio Environment), CodexAdapterV2.ts and its test (a Codex thread's agent-browser
             # session in its config, and the question tool's feature on the app-server T3 starts),
-            # orchestration-v2/runtimeLayer.ts (the managed Folder's guards, the sign-in guard
-            # and Buddy's one conversation, as decorators where it builds upstream's services),
-            # server.ts (the overlay's one route layer, the gate over upstream's server browser,
-            # the agent scope that gives a thread's agents its agent-browser session, the `t3`
-            # command following the version the launcher activated, Buddy's instance without
-            # T3's instructions where it builds its provider instances, one request namespace
-            # for the agent commands' MCP sessions, and no checkpoints in Buddy's project),
-            # index.html (the shell
-            # slot, the name in the app), main.tsx (the prepared prompt, and the import of the
-            # design system's light look, root decision 0200, whose one stylesheet is
-            # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment
-            # browser, Buddy's surface), RightPanelTabs.tsx and rightPanelStore.ts (Environment
-            # browser, Nová karta), sidebar/SidebarChrome.tsx (the shell's column head under
-            # every sidebar's top row, and the name in the app).
+            # orchestration-v2/runtimeLayer.ts (the managed Folder's guards, the sign-in guard,
+            # Buddy's one conversation and the record of who acted, as decorators where it builds
+            # upstream's services), server.ts (the overlay's one route layer, the gate over
+            # upstream's server browser, the agent scope that gives a thread's agents its
+            # agent-browser session, the `t3` command following the version the launcher
+            # activated, Buddy's instance without T3's instructions where it builds its provider
+            # instances, one request namespace for the agent commands' MCP sessions, and no
+            # checkpoints in Buddy's project), ws.ts (the managed Folder's config and Buddy's
+            # surface for clients, and a dispatch run as the session that sent it), index.html
+            # (the shell slot, the name in the app), main.tsx (the prepared prompt, and the import
+            # of the design system's light look, root decision 0200, whose one stylesheet is
+            # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment browser,
+            # Buddy's surface), RightPanelTabs.tsx and rightPanelStore.ts (Environment browser,
+            # Nová karta), chat/MessagesTimeline.tsx (no "Copy prompt link" on a managed
+            # Environment, Buddy's surface without forks and with a line above each day, page
+            # chips, and who acted on a message or a decided request), sidebar/SidebarChrome.tsx
+            # (the shell's column head under every sidebar's top row, and the name in the app).
+            apps/server/src/auth/EnvironmentAuth.ts
+            apps/server/src/auth/SessionStore.ts
             apps/server/src/cli/config.ts
             apps/server/src/config.ts
             apps/server/src/environment/ServerEnvironment.ts
@@ -80,9 +88,11 @@ jobs:
             apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
             apps/server/src/orchestration-v2/runtimeLayer.ts
             apps/server/src/server.ts
+            apps/server/src/ws.ts
             apps/web/index.html
             apps/web/src/components/ChatView.tsx
             apps/web/src/components/RightPanelTabs.tsx
+            apps/web/src/components/chat/MessagesTimeline.tsx
             apps/web/src/components/sidebar/SidebarChrome.tsx
             apps/web/src/main.tsx
             apps/web/src/rightPanelStore.ts
@@ -93,7 +103,6 @@ jobs:
             apps/server/src/auth/EnvironmentAuthPolicy.test.ts
             apps/server/src/auth/EnvironmentAuthPolicy.ts
             apps/server/src/auth/SessionStore.test.ts
-            apps/server/src/auth/SessionStore.ts
             apps/server/src/auth/http.ts
             apps/server/src/auth/utils.ts
             apps/server/src/cli/config.test.ts
@@ -172,22 +181,20 @@ jobs:
             # there; the VCS service keeps repositories out of the Folder; the settings writer
             # applies the Platform's recommended model as the Lazurio project's own model where
             # the person chose none for that project; `t3 lazurio` (binCli.ts) reports both, and
-            # clients learn the Folder. The web starts new threads there, leaves out what leads
-            # elsewhere, including T3's "Copy prompt link" on sent messages (MessagesTimeline.tsx)
-            # and in the palette, whose links open no thread there (Lazurio/t3code#77), and shows
-            # the managed welcome. Upstream's project service tests run through the decorated
-            # layer; the VCS service's test covers its hook.
+            # clients learn the Folder (ws.ts, above). The web starts new threads there, leaves out
+            # what leads elsewhere, including T3's "Copy prompt link" on sent messages
+            # (MessagesTimeline.tsx, above) and in the palette, whose links open no thread there
+            # (Lazurio/t3code#77), and shows the managed welcome. Upstream's project service tests
+            # run through the decorated layer; the VCS service's test covers its hook.
             apps/server/src/binCli.ts
             apps/server/src/serverRuntimeStartup.ts
             apps/server/src/serverSettings.ts
             apps/server/src/vcs/VcsProvisioningService.test.ts
             apps/server/src/vcs/VcsProvisioningService.ts
-            apps/server/src/ws.ts
             apps/web/src/components/CommandPalette.tsx
             apps/web/src/components/GitActionsControl.tsx
             apps/web/src/components/Sidebar.tsx
             apps/web/src/components/chat/DraftHeroHeadline.tsx
-            apps/web/src/components/chat/MessagesTimeline.tsx
             apps/web/src/components/onboarding/FirstRunGate.tsx
             apps/web/src/components/sidebar/SidebarThreadHeader.tsx
             apps/web/src/hooks/useHandleNewThread.test.ts
@@ -212,8 +219,8 @@ jobs:
             # A headless MCP client's runtime-mode ceiling (root decision 0210, addendum 3; proposed
             # upstream): `t3 auth session issue --subject mcp-client --runtime-mode-ceiling <mode>`
             # issues the ceiling the MCP sign-in's approval grants, so an agent without a browser
-            # can change threads that run above Supervised. Without the flag nothing changes.
-            apps/server/src/auth/EnvironmentAuth.ts
+            # can change threads that run above Supervised (EnvironmentAuth.ts, above). Without the
+            # flag nothing changes.
             apps/server/src/cli/auth.test.ts
             apps/server/src/cli/auth.ts
             apps/server/src/cliAuthFormat.test.ts
@@ -264,6 +271,16 @@ jobs:
             # (composerContextPresentation.tsx, and MessagesTimeline.tsx, above). Its code lives
             # in apps/web/src/lazurio/ (buddySurfacePage.ts, BuddySurfacePageChip.tsx).
             apps/web/src/components/composerContextPresentation.tsx
+            # Who acted: Buddy and Delegace (root decision 0210, evening addendum, point 5; plan
+            # DEV-6676). An agent command whose environment names who it acts as
+            # (T3CODE_ACTING_SENDER) issues its sessions with that claim signed in (SessionStore.ts
+            # and EnvironmentAuth.ts, above). An MCP client's invocation carries it to the tools,
+            # the client surface runs a dispatch as its session (ws.ts, above), the orchestrator's
+            # decorator records the messages and decisions it sent (runtimeLayer.ts, above) and
+            # the web marks them (MessagesTimeline.tsx, above). Its code lives in
+            # apps/*/src/lazurio/.
+            apps/server/src/auth/McpOAuth.ts
+            apps/server/src/mcp/McpInvocationContext.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

@@ -154,6 +154,29 @@ stream reconnects by itself when T3 Code restarts and continues after the last
 that falls behind gets a thread's newest line rather than every step in between.
 It says why it reconnected on standard error.
 
+## Acting for you as your assistant
+
+On a Lazurio Environment your assistant, Buddy, uses these commands for you. What
+it sends or decides then shows **Buddy for <your name>** in the thread (in Czech
+„Buddy za …“), and a wake-up from Delegace, the service that wakes Buddy, shows
+**Delegace**. Your own messages and decisions show nothing new. The commands do this
+only when their environment says who they act as:
+
+```sh
+T3CODE_ACTING_SENDER=buddy T3CODE_ACTING_FOR=Tomáš T3CODE_ACTING_FOR_ACCUSATIVE=Tomáše \
+  t3 thread send 4f1c0b2e-… "Run the tests first" --json
+T3CODE_ACTING_SENDER=delegace t3 thread send 4f1c0b2e-… --mode queue --message-file - --json
+```
+
+`T3CODE_ACTING_SENDER` is `buddy` or `delegace`; there is no free label. With
+`buddy`, `T3CODE_ACTING_FOR` is your name and `T3CODE_ACTING_FOR_ACCUSATIVE` its
+Czech form after „za“, which Czech shows when it is set. Names are one line of at
+most 64 characters. Any other value fails the command with `invalid_request`
+before anything is read. Set the variables in the assistant's own environment,
+never in T3 Code's service, whose agents would inherit them. The mark shows on
+messages (`t3 thread launch`, `t3 thread send`) and on answers and decisions
+(`t3 request respond`, `approve`, `deny`) in the web app.
+
 ## An MCP token without a sign-in
 
 An MCP client that cannot open the sign-in page can use a token issued on the

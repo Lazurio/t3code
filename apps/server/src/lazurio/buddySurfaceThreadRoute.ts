@@ -1,7 +1,7 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): `POST /api/lazurio/buddy/thread`, which
  * finds or makes Buddy's thread (buddySurfaceThread.ts). Buddy's web surface asks it when it opens,
- * and `t3 lazurio buddy thread` (buddySurfaceCli.ts) for budíček. Making the thread dispatches a
+ * and `t3 lazurio buddy thread` (buddySurfaceCli.ts) for Delegace. Making the thread dispatches a
  * command, so the route needs the orchestration scopes the person's client surface reads threads
  * and operates them with.
  *
