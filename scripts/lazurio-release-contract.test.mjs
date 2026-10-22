@@ -196,10 +196,11 @@ NodeTest.test("releases and the image carry the name Lazurio T3 Code", () => {
   NodeAssert.match(notes, /Lazurio Environments update to it from this release\."\n/);
   NodeAssert.doesNotMatch(notes, /\bMachines?\b|vanilla/i);
   NodeAssert.doesNotMatch(release, /vanilla/i);
-  // The last lines of the notes: the exact source and the licence.
+  // The last lines of the notes: the exact source and the licence, whose exception for the Lazurio
+  // brand assets links their terms at the same source.
   NodeAssert.match(
     notes,
-    /\n\s+echo "Source code: https:\/\/github\.com\/\$GITHUB_REPOSITORY\/tree\/\$SOURCE_SHA\. Licensed under the"\n\s+echo "MIT License, like T3 Code; each archive and the image include T3 Code's LICENSE\."$/,
+    /\n\s+echo "Source code: https:\/\/github\.com\/\$GITHUB_REPOSITORY\/tree\/\$SOURCE_SHA\. Licensed under the"\n\s+echo "MIT License, like T3 Code, except the Lazurio brand assets \(the Lazurio symbol and Buddy's"\n\s+echo "character\), which are not under it:"\n\s+echo "https:\/\/github\.com\/\$GITHUB_REPOSITORY\/blob\/\$SOURCE_SHA\/apps\/web\/src\/lazurio\/brand\/README\.md\."\n\s+echo "Each archive and the image include T3 Code's LICENSE\."$/,
   );
   // The image's name, description, licence, address and vendor, the same in the published image and
   // in every image Dockerfile.lazurio builds.
