@@ -6616,17 +6616,18 @@ export default function ChatView(props: ChatViewProps) {
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
     const composerThreadContextsSnapshot = [...composerThreadContexts];
-    // Lazurio overlay (plan DEV-6676): the page joins only here, where its record joins too.
-    const messageTextForSend = withPageReference(
-      composerTerminalContexts
-        .filter((context) => !composerTerminalContextsSnapshot.includes(context))
-        .reduce(
-          (text, context) =>
-            removeInlineContextReference(text, terminalContextReference(context).contextId).prompt,
-          promptForSend,
-        ),
-      buddyPage.record,
-    ).trim();
+    const messageTextForSend = composerTerminalContexts
+      .filter((context) => !composerTerminalContextsSnapshot.includes(context))
+      .reduce(
+        (text, context) =>
+          removeInlineContextReference(text, terminalContextReference(context).contextId).prompt,
+        promptForSend,
+      )
+      .trim();
+    // Lazurio overlay (plan DEV-6676): the page joins only the text that is sent, where its record
+    // joins too. A failed send gives the composer back messageTextForSend, the person's own words,
+    // so a retry carries the page the chip shows then, or none once the person removed it.
+    const pageTextForSend = withPageReference(messageTextForSend, buddyPage.record).trim();
     // Records bind attachments by the id each side knows: the local id for the optimistic
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
@@ -6643,7 +6644,7 @@ export default function ChatView(props: ChatViewProps) {
           })),
         }),
         buddyPage.record,
-        messageTextForSend,
+        pageTextForSend,
       );
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
@@ -6667,7 +6668,7 @@ export default function ChatView(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      text: pageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -6720,7 +6721,7 @@ export default function ChatView(props: ChatViewProps) {
         model: selection.model,
         models: provider.models,
         effort: providerState.promptEffort,
-        text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+        text: pageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
       });
       if (composerRef.current?.validateProviderInput(text) === false) return;
       multipleTargets.push({
