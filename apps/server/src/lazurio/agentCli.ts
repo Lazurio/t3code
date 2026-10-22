@@ -585,8 +585,8 @@ const threadLaunchCommand = Command.make("launch", {
 
 const SendResult = Schema.Struct({
   threadId: Schema.String,
-  runId: Schema.String,
-  status: Schema.String,
+  runId: Schema.NullOr(Schema.String),
+  status: Schema.optional(Schema.String),
   delivery: Schema.String,
 });
 
@@ -653,15 +653,27 @@ const threadSendCommand = Command.make("send", {
           const ids = agentCliSendIds(sendKey);
           const sent = yield* Effect.result(send(sendKey));
           const state = yield* sendStateOf(connection, { threadId: flags.threadId, ...ids });
+          const stored = state?.message ?? null;
           // T3 ran the key's command once; a repeat with another message replays it unchanged.
-          if (state?.message !== null && state?.message !== undefined)
-            if (state.message.text.trim() !== text.trim())
-              return yield* agentCliFailure(
-                "idempotency_conflict",
-                "This key already sent another message to this thread, so nothing was sent. Send this message with a new key.",
-              );
+          // T3's tool trims the message as it decodes it (OrchestratorMcpPrompt), so the same
+          // trim tells whether this is the stored message.
+          if (stored !== null && stored.text !== text.trim())
+            return yield* agentCliFailure(
+              "idempotency_conflict",
+              "This key already sent another message to this thread, so nothing was sent. Send this message with a new key.",
+            );
           if (Result.isSuccess(sent))
             return { ...asObject(sent.success), commandId: ids.commandId };
+          // T3 checks the thread before it replays a receipt, so a repeat can fail although the
+          // key's message was delivered, such as when the thread was archived since.
+          if (state?.receipt?.status === "accepted" && stored !== null)
+            return {
+              threadId: flags.threadId,
+              messageId: ids.messageId,
+              runId: stored.runId,
+              delivery: "delivered",
+              commandId: ids.commandId,
+            };
           if (state?.receipt?.status === "rejected")
             return yield* agentCliFailure(
               "command_rejected",
@@ -669,10 +681,10 @@ const threadSendCommand = Command.make("send", {
             );
           return yield* sent.failure;
         }),
-      textAs(
-        SendResult,
-        (result) =>
-          `${result.threadId}: ${result.delivery} (run ${result.runId}, ${result.status}).`,
+      textAs(SendResult, (result) =>
+        result.status === undefined
+          ? `${result.threadId}: ${result.delivery} earlier (run ${result.runId ?? "none"}).`
+          : `${result.threadId}: ${result.delivery} (run ${result.runId}, ${result.status}).`,
       ),
     ),
   ),

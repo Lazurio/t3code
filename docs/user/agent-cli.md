@@ -82,10 +82,14 @@ your message. For a long message, pass `--message-file <path>`, or
 
 `--idempotency-key <key>` sends the message once per key, also when you run the
 same command again later or after T3 Code restarts: a repeat sends nothing and
-prints the first send's result, with the same `commandId`. A key belongs to its
-thread and to who sends: the same key sent to another thread, or by another
-sender, is another message. Use a key that names this one message, such as an
-id your script keeps with it.
+prints the first send's result, with the same `commandId`. Where T3 Code cannot
+replay that result, for example because the thread was archived since, the
+repeat prints `"delivery": "delivered"` with the message's `messageId`, `runId`
+and `commandId`. A key belongs to its thread and to who sends: the same key sent
+to another thread, or by another sender, is another message. T3 Code trims a
+message, so spaces or a final newline around the same text do not make another
+one. Use a key that names this one message, such as an id your script keeps
+with it.
 
 ```sh
 printf '%s' "$report" | t3 thread send 4f1c0b2e-… --message-file - --mode queue \

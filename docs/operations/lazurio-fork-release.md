@@ -752,9 +752,11 @@ příkazy tedy nepřidávají žádné oprávnění, jen ho dávají agentovi be
   stejný klíč do jiného vlákna nebo od jiného odesílatele je jiná zpráva, ne výsledek té první.
   Po odeslání s klíčem se příkaz cestou overlaye `POST /api/lazurio/agent-cli/send-state`
   (`agentCliSendState.ts`, rozsah `orchestration:read`) zeptá, co T3 zapsal: potvrzenku příkazu
-  a zprávu, kterou udělal. Opakování doručeného klíče vypíše úspěch s původním `commandId`. Klíč,
-  který už poslal jinou zprávu, skončí kódem `idempotency_conflict` a nic nepošle; klíč, jehož
-  příkaz T3 odmítl, skončí kódem `command_rejected`, protože odmítnutá potvrzenka platí navždy.
+  a zprávu, kterou udělal. Opakování doručeného klíče vypíše úspěch s původním `commandId`, i když
+  T3 výsledek přehrát nemůže, protože je vlákno mezitím archivované (`"delivery": "delivered"`).
+  Klíč, který už poslal jinou zprávu, skončí kódem `idempotency_conflict` a nic nepošle; text
+  porovnává po oříznutí, jak ho ořízne nástroj T3 (`OrchestratorMcpPrompt`). Klíč, jehož příkaz T3
+  odmítl, skončí kódem `command_rejected`, protože odmítnutá potvrzenka platí navždy.
   Konečné kódy a ty, po kterých má smysl poslat znovu, vypisuje `docs/user/agent-cli.md`; T3 bez
   této cesty dál jen posílá. Ve stejném prostoru jsou i nahrané přílohy, takže jeden agentní
   příkaz připojí, co nahrál jiný; všechny jednají za vlastníka Environmentu. budíček budí takto:
