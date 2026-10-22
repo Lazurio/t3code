@@ -63,8 +63,9 @@ jobs:
             # as decorators where it builds upstream's services),
             # server.ts (the overlay's one route layer, the gate over upstream's server browser,
             # the agent scope that gives a thread's agents its agent-browser session, the `t3`
-            # command following the version the launcher activated, and Buddy's instance without
-            # T3's instructions where it builds its provider instances), index.html (the shell
+            # command following the version the launcher activated, Buddy's instance without
+            # T3's instructions where it builds its provider instances, and one request namespace
+            # for the agent commands' MCP sessions), index.html (the shell
             # slot, the name in the app), main.tsx (the prepared prompt, and the import of the
             # design system's light look, root decision 0200, whose one stylesheet is
             # apps/web/src/lazurio/theme.css), ChatView.tsx (update notice, Environment

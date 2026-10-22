@@ -2,8 +2,9 @@
  * Lazurio overlay (LazurioPlatform F51, root decision 0201): `t3 lazurio`. Machines checks
  * `t3 lazurio capabilities` (contract version 1), the Platform's `lazurio chat defaults --apply`
  * runs `t3 lazurio model`, the Launchpad runs `t3 lazurio providers` after Codex or Claude signed
- * in through its CLI and `t3 lazurio pairing` when the Environment pairs its own browser, so the
- * commands' output is a contract: cli.test.ts pins it.
+ * in through its CLI and `t3 lazurio pairing` when the Environment pairs its own browser, and
+ * budíček runs `t3 lazurio buddy thread` (buddySurfaceCli.ts), so the commands' output is a
+ * contract: cli.test.ts pins it.
  */
 import {
   type AuthEnvironmentScope,
@@ -30,6 +31,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
 import { DurationFromString, projectLocationFlags, resolveCliAuthConfig } from "../cli/config.ts";
 import { formatIssuedPairingCredential } from "../cliAuthFormat.ts";
+import { buddyCommand } from "./buddySurfaceCli.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -282,11 +284,19 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         providerRefresh: true,
         operatorPairing: true,
         agentCli: true,
+        threadSendIdempotency: true,
+        buddyThread: true,
       }),
     ),
   ),
 );
 
 export const lazurioCommand = Command.make("lazurio").pipe(
-  Command.withSubcommands([modelCommand, providersCommand, pairingCommand, capabilitiesCommand]),
+  Command.withSubcommands([
+    modelCommand,
+    providersCommand,
+    pairingCommand,
+    capabilitiesCommand,
+    buddyCommand,
+  ]),
 );
