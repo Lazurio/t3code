@@ -2415,7 +2415,7 @@ NodeTest.test(
         "apps/web/src/components/chat/MessagesTimeline.tsx",
       ].map(read),
     );
-    NodeAssert.match(chat, /const buddyPage = useBuddyPage\(\);/);
+    NodeAssert.match(chat, /const buddyPage = useBuddyPage\(environmentId\);/);
     NodeAssert.match(
       chat,
       /const promptForSend = withPageReference\(\n\s+directAnnotation\n[^]*?: promptRef\.current,\n\s+buddyPage\.record,\n\s+\);/,

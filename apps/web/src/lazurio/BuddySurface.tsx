@@ -94,12 +94,13 @@ const TEXT = {
 
 /**
  * The page the next message in Buddy's composer carries: the last valid page context of the host,
- * until the person removes it. Another page brings its chip back. None outside Buddy's T3 Code.
+ * until the person removes it. Another page brings its chip back. None outside Buddy's T3 Code or
+ * in a thread of another Environment than Buddy's.
  */
-export function useBuddyPage() {
-  const buddy = useBuddySurfaceMode() === true;
+export function useBuddyPage(environmentId: string) {
+  const buddy = useBuddySurfaceMode(environmentId) === true;
   const { context } = useBuddyFrame(buddy);
-  const text = useCzech() ? TEXT.cs : TEXT.en;
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
   const [removed, setRemoved] = useState<string | null>(null);
   const page = context === null ? null : pageRecordOf(context);
   const record = page !== null && page.contextId !== removed ? page : null;
