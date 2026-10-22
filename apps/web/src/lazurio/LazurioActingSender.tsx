@@ -1,57 +1,99 @@
 /**
- * Lazurio overlay (root decision 0210, evening addendum, point 5; plan DEV-6676): the mark of who
- * acted in a thread, „Buddy za <user>“ or „Delegace“ (actingSender.ts), in the two places
- * MessagesTimeline.tsx shows it: instead of upstream's "Sent by another agent" above a message an
- * agent sent from outside any thread, and beside a question or permission request someone decided.
- * Only for threads of the Environment that serves the page, whose route the session cookie
- * reaches; elsewhere, and until the server answers, upstream's own label stays.
+ * Lazurio overlay (root decision 0210, evening addendum, point 5; plan DEV-6676): who acted in a
+ * thread (actingSender.ts), in the three places MessagesTimeline.tsx uses it. Its rows leave out
+ * Delegace's wake, and an agent's message until the server says who sent it. Above a message an
+ * agent sent from outside any thread, „Buddy za <user>“ replaces upstream's "Sent by another
+ * agent". Beside a question or permission request Buddy decided, the same mark stands. Only for
+ * threads of the Environment that serves the page, whose route the session cookie reaches;
+ * elsewhere everything shows as upstream shows it.
  */
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { type ReactNode, useEffect, useSyncExternalStore } from "react";
 
+import type { MessagesTimelineRow } from "../components/chat/MessagesTimeline.logic";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import {
-  type ActingSender,
+  type ActingSenderMessage,
+  type ActingSenderState,
   actingSenderLabel,
   actingSenderLoader,
   actingSenderMessageKey,
   actingSenderRequestOf,
+  actingSenderStateIn,
+  visibleActingSenderRows,
 } from "./actingSender";
 import { prefersCzech } from "./threadTabs";
 
-function useActingSender(
+/** The thread, when it is of the Environment that serves the page; else none to ask about. */
+function useServedThread(environmentId: EnvironmentId | undefined, threadId: string | undefined) {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  return environmentId === primaryEnvironmentId ? threadId : undefined;
+}
+
+function useThreadSenders(threadId: string | undefined) {
+  return useSyncExternalStore(actingSenderLoader.subscribe, () =>
+    threadId === undefined ? undefined : actingSenderLoader.view(threadId),
+  );
+}
+
+function useActingSenderState(
   environmentId: EnvironmentId,
   threadId: string | undefined,
   key: string | null,
   time: number,
-): ActingSender | undefined {
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const thread = environmentId === primaryEnvironmentId ? threadId : undefined;
+): ActingSenderState {
+  const thread = useServedThread(environmentId, threadId);
   useEffect(() => {
     if (thread !== undefined && key !== null) actingSenderLoader.want(thread, key, time);
   }, [thread, key, time]);
-  return useSyncExternalStore(actingSenderLoader.subscribe, () =>
-    thread === undefined || key === null ? undefined : actingSenderLoader.sender(thread, key),
-  );
+  const view = useThreadSenders(thread);
+  return thread === undefined || key === null
+    ? "unavailable"
+    : actingSenderStateIn(view, key, time);
 }
 
-/** Above a message an agent sent: who it acted as, where the server knows it, else `children`. */
+const userMessageOf = (row: MessagesTimelineRow): ActingSenderMessage | undefined =>
+  row.kind === "message" && row.message.role === "user" ? row.message : undefined;
+
+/**
+ * The timeline's rows without Delegace's wakes, and without an agent's message the server has not
+ * answered for yet (ACTING_SENDER_WAIT_MS at most). The rows around them stay as they are.
+ */
+export function useLazurioActingSenderRows(
+  rows: MessagesTimelineRow[],
+  thread: ScopedThreadRef | null,
+): MessagesTimelineRow[] {
+  const threadId = useServedThread(thread?.environmentId, thread?.threadId);
+  useEffect(() => {
+    if (threadId === undefined) return;
+    for (const row of rows) {
+      const message = userMessageOf(row);
+      const key = message === undefined ? null : actingSenderMessageKey(message);
+      if (message !== undefined && key !== null)
+        actingSenderLoader.want(threadId, key, Date.parse(message.createdAt));
+    }
+  }, [threadId, rows]);
+  const view = useThreadSenders(threadId);
+  return threadId === undefined ? rows : visibleActingSenderRows(rows, userMessageOf, view);
+}
+
+/** Above a message an agent sent: „Buddy za <user>“ where it was Buddy, else `children`. */
 export function LazurioActingSenderLabel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: string | undefined;
-  readonly message: Parameters<typeof actingSenderMessageKey>[0] & { readonly createdAt: string };
+  readonly message: ActingSenderMessage;
   readonly children: ReactNode;
 }) {
-  const sender = useActingSender(
+  const sender = useActingSenderState(
     props.environmentId,
     props.threadId,
     actingSenderMessageKey(props.message),
     Date.parse(props.message.createdAt),
   );
-  return sender === undefined ? (
-    props.children
-  ) : (
+  return typeof sender === "object" && sender?.kind === "buddy" ? (
     <span data-acting-sender={sender.kind}>{actingSenderLabel(sender, prefersCzech())}</span>
+  ) : (
+    props.children
   );
 }
 
@@ -81,15 +123,15 @@ function DecidedRequestMark(props: {
   readonly requestKey: string;
   readonly decidedAt: number;
 }) {
-  const sender = useActingSender(
+  const sender = useActingSenderState(
     props.environmentId,
     props.threadId,
     props.requestKey,
     props.decidedAt,
   );
-  return sender === undefined ? null : (
+  return typeof sender === "object" && sender?.kind === "buddy" ? (
     <span className="shrink-0 text-2xs text-muted-foreground/70" data-acting-sender={sender.kind}>
       {actingSenderLabel(sender, prefersCzech())}
     </span>
-  );
+  ) : null;
 }

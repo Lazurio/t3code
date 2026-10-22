@@ -158,9 +158,10 @@ It says why it reconnected on standard error.
 
 On a Lazurio Environment your assistant, Buddy, uses these commands for you. What
 it sends or decides then shows **Buddy for <your name>** in the thread (in Czech
-„Buddy za …“), and a wake-up from Delegace, the service that wakes Buddy, shows
-**Delegace**. Your own messages and decisions show nothing new. The commands do this
-only when their environment says who they act as:
+„Buddy za …“). A wake-up from Delegace, the service that wakes Buddy, does not show
+in the thread at all: you see only Buddy's reply to it. Your own messages and
+decisions show nothing new. The commands do this only when their environment says
+who they act as:
 
 ```sh
 T3CODE_ACTING_SENDER=buddy T3CODE_ACTING_FOR=Tomáš T3CODE_ACTING_FOR_ACCUSATIVE=Tomáše \
@@ -175,7 +176,9 @@ most 64 characters. Any other value fails the command with `invalid_request`
 before anything is read. Set the variables in the assistant's own environment,
 never in T3 Code's service, whose agents would inherit them. The mark shows on
 messages (`t3 thread launch`, `t3 thread send`) and on answers and decisions
-(`t3 request respond`, `approve`, `deny`) in the web app.
+(`t3 request respond`, `approve`, `deny`) in the web app. A message an agent sends
+from outside the thread appears there once T3 Code knows who sent it, which takes
+a moment.
 
 ## An MCP token without a sign-in
 

@@ -520,8 +520,11 @@ Environmentu skončily na párovací stránce.
 **Rozhodnutí 0210, večerní dodatek, bod 5 (řádek 24, plán DEV-6676).** Co Buddy
 napíše nebo schválí ve vlákně, nese viditelnou značku „Buddy za <jméno
 uživatele>“, anglicky „Buddy for <jméno>“. Probuzení od Delegace, deterministické
-služby Prostředí, která Buddyho budí v jeho vlastním vlákně, nese „Delegace“ (jeho
-jméno v obou jazycích). Kroky uživatele samotného žádnou novou značku nemají.
+služby Prostředí, která Buddyho budí v jeho vlastním vlákně, se ve vlákně vůbec
+neukáže, stejně jako na Telegramu: uživatel vidí jen Buddyho odpověď (rozhodnuto
+2026-10-22; viditelná zpráva od Delegace by uživateli ukazovala vnitřní
+mechaniku). Slovo „Delegace“ se v rozhraní neobjeví v žádném jazyce. Kroky
+uživatele samotného žádnou novou značku nemají.
 
 - **Kdo jedná, nese sezení.** Tvrzení (`ActingSender`, `lazurio/actingSender.ts`)
   má uzavřenou sadu druhů: `buddy` se jménem uživatele `for` (1 až 64 znaků na
@@ -584,18 +587,35 @@ jméno v obou jazycích). Kroky uživatele samotného žádnou novou značku nem
 - **Web.** Ptá se jen u řádků, které Buddy nebo Delegace mohl napsat nebo
   rozhodnout: u zprávy, kterou agent poslal zvenku vlákna (upstream „Sent by
   another agent“ bez odesílajícího vlákna), a u otázky nebo žádosti o oprávnění,
-  kterou někdo rozhodl. Pro vlákno pošle jeden dotaz a další jen pro řádky, které
-  mezitím přibyly a odpověď je nepokryje; řádek starší než `at` bez záznamu je
-  uživatele nebo T3. Server, který záznam nevrátí (starší T3, chyba), se pro to
-  vlákno už neptá a zůstane upstream text. Značka nahradí „Sent by another
-  agent“ nad zprávou a stojí vedle času u rozhodnuté žádosti. Česky, má-li
-  prohlížeč češtinu (`prefersCzech`), jinak anglicky. Jen pro vlákna
-  Environmentu, který stránku servíruje, jako záložky prohlížeče.
-- **Co se nemění.** Mobilní aplikace je upstreamu a ukazuje dál upstream text.
-  Desktopová aplikace obaluje web: značku ukáže, kde se její stránka dostane na
-  cestu se svým sezením, jinak zůstane upstream text (neověřeno). Úprava zprávy
-  ve frontě, přerušení běhu a další kroky značku nedostanou (jen zpráva a
-  rozhodnutí). `t3 thread read` ji agentům zatím neukazuje.
+  kterou někdo rozhodl. Pro vlákno pošle jeden dotaz a ještě jeden pro řádky,
+  které odpověď nepokryje (mezitím přibyly, nebo je zdržel dispatch, který ještě
+  běžel); řádek starší než `at` bez záznamu je uživatele nebo T3.
+- **Co se ukáže.** Řádky vlákna prochází jeden šev v `MessagesTimeline.tsx`
+  (`useLazurioActingSenderRows` hned za `useStableRows`), takže se skrytá zpráva
+  neukáže nikde, kde se řádky kreslí, ani v minimapě vlákna. Zpráva od agenta
+  zvenku vlákna se ukáže, až ji odpověď pokryje: od Buddyho se značkou „Buddy za
+  …“ místo „Sent by another agent“, bez záznamu s upstream textem. Probuzení od
+  Delegace zůstane skryté, Buddyho odpověď na něj se ukáže jako každá jiná
+  a skupiny tahů (například „Worked for…“) zůstanou, jak je T3 spočítal. Čekání
+  má strop pět sekund (`ACTING_SENDER_WAIT_MS`); zprávu, kterou žádná odpověď
+  nepokryje, pak ukáže, jak ji ukazuje upstream. Server, který záznam nevrátí
+  (starší T3 bez cesty, chyba), se pro to vlákno už neptá a vlákno ukáže hned
+  jako upstream. Zprávy uživatele samotného, T3, automatizací a agentů jiných
+  vláken nikdy nečekají. U rozhodnuté žádosti stojí vedle času „Buddy za …“, když
+  ji rozhodl Buddy; jinak nic. Česky, má-li prohlížeč češtinu (`prefersCzech`),
+  jinak anglicky. Jen pro vlákna Environmentu, který stránku servíruje, jako
+  záložky prohlížeče; ostatní vlákna ukazují vše jako upstream.
+- **Kde se probuzení ještě ukáže.** Overlay ho neskrývá ve frontě nad
+  composerem (když čeká za běžícím tahem Buddyho, „Queued“ ho počítá a po
+  rozbalení ukáže jeho text; skrýt ho by rozbilo přeřazování fronty), v hledání
+  vlákna (Ctrl+F jeho text najde) a ve výsledcích hledání napříč vlákny. Posune
+  také čas poslední zprávy uživatele, podle kterého se vlákno řadí v postranním
+  panelu. Oznámení ukazují jen stav a název vlákna, ne text zprávy.
+- **Co se nemění.** Mobilní aplikace je upstreamu a ukazuje dál upstream text i
+  probuzení. Desktopová aplikace obaluje web, takže by měla skrývat a značit
+  stejně (neověřeno). Úprava zprávy ve frontě, přerušení běhu a další kroky
+  značku nedostanou (jen zpráva a rozhodnutí). `t3 thread read` ji agentům zatím
+  neukazuje a probuzení v něm agenti vidí.
 
 Hranice je celý Environment (rozhodnutí 0172): kdo smí vydat sezení z T3 home,
 vydá i sezení s tvrzením. Mechanismus zaručuje, že značka nevznikne bez sezení,
@@ -604,8 +624,8 @@ proměnné nastavuje). Švy: `SessionStore.ts` (tvrzení `act`), `EnvironmentAut
 (`actingSender` při vydání, v ověřeném sezení klienta MCP i plochy uživatele),
 `McpOAuth.ts` a `McpInvocationContext.ts` (tvrzení ve vyvolání klienta MCP),
 `ws.ts` (jedno volání `actingAs`), `runtimeLayer.ts` (jedno obalení
-`recordSteps`) a ve webu `MessagesTimeline.tsx` (popisek nad zprávou a značka
-vedle rozhodnuté žádosti). Zbytek je v `apps/server/src/lazurio/actingSender*.ts`
+`recordSteps`) a ve webu `MessagesTimeline.tsx` (řádky vlákna, popisek nad
+zprávou a značka vedle rozhodnuté žádosti). Zbytek je v `apps/server/src/lazurio/actingSender*.ts`
 a `apps/web/src/lazurio/` (`actingSender.ts`, `LazurioActingSender.tsx`).
 Kontraktní test hlídá švy; `actingSenders.test.ts` hlídá odmítnutí dřív než
 úspěch, `actingSendersReplay.test.ts` na skutečném orchestrátoru upstreamu hlídá
