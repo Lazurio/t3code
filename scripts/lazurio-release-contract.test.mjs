@@ -2463,12 +2463,13 @@ NodeTest.test(
 );
 
 // Root decision 0210, evening addendum, point 5 (row 27): what Buddy writes or decides in a thread
-// shows „Buddy za <user>“, and Delegace's wake in Buddy's own thread „Delegace“. Who acted is a claim
+// shows „Buddy za <user>“, and Delegace's wake in Buddy's own thread is hidden. Who acted is a claim
 // of the session, signed into its token beside the runtime-mode ceiling and read from the session
 // alone: the token, the sessions /mcp and the client surface authenticate, the MCP client's
 // invocation, the client surface's dispatch, the orchestrator's decorator, the web's route and the
-// web's two places. A rebuild that loses one of them loses the mark; one that reads it from
-// anywhere else lets a session without the claim make it.
+// web's three places (the thread's rows, the label above a message, the mark at a request). A
+// rebuild that loses one of them loses the mark or shows the wake; one that reads it from anywhere
+// else lets a session without the claim make it.
 NodeTest.test("Buddy's and Delegace's steps carry who took them through their seams", async () => {
   const files = [
     "apps/server/src/auth/SessionStore.ts",
@@ -2532,6 +2533,13 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
     connection,
     /\.\.\.\(actingSender === undefined \? \{\} : \{ actingSender \}\),/,
   );
+  // The thread's rows pass the overlay right after upstream keeps them stable, so a hidden wake is
+  // in none of the places that draw them.
+  NodeAssert.match(
+    timeline,
+    /const rows = useLazurioActingSenderRows\(\n\s+useStableRows\(rawRows, listIdentityKey\),\n\s+parseScopedThreadKey\(listIdentityKey\),\n\s+\);/,
+  );
+  NodeAssert.equal(timeline.match(/useLazurioActingSenderRows\(/g)?.length, 1);
   NodeAssert.equal(timeline.match(/<LazurioActingSenderLabel\b/g)?.length, 1);
   NodeAssert.equal(timeline.match(/<LazurioActingSenderMark\b/g)?.length, 1);
   for (const file of files) NodeAssert.ok(overlayMayChange(file), file);

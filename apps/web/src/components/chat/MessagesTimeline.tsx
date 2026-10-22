@@ -200,6 +200,7 @@ import { usePromptLinksOffered } from "../../lazurio/managedPromptLinks";
 import {
   LazurioActingSenderLabel,
   LazurioActingSenderMark,
+  useLazurioActingSenderRows,
 } from "../../lazurio/LazurioActingSender";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
@@ -879,7 +880,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
     availableRevertTurnCounts,
     worktreeSetup,
   });
-  const rows = useStableRows(rawRows, listIdentityKey);
+  // Lazurio (root decision 0210): Delegace's wake is not shown, and an agent's message waits until
+  // the server says who sent it.
+  const rows = useLazurioActingSenderRows(
+    useStableRows(rawRows, listIdentityKey),
+    parseScopedThreadKey(listIdentityKey),
+  );
   // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
   const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
   const buddyDayLines = useBuddyDayLines(rows, buddySurface);
@@ -2363,7 +2369,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               Sent by another agent
             </InlineButton>
           ) : (
-            // Lazurio (root decision 0210): „Buddy za <user>“ or „Delegace“ where it was them.
+            // Lazurio (root decision 0210): „Buddy za <user>“ where it was Buddy.
             <LazurioActingSenderLabel
               environmentId={ctx.activeThreadEnvironmentId}
               threadId={ctx.threadRef?.threadId}

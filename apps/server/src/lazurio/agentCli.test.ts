@@ -1403,7 +1403,7 @@ describe("t3 request", () => {
 });
 
 // Root decision 0210, evening addendum, point 5: what Buddy sends or decides through these commands
-// shows „Buddy za <user>“ in the thread, and Delegace's wake in Buddy's own thread „Delegace“. A
+// shows „Buddy za <user>“ in the thread, and Delegace's wake in Buddy's own thread is hidden. A
 // command acts as one only when its environment says so, through both its sessions; the server
 // reads it from the session, never from the command or its words, and the web reads the record
 // through the overlay's route.

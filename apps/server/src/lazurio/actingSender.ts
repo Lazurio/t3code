@@ -2,7 +2,7 @@
  * Lazurio overlay (root decision 0210, evening addendum, point 5; plan DEV-6676): who a session
  * acts as, when it is not only the Environment's user. What Buddy writes or decides in a thread
  * shows „Buddy za <user>“, and what Delegace, the Environment's wake service, posts into Buddy's own
- * thread shows „Delegace“.
+ * thread is not shown there at all (decided 2026-10-22): the record of who acted tells the web.
  *
  * The acting sender is a claim of the session, signed into its token beside the runtime-mode
  * ceiling (`act` in SessionStore.ts). Neither a message nor a session issued without it can claim

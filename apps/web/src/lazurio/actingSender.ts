@@ -1,30 +1,35 @@
 /**
  * Lazurio overlay (root decision 0210, evening addendum, point 5; plan DEV-6676): who sent a
  * thread's message or decided its request when a session acted as someone. What Buddy writes or
- * decides shows „Buddy za <user>“ (in English "Buddy for <user>"), and Delegace's wake in Buddy's own
- * thread shows „Delegace“, its name in both languages. The person's own steps show nothing new.
+ * decides shows „Buddy za <user>“ (in English "Buddy for <user>"). Delegace's wake in Buddy's own
+ * thread is not shown at all, as on Telegram: the person sees only Buddy's reply (Matěj's decision
+ * of 2026-10-22). The person's own steps show nothing new.
  *
  * The server records it from the session a step was dispatched through
  * (apps/server/src/lazurio/actingSenders.ts) and answers a thread's record on
  * `GET /api/lazurio/acting-senders?threadId=<id>`. The web only reads it, for the rows Buddy or
  * Delegace could have written or decided: a message an agent sent from outside any thread, which
  * upstream labels "Sent by another agent", and a question or permission request someone decided.
+ * Such a message waits until an answer covers it, so a wake never shows for a moment. When no
+ * answer comes (an older T3, an error, or none within ACTING_SENDER_WAIT_MS), it shows as
+ * upstream shows it.
  */
 import type * as DateTime from "effect/DateTime";
 
 export const ACTING_SENDERS_ROUTE = "/api/lazurio/acting-senders";
 
+/** How long an agent's message waits for the answer before it shows as upstream shows it. */
+export const ACTING_SENDER_WAIT_MS = 5_000;
+
 export type ActingSender =
   | { readonly kind: "buddy"; readonly for: string; readonly forAccusative?: string }
   | { readonly kind: "delegace" };
 
-/** What the mark says: „Buddy za Tomáše“ in Czech, "Buddy for Tomáš" otherwise, or „Delegace“. */
-export const actingSenderLabel = (sender: ActingSender, czech: boolean): string =>
-  sender.kind === "delegace"
-    ? "Delegace"
-    : czech
-      ? `Buddy za ${sender.forAccusative ?? sender.for}`
-      : `Buddy for ${sender.for}`;
+/** What Buddy's mark says: „Buddy za Tomáše“ in Czech, "Buddy for Tomáš" otherwise. */
+export const actingSenderLabel = (
+  sender: Extract<ActingSender, { readonly kind: "buddy" }>,
+  czech: boolean,
+): string => (czech ? `Buddy za ${sender.forAccusative ?? sender.for}` : `Buddy for ${sender.for}`);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,18 +83,24 @@ export function parseActingSenders(value: unknown): ActingSendersAnswer | null {
   return { at: value.at, senders };
 }
 
-/**
- * The key of a message Buddy or Delegace could have sent: a user message an agent sent from outside
- * any thread, not an automation's or T3's own. Every other message is never theirs.
- */
-export const actingSenderMessageKey = (message: {
+/** A message as the timeline holds it, as far as its sender goes. */
+export interface ActingSenderMessage {
   readonly id: string;
   readonly role: string;
+  readonly createdAt: string;
   readonly createdBy?: string | undefined;
   readonly creationSource?: string | undefined;
   readonly senderThreadId?: string | undefined;
   readonly scheduledTaskId?: string | undefined;
-}): string | null =>
+}
+
+/**
+ * The key of a message Buddy or Delegace could have sent: a user message an agent sent from outside
+ * any thread, not an automation's or T3's own. Every other message is never theirs.
+ */
+export const actingSenderMessageKey = (
+  message: Omit<ActingSenderMessage, "createdAt">,
+): string | null =>
   message.role === "user" &&
   message.createdBy === "agent" &&
   message.creationSource !== "server" &&
@@ -116,52 +127,113 @@ export const actingSenderRequestOf = (
     ? { key: `request:${item.requestId}`, decidedAt: item.completedAt.epochMilliseconds }
     : null;
 
+/** A thread's answers so far. It is replaced, never changed, when they change. */
+export interface ActingSendersView {
+  readonly answer: ActingSendersAnswer | null;
+  /** The server gave no record: an older T3 without the route, or an error. */
+  readonly stopped: boolean;
+  /** Rows that waited ACTING_SENDER_WAIT_MS without an answer that covers them. */
+  readonly expired: ReadonlySet<string>;
+}
+
+/**
+ * What the page knows of a row's sender: the sender, or `null` once an answer covers the row
+ * without one. It is "pending" until then, and "unavailable" when no answer comes: the server has
+ * no record to give, or the row waited longer than ACTING_SENDER_WAIT_MS.
+ */
+export type ActingSenderState = ActingSender | null | "pending" | "unavailable";
+
+const covers = (answer: ActingSendersAnswer, key: string, time: number) =>
+  answer.senders.has(key) || time < answer.at;
+
+/** A row's sender in the thread's answers: `time` is when its message or decision happened. */
+export const actingSenderStateIn = (
+  view: ActingSendersView | undefined,
+  key: string,
+  time: number,
+): ActingSenderState => {
+  if (view === undefined) return "pending";
+  if (view.stopped) return "unavailable";
+  if (view.answer !== null && covers(view.answer, key, time))
+    return view.answer.senders.get(key) ?? null;
+  return view.expired.has(key) ? "unavailable" : "pending";
+};
+
+/** Whether the thread hides the message: Delegace's wake always, any other until it is answered. */
+export const hidesMessage = (state: ActingSenderState): boolean =>
+  state === "pending" || (typeof state === "object" && state?.kind === "delegace");
+
+/**
+ * The rows without the messages the thread hides. `messageOf` gives a row's message, if it is one.
+ * Rows of the person's own messages, of T3's and of everything else are never held back. The same
+ * array comes back when none is hidden.
+ */
+export function visibleActingSenderRows<Row>(
+  rows: Row[],
+  messageOf: (row: Row) => ActingSenderMessage | undefined,
+  view: ActingSendersView | undefined,
+): Row[] {
+  const visible = rows.filter((row) => {
+    const message = messageOf(row);
+    if (message === undefined) return true;
+    const key = actingSenderMessageKey(message);
+    return (
+      key === null || !hidesMessage(actingSenderStateIn(view, key, Date.parse(message.createdAt)))
+    );
+  });
+  return visible.length === rows.length ? rows : visible;
+}
+
 export interface ActingSenderLoader {
   readonly subscribe: (listener: () => void) => () => void;
   /** A row of the thread wants its sender: `time` is when its message or decision happened. */
   readonly want: (threadId: string, key: string, time: number) => void;
-  /** The row's sender, once the server named one. */
-  readonly sender: (threadId: string, key: string) => ActingSender | undefined;
+  /** The thread's answers so far: the same object until they change. */
+  readonly view: (threadId: string) => ActingSendersView | undefined;
 }
 
 interface ThreadSenders {
-  answer: ActingSendersAnswer | null;
+  view: ActingSendersView;
   loading: boolean;
   /** A row that the answer under way may not cover wanted its sender meanwhile. */
   again: boolean;
-  /** No answer comes: the server has no record to give, or no route for it. */
-  stopped: boolean;
   readonly wanted: Map<string, number>;
 }
 
-const covers = (answer: ActingSendersAnswer | null, key: string, time: number) =>
-  answer !== null && (answer.senders.has(key) || time < answer.at);
-
 /**
- * One request per thread for the rows that want their sender, and one more only for rows that
- * appeared while it was out and that its answer does not cover. A row older than the last answer
- * without a sender has none. A server that answers anything but a record is not asked again.
+ * One request per thread for the rows that want their sender, and one more for rows its answer
+ * does not cover: a dispatch that still ran may have held them back, or they appeared while it was
+ * out. A row no answer covers within ACTING_SENDER_WAIT_MS expires. A server that answers anything
+ * but a record is not asked again.
  */
 export function makeActingSenderLoader(
   load: (threadId: string) => Promise<unknown>,
+  after: (milliseconds: number, run: () => void) => void = (milliseconds, run) =>
+    void setTimeout(run, milliseconds),
 ): ActingSenderLoader {
   const threads = new Map<string, ThreadSenders>();
   const listeners = new Set<() => void>();
-  const start = (threadId: string, thread: ThreadSenders) => {
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+  const start = (threadId: string, thread: ThreadSenders, retry: boolean) => {
     thread.loading = true;
     thread.again = false;
     void load(threadId)
       .then(parseActingSenders, () => null)
       .then((answer) => {
         thread.loading = false;
-        if (answer === null) {
-          thread.stopped = true;
-          return;
-        }
-        thread.answer = answer;
-        for (const listener of listeners) listener();
-        if (thread.again && [...thread.wanted].some(([key, time]) => !covers(answer, key, time)))
-          start(threadId, thread);
+        thread.view =
+          answer === null ? { ...thread.view, stopped: true } : { ...thread.view, answer };
+        notify();
+        if (
+          answer !== null &&
+          (thread.again || !retry) &&
+          [...thread.wanted].some(
+            ([key, time]) => !covers(answer, key, time) && !thread.view.expired.has(key),
+          )
+        )
+          start(threadId, thread, !thread.again);
       });
   };
   return {
@@ -172,16 +244,28 @@ export function makeActingSenderLoader(
     want: (threadId, key, time) => {
       let thread = threads.get(threadId);
       if (thread === undefined) {
-        thread = { answer: null, loading: false, again: false, stopped: false, wanted: new Map() };
+        thread = {
+          view: { answer: null, stopped: false, expired: new Set() },
+          loading: false,
+          again: false,
+          wanted: new Map(),
+        };
         threads.set(threadId, thread);
       }
-      if (thread.stopped) return;
+      if (thread.view.stopped || thread.wanted.has(key)) return;
       thread.wanted.set(key, time);
-      if (covers(thread.answer, key, time)) return;
+      if (thread.view.answer !== null && covers(thread.view.answer, key, time)) return;
+      const waiting = thread;
+      after(ACTING_SENDER_WAIT_MS, () => {
+        const { answer, stopped, expired } = waiting.view;
+        if (stopped || (answer !== null && covers(answer, key, time))) return;
+        waiting.view = { ...waiting.view, expired: new Set(expired).add(key) };
+        notify();
+      });
       if (thread.loading) thread.again = true;
-      else start(threadId, thread);
+      else start(threadId, thread, false);
     },
-    sender: (threadId, key) => threads.get(threadId)?.answer?.senders.get(key),
+    view: (threadId) => threads.get(threadId)?.view,
   };
 }
 

@@ -33,8 +33,8 @@ import * as ActingSenders from "./actingSenders.ts";
 import * as ActingSendersRoute from "./actingSendersRoute.ts";
 
 // Contract (root decision 0210, evening addendum, point 5): what Buddy writes or decides in a thread
-// carries „Buddy za <user>“, Delegace's wake in Buddy's own thread carries „Delegace“, and the
-// person's own steps carry nothing. The mark comes only from the session a step was dispatched
+// carries „Buddy za <user>“, Delegace's wake in Buddy's own thread is recorded so the web hides it,
+// and the person's own steps carry nothing. The mark comes only from the session a step was dispatched
 // through, never from what the step says. These drive the orchestrator's decorator with callers as
 // T3 presents them (an MCP client's invocation scope, a client surface session) over a fake
 // decider, and read the record where the web reads it.
