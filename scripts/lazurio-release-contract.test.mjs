@@ -2399,3 +2399,45 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   ])
     NodeAssert.ok(overlayMayChange(file), file);
 });
+
+// Root decision 0210, plan DEV-6676 (row 26): in Buddy's surface the host page's last valid context
+// is a chip above the composer. While it is there, a message the person writes carries the page as
+// a `lazurio-page` record with a reference in its text, which Buddy's T3 Code projects as the Czech
+// block (row 23). The chat adds both where it sends, and the composer and sent messages show the
+// reference as a page chip where T3 would call an unknown context unavailable.
+NodeTest.test(
+  "the page Buddy is asked from travels with the message through its seams",
+  async () => {
+    const [chat, composerPresentation, timeline] = await Promise.all(
+      [
+        "apps/web/src/components/ChatView.tsx",
+        "apps/web/src/components/composerContextPresentation.tsx",
+        "apps/web/src/components/chat/MessagesTimeline.tsx",
+      ].map(read),
+    );
+    NodeAssert.match(chat, /const buddyPage = useBuddyPage\(\);/);
+    NodeAssert.match(
+      chat,
+      /const promptForSend = withPageReference\(\n\s+directAnnotation\n[^]*?: promptRef\.current,\n\s+buddyPage\.record,\n\s+\);/,
+    );
+    NodeAssert.match(
+      chat,
+      /const buildOutgoingMessageContext = \(attachmentIds: ReadonlyArray<string>\) =>\n\s+withPageRecord\(\n\s+buildMessageContext\(\{[^]*?\}\),\n\s+buddyPage\.record,\n\s+messageTextForSend,\n\s+\);/,
+    );
+    NodeAssert.match(chat, /<BuddyPageChip\n\s+label=\{buddyPage\.record\.label\}/);
+    NodeAssert.match(
+      composerPresentation,
+      /fallback: \(kind, _entry, context\) =>\n\s+buddyPageReferenceChip\(kind, context\.label\) \?\?/,
+    );
+    NodeAssert.match(
+      timeline,
+      /fallback: \(kind, _record, context\) =>\n\s+buddyPageReferenceChip\(kind, context\.reference\.label, context\.copyMarkdown\) \?\?/,
+    );
+    for (const file of [
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/components/composerContextPresentation.tsx",
+      "apps/web/src/components/chat/MessagesTimeline.tsx",
+    ])
+      NodeAssert.ok(overlayMayChange(file), file);
+  },
+);

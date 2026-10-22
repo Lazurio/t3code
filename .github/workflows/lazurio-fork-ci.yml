@@ -255,6 +255,15 @@ jobs:
             apps/web/public/assets/avatar.webp
             apps/web/src/routes/__root.tsx
             apps/web/src/routes/_chat.index.tsx
+            # The page Buddy is asked from (root decision 0210, plan DEV-6676): in Buddy's surface
+            # the host page's last valid context is a chip above the composer, which the person can
+            # remove. While it is there, a message carries the page as a `lazurio-page` record
+            # with a reference in its text (ChatView.tsx, above), which Buddy's T3 Code projects
+            # as the Czech block (row 23). Composer and sent messages show the reference as a page
+            # chip where T3 would call an unknown context unavailable
+            # (composerContextPresentation.tsx, and MessagesTimeline.tsx, above). Its code lives
+            # in apps/web/src/lazurio/ (buddySurfacePage.ts, BuddySurfacePageChip.tsx).
+            apps/web/src/components/composerContextPresentation.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
