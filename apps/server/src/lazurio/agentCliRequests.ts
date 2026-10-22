@@ -5,7 +5,7 @@
  * its own. A retry from a new command would therefore run the operation again. The agent commands'
  * sessions share one namespace instead, so the same key maps to the same command, and T3's command
  * receipts make it run once, also after a restart: `t3 thread send --idempotency-key` sends once per
- * key (budíček's wake). Every other MCP client keeps upstream's namespace.
+ * key (Delegace's wake). Every other MCP client keeps upstream's namespace.
  *
  * In that one namespace a key alone would name one message for every thread and every sender, so a
  * second thread, or another sender, would get the first send's result instead of its message. The
@@ -54,7 +54,7 @@ export const withAgentCliRequestNamespace = <E, R>(
     }),
   ).pipe(Layer.provide(authenticator));
 
-/** The variables that name who an agent command sends as: Buddy for a person, or budíček. */
+/** The variables that name who an agent command sends as: Buddy for a person, or Delegace. */
 const SENDER_VARIABLES = ["T3CODE_ACTING_SENDER", "T3CODE_ACTING_FOR"] as const;
 
 /**

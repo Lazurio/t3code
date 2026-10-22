@@ -746,10 +746,11 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
     source.runtime,
     /export const layerProjectService = LazurioManagedFolder\.guardProjects\(ProjectService\.layer\)\.pipe\(/,
   );
-  // Buddy's one conversation (row 25) wraps the managed Folder's guard of the orchestrator.
+  // Buddy's one conversation (row 25) wraps the managed Folder's guard of the orchestrator, inside
+  // the record of who acted (row 27), which only records what the guards let through.
   NodeAssert.match(
     source.runtime,
-    /const layerOrchestratorProvided = LazurioBuddyGuards\.guardBuddyCommands\(\n\s+LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\),\n\)\.pipe\(/,
+    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\)\),\n\)\.pipe\(/,
   );
   NodeAssert.match(
     source.runtime,
@@ -1770,11 +1771,11 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
     service,
     /connectEnvironmentBrowser|Target\.closeTarget|agent-browser.*close/,
   );
-  // The overlay's one layer: the Environment browser host and the overlay's six routes, over one
+  // The overlay's one layer: the Environment browser host and the overlay's seven routes, over one
   // thread tabs service, which follows the threads' lifecycle.
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,\s*BuddySurfaceDays\.layer,?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
+    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,\s*BuddySurfaceDays\.layer,\s*ActingSendersRoute\.layer\.pipe\(Layer\.provide\(ActingSenders\.layer\)\),?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
   );
   // Archiving or deleting a thread lets go of its tabs: the lifecycle follows upstream's
   // orchestrator's domain events, and the sweep of threads that are gone waits until commands are
@@ -2254,7 +2255,7 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
     NodeAssert.ok(overlayMayChange(file), file);
 });
 
-// Root decision 0210, plan DEV-6676 (row 24): budíček wakes Buddy with `t3 thread send` through
+// Root decision 0210, plan DEV-6676 (row 24): Delegace wakes Buddy with `t3 thread send` through
 // /mcp, as an agent, and sends again after a crash. The key becomes the MCP tool's clientRequestId,
 // which T3 makes idempotent in the request namespace of its MCP client; every agent command signs in
 // with a session of its own, so server.ts puts the agent commands' sessions in one namespace, and
@@ -2336,7 +2337,7 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
     );
   NodeAssert.match(
     runtime,
-    /const layerOrchestratorProvided = LazurioBuddyGuards\.guardBuddyCommands\(\n/,
+    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(/,
   );
   NodeAssert.match(
     server,
@@ -2460,3 +2461,78 @@ NodeTest.test(
       NodeAssert.ok(overlayMayChange(file), file);
   },
 );
+
+// Root decision 0210, evening addendum, point 5 (row 27): what Buddy writes or decides in a thread
+// shows „Buddy za <user>“, and Delegace's wake in Buddy's own thread „Delegace“. Who acted is a claim
+// of the session, signed into its token beside the runtime-mode ceiling and read from the session
+// alone: the token, the sessions /mcp and the client surface authenticate, the MCP client's
+// invocation, the client surface's dispatch, the orchestrator's decorator, the web's route and the
+// web's two places. A rebuild that loses one of them loses the mark; one that reads it from
+// anywhere else lets a session without the claim make it.
+NodeTest.test("Buddy's and Delegace's steps carry who took them through their seams", async () => {
+  const files = [
+    "apps/server/src/auth/SessionStore.ts",
+    "apps/server/src/auth/EnvironmentAuth.ts",
+    "apps/server/src/auth/McpOAuth.ts",
+    "apps/server/src/mcp/McpInvocationContext.ts",
+    "apps/server/src/ws.ts",
+    "apps/server/src/orchestration-v2/runtimeLayer.ts",
+    "apps/web/src/components/chat/MessagesTimeline.tsx",
+  ];
+  const [store, environmentAuth, oauth, invocation, ws, runtimeLayer, timeline] = await Promise.all(
+    files.map(read),
+  );
+  const [overlay, connection, senders] = await Promise.all(
+    [
+      "apps/server/src/lazurio/overlay.ts",
+      "apps/server/src/lazurio/agentCliConnection.ts",
+      "apps/server/src/lazurio/actingSenders.ts",
+    ].map(read),
+  );
+  NodeAssert.match(store, /\n\s+act: Schema\.optionalKey\(ActingSender\),\n/);
+  NodeAssert.match(
+    store,
+    /\.\.\.\(input\?\.actingSender \? \{ act: input\.actingSender \} : \{\}\),/,
+  );
+  NodeAssert.match(store, /\.\.\.\(claims\.act \? \{ actingSender: claims\.act \} : \{\}\),/);
+  NodeAssert.match(
+    environmentAuth,
+    /\.\.\.\(input\?\.actingSender \? \{ actingSender: input\.actingSender \} : \{\}\),/,
+  );
+  // Both authenticated sessions, /mcp's and the client surface's, carry the claim of the token.
+  NodeAssert.equal(
+    environmentAuth.match(
+      /\.\.\.\(session\.actingSender \? \{ actingSender: session\.actingSender \} : \{\}\),/g,
+    )?.length,
+    2,
+  );
+  NodeAssert.match(
+    oauth,
+    /\.\.\.\(client\.actingSender \? \{ actingSender: client\.actingSender \} : \{\}\),/,
+  );
+  NodeAssert.match(invocation, /readonly actingSender\?: ActingSender;/);
+  // The client surface runs a dispatch, and only that, as the session that sent it.
+  NodeAssert.equal(ws.match(/LazurioActingSenders\.actingAs\(/g)?.length, 1);
+  NodeAssert.match(
+    ws,
+    /Effect\.provide\(intakeContext\),\n\s+\/\/ Lazurio overlay \(root decision 0210\)[^\n]*\n\s+LazurioActingSenders\.actingAs\(currentSession\),/,
+  );
+  NodeAssert.match(
+    runtimeLayer,
+    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\)\),\n\)/,
+  );
+  // Who acted comes from the session alone: the client surface's, else the MCP client's.
+  NodeAssert.match(senders, /const surface = yield\* ClientSurfaceActingSender;/);
+  NodeAssert.match(senders, /invocation\.value\.client\?\.actingSender/);
+  NodeAssert.match(
+    overlay,
+    /ActingSendersRoute\.layer\.pipe\(Layer\.provide\(ActingSenders\.layer\)\)/,
+  );
+  NodeAssert.match(
+    connection,
+    /\.\.\.\(actingSender === undefined \? \{\} : \{ actingSender \}\),/,
+  );
+  NodeAssert.equal(timeline.match(/<LazurioActingSenderLabel\b/g)?.length, 1);
+  NodeAssert.equal(timeline.match(/<LazurioActingSenderMark\b/g)?.length, 1);
+  for (const file of files) NodeAssert.ok(overlayMayChange(file), file);
+});

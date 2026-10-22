@@ -197,6 +197,10 @@ import {
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { usePromptLinksOffered } from "../../lazurio/managedPromptLinks";
+import {
+  LazurioActingSenderLabel,
+  LazurioActingSenderMark,
+} from "../../lazurio/LazurioActingSender";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
@@ -2359,7 +2363,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               Sent by another agent
             </InlineButton>
           ) : (
-            "Sent by another agent"
+            // Lazurio (root decision 0210): „Buddy za <user>“ or „Delegace“ where it was them.
+            <LazurioActingSenderLabel
+              environmentId={ctx.activeThreadEnvironmentId}
+              threadId={ctx.threadRef?.threadId}
+              message={row.message}
+            >
+              Sent by another agent
+            </LazurioActingSenderLabel>
           )}
         </p>
       ) : null}
@@ -5668,6 +5679,11 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
           !toolIconAcceptsTint(entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
+          <LazurioActingSenderMark
+            environmentId={ctx.activeThreadEnvironmentId}
+            threadId={threadRef?.threadId}
+            item={workEntry.projectedItem?.item}
+          />
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
           <span
             className={cn(

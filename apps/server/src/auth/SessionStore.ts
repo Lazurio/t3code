@@ -23,6 +23,7 @@ import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { ActingSender } from "../lazurio/actingSender.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import {
@@ -59,6 +60,8 @@ export interface VerifiedSession {
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly proofKeyThumbprint?: string;
   readonly runtimeModeCeiling?: RuntimeMode;
+  /** Lazurio overlay (root decision 0210): who the session acts as, signed as `act`. */
+  readonly actingSender?: ActingSender;
 }
 
 export type SessionCredentialChange =
@@ -376,6 +379,7 @@ export class SessionStore extends Context.Service<
       readonly client?: AuthClientMetadata;
       readonly proofKeyThumbprint?: string;
       readonly runtimeModeCeiling?: RuntimeMode;
+      readonly actingSender?: ActingSender;
       readonly replaceActiveForSubjectAndMethod?: boolean;
       readonly replaceSessionId?: AuthSessionId;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
@@ -434,6 +438,7 @@ const SessionClaims = Schema.Struct({
   method: Schema.Literals(["browser-session-cookie", "bearer-access-token", "dpop-access-token"]),
   jkt: Schema.optionalKey(Schema.String),
   rtc: Schema.optionalKey(RuntimeMode),
+  act: Schema.optionalKey(ActingSender),
   iat: Schema.Number,
   exp: Schema.Number,
 });
@@ -673,6 +678,7 @@ export const make = Effect.gen(function* () {
         method: input?.method ?? "browser-session-cookie",
         ...(input?.proofKeyThumbprint ? { jkt: input.proofKeyThumbprint } : {}),
         ...(input?.runtimeModeCeiling ? { rtc: input.runtimeModeCeiling } : {}),
+        ...(input?.actingSender ? { act: input.actingSender } : {}),
         iat: issuedAt.epochMilliseconds,
         exp: expiresAt.epochMilliseconds,
       };
@@ -854,6 +860,7 @@ export const make = Effect.gen(function* () {
         scopes: claims.scopes,
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
         ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
+        ...(claims.act ? { actingSender: claims.act } : {}),
       } satisfies VerifiedSession;
     },
   );

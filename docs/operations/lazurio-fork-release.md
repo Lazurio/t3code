@@ -148,9 +148,10 @@ Lazurio/t3code#97 (přestavby na v0.1.0 Lazurio/t3code#70).
 | 21  | `feat(lazurio): agents work with T3 Code threads through t3 thread, request, queue and events`  | Rozhodnutí 0210, dodatek 3: Buddy, a s ním každý agent v Environmentu, pracuje s vlákny T3 jako jejich vlastník. Čte a shrnuje je, spouští, posílá zprávy, řídí a zastavuje je, odpovídá na jejich otázky, rozhoduje jejich žádosti o oprávnění a sleduje jejich změny (viz [Agenti a vlákna](#agenti-a-vlákna)).                                                                                                                                                                                                                                                                        | Upstream ekvivalent ve v0.1.1 nemá: zůstává. Celý kód je v `apps/server/src/lazurio/agentCli*.ts`; šev je řádek v `binCli.ts` a export `listItemFromShell` v `mcp/OrchestratorMcpService.ts`, na v0.1.1 vedle nového `threadPullRequests` (#17454). Upstream má otevřený vlastní `t3 thread` (#22732): až přistane, příkazy se srazí a řádek se při přestavbě zmenší. Serverovou část Lazurio/t3code#94 řeší upstream (#19342, #19380) a v etapě 9 ji podpoříme. Pomalému čtenáři upstream aktualizace seznamu vláken slučuje (#14859), takže `t3 events --follow` dojde vždy k poslednímu stavu každého vlákna, ne nutně přes každý krok. Při přestavbě ověřte, že nástroje MCP, které příkazy volají, mají stejná jména a parametry (hlídá `agentCli.test.ts` proti skutečným deklaracím) a že web dál určuje model nového vlákna přes `resolveProjectSettings`.                                                                                           |
 | 22  | `feat(server): T3's Codex threads ask the user through request_user_input`                      | Rozhodnutí 0211: agent se člověka ptá nástrojem na otázky, ne jen textem ve zprávě. Codex nabízí `request_user_input` v režimu Default jen se zapnutou funkcí `default_mode_request_user_input`; T3 ji zapne app-serveru, který pro svá vlákna spouští, a do kontextu každého tahu dá pokyn ptát se jím, i když bez odpovědi nejde pokračovat (viz [Nástroj na otázky](#nástroj-na-otázky)). Uživatelův `~/.codex/config.toml` se nemění (rozhodnutí 0161).                                                                                                                              | Upstream ekvivalent nemá a funkci sám nezapíná. Je to politika Lazuria nad funkcí Codexu ve vývoji (ve výchozím stavu vypnutá): pokyn Lazuria zůstává v overlayi a upstreamu se v etapě 9 nabídne jen mechanismus. Šev je přepínač `-c` v `CodexAdapterV2.ts`, položka `lazurio_questions` v `buildCodexAdditionalContext` a věta o otázce prostým textem, kterou overlay z textu režimu Default odebral. Na v0.1.1 je otevření app-serveru `Effect.fn` (#21993) a kontext tahu je v číslovaných položkách, protože hodnotu nad 4 000 bajtů Codex potichu zkrátí (#18415); `lazurio_questions` (asi 1,1 KB) zůstává pod limitem jako poslední položka. Při přestavbě ověřte v `codex features list`, že Codex funkci pořád zná; jakmile ji zapne ve výchozím stavu sám, přepínač odeberte, pokyn zůstává.                                                                                                                                                    |
 | 23  | `feat(lazurio): Buddy's Hermes gets only the person's words and the page as a Czech block`      | Rozhodnutí 0210 (plán DEV-6676): Buddyho chat drží na Osobním Prostředí druhý server T3 s `T3CODE_LAZURIO_BUDDY=1`, jehož instance poskytovatele `buddy` pouští Hermes Agenta (`hermes acp`). Hermes ukládá každý prompt do Buddyho paměti jako slova člověka, proto mu T3 posílá jen text člověka, jeho přílohy a stránku, ze které se ptá, jako jeden označený český blok, nikdy své pokyny (`<t3_code_instructions>`, `<runtime_info>`, `<pull_request_linking>`), ani po Stop, při usměrnění a po restartu (viz [Buddyho T3 Code](#buddyho-t3-code)).                                | Upstream ekvivalent nemá: zůstává. Adaptér ACP (`packages/provider-acp/src/server/adapter.ts`) se při stavbě instance ptá `AcpT3Instructions` (bez odpovědi dostane pokyny každá instance), `server.ts` odpoví pro Buddyho instanci tam, kde staví instance poskytovatelů, a `orchestration-v2/ProviderTurnStartService.ts` promítne pro ni kontext stránky jako blok místo obecného `<t3_context>`. Obecný přepínač pokynů T3 pro instanci ACP lze nabídnout upstreamu. Při přestavbě ověřte, že adaptér ACP skládá prompt dál na jediném místě (`resolvePromptParts`) a že usměrnění tahu ACP je dál přerušení a nový tah přes `ProviderTurnStartService`.                                                                                                                                                                                                                                                                                                 |
-| 24  | `feat(lazurio): agents send once per idempotency key, and budíček finds Buddy's thread`         | Rozhodnutí 0210 (plán DEV-6676): budíček budí Buddyho zprávou do jeho vlákna (`t3 thread send … --mode queue`) a po pádu ji pošle znovu. `--idempotency-key` ji pošle jednou na klíč, vlákno a odesílatele i napříč příkazy a restarty a `t3 lazurio buddy thread --json` řekne, které vlákno je Buddyho, a napoprvé ho založí (viz [Agenti a vlákna](#agenti-a-vlákna) a [Buddyho T3 Code](#buddyho-t3-code)). Štítek „budíček“ u zprávy nese stopa „Buddy za …“, ne tento řádek.                                                                                                       | Upstream ekvivalent nemá: zůstává. Klíč je upstream `clientRequestId` nástroje `t3_thread_send`, jenže ten platí v jmenném prostoru klienta MCP, tedy jeho sezení, a každý agentní příkaz má sezení vlastní. Šev je dekorátor `McpClientAuthenticator` v `server.ts`: sezení agentních příkazů (štítek `t3 agent cli`) sdílejí jeden prostor, příkaz předá otisk klíče s vláknem a odesílatelem, potvrzenky příkazů T3 ho provedou jednou a cesta overlaye `send-state` řekne, co z odeslání zbylo. Ostatní klienti MCP mají prostor upstreamu. Buddyho vlákno najde nebo založí cesta overlaye `POST /api/lazurio/buddy/thread`. Při přestavbě ověřte, že upstream dál odvozuje id příkazu z `requestNamespace` a klíče a že potvrzenka příkazu přehraje jeho události.                                                                                                                                                                                     |
+| 24  | `feat(lazurio): agents send once per idempotency key, and Delegace finds Buddy's thread`        | Rozhodnutí 0210 (plán DEV-6676): Delegace budí Buddyho zprávou do jeho vlákna (`t3 thread send … --mode queue`) a po pádu ji pošle znovu. `--idempotency-key` ji pošle jednou na klíč, vlákno a odesílatele i napříč příkazy a restarty a `t3 lazurio buddy thread --json` řekne, které vlákno je Buddyho, a napoprvé ho založí (viz [Agenti a vlákna](#agenti-a-vlákna) a [Buddyho T3 Code](#buddyho-t3-code)). Štítek „Delegace“ u zprávy nese stopa „Buddy za …“, ne tento řádek.                                                                                                     | Upstream ekvivalent nemá: zůstává. Klíč je upstream `clientRequestId` nástroje `t3_thread_send`, jenže ten platí v jmenném prostoru klienta MCP, tedy jeho sezení, a každý agentní příkaz má sezení vlastní. Šev je dekorátor `McpClientAuthenticator` v `server.ts`: sezení agentních příkazů (štítek `t3 agent cli`) sdílejí jeden prostor, příkaz předá otisk klíče s vláknem a odesílatelem, potvrzenky příkazů T3 ho provedou jednou a cesta overlaye `send-state` řekne, co z odeslání zbylo. Ostatní klienti MCP mají prostor upstreamu. Buddyho vlákno najde nebo založí cesta overlaye `POST /api/lazurio/buddy/thread`. Při přestavbě ověřte, že upstream dál odvozuje id příkazu z `requestNamespace` a klíče a že potvrzenka příkazu přehraje jeho události.                                                                                                                                                                                     |
 | 25  | `feat(lazurio): Buddy's T3 Code is Buddy's one conversation, framed by the bubble`              | Rozhodnutí 0210 (plán DEV-6676): Buddyho T3 Code je jediný rozhovor. Web místo aplikace T3 ukáže Buddyho povrch: hlavičku s Mattyčusem, dny rozhovoru a čáru nad prvním dnem, bez seznamu vláken, nového vlákna, větvení a návratu; další zpráva tah usměrní, frontu člověk volí výslovně. V bublině mluví s hostitelem protokolem `lazurio.buddy.*` v1. Server totéž drží pro každého klienta a v Buddyho projektu nedělá checkpointy (viz [Buddyho T3 Code](#buddyho-t3-code)).                                                                                                        | Upstream ekvivalent nemá: zůstává. Kód je v `apps/*/src/lazurio/` (`buddySurface*`, `BuddySurface.tsx`). Švy jsou dekorátory tam, kde se služby skládají (stráž příkazů v `orchestration-v2/runtimeLayer.ts`, `CheckpointStore` v `server.ts`), fáze startu v `serverRuntimeStartup.ts` před obnovou, klíč `lazurioBuddy` v konfiguraci klienta (`ws.ts`, `packages/contracts/src/server.ts`) a ve webu `routes/__root.tsx` (povrch místo sidebaru a palety), `routes/_chat.index.tsx` (`/` otevře Buddyho vlákno), `routes/_chat.tsx`, `ChatView.tsx` a `MessagesTimeline.tsx`. Při přestavbě ověřte, že usměrnění dál volí `followUpBehavior`, že `throughEntryId` historie dál přijímá id zprávy a že upstream nepřidal další cestu k větvení nebo návratu mimo příkazy orchestrace.                                                                                                                                                                      |
 | 26  | `feat(lazurio): the page Buddy is asked from travels as a chip the person can remove`           | Rozhodnutí 0210 (plán DEV-6676): Buddyho povrch ukáže nad composerem poslední platný kontext stránky hostitele jako čip, který člověk může odebrat. Dokud tam je, nese zpráva, kterou člověk napíše, stránku jako záznam `lazurio-page` s odkazem v textu a Hermes ji dostane jako český blok řádku 23. Odeslaná zpráva ukáže stejný čip (viz [Buddyho T3 Code](#buddyho-t3-code)).                                                                                                                                                                                                      | Upstream ekvivalent nemá: zůstává. Kód je v `apps/web/src/lazurio/` (`buddySurfacePage.ts`, `BuddySurfacePageChip.tsx`). Švy: v `ChatView.tsx` odkaz v textu a záznam při odeslání a čip nad composerem, a záložní vykreslení neznámého kontextu v `composerContextPresentation.tsx` a `MessagesTimeline.tsx`, kde by upstream jinak ukázal nedostupný kontext. Záznam je obecný `UnknownContextRecord` kontraktů, takže se kontrakt nemění. Při přestavbě ověřte, že `messageTextForSend` dál drží jen slova člověka, která neúspěšné odeslání vrací do composeru, že stránka přibývá jen do odesílaného textu a do záznamů v `buildOutgoingMessageContext` a že neznámé druhy dál končí v záložním vykreslení registrů.                                                                                                                                                                                                                                    |
+| 27  | `feat(lazurio): a thread shows when Buddy or Delegace sent a message or decided a request`      | Rozhodnutí 0210, večerní dodatek, bod 5 (úkol task-2026-10-20-330): co Buddy napíše nebo schválí ve vlákně, nese viditelnou značku „Buddy za <jméno uživatele>“, a probuzení od Delegace v Buddyho vlastním vlákně „Delegace“. Agentní příkaz, jehož prostředí jmenuje, za koho jedná (`T3CODE_ACTING_SENDER`), vydá sezení s podepsaným tvrzením; server podle něj zapíše zprávy a rozhodnutí žádostí, které sezení poslalo, a web je ve vlákně označí (viz [Kdo jednal: Buddy a Delegace](#kdo-jednal-buddy-a-delegace)).                                                              | Upstream ekvivalent nemá: zprávu od agenta označí jen „Sent by another agent“ a u rozhodnutí žádosti autora nezná. Jde o pojem Lazuria (Buddy jednající za člověka), proto zůstává v overlayi; upstreamu by šlo nabídnout jen obecné tvrzení sezení. Šev: tvrzení `act` vedle `rtc` v `SessionStore.ts`, `actingSender` v `EnvironmentAuth.ts` (vydání a ověřené sezení), přenos do vyvolání klienta MCP (`McpOAuth.ts`, `McpInvocationContext.ts`), jedno volání v `ws.ts`, jedno obalení orchestrátoru v `runtimeLayer.ts` a dva švy v `MessagesTimeline.tsx`. Záznam leží v souborech v T3 home, databáze zůstává upstreamu. Při přestavbě ověřte, že upstream nezměnil tvar tvrzení tokenu sezení ani to, že dispatch klienta MCP a plochy uživatele běží ve vlákně požadavku.                                                                                                                                                                           |
 
 Řádek 14 (`feat(web): reorder right panel tabs by dragging (#17730)`, backport
 upstream 410793042) přestavba na v0.1.0 odebrala: upstream ho má i se stejným
@@ -162,7 +163,7 @@ prohlížeč Environmentu, Nová karta, vzhled design systému a párování
 Environmentem se ukážou, jen když je Environment nabízí. Proměnná
 `T3CODE_LAZURIO_FOLDER` přitom označuje Environment Lazuria: s ní server nestaví
 serverový prohlížeč upstreamu a nástroje prohlížeče T3 ovládají prohlížeč
-Environmentu, jakmile ho Environment deklaruje. Bez ohledu na to platí pět
+Environmentu, jakmile ho Environment deklaruje. Bez ohledu na to platí šest
 věcí: server pod launcherem kontroluje vydání svého kanálu a on i `t3 update`
 je bez `T3CODE_RELEASE_REPOSITORY` berou z `Lazurio/t3code` (kontrolu vypne
 `T3CODE_UPDATE_CHECK_ENABLED=false`), procesy agentů vlákna, jeho terminály a
@@ -170,8 +171,9 @@ příkazy agenta Codexu dostávají `AGENT_BROWSER_SESSION`, které nic nepovolu
 (kterých procesů se to týká, říká řádek 8), stránka bez sezení T3 na HTTPS se
 nejdřív zeptá svého originu na `/.lazurio/chat/pairing` (mimo Lazurio dostane
 `index.html` T3 a pokračuje na párovací stránku, řádek 19), vlákna Codexu mají
-nástroj na otázky i v režimu Default a pokyn ptát se jím (řádek 22) a build
-distribuce se v aplikaci jmenuje „T3 Code (Lazurio)“. Řádek odeberte, jakmile
+nástroj na otázky i v režimu Default a pokyn ptát se jím (řádek 22), web se u
+zprávy od agenta zvenku vlákna a u rozhodnuté žádosti zeptá serveru, kdo jednal
+(řádek 27), a build distribuce se v aplikaci jmenuje „T3 Code (Lazurio)“. Řádek odeberte, jakmile
 upstream nabídne ekvivalent.
 Upstream soubory pod `apps/`, `packages/` a `scripts/` overlay mění jen
 v přesných souborech z allowlistu `allowed_upstream_changes` v
@@ -184,9 +186,14 @@ požadavků agentních příkazů), `environment/ServerEnvironment.ts` (nabídka
 a deskriptor bez `serverBrowser`), `orchestration-v2/Adapters/CodexAdapterV2.ts`
 a jeho test (sezení agent-browser v konfiguraci vlákna Codexu a funkce nástroje
 na otázky na app-serveru), `orchestration-v2/runtimeLayer.ts` (stráže
-spravované složky a přihlášení jako dekorátory služeb upstreamu) a ve webu
+spravované složky a přihlášení a záznam toho, kdo jednal, jako dekorátory služeb
+upstreamu), `auth/SessionStore.ts` (TTL a cookie hostované konfigurace a
+tvrzení `act` v tokenu sezení), `auth/EnvironmentAuth.ts` (strop režimu klienta
+MCP a tvrzení `actingSender` při vydání a ověření sezení), `ws.ts` (konfigurace
+spravované složky pro klienty a dispatch jako sezení, které ho poslalo) a ve webu
 `index.html`, `main.tsx`, `ChatView.tsx`, `RightPanelTabs.tsx`,
-`rightPanelStore.ts` a `sidebar/SidebarChrome.tsx`. Každý záznam je vědomé rozhodnutí se zdůvodněním;
+`rightPanelStore.ts`, `sidebar/SidebarChrome.tsx` a `chat/MessagesTimeline.tsx`
+(„Copy prompt link“ a značka toho, kdo jednal). Každý záznam je vědomé rozhodnutí se zdůvodněním;
 jakoukoli jinou změnu pod těmito cestami CI odmítne. Vlastní složky overlaye
 `apps/*/src/lazurio/`, které upstream nemá, projdou celé. Overlay mění i wire
 kontrakty, ve dvou souborech `packages/contracts` (`environment.ts` a
@@ -347,6 +354,17 @@ Commity v pořadí na `main`:
   `components/composerContextPresentation.tsx` a `components/chat/MessagesTimeline.tsx`\* (čip
   odkazu); `apps/web/src/lazurio/`: `buddySurfacePage.ts` a jeho test, `BuddySurfacePageChip.tsx`,
   `BuddySurface.tsx`\* (`useBuddyPage`).
+- **27.** Commit Lazurio/t3code#106 na `main` (přibyl po přestavbě), za commitem řádku 26. Server:
+  `auth/SessionStore.ts`\* (tvrzení `act`), `auth/EnvironmentAuth.ts`\*
+  (`actingSender`), `auth/McpOAuth.ts`, `mcp/McpInvocationContext.ts`,
+  `ws.ts`\* (`actingAs`), `orchestration-v2/runtimeLayer.ts`\* (`recordSteps`);
+  `apps/server/src/lazurio/`: `actingSender.ts`, `actingSenders.ts` a
+  `actingSendersRoute.ts`, testy `actingSender.test.ts` a `actingSenders.test.ts`,
+  `agentCliConnection.ts`\* a `agentCli.test.ts`\*, `cli.ts`\* a jeho test\*
+  (`actingSender` v `capabilities`), `overlay.ts`\*. Web:
+  `components/chat/MessagesTimeline.tsx`\*; `apps/web/src/lazurio/`:
+  `actingSender.ts` a jeho test, `LazurioActingSender.tsx`. Uživatelský návod
+  `docs/user/agent-cli.md`.
 - **5.** Tento commit, poslední. Soubory distribuce.
 
 ### Lazurio shell
@@ -778,10 +796,10 @@ příkazy tedy nepřidávají žádné oprávnění, jen ho dávají agentovi be
   odmítl, skončí kódem `command_rejected`, protože odmítnutá potvrzenka platí navždy.
   Konečné kódy a ty, po kterých má smysl poslat znovu, vypisuje `docs/user/agent-cli.md`; T3 bez
   této cesty dál jen posílá. Ve stejném prostoru jsou i nahrané přílohy, takže jeden agentní
-  příkaz připojí, co nahrál jiný; všechny jednají za vlastníka Environmentu. budíček budí takto:
+  příkaz připojí, co nahrál jiný; všechny jednají za vlastníka Environmentu. Delegace budí takto:
 
   ```sh
-  T3CODE_ACTING_SENDER=budicek t3 thread send <vlákno> --mode queue \
+  T3CODE_ACTING_SENDER=delegace t3 thread send <vlákno> --mode queue \
     --idempotency-key <klíč buzení> --message-file - --base-dir ~/.t3-buddy --json
   ```
 
@@ -895,7 +913,7 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   na nové sezení a rozdvojilo Buddyho paměť. Vlákno s id `buddy` v jiném projektu nebo na jiné
   instanci Buddyho není: cesta ho nechá, jak je, nic přes ně nezaloží a odpoví 409
   `thread-conflict`, aby buzení nikdy nepřistálo v cizím rozhovoru. Mimo Buddyho T3 Code odpoví
-  404, bez Buddyho projektu 409. Web se ptá jí při otevření a budíček přes
+  404, bez Buddyho projektu 409. Web se ptá jí při otevření a Delegace přes
   `t3 lazurio buddy thread --json`.
 - **Jeden rozhovor pro každého klienta.** Server Buddyho T3 Code odmítne větvení vlákna, návrat ke
   checkpointu, každé jiné vlákno než Buddyho a smazání Buddyho vlákna, ať přijdou z webu, desktopu,
@@ -944,6 +962,31 @@ v `ProviderTurnStartService.ts`, „Buddy keeps one conversation through its sea
 startu před obnovou a háčky webu. `buddyPrompt.orchestrator.test.ts` pouští produkční runtime V2
 s mock agentem ACP na místě Hermesu a čte, co agent dostal; `buddySurfaceGuards.test.ts` pouští
 stráž přes orchestrátor serveru.
+
+### Kdo jednal: Buddy a Delegace
+
+**Rozhodnutí 0210, večerní dodatek, bod 5 (řádek 27, plán DEV-6676).** Co Buddy napíše nebo
+schválí ve vlákně, nese viditelnou značku „Buddy za <jméno uživatele>“ (anglicky „Buddy for
+<jméno>“) a probuzení od Delegace v Buddyho vlastním vlákně „Delegace“. Podrobnosti chování
+drží [specifikace overlaye](./lazurio-overlay.md#kdo-jednal-buddy-a-delegace).
+
+- **Rozhraní.** Agentní příkazy čtou z prostředí `T3CODE_ACTING_SENDER=buddy` s
+  `T3CODE_ACTING_FOR=<jméno>` a volitelně `T3CODE_ACTING_FOR_ACCUSATIVE=<tvar po „za“>`, nebo
+  `T3CODE_ACTING_SENDER=delegace` bez jmen, a obě svá sezení vydají s podepsaným tvrzením.
+  Jiná hodnota skončí `invalid_request` (kód 1) dřív, než se cokoli přečte. Přepínač
+  `t3 thread send` ani volný štítek odesílatele neexistuje. `t3 lazurio capabilities` uvádí
+  `"actingSender": true`.
+- **Záznam.** Server zapíše zprávy (`t3 thread launch`, `send`) a rozhodnutí otázek a žádostí o
+  oprávnění (`t3 request respond`, `approve`, `deny`), které sezení s tvrzením poslalo, do
+  `<state dir>/lazurio/acting-senders/` a web je čte cestou `/api/lazurio/acting-senders`.
+- **Kdo proměnné nastavuje.** Prostředí Buddyho (proměnné instance poskytovatele Buddyho v jeho
+  T3 a služba brány Hermesu) a služba Delegace, nikdy služba T3 sama: agenti vláken, které T3
+  spouští, by je zdědili.
+
+Kontraktní test („Buddy's and Delegace's steps carry who took them through their seams“) hlídá
+tvrzení v `SessionStore.ts` a `EnvironmentAuth.ts`, přenos v `McpOAuth.ts` a
+`McpInvocationContext.ts`, volání v `ws.ts`, obalení v `runtimeLayer.ts`, cestu v `overlay.ts`
+a oba švy v `MessagesTimeline.tsx`.
 
 ## Kdy vydávat
 

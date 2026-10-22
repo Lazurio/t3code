@@ -2,7 +2,7 @@
  * Lazurio overlay (root decision 0210, plan DEV-6676): Buddy's one conversation. Buddy's T3 Code
  * (buddySurface.ts) holds Buddy's layer of the Lazurio Folder as its project (`buddyProjectFolder`),
  * and in it one thread on the provider instance `buddy`. The web surface opens that thread, and
- * budíček posts its wakes into it after asking `t3 lazurio buddy thread`.
+ * Delegace posts its wakes into it after asking `t3 lazurio buddy thread`.
  *
  * The thread is found, or made once: its id and the command that makes it are fixed, so two first
  * visits at once still make one thread. An archived Buddy thread comes back instead of being
