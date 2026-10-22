@@ -893,7 +893,9 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
 - **Jeden rozhovor pro každého klienta.** Server Buddyho T3 Code odmítne větvení vlákna, návrat ke
   checkpointu, každé jiné vlákno než Buddyho a smazání Buddyho vlákna, ať přijdou z webu, desktopu,
   mobilu, MCP, CLI nebo plánované úlohy: větev i návrat by pustily Hermes na nové sezení
-  a rozdvojily Buddyho paměť. Archivace zůstává a cesta vlákna ho vrátí. V Buddyho projektu server
+  a rozdvojily Buddyho paměť. Buddyho vlákno udělá jen cesta vlákna (`MakingBuddysThread`), nikdy
+  `thread.create` klienta, ani s Buddyho id: utratil by její pevný příkaz za vlákno podle sebe.
+  Archivace zůstává a cesta vlákna ho vrátí. V Buddyho projektu server
   nedělá checkpointy, i když vrstva leží v repozitáři Gitu: návrat, kterému by sloužily, Buddy
   nenabízí.
 - **Výchozí nastavení.** Při prvním startu server jednou vypne pokračování vláken po aktualizaci
@@ -906,7 +908,8 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   `mattycus-idle` z design systému, viz `apps/web/src/lazurio/brand/README.md`), vlevo dny
   rozhovoru, kde je místo (od šířky 640 px), a v rozhovoru čáru s datem nad první zprávou každého
   dne. Den v panelu přeskočí na svou první zprávu, i když ji musí nejdřív načíst ze starší
-  historie. `/` otevře Buddyho vlákno. Seznam vláken, nové vlákno, větvení, návrat, hlavička vlákna
+  historie. Dny i skok platí jen pro časovou osu Buddyho Prostředí; časová osa jiného Prostředí
+  nebo mimo Buddyho T3 Code je nečte. `/` otevře Buddyho vlákno. Seznam vláken, nové vlákno, větvení, návrat, hlavička vlákna
   T3, podrobnosti vlákna (editor, skripty projektu, větev) ani průvodce prvním spuštěním na povrchu
   nejsou. Zpráva poslaná za běhu tahu ho usměrní;
   frontu člověk volí výslovně opačnou volbou tlačítka odeslání (Ctrl/⌘-klik), jako v upstreamu.

@@ -2369,15 +2369,20 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
     /\n\s+<BuddyThreadDetailsPanel\n\s+anchor=\{threadPanelPopoverAnchorRef\}/,
   );
   NodeAssert.doesNotMatch(chat, /<ThreadDetailsPanel\b/);
-  NodeAssert.match(timeline, /const buddyDayLines = useBuddyDayLines\(rows\);/);
+  // One Buddy check per timeline, for its own Environment; the rows read it from the shared state.
   NodeAssert.match(
     timeline,
-    /useBuddyDayJump\(\{ rows, listRef, onManualNavigation, history: historyControls \}\);/,
+    /const buddySurface = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddySurface\);/,
+  );
+  NodeAssert.match(timeline, /\n\s+workGroupViewState,\n\s+buddySurface,\n\s+\};/);
+  NodeAssert.match(
+    timeline,
+    /useBuddyDayJump\(\{\n\s+buddy: buddySurface,\n\s+rows,\n\s+listRef,\n\s+onManualNavigation,\n\s+history: historyControls,\n\s+\}\);/,
   );
   NodeAssert.match(timeline, /buddyDays: \[\.\.\.buddyDayLines\.keys\(\)\]\.join\(\),/);
   NodeAssert.match(
     timeline,
-    /projectedItem\?\.item\.type === "assistant_message" && !buddySurface \? \(\n\s+<AssistantForkButton/,
+    /projectedItem\?\.item\.type === "assistant_message" && !ctx\.buddySurface \? \(\n\s+<AssistantForkButton/,
   );
   for (const file of [
     "apps/server/src/orchestration-v2/runtimeLayer.ts",

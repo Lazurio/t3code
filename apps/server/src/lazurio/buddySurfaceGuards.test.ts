@@ -10,6 +10,7 @@ import {
   CheckpointScopeId,
   CommandId,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
   type OrchestrationV2ServerCommand,
 } from "@t3tools/contracts";
@@ -50,31 +51,42 @@ const create = (threadId: string, commandId: string, projectId = "project:buddy"
 
 describe("Buddy's one conversation", () => {
   it("refuses forks, rollbacks, other threads and deleting Buddy's thread", () => {
-    assert.isNotNull(buddyCommandRefusal(create("another", "command:another")));
-    assert.isNotNull(buddyCommandRefusal(create("buddy", "command:not-the-fixed-one")));
-    assert.isNull(buddyCommandRefusal(create("buddy", "lazurio:buddy-thread:create")));
+    assert.isNotNull(buddyCommandRefusal(create("another", "command:another"), false));
+    // Buddy's own ids are no way in: only Buddy's thread route makes Buddy's thread.
+    assert.isNotNull(buddyCommandRefusal(create("buddy", "lazurio:buddy-thread:create"), false));
+    assert.isNotNull(buddyCommandRefusal(create("buddy", "command:not-the-fixed-one"), true));
+    assert.isNull(buddyCommandRefusal(create("buddy", "lazurio:buddy-thread:create"), true));
     assert.isNotNull(
-      buddyCommandRefusal({
-        type: "checkpoint.rollback",
-        commandId: CommandId.make("command:rollback"),
-        threadId: BUDDY_THREAD_ID,
-        scopeId: CheckpointScopeId.make("scope"),
-        checkpointId: CheckpointId.make("checkpoint"),
-      }),
+      buddyCommandRefusal(
+        {
+          type: "checkpoint.rollback",
+          commandId: CommandId.make("command:rollback"),
+          threadId: BUDDY_THREAD_ID,
+          scopeId: CheckpointScopeId.make("scope"),
+          checkpointId: CheckpointId.make("checkpoint"),
+        },
+        false,
+      ),
     );
     assert.isNotNull(
-      buddyCommandRefusal({
-        type: "thread.delete",
-        commandId: CommandId.make("command:delete"),
-        threadId: BUDDY_THREAD_ID,
-      }),
+      buddyCommandRefusal(
+        {
+          type: "thread.delete",
+          commandId: CommandId.make("command:delete"),
+          threadId: BUDDY_THREAD_ID,
+        },
+        false,
+      ),
     );
     assert.isNull(
-      buddyCommandRefusal({
-        type: "thread.archive",
-        commandId: CommandId.make("command:archive"),
-        threadId: BUDDY_THREAD_ID,
-      }),
+      buddyCommandRefusal(
+        {
+          type: "thread.archive",
+          commandId: CommandId.make("command:archive"),
+          threadId: BUDDY_THREAD_ID,
+        },
+        false,
+      ),
     );
   });
 
@@ -83,7 +95,22 @@ describe("Buddy's one conversation", () => {
     return Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       yield* addProject(ProjectId.make("project:buddy"), layer);
-      assert.strictEqual((yield* resolveBuddyThread()).threadId, BUDDY_THREAD_ID);
+      yield* addProject(ProjectId.make("project:other"), `${layer}-other`);
+      // A client's create with Buddy's ids and its own project, title and model: refused, so the
+      // route's fixed command stays unspent.
+      const forged = yield* Effect.exit(
+        orchestrator.dispatch({
+          ...create("buddy", "lazurio:buddy-thread:create", "project:other"),
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+        }),
+      );
+      assert.isTrue(Exit.isFailure(forged));
+      assert.isNull(yield* orchestrator.getThreadShell(BUDDY_THREAD_ID));
+      const made = yield* resolveBuddyThread();
+      assert.deepStrictEqual(made, {
+        threadId: BUDDY_THREAD_ID,
+        projectId: ProjectId.make("project:buddy"),
+      });
       const refused = yield* Effect.exit(
         orchestrator.dispatch(create("another", "command:another")),
       );

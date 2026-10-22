@@ -361,6 +361,8 @@ interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  /** Lazurio overlay (plan DEV-6676): Buddy's one conversation, without forks. */
+  buddySurface: boolean;
 }
 
 interface TimelineRowActivityState {
@@ -874,8 +876,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
   });
   const rows = useStableRows(rawRows, listIdentityKey);
   // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
-  const buddyDayLines = useBuddyDayLines(rows);
-  useBuddyDayJump({ rows, listRef, onManualNavigation, history: historyControls });
+  const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
+  const buddyDayLines = useBuddyDayLines(rows, buddySurface);
+  useBuddyDayJump({
+    buddy: buddySurface,
+    rows,
+    listRef,
+    onManualNavigation,
+    history: historyControls,
+  });
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1329,6 +1338,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    buddySurface,
   };
   const compactionAwaitingRow =
     isCompacting && !rows.some((row) => row.kind === "context-compaction" && row.active);
@@ -2810,8 +2820,6 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
-  // Lazurio overlay (plan DEV-6676): Buddy keeps one conversation, without forks.
-  const buddySurface = useBuddySurfaceMode() === true;
 
   return (
     <div
@@ -2833,7 +2841,7 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
-      {projectedItem?.item.type === "assistant_message" && !buddySurface ? (
+      {projectedItem?.item.type === "assistant_message" && !ctx.buddySurface ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
       {!message.streaming && (

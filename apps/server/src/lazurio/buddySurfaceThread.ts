@@ -10,6 +10,7 @@
  */
 import { CommandId, type ModelSelection, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
@@ -30,6 +31,16 @@ export const BUDDY_THREAD_ID = ThreadId.make("buddy");
 
 /** The one command that makes Buddy's thread; it replays once it ran. */
 export const BUDDY_THREAD_CREATE_COMMAND_ID = CommandId.make("lazurio:buddy-thread:create");
+
+/**
+ * Set only while this resolver makes Buddy's thread. In Buddy's T3 Code the orchestrator's guard
+ * (buddySurfaceGuards.ts) lets `thread.create` through only here, so no client can spend the fixed
+ * command on a thread of its own making.
+ */
+export class MakingBuddysThread extends Context.Reference<boolean>(
+  "@t3tools/server/lazurio/MakingBuddysThread",
+  { defaultValue: () => false },
+) {}
 
 export const BuddyThread = Schema.Struct({ threadId: ThreadId, projectId: ProjectId });
 export type BuddyThread = typeof BuddyThread.Type;
@@ -132,7 +143,7 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
       branch: null,
       worktreePath: null,
     })
-    .pipe(Effect.mapError(unavailable));
+    .pipe(Effect.provideService(MakingBuddysThread, true), Effect.mapError(unavailable));
   // The fixed command replays once it ran, so a Buddy thread that was deleted stays deleted.
   const created = yield* orchestrator
     .getThreadShell(BUDDY_THREAD_ID)
