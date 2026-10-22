@@ -35,6 +35,12 @@ licencí MIT (LazurioPlatform, rozhodnutí F50 bod 6). Ostatní soubory Platform
 zůstávají pod Elastic-2.0. Záznam platí, dokud kopie nenahradí soubory kontraktu
 prohlížeče, které fork převezme z artefaktu Platformy (F50 bod 5).
 
+Značkové soubory Lazuria pod licencí MIT nejsou (rozhodnutí Organization Admina
+z 2026-10-22, plán DEV-6676): symbol Lazuria v `apps/web/src/lazurio/brand/`
+a Mattyčus v `apps/web/public/assets/avatar.webp`. Podmínky jejich použití drží
+`apps/web/src/lazurio/brand/README.md` a `.github/README.md` na ně odkazuje;
+`LICENSE` upstreamu se nemění.
+
 ## Kanál aktualizací
 
 GitHub Releases tohoto repozitáře jsou kanál, ze kterého se T3 Code na všech
@@ -297,8 +303,9 @@ Commity v pořadí na `main`:
 - **16.** `a9b61b6cc2`. `apps/web/src/`: `branding.ts`, `branding.logic.ts` a
   `branding.test.ts`, `components/sidebar/SidebarChrome.tsx`\* (štítek u
   wordmarku), `lazurio/LazurioBadge.tsx` a `lazurio/brand/` (dvě SVG symbolu
-  z design systému a jejich `README.md`\*); `apps/web/index.html`\* (titulek
-  a splash), `apps/web/public/manifest.webmanifest` (hodnota `name`).
+  z design systému a jejich `README.md`\* s licencí značkových souborů);
+  `apps/web/index.html`\* (titulek a splash), `apps/web/public/manifest.webmanifest`
+  (hodnota `name`).
 - **17.** `45a4bad108`. `apps/web/src/main.tsx`\* (import),
   `apps/web/src/lazurio/theme.css`.
 - **18.** `8743cade57`. Server: `orchestration-v2/runtimeLayer.ts`\* (stráž nad

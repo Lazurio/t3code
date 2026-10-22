@@ -1,5 +1,10 @@
 # Lazurio brand assets
 
+Lazurio's brand assets in this repository are `symbol-color.svg` and `symbol-color-dark.svg` in
+this folder and `apps/web/public/assets/avatar.webp`. The MIT License in the repository's `LICENSE`
+does not cover them, and all rights in them are reserved. They may be used only to identify Lazurio
+and Buddy in Lazurio's own distribution of T3 Code. A fork outside Lazurio must replace them.
+
 `symbol-color.svg` and `symbol-color-dark.svg` are the Lazurio symbol for light and dark ground,
 copied unchanged from the Lazurio design system (`content/brand/logo/`, at `22265ef2`). The logo
 manual allows only the whole approved asset: never edit, redraw or recolour these files. To update
