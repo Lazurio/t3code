@@ -82,16 +82,33 @@ your message. For a long message, pass `--message-file <path>`, or
 
 `--idempotency-key <key>` sends the message once per key, also when you run the
 same command again later or after T3 Code restarts: a repeat sends nothing and
-prints the first send's result. A key belongs to its thread and to who sends:
-the same key sent to another thread, or by another sender, is another message.
-Use a key that names this one message, such as an id your script keeps with
-it. A key T3 Code refused stays refused; send the message again with a new key
-once the cause is fixed.
+prints the first send's result, with the same `commandId`. A key belongs to its
+thread and to who sends: the same key sent to another thread, or by another
+sender, is another message. Use a key that names this one message, such as an
+id your script keeps with it.
 
 ```sh
 printf '%s' "$report" | t3 thread send 4f1c0b2e-… --message-file - --mode queue \
   --idempotency-key "report-$job_id" --json
 ```
+
+With a key, a failure's code tells whether sending again can help. These
+refusals are final: sending again as it is never helps, so fix the cause first.
+After `idempotency_conflict` and `command_rejected` the key is spent, so send
+with a new one; after the others the same key works once the cause is fixed.
+
+| Code                                                                                        | Meaning                                                                      |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `idempotency_conflict`                                                                      | This key already sent another message to this thread. Nothing was sent.      |
+| `command_rejected`                                                                          | T3 Code refused the message for this key. A key it refused stays refused.    |
+| `thread_not_found`                                                                          | There is no such thread.                                                     |
+| `thread_not_sendable`                                                                       | The thread is archived, or `--mode steer` found no running turn.             |
+| `invalid_request`                                                                           | The command line or the message is invalid, or the thread's provider is off. |
+| `capability_denied`, `runtime_mode_escalation_denied`, `interaction_mode_escalation_denied` | The command may not act on this thread.                                      |
+
+Any other failure may pass, such as `server_not_running` (exit code 3),
+`request_failed`, `auth_unavailable` or `orchestration_error`: send again later
+with the same key, which never sends twice.
 
 In Buddy's T3 Code on a Lazurio Environment, `t3 lazurio buddy thread --json`
 prints Buddy's one thread as `{"threadId": "...", "projectId": "..."}`, and makes

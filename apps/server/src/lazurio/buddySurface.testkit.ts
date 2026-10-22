@@ -123,7 +123,11 @@ const layerProviderInstanceRegistry = withBuddyInstructions(
     ),
   ),
 );
-export const layerBuddyServer = Layer.merge(RuntimeLayer.layer, ProjectStore.layer).pipe(
+export const layerBuddyServer = Layer.mergeAll(
+  RuntimeLayer.layer,
+  ProjectStore.layer,
+  RuntimeLayer.layerEventInfrastructure,
+).pipe(
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStore),

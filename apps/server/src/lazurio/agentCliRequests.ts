@@ -81,3 +81,15 @@ export const agentCliSendKey = Effect.fn("LazurioAgentCli.sendKey")(function* (i
     .pipe(Effect.orDie);
   return `lazurio-send:${Hex.encode(digest)}`;
 });
+
+/**
+ * The ids T3 gives the send of `sendKey` in the agent commands' namespace. OrchestratorMcpService
+ * derives them as `<kind>:mcp:<namespace>:<operation>:<key>`, each part URI-encoded; the release
+ * contract pins that. With them the command asks T3 what became of its send (agentCliSendState.ts).
+ */
+export const agentCliSendIds = (sendKey: string) => {
+  const suffix = ["mcp", AGENT_CLI_REQUEST_NAMESPACE, "thread-send", sendKey]
+    .map(encodeURIComponent)
+    .join(":");
+  return { commandId: `command:${suffix}`, messageId: `message:${suffix}` };
+};

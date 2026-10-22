@@ -31,6 +31,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
@@ -45,7 +46,8 @@ import {
   isAgentCliFailure,
   withAgentCliConnection,
 } from "./agentCliConnection.ts";
-import { agentCliSendKey } from "./agentCliRequests.ts";
+import { agentCliSendIds, agentCliSendKey } from "./agentCliRequests.ts";
+import { AGENT_CLI_SEND_STATE_ROUTE, SendState } from "./agentCliSendState.ts";
 import {
   makeEventTracker,
   mergeThreadLists,
@@ -588,6 +590,25 @@ const SendResult = Schema.Struct({
   delivery: Schema.String,
 });
 
+const decodeSendState = Schema.decodeUnknownOption(SendState);
+
+/** What T3 recorded of a keyed send; nothing from a T3 without the route, or when unreachable. */
+const sendStateOf = (
+  connection: AgentCliConnection,
+  request: { readonly threadId: string; readonly commandId: string; readonly messageId: string },
+) =>
+  connection.postRoute(AGENT_CLI_SEND_STATE_ROUTE, request).pipe(
+    Effect.map(({ status, body }) =>
+      status === 200 ? Option.getOrUndefined(decodeSendState(body)) : undefined,
+    ),
+    Effect.orElseSucceed(() => undefined),
+  );
+
+const asObject = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
 const threadSendCommand = Command.make("send", {
   ...common,
   threadId: threadIdArgument,
@@ -613,18 +634,40 @@ const threadSendCommand = Command.make("send", {
       readMessage({ ...flags, required: true }),
       (connection, message) =>
         Effect.gen(function* () {
-          const clientRequestId = Option.isSome(flags.idempotencyKey)
-            ? yield* agentCliSendKey({ threadId: flags.threadId, key: flags.idempotencyKey.value })
-            : undefined;
-          return yield* connection.callTool(
-            "t3_thread_send",
-            defined({
-              threadId: flags.threadId,
-              message: Option.getOrUndefined(message),
-              mode: Option.getOrUndefined(flags.mode),
-              clientRequestId,
-            }),
-          );
+          const text = Option.getOrElse(message, () => "");
+          const send = (clientRequestId?: string) =>
+            connection.callTool(
+              "t3_thread_send",
+              defined({
+                threadId: flags.threadId,
+                message: text,
+                mode: Option.getOrUndefined(flags.mode),
+                clientRequestId,
+              }),
+            );
+          if (Option.isNone(flags.idempotencyKey)) return yield* send();
+          const sendKey = yield* agentCliSendKey({
+            threadId: flags.threadId,
+            key: flags.idempotencyKey.value,
+          });
+          const ids = agentCliSendIds(sendKey);
+          const sent = yield* Effect.result(send(sendKey));
+          const state = yield* sendStateOf(connection, { threadId: flags.threadId, ...ids });
+          // T3 ran the key's command once; a repeat with another message replays it unchanged.
+          if (state?.message !== null && state?.message !== undefined)
+            if (state.message.text.trim() !== text.trim())
+              return yield* agentCliFailure(
+                "idempotency_conflict",
+                "This key already sent another message to this thread, so nothing was sent. Send this message with a new key.",
+              );
+          if (Result.isSuccess(sent))
+            return { ...asObject(sent.success), commandId: ids.commandId };
+          if (state?.receipt?.status === "rejected")
+            return yield* agentCliFailure(
+              "command_rejected",
+              `T3 Code refused the message for this key${state.receipt.error === null ? "." : `: ${state.receipt.error}`} A key T3 Code refused stays refused.`,
+            );
+          return yield* sent.failure;
         }),
       textAs(
         SendResult,

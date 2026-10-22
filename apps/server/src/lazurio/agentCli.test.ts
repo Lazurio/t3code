@@ -92,13 +92,20 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import { OrchestrationCommandReceiptRepository } from "../persistence/OrchestrationCommandReceipts.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSettingsService from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { AGENT_CLI_EXIT_CODES, isAgentCliFailure } from "./agentCliConnection.ts";
-import { AGENT_CLI_REQUEST_NAMESPACE, withAgentCliRequestNamespace } from "./agentCliRequests.ts";
+import {
+  AGENT_CLI_REQUEST_NAMESPACE,
+  agentCliSendIds,
+  agentCliSendKey,
+  withAgentCliRequestNamespace,
+} from "./agentCliRequests.ts";
+import * as AgentCliSendState from "./agentCliSendState.ts";
 import { addProject, buddyModel, layerBuddyServer } from "./buddySurface.testkit.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
 import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
@@ -566,13 +573,17 @@ const withLiveServer = <A, E, R>(
   baseDir: string,
   world: World,
   body: (origin: string) => Effect.Effect<A, E, R>,
-) => withLiveServerOver(baseDir, world, orchestrationFakes(world), body);
+) => withLiveServerOver(baseDir, world, orchestrationFakes(world), Layer.empty, body);
 
-/** The same server with `orchestration` behind the tools in place of the fakes. */
-const withLiveServerOver = <A, E, R, ROut, RIn>(
+/**
+ * The same server with `orchestration` behind the tools in place of the fakes, and `routes` served
+ * beside them.
+ */
+const withLiveServerOver = <A, E, R, ROut, RIn, RR>(
   baseDir: string,
   world: World,
   orchestration: Layer.Layer<ROut, never, RIn>,
+  routes: Layer.Layer<never, never, RR>,
   body: (origin: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -606,7 +617,7 @@ const withLiveServerOver = <A, E, R, ROut, RIn>(
       Layer.provide(orchestration),
     );
     const serviceLayer = HttpRouter.serve(
-      Layer.mergeAll(mcpRoutes, ownerRoutes(world), buddyThreadRoute(world)),
+      Layer.mergeAll(mcpRoutes, ownerRoutes(world), buddyThreadRoute(world), routes),
       {
         disableListenLog: true,
         disableLogger: true,
@@ -1659,7 +1670,7 @@ describe("t3 thread send --idempotency-key", () => {
   );
 
   it.live(
-    "sends once from two separate commands with one key, as an agent, with T3's own tool",
+    "sends once from separate commands with one key, as an agent, and reports a final refusal",
     () => {
       const baseDir = makeBaseDir();
       const folder = makeBaseDir();
@@ -1667,7 +1678,7 @@ describe("t3 thread send --idempotency-key", () => {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         const projectId = ProjectId.make("project-buddy");
         yield* addProject(projectId, folder);
-        for (const threadId of ["thread-buddy", "thread-other"])
+        for (const threadId of ["thread-buddy", "thread-other", "thread-refused"])
           yield* orchestrator.dispatch({
             type: "thread.create",
             createdBy: "user",
@@ -1682,38 +1693,87 @@ describe("t3 thread send --idempotency-key", () => {
             branch: null,
             worktreePath: null,
           });
-        const sent = yield* withLiveServerOver(baseDir, makeWorld(), realSending, () =>
-          Effect.forEach(
-            ["thread-buddy", "thread-buddy", "thread-other"],
-            (threadId) =>
-              printedJson(
-                run(sendArgs(baseDir, threadId, "budíček: úkol doběhl", "wake-7")).pipe(
-                  Effect.provideService(HostProcess.Environment, {
-                    T3CODE_ACTING_SENDER: "budicek",
-                  }),
+        // T3 refused the send of one key before: its receipt says so, and T3 keeps it.
+        const refusedKey = yield* agentCliSendKey({
+          threadId: "thread-refused",
+          key: "wake-9",
+        }).pipe(
+          Effect.provideService(HostProcess.Environment, { T3CODE_ACTING_SENDER: "budicek" }),
+        );
+        yield* (yield* OrchestrationCommandReceiptRepository)
+          .upsert({
+            commandId: CommandId.make(agentCliSendIds(refusedKey).commandId),
+            aggregateKind: "thread",
+            aggregateId: ThreadId.make("thread-refused"),
+            commandType: "message.dispatch",
+            acceptedAt: "2026-10-22T10:00:00.000Z",
+            resultSequence: 0,
+            status: "rejected",
+            error: "The thread refused this message.",
+          })
+          .pipe(Effect.orDie);
+        const sends: ReadonlyArray<readonly [thread: string, text: string, key: string]> = [
+          ["thread-buddy", "budíček: úkol doběhl", "wake-7"],
+          ["thread-buddy", "budíček: úkol doběhl", "wake-7"],
+          ["thread-other", "budíček: úkol doběhl", "wake-7"],
+          ["thread-buddy", "budíček: jiný text", "wake-7"],
+          ["thread-refused", "budíček: úkol doběhl", "wake-9"],
+          ["thread-missing", "budíček: úkol doběhl", "wake-10"],
+        ];
+        const sent = yield* withLiveServerOver(
+          baseDir,
+          makeWorld(),
+          realSending,
+          AgentCliSendState.layer,
+          () =>
+            Effect.forEach(
+              sends,
+              ([threadId, text, key]) =>
+                printedJson(
+                  run(sendArgs(baseDir, threadId, text, key)).pipe(
+                    Effect.provideService(HostProcess.Environment, {
+                      T3CODE_ACTING_SENDER: "budicek",
+                    }),
+                  ),
                 ),
-              ),
-            { concurrency: 1 },
-          ),
+              { concurrency: 1 },
+            ),
         ).pipe(
           // The runtime above memoized its database's setup. The server and the commands open the
           // T3 home's database as in production, so they build from a memo map of their own.
           Effect.provideServiceEffect(Layer.CurrentMemoMap, Layer.makeMemoMap),
         );
-        for (const result of sent)
-          assert.strictEqual(result.exit._tag, "Success", JSON.stringify(result.output));
-        // The repeat printed the first send's result.
-        assert.deepStrictEqual(sent[1]?.output, sent[0]?.output);
+        const [first, repeat, other, conflict, refused, missing] = sent;
+        for (const result of [first, repeat, other])
+          assert.strictEqual(result?.exit._tag, "Success", JSON.stringify(result?.output));
+        // The repeat printed the first send's result, with the command that delivered it.
+        assert.deepStrictEqual(repeat?.output, first?.output);
+        assert.match(
+          String(first?.output.commandId),
+          /^command:mcp:lazurio%3Aagent-cli:thread-send:lazurio-send%3A[0-9a-f]{64}$/,
+        );
+        const finalCode = (result: (typeof sent)[number] | undefined) => [
+          result === undefined ? -1 : exitCodeOf(result.exit),
+          (result?.output.error as { code?: unknown } | undefined)?.code,
+        ];
+        assert.deepStrictEqual(finalCode(conflict), [1, "idempotency_conflict"]);
+        assert.deepStrictEqual(finalCode(refused), [1, "command_rejected"]);
+        assert.deepStrictEqual(finalCode(missing), [1, "thread_not_found"]);
         const messagesOf = (threadId: string) =>
           orchestrator
             .getThreadRecords(ThreadId.make(threadId), ["messages"], { messageRoles: ["user"] })
             .pipe(Effect.map((records) => records.messages));
-        const buddy = yield* messagesOf("thread-buddy");
+        // One message from the two commands and none from the conflict, sent by an agent over MCP.
         assert.deepStrictEqual(
-          buddy.map((message) => [message.text, message.createdBy, message.creationSource]),
+          (yield* messagesOf("thread-buddy")).map((message) => [
+            message.text,
+            message.createdBy,
+            message.creationSource,
+          ]),
           [["budíček: úkol doběhl", "agent", "mcp"]],
         );
         assert.strictEqual((yield* messagesOf("thread-other")).length, 1);
+        assert.strictEqual((yield* messagesOf("thread-refused")).length, 0);
       }).pipe(Effect.provide(layerBuddyServer), Effect.scoped, Effect.provide(TestConsole.layer));
     },
   );
