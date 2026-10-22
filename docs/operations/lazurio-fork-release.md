@@ -148,6 +148,7 @@ Lazurio/t3code#97 (přestavby na v0.1.0 Lazurio/t3code#70).
 | 21  | `feat(lazurio): agents work with T3 Code threads through t3 thread, request, queue and events`  | Rozhodnutí 0210, dodatek 3: Buddy, a s ním každý agent v Environmentu, pracuje s vlákny T3 jako jejich vlastník. Čte a shrnuje je, spouští, posílá zprávy, řídí a zastavuje je, odpovídá na jejich otázky, rozhoduje jejich žádosti o oprávnění a sleduje jejich změny (viz [Agenti a vlákna](#agenti-a-vlákna)).                                                                                                                                                                                                                                                                        | Upstream ekvivalent ve v0.1.1 nemá: zůstává. Celý kód je v `apps/server/src/lazurio/agentCli*.ts`; šev je řádek v `binCli.ts` a export `listItemFromShell` v `mcp/OrchestratorMcpService.ts`, na v0.1.1 vedle nového `threadPullRequests` (#17454). Upstream má otevřený vlastní `t3 thread` (#22732): až přistane, příkazy se srazí a řádek se při přestavbě zmenší. Serverovou část Lazurio/t3code#94 řeší upstream (#19342, #19380) a v etapě 9 ji podpoříme. Pomalému čtenáři upstream aktualizace seznamu vláken slučuje (#14859), takže `t3 events --follow` dojde vždy k poslednímu stavu každého vlákna, ne nutně přes každý krok. Při přestavbě ověřte, že nástroje MCP, které příkazy volají, mají stejná jména a parametry (hlídá `agentCli.test.ts` proti skutečným deklaracím) a že web dál určuje model nového vlákna přes `resolveProjectSettings`.                                                                                           |
 | 22  | `feat(server): T3's Codex threads ask the user through request_user_input`                      | Rozhodnutí 0211: agent se člověka ptá nástrojem na otázky, ne jen textem ve zprávě. Codex nabízí `request_user_input` v režimu Default jen se zapnutou funkcí `default_mode_request_user_input`; T3 ji zapne app-serveru, který pro svá vlákna spouští, a do kontextu každého tahu dá pokyn ptát se jím, i když bez odpovědi nejde pokračovat (viz [Nástroj na otázky](#nástroj-na-otázky)). Uživatelův `~/.codex/config.toml` se nemění (rozhodnutí 0161).                                                                                                                              | Upstream ekvivalent nemá a funkci sám nezapíná. Je to politika Lazuria nad funkcí Codexu ve vývoji (ve výchozím stavu vypnutá): pokyn Lazuria zůstává v overlayi a upstreamu se v etapě 9 nabídne jen mechanismus. Šev je přepínač `-c` v `CodexAdapterV2.ts`, položka `lazurio_questions` v `buildCodexAdditionalContext` a věta o otázce prostým textem, kterou overlay z textu režimu Default odebral. Na v0.1.1 je otevření app-serveru `Effect.fn` (#21993) a kontext tahu je v číslovaných položkách, protože hodnotu nad 4 000 bajtů Codex potichu zkrátí (#18415); `lazurio_questions` (asi 1,1 KB) zůstává pod limitem jako poslední položka. Při přestavbě ověřte v `codex features list`, že Codex funkci pořád zná; jakmile ji zapne ve výchozím stavu sám, přepínač odeberte, pokyn zůstává.                                                                                                                                                    |
 | 23  | `feat(lazurio): Buddy's Hermes gets only the person's words and the page as a Czech block`      | Rozhodnutí 0210 (plán DEV-6676): Buddyho chat drží na Osobním Prostředí druhý server T3 s `T3CODE_LAZURIO_BUDDY=1`, jehož instance poskytovatele `buddy` pouští Hermes Agenta (`hermes acp`). Hermes ukládá každý prompt do Buddyho paměti jako slova člověka, proto mu T3 posílá jen text člověka, jeho přílohy a stránku, ze které se ptá, jako jeden označený český blok, nikdy své pokyny (`<t3_code_instructions>`, `<runtime_info>`, `<pull_request_linking>`), ani po Stop, při usměrnění a po restartu (viz [Buddyho T3 Code](#buddyho-t3-code)).                                | Upstream ekvivalent nemá: zůstává. Adaptér ACP (`packages/provider-acp/src/server/adapter.ts`) se při stavbě instance ptá `AcpT3Instructions` (bez odpovědi dostane pokyny každá instance), `server.ts` odpoví pro Buddyho instanci tam, kde staví instance poskytovatelů, a `orchestration-v2/ProviderTurnStartService.ts` promítne pro ni kontext stránky jako blok místo obecného `<t3_context>`. Obecný přepínač pokynů T3 pro instanci ACP lze nabídnout upstreamu. Při přestavbě ověřte, že adaptér ACP skládá prompt dál na jediném místě (`resolvePromptParts`) a že usměrnění tahu ACP je dál přerušení a nový tah přes `ProviderTurnStartService`.                                                                                                                                                                                                                                                                                                 |
+| 24  | `feat(lazurio): agents send once per idempotency key, and budíček finds Buddy's thread`         | Rozhodnutí 0210 (plán DEV-6676): budíček budí Buddyho zprávou do jeho vlákna (`t3 thread send … --mode queue`) a po pádu ji pošle znovu. `--idempotency-key` ji pošle jednou na klíč i napříč příkazy a restarty a `t3 lazurio buddy thread --json` řekne, které vlákno je Buddyho, a napoprvé ho založí (viz [Agenti a vlákna](#agenti-a-vlákna) a [Buddyho T3 Code](#buddyho-t3-code)). Štítek „budíček“ u zprávy nese stopa „Buddy za …“, ne tento řádek.                                                                                                                             | Upstream ekvivalent nemá: zůstává. Klíč je upstream `clientRequestId` nástroje `t3_thread_send`, jenže ten platí v jmenném prostoru klienta MCP, tedy jeho sezení, a každý agentní příkaz má sezení vlastní. Šev je dekorátor `McpClientAuthenticator` v `server.ts`: sezení agentních příkazů (štítek `t3 agent cli`) sdílejí jeden prostor, takže stejný klíč dá stejný příkaz a potvrzenky příkazů T3 ho provedou jednou. Ostatní klienti MCP mají prostor upstreamu. Buddyho vlákno najde nebo založí cesta overlaye `POST /api/lazurio/buddy/thread`. Při přestavbě ověřte, že upstream dál odvozuje id příkazu z `requestNamespace` a klíče a že potvrzenka příkazu přehraje jeho události.                                                                                                                                                                                                                                                            |
 
 Řádek 14 (`feat(web): reorder right panel tabs by dragging (#17730)`, backport
 upstream 410793042) přestavba na v0.1.0 odebrala: upstream ho má i se stejným
@@ -176,7 +177,8 @@ v přesných souborech z allowlistu `allowed_upstream_changes` v
 Soubory, které mění víc funkcí, má v jedné skupině společných švů: konfiguraci
 serveru (`apps/server/src/cli/config.ts`, `config.ts`), `server.ts`
 (přesměrování `t3` po aktivaci, sezení agent-browser, brána prohlížeče upstreamu,
-vrstva cest overlaye a Buddyho instance bez pokynů T3), `environment/ServerEnvironment.ts` (nabídka aktualizace
+vrstva cest overlaye, Buddyho instance bez pokynů T3 a jeden jmenný prostor
+požadavků agentních příkazů), `environment/ServerEnvironment.ts` (nabídka aktualizace
 a deskriptor bez `serverBrowser`), `orchestration-v2/Adapters/CodexAdapterV2.ts`
 a jeho test (sezení agent-browser v konfiguraci vlákna Codexu a funkce nástroje
 na otázky na app-serveru), `orchestration-v2/runtimeLayer.ts` (stráže
@@ -319,6 +321,13 @@ Commity v pořadí na `main`:
   `packages/provider-acp/src/server/adapter.ts` (`AcpT3Instructions`); `apps/server/src/lazurio/`:
   `buddySurface.ts`, `buddyPrompt.ts` a jeho testy (`buddyPrompt.test.ts`,
   `buddyPrompt.orchestrator.test.ts`).
+- **24.** Přibyl po přestavbě na v0.1.1 (rozhodnutí 0210, plán DEV-6676), na `main` je za
+  commitem řádku 23 s předmětem z tabulky. Server: `server.ts`\* (jmenný prostor požadavků
+  agentních příkazů); `apps/server/src/lazurio/`: `agentCliRequests.ts`, `agentCli.ts`\*
+  (`--idempotency-key`) a jeho test\*, `agentCliConnection.ts`\* (`postRoute`),
+  `buddySurfaceThread.ts` a jeho test, `buddySurfaceThreadRoute.ts`, `buddySurfaceCli.ts`,
+  `buddySurface.testkit.ts`, `overlay.ts`\*, `cli.ts`\* a jeho test\* (`buddy` a nové klíče
+  v `capabilities`). Uživatelský návod `docs/user/agent-cli.md`.
 - **5.** Tento commit, poslední. Soubory distribuce.
 
 ### Lazurio shell
@@ -716,7 +725,8 @@ příkazy tedy nepřidávají žádné oprávnění, jen ho dávají agentovi be
 
 - **Příkazy.** `t3 thread list|read|search|launch|send|interrupt|wait|organize|fork`,
   `t3 request list|read|respond|approve|deny`, `t3 queue list|read|edit|cancel|reorder|promote`
-  a `t3 events [--follow]`. S `--json` každý vypíše výsledek, nebo
+  a `t3 events [--follow]`, v Buddyho T3 Code navíc `t3 lazurio buddy thread`. S `--json` každý
+  vypíše výsledek, nebo
   `{"error": {"code", "message"}}`. Návratový kód 0 je hotovo, 1 odmítnutí nebo chybný příkaz,
   3 neběžící T3 (nic se nečetlo ani nezměnilo) a 4 vypršené `t3 thread wait`. Uživatelský návod
   je [docs/user/agent-cli.md](../user/agent-cli.md).
@@ -730,6 +740,14 @@ příkazy tedy nepřidávají žádné oprávnění, jen ho dávají agentovi be
   kterých web vybírá model nového vlákna, na rozhodnutí žádosti o oprávnění (stejný příkaz jako
   tlačítko v aplikaci) a na živý stream seznamu vláken. Rozhodování o oprávněních upstream na MCP
   záměrně nedává a fork ho tam nepřidává.
+- **Jednou na klíč.** `t3 thread send --idempotency-key <klíč>` pošle zprávu jednou na klíč, i když
+  příkaz poběží znovu nebo po restartu T3: opakování nic nepošle a vypíše výsledek prvního
+  odeslání. Klíč je `clientRequestId` nástroje `t3_thread_send`; T3 z něj a z jmenného prostoru
+  klienta MCP odvodí id příkazu a potvrzenka příkazu ho provede jednou. Sezení agentních příkazů
+  (štítek `t3 agent cli`) proto sdílejí jeden jmenný prostor (`agentCliRequests.ts`, šev
+  v `server.ts`), ostatní klienti MCP mají prostor svého sezení. Klíč, který T3 odmítl, zůstane
+  odmítnutý. Ve stejném prostoru jsou i nahrané přílohy, takže jeden agentní příkaz připojí, co
+  nahrál jiný; všechny jednají za vlastníka Environmentu.
 - **Nové vlákno.** `t3 thread launch` bez `--project` začne v projektu Lazurio, který si zapsal
   spravovaný start (`lazurio/model-recommendation.json`), a běží ve full-access. Přepínač modelu
   nemá (rozhodnutí 0189): vlákno dostane model, se kterým v jeho projektu začne nové vlákno ve
@@ -743,7 +761,8 @@ příkazy tedy nepřidávají žádné oprávnění, jen ho dávají agentovi be
 --runtime-mode-ceiling <režim>` (řádek 20). Bez přepínače zůstává strop Supervised.
 
 Platforma, Machines i Buddy poznají T3, které příkazy má, podle `"agentCli": true` v
-`t3 lazurio capabilities` (kontrakt verze 1). Bez proměnných Lazuria příkazy fungují stejně, jen
+`t3 lazurio capabilities` (kontrakt verze 1), klíč odeslání podle `"threadSendIdempotency": true`
+a `t3 lazurio buddy thread` podle `"buddyThread": true`. Bez proměnných Lazuria příkazy fungují stejně, jen
 `t3 thread launch` chce `--project`. Kontraktní test („agents work with threads through the agent
 CLI's seams“) hlídá šev v `binCli.ts`, přepínač v `cli/auth.ts`, strop v `EnvironmentAuth.ts`,
 export v `OrchestratorMcpService.ts` a rozsahy obou sezení; `agentCli.test.ts` spouští skutečné
@@ -826,6 +845,12 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   nedostane: ani v prvním tahu, ani po Stop, při usměrnění (tah ACP se usměrňuje přerušením
   a novým tahem) nebo po restartu serveru či Hermesu. Adaptér ACP se na to ptá `AcpT3Instructions`,
   když staví instanci, a `server.ts` odpoví tam, kde staví instance poskytovatelů.
+- **Jedno vlákno.** Projektem je Buddyho vrstva složky Lazuria (`~/Lazurio/.agents/buddy`), kterou
+  přidá instalátor Platformy, a v něm je jedno vlákno `buddy` instance `buddy` ve full-access.
+  `POST /api/lazurio/buddy/thread` ho najde, nebo napoprvé založí pevným příkazem, takže dvě
+  první návštěvy naráz založí jedno. Archivované vlákno vrátí zpět, protože nové by pustilo Hermes
+  na nové sezení a rozdvojilo Buddyho paměť. Mimo Buddyho T3 Code odpoví 404, bez Buddyho
+  projektu 409. Web se ptá jí při otevření a budíček přes `t3 lazurio buddy thread --json`.
 - **Co zůstává upstreamu.** Když se Hermesovo sezení nenačte (`session/load`), T3 začne nové se
   shrnutím vlákna. To je obnova kontextu, ne pokyn, a řádek ji nemění.
 

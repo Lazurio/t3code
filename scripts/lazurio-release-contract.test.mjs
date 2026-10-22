@@ -988,7 +988,7 @@ NodeTest.test(
     );
     NodeAssert.match(
       cli,
-      /Command\.withSubcommands\(\[\s*modelCommand,\s*providersCommand,\s*pairingCommand,\s*capabilitiesCommand,?\s*\]\)/,
+      /Command\.withSubcommands\(\[\s*modelCommand,\s*providersCommand,\s*pairingCommand,\s*capabilitiesCommand,\s*buddyCommand,?\s*\]\)/,
     );
     NodeAssert.match(cli, /providerRefresh: true/);
 
@@ -1767,11 +1767,11 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
     service,
     /connectEnvironmentBrowser|Target\.closeTarget|agent-browser.*close/,
   );
-  // The overlay's one layer: the Environment browser host and the overlay's three routes, over one
+  // The overlay's one layer: the Environment browser host and the overlay's four routes, over one
   // thread tabs service, which follows the threads' lifecycle.
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
+    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
   );
   // Archiving or deleting a thread lets go of its tabs: the lifecycle follows upstream's
   // orchestrator's domain events, and the sweep of threads that are gone waits until commands are
@@ -2250,3 +2250,34 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
   ])
     NodeAssert.ok(overlayMayChange(file), file);
 });
+
+// Root decision 0210, plan DEV-6676 (row 24): budíček wakes Buddy with `t3 thread send` and sends
+// again after a crash. The key is the MCP tool's clientRequestId, which T3 makes idempotent in the
+// request namespace of its MCP client; every agent command signs in with a session of its own, so
+// server.ts puts the agent commands' sessions in one namespace, and only theirs. Buddy's thread is
+// found or made behind one overlay route, which `t3 lazurio buddy thread` asks.
+NodeTest.test(
+  "an agent command's idempotency key and Buddy's thread keep their seams",
+  async () => {
+    const [server, requests, agentCli, connection, lazurioCli] = await Promise.all(
+      [
+        "apps/server/src/server.ts",
+        "apps/server/src/lazurio/agentCliRequests.ts",
+        "apps/server/src/lazurio/agentCli.ts",
+        "apps/server/src/lazurio/agentCliConnection.ts",
+        "apps/server/src/lazurio/cli.ts",
+      ].map(read),
+    );
+    NodeAssert.match(
+      server,
+      /Layer\.provide\(\n\s+LazurioAgentCliRequests\.withAgentCliRequestNamespace\(McpOAuth\.layerMcpClientAuthenticator\),\n\s+\),/,
+    );
+    NodeAssert.equal(server.match(/McpOAuth\.layerMcpClientAuthenticator/g)?.length, 1);
+    NodeAssert.match(connection, /export const AGENT_CLI_SESSION_LABEL = "t3 agent cli";/);
+    NodeAssert.match(connection, /label: AGENT_CLI_SESSION_LABEL/);
+    NodeAssert.match(requests, /scope\.client\?\.label === AGENT_CLI_SESSION_LABEL/);
+    NodeAssert.match(agentCli, /clientRequestId: Option\.getOrUndefined\(flags\.idempotencyKey\),/);
+    NodeAssert.match(lazurioCli, /threadSendIdempotency: true,\n\s+buddyThread: true,/);
+    NodeAssert.ok(overlayMayChange("apps/server/src/server.ts"));
+  },
+);

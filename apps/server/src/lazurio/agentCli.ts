@@ -61,6 +61,8 @@ const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDefault(false),
 );
 const common = { ...projectLocationFlags, json: jsonFlag };
+/** The flags every agent command takes: the T3 home and `--json`. */
+export const agentCommandFlags = common;
 type CommonFlags = { readonly baseDir: Option.Option<string>; readonly json: boolean };
 
 /**
@@ -102,6 +104,9 @@ const run = <A, E, R>(
   text: (value: A) => string,
   options?: { readonly sessionTtl?: Duration.Duration },
 ) => runChecked(flags, Effect.void, body, text, options);
+
+/** How an agent command outside this file runs: as `run` runs the ones here. */
+export const runAgentCommand = run;
 
 /** Call a tool and decode the part of its answer the command reads. */
 const callAs = <S extends Schema.Top>(
@@ -593,6 +598,12 @@ const threadSendCommand = Command.make("send", {
     ),
     Flag.optional,
   ),
+  idempotencyKey: Flag.String("idempotency-key").pipe(
+    Flag.withDescription(
+      "Send once per key, also across commands and restarts: a repeat with the same key sends nothing and prints the first send's result.",
+    ),
+    Flag.optional,
+  ),
 }).pipe(
   Command.withDescription("Send a message to a thread, as its user would."),
   Command.withHandler((flags) =>
@@ -606,6 +617,7 @@ const threadSendCommand = Command.make("send", {
             threadId: flags.threadId,
             message: Option.getOrUndefined(message),
             mode: Option.getOrUndefined(flags.mode),
+            clientRequestId: Option.getOrUndefined(flags.idempotencyKey),
           }),
         ),
       textAs(

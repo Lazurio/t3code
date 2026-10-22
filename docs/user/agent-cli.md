@@ -59,7 +59,8 @@ t3 thread send 4f1c0b2e-… "Use the staging database" --mode steer --json
 | 4         | `t3 thread wait` timed out. It prints the thread's state, and the run goes on. |
 
 A command is not retried for you. If one ends without an answer, check the
-thread with `t3 thread read` or `t3 thread list` before you send it again.
+thread with `t3 thread read` or `t3 thread list` before you send it again, or
+send with an idempotency key (below).
 
 ## Start and message threads
 
@@ -78,6 +79,21 @@ queues behind it. `--mode queue` waits for its own turn, `--mode steer` goes
 into the running turn, and `--mode restart` stops the turn and starts again with
 your message. For a long message, pass `--message-file <path>`, or
 `--message-file -` to read it from standard input.
+
+`--idempotency-key <key>` sends the message once per key, also when you run the
+same command again later or after T3 Code restarts: a repeat sends nothing and
+prints the first send's result. Use a key that names this one message, such as
+an id your script keeps with it. A key T3 Code refused stays refused; send the
+message again with a new key once the cause is fixed.
+
+```sh
+printf '%s' "$report" | t3 thread send 4f1c0b2e-… --message-file - --mode queue \
+  --idempotency-key "report-$job_id" --json
+```
+
+In Buddy's T3 Code on a Lazurio Environment, `t3 lazurio buddy thread --json`
+prints Buddy's one thread as `{"threadId": "...", "projectId": "..."}`, and makes
+it the first time anyone asks. It follows the output and exit codes above.
 
 ## Questions and permission requests
 
