@@ -6,7 +6,8 @@
  * and operates them with.
  *
  * Answers `{"threadId", "projectId"}`; 404 `{"error": "not-buddy"}` on a server that is not
- * Buddy's, 409 `{"error": "no-project"}` while Buddy's project is not added, 503 otherwise.
+ * Buddy's, 409 `{"error": "no-project"}` while Buddy's project is not added and
+ * `{"error": "thread-conflict"}` while a thread with Buddy's id is someone else's, 503 otherwise.
  */
 import { AuthOrchestrationOperateScope, AuthOrchestrationReadScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -18,7 +19,12 @@ import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import { BUDDY_THREAD_ROUTE, resolveBuddyThread } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
-const STATUS = { "not-buddy": 404, "no-project": 409, unavailable: 503 } as const;
+const STATUS = {
+  "not-buddy": 404,
+  "no-project": 409,
+  "thread-conflict": 409,
+  unavailable: 503,
+} as const;
 
 export const layer = HttpRouter.use((router) =>
   Effect.gen(function* () {
