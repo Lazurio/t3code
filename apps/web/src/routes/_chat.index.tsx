@@ -19,10 +19,15 @@ import {
   useThreadShells,
 } from "../state/entities";
 import { useEnvironments } from "../state/environments";
+import { BuddySurfaceIndex, useBuddySurfaceMode } from "../lazurio/BuddySurface";
 
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
   const { environments, isReady } = useEnvironments();
+  // Lazurio overlay (plan DEV-6676): Buddy's T3 Code opens Buddy's thread.
+  const buddySurface = useBuddySurfaceMode();
+  if (buddySurface === null) return null;
+  if (buddySurface) return <BuddySurfaceIndex />;
 
   if (authGateState.status === "hosted-static") {
     if (!isReady) return null;

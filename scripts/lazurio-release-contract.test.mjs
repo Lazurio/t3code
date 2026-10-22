@@ -746,9 +746,10 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
     source.runtime,
     /export const layerProjectService = LazurioManagedFolder\.guardProjects\(ProjectService\.layer\)\.pipe\(/,
   );
+  // Buddy's one conversation (row 25) wraps the managed Folder's guard of the orchestrator.
   NodeAssert.match(
     source.runtime,
-    /const layerOrchestratorProvided = LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\)\.pipe\(/,
+    /const layerOrchestratorProvided = LazurioBuddyGuards\.guardBuddyCommands\(\n\s+LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\),\n\)\.pipe\(/,
   );
   NodeAssert.match(
     source.runtime,
@@ -1215,7 +1216,8 @@ NodeTest.test("the app is T3 Code (Lazurio) and keeps T3 Code's mark", async () 
   const webManifest = JSON.parse(manifest);
   NodeAssert.equal(webManifest.name, "T3 Code (Lazurio)");
   NodeAssert.equal(webManifest.short_name, "T3 Code");
-  // The mark is upstream's, byte for byte: the wordmark, the web client's icons and assets/.
+  // The mark is upstream's, byte for byte: the wordmark, the web client's icons and assets/. Buddy's
+  // character (row 25) sits beside them and is not T3's mark.
   const upstreamSha = /UPSTREAM_SHA: ([0-9a-f]{40})/.exec(ci)?.[1];
   NodeAssert.ok(upstreamSha);
   NodeAssert.doesNotThrow(() =>
@@ -1228,6 +1230,7 @@ NodeTest.test("the app is T3 Code (Lazurio) and keeps T3 Code's mark", async () 
       "apps/web/public",
       "assets",
       ":(exclude)apps/web/public/manifest.webmanifest",
+      ":(exclude)apps/web/public/assets/avatar.webp",
     ]),
   );
   for (const file of nameOverlay) {
@@ -1767,11 +1770,11 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
     service,
     /connectEnvironmentBrowser|Target\.closeTarget|agent-browser.*close/,
   );
-  // The overlay's one layer: the Environment browser host and the overlay's five routes, over one
+  // The overlay's one layer: the Environment browser host and the overlay's six routes, over one
   // thread tabs service, which follows the threads' lifecycle.
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
+    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,\s*BuddySurfaceDays\.layer,?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
   );
   // Archiving or deleting a thread lets go of its tabs: the lifecycle follows upstream's
   // orchestrator's domain events, and the sweep of threads that are gone waits until commands are
@@ -2307,3 +2310,78 @@ NodeTest.test(
     NodeAssert.ok(overlayMayChange("apps/server/src/server.ts"));
   },
 );
+
+// Root decision 0210, plan DEV-6676 (row 25): Buddy's T3 Code is Buddy's one conversation, for every
+// client and agent. Decorators where upstream builds the orchestrator and the checkpoint store
+// refuse forks, rollbacks and other threads and take no checkpoints in Buddy's project; a startup
+// phase applies Buddy's defaults before recovery reads whether to continue threads after an update;
+// the client config tells the web, which shows Buddy's surface in place of T3's sidebar and command
+// palette, opens Buddy's thread at `/`, steers a follow-up by default and offers no rollback or fork.
+NodeTest.test("Buddy keeps one conversation through its seams", async () => {
+  const [runtime, server, startup, ws, contractsServer, root, index, layout, chat, timeline] =
+    await Promise.all(
+      [
+        "apps/server/src/orchestration-v2/runtimeLayer.ts",
+        "apps/server/src/server.ts",
+        "apps/server/src/serverRuntimeStartup.ts",
+        "apps/server/src/ws.ts",
+        "packages/contracts/src/server.ts",
+        "apps/web/src/routes/__root.tsx",
+        "apps/web/src/routes/_chat.index.tsx",
+        "apps/web/src/routes/_chat.tsx",
+        "apps/web/src/components/ChatView.tsx",
+        "apps/web/src/components/chat/MessagesTimeline.tsx",
+      ].map(read),
+    );
+  NodeAssert.match(
+    runtime,
+    /const layerOrchestratorProvided = LazurioBuddyGuards\.guardBuddyCommands\(\n/,
+  );
+  NodeAssert.match(
+    server,
+    /const layerCheckpointStore = LazurioBuddyGuards\.withoutBuddyCheckpoints\(CheckpointStore\.layer\)\.pipe\(/,
+  );
+  NodeAssert.equal(server.match(/\bCheckpointStore\.layer\b/g)?.length, 1);
+  const phase = startup.indexOf('runStartupPhase("lazurio.buddy", startBuddySurface);');
+  NodeAssert.ok(
+    phase >= 0 && phase < startup.indexOf('runStartupPhase("orchestration-v2.recovery"'),
+    "Buddy's defaults are applied before recovery reads them",
+  );
+  NodeAssert.match(ws, /\n\s+\.\.\.\(yield\* buddySurfaceClientConfig\),\n/);
+  NodeAssert.match(
+    contractsServer,
+    /lazurioBuddy: Schema\.optionalKey\(Schema\.Literal\(true\)\),/,
+  );
+  NodeAssert.match(
+    root,
+    /const appShell = buddySurface \? \(\n\s+<BuddySurfaceLayout>\n\s+<Outlet \/>\n\s+<\/BuddySurfaceLayout>\n\s+\) : \(/,
+  );
+  NodeAssert.match(root, /enabled=\{primaryEnvironmentAuthenticated && !buddySurface\}/);
+  NodeAssert.match(index, /if \(buddySurface\) return <BuddySurfaceIndex \/>;/);
+  NodeAssert.match(layout, /\{buddySurface \? null : <ChatRouteGlobalShortcuts \/>\}/);
+  NodeAssert.match(layout, /\{buddySurface \? null : <LazurioPromptDraft \/>\}/);
+  NodeAssert.match(chat, /\? \{ \.\.\.environmentSettings, followUpBehavior: "steer" as const \}/);
+  NodeAssert.match(chat, /const supportsConversationRollback =\n\s+!buddySurface &&/);
+  NodeAssert.match(chat, /hidden=\{buddySurface\}/);
+  NodeAssert.match(timeline, /const buddyDayLines = useBuddyDayLines\(rows\);/);
+  NodeAssert.match(timeline, /useBuddyDayJump\(\{ rows, listRef, history: historyControls \}\);/);
+  NodeAssert.match(timeline, /buddyDays: \[\.\.\.buddyDayLines\.keys\(\)\]\.join\(\),/);
+  NodeAssert.match(
+    timeline,
+    /projectedItem\?\.item\.type === "assistant_message" && !buddySurface \? \(\n\s+<AssistantForkButton/,
+  );
+  for (const file of [
+    "apps/server/src/orchestration-v2/runtimeLayer.ts",
+    "apps/server/src/server.ts",
+    "apps/server/src/serverRuntimeStartup.ts",
+    "apps/server/src/ws.ts",
+    "packages/contracts/src/server.ts",
+    "apps/web/public/assets/avatar.webp",
+    "apps/web/src/routes/__root.tsx",
+    "apps/web/src/routes/_chat.index.tsx",
+    "apps/web/src/routes/_chat.tsx",
+    "apps/web/src/components/ChatView.tsx",
+    "apps/web/src/components/chat/MessagesTimeline.tsx",
+  ])
+    NodeAssert.ok(overlayMayChange(file), file);
+});

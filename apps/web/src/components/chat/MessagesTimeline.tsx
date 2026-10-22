@@ -41,6 +41,12 @@ import { environmentThreadDetails } from "../../state/threads";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
+import {
+  BuddyDayLine,
+  useBuddyDayJump,
+  useBuddyDayLines,
+  useBuddySurfaceMode,
+} from "../../lazurio/BuddySurface";
 import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import {
@@ -867,6 +873,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     worktreeSetup,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
+  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
+  const buddyDayLines = useBuddyDayLines(rows);
+  useBuddyDayJump({ rows, listRef, history: historyControls });
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1465,12 +1474,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
           className="@container/chat-lane chat-content-lane overflow-x-clip"
           data-timeline-root="true"
         >
+          {buddyDayLines.has(item.id) ? <BuddyDayLine label={buddyDayLines.get(item.id)!} /> : null}
           <TimelineRowContent row={item} />
         </div>
       </div>
     </TimelineRowCtx>
   );
-  const listExtraData = { identity: listIdentityKey, rowCount: rows.length, sharedState };
+  const listExtraData = {
+    identity: listIdentityKey,
+    rowCount: rows.length,
+    sharedState,
+    buddyDays: [...buddyDayLines.keys()].join(),
+  };
 
   const forwardMinimapWheel = (event: WheelEvent) => {
     const scrollNode = listRef.current?.getScrollableNode();
@@ -2795,6 +2810,8 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  // Lazurio overlay (plan DEV-6676): Buddy keeps one conversation, without forks.
+  const buddySurface = useBuddySurfaceMode() === true;
 
   return (
     <div
@@ -2816,7 +2833,7 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
-      {projectedItem?.item.type === "assistant_message" ? (
+      {projectedItem?.item.type === "assistant_message" && !buddySurface ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
       {!message.streaming && (

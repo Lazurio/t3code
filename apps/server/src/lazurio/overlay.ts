@@ -9,13 +9,15 @@
  * project (modelRecommendationRoute.ts), and the provider refresh route turns Codex or Claude on
  * and reads their sign-in again after it happened through their CLIs (providerRefreshRoute.ts,
  * root decision 0201). In Buddy's T3 Code the Buddy thread route finds or makes Buddy's one thread
- * (buddySurfaceThreadRoute.ts, root decision 0210), and the send state route tells an agent command
- * what became of its keyed send (agentCliSendState.ts).
+ * (buddySurfaceThreadRoute.ts, root decision 0210), and the days route lists the days of that
+ * conversation for the surface's day pane (buddySurfaceDays.ts). The send state route tells an
+ * agent command what became of its keyed send (agentCliSendState.ts).
  */
 
 import * as Layer from "effect/Layer";
 
 import * as AgentCliSendState from "./agentCliSendState.ts";
+import * as BuddySurfaceDays from "./buddySurfaceDays.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
@@ -32,4 +34,5 @@ export const layer = Layer.mergeAll(
   ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
   BuddySurfaceThreadRoute.layer,
   AgentCliSendState.layer,
+  BuddySurfaceDays.layer,
 ).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));

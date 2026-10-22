@@ -603,6 +603,8 @@ export const ServerConfig = Schema.Struct({
   /** The one initial project of a managed Lazurio Environment. Older clients still follow server enforcement. */
   lazurioFolder: Schema.optionalKey(TrimmedNonEmptyString),
   lazurioToolsUrl: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Buddy's own T3 Code (T3CODE_LAZURIO_BUDDY=1): the web shows Buddy's one conversation. */
+  lazurioBuddy: Schema.optionalKey(Schema.Literal(true)),
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
   cwd: TrimmedNonEmptyString,
