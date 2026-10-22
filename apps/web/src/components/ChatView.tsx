@@ -6372,14 +6372,11 @@ export default function ChatView(props: ChatViewProps) {
       });
     // A direct "send annotation" writes the draft and sends in the same tick; the reference
     // must be in the text now, not after the next render.
-    const promptForSend = withPageReference(
-      directAnnotation
-        ? ensureInlineContextReferences(promptRef.current, [
-            previewAnnotationContextReference(directAnnotation.annotation),
-          ])
-        : promptRef.current,
-      buddyPage.record,
-    );
+    const promptForSend = directAnnotation
+      ? ensureInlineContextReferences(promptRef.current, [
+          previewAnnotationContextReference(directAnnotation.annotation),
+        ])
+      : promptRef.current;
     const strandedThread = threadContextsOutsideEnvironment({
       text: promptForSend,
       records: composerThreadContexts,
@@ -6619,14 +6616,17 @@ export default function ChatView(props: ChatViewProps) {
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
     const composerThreadContextsSnapshot = [...composerThreadContexts];
-    const messageTextForSend = composerTerminalContexts
-      .filter((context) => !composerTerminalContextsSnapshot.includes(context))
-      .reduce(
-        (text, context) =>
-          removeInlineContextReference(text, terminalContextReference(context).contextId).prompt,
-        promptForSend,
-      )
-      .trim();
+    // Lazurio overlay (plan DEV-6676): the page joins only here, where its record joins too.
+    const messageTextForSend = withPageReference(
+      composerTerminalContexts
+        .filter((context) => !composerTerminalContextsSnapshot.includes(context))
+        .reduce(
+          (text, context) =>
+            removeInlineContextReference(text, terminalContextReference(context).contextId).prompt,
+          promptForSend,
+        ),
+      buddyPage.record,
+    ).trim();
     // Records bind attachments by the id each side knows: the local id for the optimistic
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
@@ -8471,7 +8471,7 @@ export default function ChatView(props: ChatViewProps) {
                               }
                             />
                           ) : null}
-                          {buddyPage.record === null ? null : (
+                          {buddyPage.record === null || queuedRunEdit.isEditing ? null : (
                             <BuddyPageChip
                               label={buddyPage.record.label}
                               removeLabel={buddyPage.removeLabel}

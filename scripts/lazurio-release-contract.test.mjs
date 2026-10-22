@@ -2416,10 +2416,15 @@ NodeTest.test(
       ].map(read),
     );
     NodeAssert.match(chat, /const buddyPage = useBuddyPage\(environmentId\);/);
+    // The page joins the text in one place only, the regular send, whose context gets its record
+    // from that same text. The queued edit and the plan follow-up send `promptForSend`, which
+    // never carries the page, so no path sends a reference without its record.
+    NodeAssert.equal(chat.match(/withPageReference\(/g)?.length, 1);
     NodeAssert.match(
       chat,
-      /const promptForSend = withPageReference\(\n\s+directAnnotation\n[^]*?: promptRef\.current,\n\s+buddyPage\.record,\n\s+\);/,
+      /const messageTextForSend = withPageReference\(\n\s+composerTerminalContexts\n[^]*?promptForSend,\n\s+\),\n\s+buddyPage\.record,\n\s+\)\.trim\(\);/,
     );
+    NodeAssert.match(chat, /buddyPage\.record === null \|\| queuedRunEdit\.isEditing \? null : \(/);
     NodeAssert.match(
       chat,
       /const buildOutgoingMessageContext = \(attachmentIds: ReadonlyArray<string>\) =>\n\s+withPageRecord\(\n\s+buildMessageContext\(\{[^]*?\}\),\n\s+buddyPage\.record,\n\s+messageTextForSend,\n\s+\);/,
