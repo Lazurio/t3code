@@ -248,10 +248,10 @@ jobs:
             # server.ts, above). The web shows Buddy's surface in place of T3's sidebar and command
             # palette (__root.tsx) and opens Buddy's thread at `/` (_chat.index.tsx); the chat
             # layout leaves out the new-thread shortcuts and the prepared prompt (_chat.tsx,
-            # above), the chat its header and rollbacks (ChatView.tsx, above), and the timeline
-            # forks and draws a line above each day (MessagesTimeline.tsx, above). avatar.webp is
-            # Buddy's character from the design system. Its code lives in apps/*/src/lazurio/
-            # (buddySurface* and BuddySurface.tsx).
+            # above), the chat its header, thread details and rollbacks (ChatView.tsx, above),
+            # and the timeline forks and draws a line above each day (MessagesTimeline.tsx,
+            # above). avatar.webp is Buddy's character from the design system. Its code lives in
+            # apps/*/src/lazurio/ (buddySurface* and BuddySurface.tsx).
             apps/web/public/assets/avatar.webp
             apps/web/src/routes/__root.tsx
             apps/web/src/routes/_chat.index.tsx

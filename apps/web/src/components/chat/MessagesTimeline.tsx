@@ -875,7 +875,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const rows = useStableRows(rawRows, listIdentityKey);
   // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
   const buddyDayLines = useBuddyDayLines(rows);
-  useBuddyDayJump({ rows, listRef, history: historyControls });
+  useBuddyDayJump({ rows, listRef, onManualNavigation, history: historyControls });
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);

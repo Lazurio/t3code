@@ -2316,7 +2316,8 @@ NodeTest.test(
 // refuse forks, rollbacks and other threads and take no checkpoints in Buddy's project; a startup
 // phase applies Buddy's defaults before recovery reads whether to continue threads after an update;
 // the client config tells the web, which shows Buddy's surface in place of T3's sidebar and command
-// palette, opens Buddy's thread at `/`, steers a follow-up by default and offers no rollback or fork.
+// palette, opens Buddy's thread at `/`, steers a follow-up by default and offers no thread details,
+// rollback or fork.
 NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   const [runtime, server, startup, ws, contractsServer, root, index, layout, chat, timeline] =
     await Promise.all(
@@ -2363,8 +2364,16 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   NodeAssert.match(chat, /\? \{ \.\.\.environmentSettings, followUpBehavior: "steer" as const \}/);
   NodeAssert.match(chat, /const supportsConversationRollback =\n\s+!buddySurface &&/);
   NodeAssert.match(chat, /hidden=\{buddySurface\}/);
+  NodeAssert.match(
+    chat,
+    /\n\s+<BuddyThreadDetailsPanel\n\s+anchor=\{threadPanelPopoverAnchorRef\}/,
+  );
+  NodeAssert.doesNotMatch(chat, /<ThreadDetailsPanel\b/);
   NodeAssert.match(timeline, /const buddyDayLines = useBuddyDayLines\(rows\);/);
-  NodeAssert.match(timeline, /useBuddyDayJump\(\{ rows, listRef, history: historyControls \}\);/);
+  NodeAssert.match(
+    timeline,
+    /useBuddyDayJump\(\{ rows, listRef, onManualNavigation, history: historyControls \}\);/,
+  );
   NodeAssert.match(timeline, /buddyDays: \[\.\.\.buddyDayLines\.keys\(\)\]\.join\(\),/);
   NodeAssert.match(
     timeline,

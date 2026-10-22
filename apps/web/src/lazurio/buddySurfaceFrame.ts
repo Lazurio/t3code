@@ -3,9 +3,11 @@
  * bubble (buddySurfaceProtocol.ts). In a frame it tells the host it is ready, keeps the last valid
  * page context the host sends, and asks the host for its window's size: the full-screen and close
  * buttons, and Escape. The host draws no controls over the frame and cannot see keys inside it, so
- * Escape asks for the panel whenever nothing inside the surface takes it. The host never says which
- * size it shows, so the frame keeps the size it asked for last, and Escape asks for the panel
- * whatever it believes: never inferred from the window's width.
+ * Escape asks for the panel unless a dialog, menu or list is open in the surface or what took the
+ * key stopped it there, as the composer's menus do. The composer's editor marks every Escape as
+ * handled, so a handled key alone does not count. The host never says which size it shows, so the
+ * frame keeps the size it asked for last, and Escape asks for the panel whatever it believes: never
+ * inferred from the window's width.
  */
 import {
   acceptBuddyContext,
@@ -63,7 +65,7 @@ export function startBuddyFrame(win: Window): BuddyFrame {
   const onKeyDown = (event: KeyboardEvent) => {
     if (
       event.key !== "Escape" ||
-      event.defaultPrevented ||
+      event.isComposing ||
       event.metaKey ||
       event.ctrlKey ||
       event.altKey ||
