@@ -55,18 +55,37 @@ export function LazurioActingSenderLabel(props: {
   );
 }
 
-/** Beside a question or permission request: who decided it, when it was Buddy. */
+/**
+ * Beside a question or permission request: who decided it, when it was Buddy. Every other work row
+ * renders nothing and subscribes to nothing.
+ */
 export function LazurioActingSenderMark(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: string | undefined;
   readonly item: Parameters<typeof actingSenderRequestOf>[0];
 }) {
   const decided = actingSenderRequestOf(props.item);
+  return decided === null ? null : (
+    <DecidedRequestMark
+      environmentId={props.environmentId}
+      threadId={props.threadId}
+      requestKey={decided.key}
+      decidedAt={decided.decidedAt}
+    />
+  );
+}
+
+function DecidedRequestMark(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: string | undefined;
+  readonly requestKey: string;
+  readonly decidedAt: number;
+}) {
   const sender = useActingSender(
     props.environmentId,
     props.threadId,
-    decided?.key ?? null,
-    decided?.decidedAt ?? 0,
+    props.requestKey,
+    props.decidedAt,
   );
   return sender === undefined ? null : (
     <span className="shrink-0 text-2xs text-muted-foreground/70" data-acting-sender={sender.kind}>
