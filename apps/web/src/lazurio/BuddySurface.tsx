@@ -25,11 +25,15 @@ import { usePrimaryEnvironmentId } from "~/state/environments";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
-/** Buddy's T3 Code; null until the primary server's config is known, false without one. */
-export function useBuddySurfaceMode(): boolean | null {
-  const environmentId = usePrimaryEnvironmentId();
+/**
+ * Buddy's T3 Code; null until the primary server's config is known, false without one. With
+ * `environmentId`, only for that Environment: another Environment's thread is never Buddy's.
+ */
+export function useBuddySurfaceMode(environmentId?: string): boolean | null {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const config = useAtomValue(primaryServerConfigAtom);
-  if (environmentId === null) return false;
+  if (primaryEnvironmentId === null) return false;
+  if (environmentId !== undefined && environmentId !== primaryEnvironmentId) return false;
   return config === null ? null : config.lazurioBuddy === true;
 }
 
@@ -53,8 +57,8 @@ export function BuddyThreadDetailsPanel(props: ThreadDetailsPanelProps) {
 }
 
 /** The surface's language: the host page's when framed, else the browser's. */
-function useCzech(): boolean {
-  const { context } = useBuddyFrame(useBuddySurfaceMode() === true);
+function useCzech(buddy: boolean): boolean {
+  const { context } = useBuddyFrame(buddy);
   return context === null ? prefersCzech() : context.lang === "cs";
 }
 
@@ -106,7 +110,8 @@ function dayLabel(day: string, czech: boolean, now = new Date()): string {
 
 let requestedMessageId: string | null = null;
 const jumpListeners = new Set<() => void>();
-const requestJump = (messageId: string | null) => {
+/** Ask Buddy's timeline to bring a message into view; null takes back a request. */
+export const requestJump = (messageId: string | null) => {
   requestedMessageId = messageId;
   for (const listener of jumpListeners) listener();
 };
@@ -115,12 +120,16 @@ const subscribeJump = (listener: () => void) => {
   return () => jumpListeners.delete(listener);
 };
 
+const subscribeNothing = () => () => {};
+const noTarget = () => null;
+
 /**
  * Inside the timeline: brings the message a day pane asked for into view, loading earlier history
  * through it first when it is not loaded yet. Like the timeline's minimap, it first turns off
  * following the conversation's end, which would pin the list back to the bottom.
  */
 export function useBuddyDayJump(input: {
+  readonly buddy: boolean;
   readonly rows: ReadonlyArray<{
     readonly kind: string;
     readonly id: string;
@@ -136,10 +145,11 @@ export function useBuddyDayJump(input: {
       }
     | undefined;
 }) {
+  // Another timeline, of another Environment or outside Buddy's T3 Code, never takes the jump.
   const target = useSyncExternalStore(
-    subscribeJump,
-    () => requestedMessageId,
-    () => null,
+    input.buddy ? subscribeJump : subscribeNothing,
+    input.buddy ? () => requestedMessageId : noTarget,
+    noTarget,
   );
   const { rows, listRef, onManualNavigation, history } = input;
   useEffect(() => {
@@ -160,18 +170,20 @@ export function useBuddyDayJump(input: {
   }, [history, listRef, onManualNavigation, rows, target]);
 }
 
-/** The id of each user message that opens a local day, with the day's label. */
+const NO_DAY_LINES: ReadonlyMap<string, string> = new Map();
+
+/** The id of each user message that opens a local day, with the day's label; none outside Buddy. */
 export function useBuddyDayLines(
   rows: ReadonlyArray<{
     readonly kind: string;
     readonly id: string;
     readonly message?: { readonly role: string; readonly createdAt: string };
   }>,
+  buddy: boolean,
 ): ReadonlyMap<string, string> {
-  const buddy = useBuddySurfaceMode() === true;
-  const czech = useCzech();
+  const czech = useCzech(buddy);
+  if (!buddy) return NO_DAY_LINES;
   const lines = new Map<string, string>();
-  if (!buddy) return lines;
   let previous: string | null = null;
   for (const row of rows) {
     if (row.kind !== "message" || row.message?.role !== "user") continue;
@@ -194,7 +206,7 @@ export function BuddyDayLine({ label }: { readonly label: string }) {
 
 function BuddyHeader() {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
-  const text = useCzech() ? TEXT.cs : TEXT.en;
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />
@@ -265,7 +277,7 @@ function subscribeDays(listener: () => void) {
 }
 
 function BuddyDayPane() {
-  const czech = useCzech();
+  const czech = useCzech(true);
   const shown = useSyncExternalStore(
     subscribeDays,
     () => days,
@@ -332,7 +344,7 @@ async function openBuddyThread(): Promise<string | "not-ready" | "failed"> {
 export function BuddySurfaceIndex() {
   const environmentId = usePrimaryEnvironmentId();
   const navigate = useNavigate();
-  const text = useCzech() ? TEXT.cs : TEXT.en;
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
   const [attempt, setAttempt] = useState(0);
   const [failure, setFailure] = useState<Opening | null>(null);
   useEffect(() => {

@@ -5,7 +5,9 @@
  *
  * - commands (guardBuddyCommands): no fork, no rollback and no thread other than Buddy's own, and
  *   Buddy's thread is never deleted. A fork or a rollback would start Hermes on a new session and
- *   fork Buddy's memory; another thread would be a second conversation.
+ *   fork Buddy's memory; another thread would be a second conversation. Buddy's own thread is made
+ *   only by Buddy's thread route (`MakingBuddysThread`), never by a client's `thread.create`, even
+ *   one with Buddy's ids: that would spend the route's fixed command on a thread of its own.
  * - checkpoints (withoutBuddyCheckpoints): none in Buddy's project. Buddy's layer lives in the
  *   Lazurio Folder, which may be inside a Git repository; T3 would otherwise write its hidden
  *   checkpoint refs there on every turn, for a rollback that Buddy never offers.
@@ -21,19 +23,30 @@ import * as Path from "effect/Path";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { buddyProjectFolder, isBuddySurfaceEnvironment } from "./buddySurface.ts";
-import { BUDDY_THREAD_CREATE_COMMAND_ID, BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
+import {
+  BUDDY_THREAD_CREATE_COMMAND_ID,
+  BUDDY_THREAD_ID,
+  MakingBuddysThread,
+} from "./buddySurfaceThread.ts";
 
 const oneConversation =
   "Buddy keeps one conversation: Buddy's T3 Code has no other threads, forks or rollbacks.";
 
-/** Why Buddy's T3 Code refuses `command`, or null when it runs. */
-export function buddyCommandRefusal(command: OrchestrationV2ServerCommand): string | null {
+/**
+ * Why Buddy's T3 Code refuses `command`, or null when it runs. `makingBuddysThread` holds only
+ * inside Buddy's thread route.
+ */
+export function buddyCommandRefusal(
+  command: OrchestrationV2ServerCommand,
+  makingBuddysThread: boolean,
+): string | null {
   switch (command.type) {
     case "thread.fork":
     case "checkpoint.rollback":
       return oneConversation;
     case "thread.create":
-      return command.threadId === BUDDY_THREAD_ID &&
+      return makingBuddysThread &&
+        command.threadId === BUDDY_THREAD_ID &&
         command.commandId === BUDDY_THREAD_CREATE_COMMAND_ID
         ? null
         : oneConversation;
@@ -52,18 +65,19 @@ export const guardBuddyCommands = <E, R>(live: Layer.Layer<Orchestrator.Orchestr
       if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment)) return orchestrator;
       return Orchestrator.OrchestratorV2.of({
         ...orchestrator,
-        dispatch: (command) => {
-          const refusal = buddyCommandRefusal(command);
-          return refusal === null
-            ? orchestrator.dispatch(command)
-            : Effect.fail(
-                new Orchestrator.OrchestratorCommandRejectedError({
-                  commandId: command.commandId,
-                  commandType: command.type,
-                  cause: refusal,
-                }),
-              );
-        },
+        dispatch: (command) =>
+          Effect.flatMap(Effect.service(MakingBuddysThread), (makingBuddysThread) => {
+            const refusal = buddyCommandRefusal(command, makingBuddysThread);
+            return refusal === null
+              ? orchestrator.dispatch(command)
+              : Effect.fail(
+                  new Orchestrator.OrchestratorCommandRejectedError({
+                    commandId: command.commandId,
+                    commandType: command.type,
+                    cause: refusal,
+                  }),
+                );
+          }),
       });
     }),
   ).pipe(Layer.provide(live));
