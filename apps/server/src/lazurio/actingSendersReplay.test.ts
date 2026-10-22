@@ -374,6 +374,59 @@ it.layer(layerUnderTest, { excludeTestServices: true })("a command id sent again
     }),
   );
 
+  it.effect("marks Buddy's launch of a new thread", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("thread:launched");
+      const messageId = MessageId.make("message:launched");
+      const modelSelection = { instanceId, model: "gpt-5.1-codex" };
+      // A thread without events yet is at sequence 0: reading it does not fail.
+      expect(yield* orchestrator.getThreadEventSequence(threadId)).toBe(0);
+      // `t3 thread launch` as ThreadLaunchService dispatches it: the thread, then its first
+      // message under the launch's command id.
+      yield* dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("launch:new"),
+        threadId,
+        projectId: ProjectId.make("project:acting-senders-replay"),
+        title: "Launched",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "agent",
+        creationSource: "mcp",
+      }).pipe(asMcpClient(buddy));
+      const before = yield* orchestrator.getThreadEventSequence(threadId);
+      const sent = yield* dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("launch:new:initial-message"),
+        threadId,
+        messageId,
+        text: "Please run the tests.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "defer_start", workspaceStrategy: { type: "root" } },
+        createdBy: "agent",
+        creationSource: "mcp",
+      }).pipe(asMcpClient(buddy));
+      const after = yield* orchestrator.getThreadEventSequence(threadId);
+
+      // The events a dispatch answers with are numbered as the thread's last event is.
+      const sequences = sent.storedEvents
+        .filter(({ event }) => event.threadId === threadId)
+        .map(({ sequence }) => sequence);
+      expect(sequences.length).toBeGreaterThan(0);
+      expect(before).toBeGreaterThan(0);
+      expect(Math.min(...sequences)).toBeGreaterThan(before);
+      expect(Math.max(...sequences)).toBeLessThanOrEqual(after);
+      expect(yield* recordsOf(threadId)).toEqual([
+        { kind: "message", id: messageId, sender: buddy },
+      ]);
+    }),
+  );
+
   it.effect("keeps a step's first record in the file, and reads past a later line for it", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("thread:first-record");
