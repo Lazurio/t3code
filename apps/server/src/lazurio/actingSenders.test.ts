@@ -104,7 +104,8 @@ const respond = (threadId: ThreadId, requestId: string, answer: "accept" | "decl
 /**
  * The decider behind the decorator: a message commits as the real one writes it, and a request
  * resolves only while it is pending, so a late decision is refused. A message `slow` waits at its
- * gate, as a dispatch still running.
+ * gate, as a dispatch still running. Every dispatch here commits new events: what a replayed
+ * command id does runs on upstream's own orchestrator (actingSendersReplay.test.ts).
  */
 const decider = {
   pending: new Set<string>(),
@@ -120,6 +121,7 @@ const stored = (command: OrchestrationV2Command, event: object) =>
     event: { id: `event-${sequence}`, ...event },
   }) as unknown as OrchestrationV2StoredEvent;
 const fakeDecider = Layer.mock(Orchestrator.OrchestratorV2)({
+  getThreadEventSequence: () => Effect.sync(() => sequence),
   dispatch: (command) =>
     Effect.gen(function* () {
       if (command.type === "message.dispatch") {

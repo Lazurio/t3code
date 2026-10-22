@@ -548,19 +548,29 @@ jméno v obou jazycích). Kroky uživatele samotného žádnou novou značku nem
   své vlákno, ne jako klient, takže tvrzení mít nemůže.
 - **Co se zapíše.** Dekorátor orchestrátoru upstreamu (`recordSteps`, jedno
   obalení v `orchestration-v2/runtimeLayer.ts`) zapíše krok, jen když dispatch
-  sezení s tvrzením prošel a jeho události jsou právě ta zpráva (`message.updated`)
+  sezení s tvrzením prošel a sám commitnul právě tu zprávu (`message.updated`)
   nebo vyřízení právě té žádosti (`runtime-request.updated` se stavem
   `resolved`). Kroky jsou zpráva (`t3 thread launch` a `send`) a rozhodnutí
   otázky nebo žádosti o oprávnění (`t3 request respond`, `approve`, `deny`).
   Pozdní rozhodnutí, které T3 odmítne, protože uživatel rozhodl dřív, nezapíše
   nic. Zprávy T3 samotného (automatizace, oznámení, pokračování, agent jiného
   vlákna) nejsou krokem nikoho, ani když jedou v dispatchi Buddyho.
+- **Znovu poslané command id.** Na command id, které už přijal, T3 odpoví
+  událostmi dispatche, který ho commitnul (`Orchestrator.ts`, a `EventSink.ts`
+  pro dispatch, který ho commitne mezitím). Ten mohl patřit jinému sezení:
+  vlastnímu `t3` uživatele se stejným `--idempotency-key`, nebo komukoli, kdo id
+  zná. Dekorátor proto počítá jen události vlákna novější než jeho poslední
+  událost na začátku dispatche (`getThreadEventSequence`) a nezapíše nic, když
+  mezitím běžel jiný dispatch téhož command id. Takový krok značku raději ztratí,
+  než aby dostal cizí. Opakování téhož sezení proto nic podruhé nezapíše a
+  značka kroku se nikdy nezmění.
 - **Kde to leží.** Jeden řádek JSON na krok v
   `<state dir>/lazurio/acting-senders/<SHA-256 id vlákna>.jsonl` (soubor `0600`,
   složka `0700`). Přežije restart a aktualizaci; databáze T3 a její migrace
-  zůstávají upstreamu. Řádek useknutý pádem se přeskočí. Zápis, který selže,
-  dispatch nezmění (příkaz už prošel), jen značka chybí. Smazání vlákna záznam
-  nemaže; je malý a bez vlákna se nikde neukáže.
+  zůstávají upstreamu. Řádek useknutý pádem se přeskočí. Platí první řádek
+  kroku: další se k němu nezapíše, a kdyby v souboru byl, čtení ho přeskočí.
+  Zápis, který selže, dispatch nezmění (příkaz už prošel), jen značka chybí.
+  Smazání vlákna záznam nemaže; je malý a bez vlákna se nikde neukáže.
 - **Cesta pro web.** `GET /api/lazurio/acting-senders?threadId=<id>` vrátí
   `{"at", "messages": [{"messageId", "sender"}], "requests": [{"requestId",
 "sender"}]}` s `cache-control: no-store`; 400 bez id vlákna, 503 nečitelný
@@ -598,5 +608,6 @@ proměnné nastavuje). Švy: `SessionStore.ts` (tvrzení `act`), `EnvironmentAut
 vedle rozhodnuté žádosti). Zbytek je v `apps/server/src/lazurio/actingSender*.ts`
 a `apps/web/src/lazurio/` (`actingSender.ts`, `LazurioActingSender.tsx`).
 Kontraktní test hlídá švy; `actingSenders.test.ts` hlídá odmítnutí dřív než
-úspěch a `agentCli.test.ts` spouští skutečné CLI proti skutečnému `/mcp` a ploše
-uživatele až po cestu, kterou čte web.
+úspěch, `actingSendersReplay.test.ts` na skutečném orchestrátoru upstreamu hlídá
+znovu poslané command id a `agentCli.test.ts` spouští skutečné CLI proti
+skutečnému `/mcp` a ploše uživatele až po cestu, kterou čte web.
