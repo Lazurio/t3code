@@ -92,22 +92,27 @@ const TEXT = {
   },
 } as const;
 
+const NO_REMOVED_PAGES: ReadonlySet<string> = new Set();
+
 /**
  * The page the next message in Buddy's composer carries: the last valid page context of the host,
- * until the person removes it. Another page brings its chip back. None outside Buddy's T3 Code or
- * in a thread of another Environment than Buddy's.
+ * unless the person removed that page's chip, which stays removed while the surface is open.
+ * Another page shows its own chip. None outside Buddy's T3 Code or in a thread of another
+ * Environment than Buddy's.
  */
 export function useBuddyPage(environmentId: string) {
   const buddy = useBuddySurfaceMode(environmentId) === true;
   const { context } = useBuddyFrame(buddy);
   const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
-  const [removed, setRemoved] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(NO_REMOVED_PAGES);
   const page = context === null ? null : pageRecordOf(context);
-  const record = page !== null && page.contextId !== removed ? page : null;
+  const record = page !== null && !removed.has(page.contextId) ? page : null;
   return {
     record,
     removeLabel: text.removePage,
-    remove: () => setRemoved(page?.contextId ?? null),
+    remove: () => {
+      if (page !== null) setRemoved((current) => new Set([...current, page.contextId]));
+    },
   };
 }
 
