@@ -6,8 +6,8 @@
  *
  * `POST /api/lazurio/agent-cli/send-state` takes `{threadId, commandId, messageId}`, the ids T3
  * derives from the key (`agentCliSendIds`), and answers T3's receipt of that command and the
- * message it made: `{receipt: {status, threadId, error} | null, message: {text} | null}`. It reads
- * and changes nothing else, with the scope of reading threads.
+ * message it made: `{receipt: {status, threadId, error} | null, message: {text, runId} | null}`.
+ * It reads and changes nothing else, with the scope of reading threads.
  */
 import { AuthOrchestrationReadScope, CommandId, MessageId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -35,7 +35,9 @@ export const SendState = Schema.Struct({
       error: Schema.NullOr(Schema.String),
     }),
   ),
-  message: Schema.NullOr(Schema.Struct({ text: Schema.String })),
+  message: Schema.NullOr(
+    Schema.Struct({ text: Schema.String, runId: Schema.NullOr(Schema.String) }),
+  ),
 });
 export type SendState = typeof SendState.Type;
 
@@ -72,7 +74,7 @@ export const layer = HttpRouter.use((router) =>
               error,
             }),
           }),
-          message: message === undefined ? null : { text: message.text },
+          message: message === undefined ? null : { text: message.text, runId: message.runId },
         } satisfies SendState);
       }),
     );

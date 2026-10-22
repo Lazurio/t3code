@@ -1678,7 +1678,7 @@ describe("t3 thread send --idempotency-key", () => {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         const projectId = ProjectId.make("project-buddy");
         yield* addProject(projectId, folder);
-        for (const threadId of ["thread-buddy", "thread-other", "thread-refused"])
+        for (const threadId of ["thread-buddy", "thread-other", "thread-refused", "thread-spaces"])
           yield* orchestrator.dispatch({
             type: "thread.create",
             createdBy: "user",
@@ -1719,33 +1719,55 @@ describe("t3 thread send --idempotency-key", () => {
           ["thread-buddy", "budíček: jiný text", "wake-7"],
           ["thread-refused", "budíček: úkol doběhl", "wake-9"],
           ["thread-missing", "budíček: úkol doběhl", "wake-10"],
+          // T3 trims what its tool gets, so a file's newline or spaces around the same text are
+          // the same message.
+          ["thread-spaces", "budíček: s mezerami\n", "wake-11"],
+          ["thread-spaces", "  budíček: s mezerami", "wake-11"],
         ];
+        const sendAll = (batch: typeof sends) =>
+          Effect.forEach(
+            batch,
+            ([threadId, text, key]) =>
+              printedJson(
+                run(sendArgs(baseDir, threadId, text, key)).pipe(
+                  Effect.provideService(HostProcess.Environment, {
+                    T3CODE_ACTING_SENDER: "budicek",
+                  }),
+                ),
+              ),
+            { concurrency: 1 },
+          );
         const sent = yield* withLiveServerOver(
           baseDir,
           makeWorld(),
           realSending,
           AgentCliSendState.layer,
           () =>
-            Effect.forEach(
-              sends,
-              ([threadId, text, key]) =>
-                printedJson(
-                  run(sendArgs(baseDir, threadId, text, key)).pipe(
-                    Effect.provideService(HostProcess.Environment, {
-                      T3CODE_ACTING_SENDER: "budicek",
-                    }),
-                  ),
-                ),
-              { concurrency: 1 },
-            ),
+            Effect.gen(function* () {
+              const results = yield* sendAll(sends);
+              // T3 checks a thread before it replays a receipt: the repeat of a delivered key to
+              // a thread archived since is still delivered.
+              yield* orchestrator.dispatch({
+                type: "thread.archive",
+                commandId: CommandId.make("command:archive:thread-buddy"),
+                threadId: ThreadId.make("thread-buddy"),
+              });
+              return [...results, ...(yield* sendAll([sends[0]!]))];
+            }),
         ).pipe(
           // The runtime above memoized its database's setup. The server and the commands open the
           // T3 home's database as in production, so they build from a memo map of their own.
           Effect.provideServiceEffect(Layer.CurrentMemoMap, Layer.makeMemoMap),
         );
-        const [first, repeat, other, conflict, refused, missing] = sent;
-        for (const result of [first, repeat, other])
+        const [first, repeat, other, conflict, refused, missing, spaced, unspaced, archived] = sent;
+        for (const result of [first, repeat, other, spaced, unspaced, archived])
           assert.strictEqual(result?.exit._tag, "Success", JSON.stringify(result?.output));
+        assert.deepStrictEqual(unspaced?.output, spaced?.output);
+        // The archived thread's repeat: delivered, by the same command, as the same message.
+        assert.deepStrictEqual(
+          [archived?.output.delivery, archived?.output.commandId, archived?.output.messageId],
+          ["delivered", first?.output.commandId, first?.output.messageId],
+        );
         // The repeat printed the first send's result, with the command that delivered it.
         assert.deepStrictEqual(repeat?.output, first?.output);
         assert.match(
@@ -1774,6 +1796,10 @@ describe("t3 thread send --idempotency-key", () => {
         );
         assert.strictEqual((yield* messagesOf("thread-other")).length, 1);
         assert.strictEqual((yield* messagesOf("thread-refused")).length, 0);
+        assert.deepStrictEqual(
+          (yield* messagesOf("thread-spaces")).map((message) => message.text),
+          ["budíček: s mezerami"],
+        );
       }).pipe(Effect.provide(layerBuddyServer), Effect.scoped, Effect.provide(TestConsole.layer));
     },
   );
