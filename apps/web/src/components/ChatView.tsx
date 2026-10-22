@@ -255,6 +255,7 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
+  BuddyThreadErrorBanner,
   useBuddyChatShortcuts,
   useBuddyPage,
   useBuddySurfaceMode,
@@ -467,7 +468,6 @@ import {
   getThreadErrorBannerKey,
   isThreadErrorBannerDismissedForSession,
   shouldShowThreadErrorBanner,
-  ThreadErrorBanner,
 } from "./chat/ThreadErrorBanner";
 import { QueuedRunsControl, type QueuedRunsControlHandle } from "./chat/QueuedRunsControl";
 import { useThreadLinkedPullRequest } from "./pullRequest/useThreadLinkedPullRequest";
@@ -8239,7 +8239,7 @@ export default function ChatView(props: ChatViewProps) {
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
                 onOpenProviderSetup={openProviderSetupStable}
               />
-              <ThreadErrorBanner
+              <BuddyThreadErrorBanner
                 error={timelineThreadError}
                 errorClass={
                   localServerError === null && visibleThreadError === serverRuntime?.lastError
