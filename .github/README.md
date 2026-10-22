@@ -121,3 +121,6 @@ Lazurio T3 Code is built on [T3 Code](https://github.com/pingdotgg/t3code) by T3
 contributors. T3 Code is licensed under the MIT License, and so are the Lazurio changes: see
 [LICENSE](../LICENSE), which keeps upstream's copyright notice. Every image and CLI archive ships
 that licence. Upstream's own README is [README.md](../README.md).
+
+Lazurio's brand assets are the exception: the MIT License does not cover the Lazurio symbol or
+Buddy's character Mattyčus (see [their terms](../apps/web/src/lazurio/brand/README.md)).
