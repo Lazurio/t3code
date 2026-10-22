@@ -1767,11 +1767,11 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
     service,
     /connectEnvironmentBrowser|Target\.closeTarget|agent-browser.*close/,
   );
-  // The overlay's one layer: the Environment browser host and the overlay's four routes, over one
+  // The overlay's one layer: the Environment browser host and the overlay's five routes, over one
   // thread tabs service, which follows the threads' lifecycle.
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
+    /\nexport const layer = Layer\.mergeAll\(\s*EnvironmentBrowser\.layer,\s*ThreadTabsRoute\.layer,\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
   );
   // Archiving or deleting a thread lets go of its tabs: the lifecycle follows upstream's
   // orchestrator's domain events, and the sweep of threads that are gone waits until commands are
@@ -2261,13 +2261,14 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
 NodeTest.test(
   "an agent command's idempotency key and Buddy's thread keep their seams",
   async () => {
-    const [server, requests, agentCli, connection, lazurioCli] = await Promise.all(
+    const [server, requests, agentCli, connection, lazurioCli, mcpService] = await Promise.all(
       [
         "apps/server/src/server.ts",
         "apps/server/src/lazurio/agentCliRequests.ts",
         "apps/server/src/lazurio/agentCli.ts",
         "apps/server/src/lazurio/agentCliConnection.ts",
         "apps/server/src/lazurio/cli.ts",
+        "apps/server/src/mcp/OrchestratorMcpService.ts",
       ].map(read),
     );
     NodeAssert.match(
@@ -2280,11 +2281,29 @@ NodeTest.test(
     NodeAssert.match(requests, /scope\.client\?\.label === AGENT_CLI_SESSION_LABEL/);
     NodeAssert.match(
       agentCli,
-      /\? yield\* agentCliSendKey\(\{ threadId: flags\.threadId, key: flags\.idempotencyKey\.value \}\)/,
+      /const sendKey = yield\* agentCliSendKey\(\{\n\s+threadId: flags\.threadId,\n\s+key: flags\.idempotencyKey\.value,\n\s+\}\);/,
     );
+    NodeAssert.match(agentCli, /const sent = yield\* Effect\.result\(send\(sendKey\)\);/);
     NodeAssert.match(agentCli, /connection\.callTool\(\n\s+"t3_thread_send",/);
     NodeAssert.match(requests, /export const agentCliSendKey = /);
-    NodeAssert.match(lazurioCli, /threadSendIdempotency: true,\n\s+buddyThread: true,/);
+    NodeAssert.match(
+      lazurioCli,
+      /threadSendIdempotency: true,\n\s+threadSendOutcome: true,\n\s+buddyThread: true,/,
+    );
+    // The command asks what became of its send by the ids T3 derives from the key, so T3 must
+    // still derive them as `<kind>:mcp:<namespace>:<operation>:<key>` (agentCliSendIds).
+    NodeAssert.match(
+      mcpService,
+      /function stablePart\(value: string\): string \{\n\s+return encodeURIComponent\(value\);/,
+    );
+    for (const kind of ["command", "message"])
+      NodeAssert.match(
+        mcpService,
+        new RegExp(
+          `\\[\\n\\s+"${kind}",\\n\\s+"mcp",\\n\\s+stablePart\\(input\\.scope\\.requestNamespace\\),\\n\\s+stablePart\\(input\\.operation\\),\\n\\s+stablePart\\(input\\.requestKey\\),`,
+        ),
+      );
+    NodeAssert.equal(mcpService.match(/operation: "thread-send",/g)?.length, 2);
     NodeAssert.ok(overlayMayChange("apps/server/src/server.ts"));
   },
 );

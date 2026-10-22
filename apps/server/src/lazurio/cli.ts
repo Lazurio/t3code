@@ -285,6 +285,7 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         operatorPairing: true,
         agentCli: true,
         threadSendIdempotency: true,
+        threadSendOutcome: true,
         buddyThread: true,
       }),
     ),
