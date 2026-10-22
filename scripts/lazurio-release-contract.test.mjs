@@ -2549,7 +2549,7 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
 // Root decision 0210, addendum of 2026-10-22, point 1 (row 28): Buddy's chat reads like a chat with a
 // friend. The timeline's rows pass through Buddy's conversation, which keeps what Buddy writes, adds
 // one quiet row while he works and says a failed turn in human words, and the rows Buddy draws come
-// before T3's. The composer reads Buddy's placeholder and options and leaves out the block of T3's
+// before T3's; the thread's error banner speaks in human words too. The composer reads Buddy's placeholder and options and leaves out the block of T3's
 // access and interaction mode, the chat's shortcuts go through Buddy's surface, which leaves the
 // terminal's and the right panel's keys to the browser, and the turn's task list stays out.
 NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", async () => {
@@ -2608,6 +2608,9 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     /activeTasksProgress=\{\n\s+buddySurface \? null : activeComposerTasksProgress\n\s+\}/,
   );
   NodeAssert.match(root, /\{buddySurface \? null : <ReopenClosedViewShortcut \/>\}/);
+  // The thread's error banner says in human words that something went wrong.
+  NodeAssert.match(chat, /\n\s+<BuddyThreadErrorBanner\n\s+error=\{timelineThreadError\}/);
+  NodeAssert.doesNotMatch(chat, /<ThreadErrorBanner\b/);
   // The session mode Buddy's options chip leaves out is the option the ACP adapter makes of it.
   const sessionModeId = /export const ACP_SESSION_MODE_OPTION_ID = ("[^"]+");/;
   NodeAssert.equal(sessionModeId.exec(controls)?.[1], sessionModeId.exec(sessionConfig)?.[1]);

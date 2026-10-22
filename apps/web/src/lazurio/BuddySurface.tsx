@@ -14,13 +14,21 @@ import { useAtomValue } from "@effect/atom-react";
 import type { ServerProviderModel } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import {
   ThreadDetailsPanel,
   type ThreadDetailsPanelProps,
 } from "~/components/chat/ThreadDetailsPanel";
+import { ThreadErrorBanner } from "~/components/chat/ThreadErrorBanner";
 import { type ChatShortcutsInput, useChatShortcuts } from "~/components/chat/useChatShortcuts";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
@@ -89,6 +97,7 @@ const TEXT = {
     removePage: "Neposílat stránku",
     working: "Buddy na tom pracuje…",
     turnFailed: "Tohle se Buddymu nepovedlo dokončit. Zkuste to prosím znovu.",
+    somethingFailed: "Něco se nepovedlo. Zkuste to prosím znovu.",
     placeholder: "Napište Buddymu…",
   },
   en: {
@@ -105,6 +114,7 @@ const TEXT = {
     removePage: "Don't send the page",
     working: "Buddy is on it…",
     turnFailed: "Buddy couldn't finish this. Please try again.",
+    somethingFailed: "Something went wrong. Please try again.",
     placeholder: "Message Buddy…",
   },
 } as const;
@@ -279,6 +289,20 @@ function BuddyFailedRow({ id }: { readonly id: string }) {
         {text.turnFailed}
       </p>
     </div>
+  );
+}
+
+/**
+ * The thread's error above the conversation: in Buddy's surface it says in human words that
+ * something went wrong, never T3's or the provider's own message ("Provider turn failed.").
+ */
+export function BuddyThreadErrorBanner(props: ComponentProps<typeof ThreadErrorBanner>) {
+  const buddy = useBuddySurfaceMode() === true;
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
+  return buddy && props.error !== null ? (
+    <ThreadErrorBanner {...props} error={text.somethingFailed} />
+  ) : (
+    <ThreadErrorBanner {...props} />
   );
 }
 
