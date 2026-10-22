@@ -849,8 +849,11 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   přidá instalátor Platformy, a v něm je jedno vlákno `buddy` instance `buddy` ve full-access.
   `POST /api/lazurio/buddy/thread` ho najde, nebo napoprvé založí pevným příkazem, takže dvě
   první návštěvy naráz založí jedno. Archivované vlákno vrátí zpět, protože nové by pustilo Hermes
-  na nové sezení a rozdvojilo Buddyho paměť. Mimo Buddyho T3 Code odpoví 404, bez Buddyho
-  projektu 409. Web se ptá jí při otevření a budíček přes `t3 lazurio buddy thread --json`.
+  na nové sezení a rozdvojilo Buddyho paměť. Vlákno s id `buddy` v jiném projektu nebo na jiné
+  instanci Buddyho není: cesta ho nechá, jak je, nic přes ně nezaloží a odpoví 409
+  `thread-conflict`, aby buzení nikdy nepřistálo v cizím rozhovoru. Mimo Buddyho T3 Code odpoví
+  404, bez Buddyho projektu 409. Web se ptá jí při otevření a budíček přes
+  `t3 lazurio buddy thread --json`.
 - **Co zůstává upstreamu.** Když se Hermesovo sezení nenačte (`session/load`), T3 začne nové se
   shrnutím vlákna. To je obnova kontextu, ne pokyn, a řádek ji nemění.
 

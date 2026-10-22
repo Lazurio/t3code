@@ -533,7 +533,10 @@ const buddyThreadRoute = (world: World) =>
               if (command.type === "thread.create")
                 world.shells.set(
                   command.threadId,
-                  threadShell(command.threadId, { projectId: command.projectId }),
+                  threadShell(command.threadId, {
+                    projectId: command.projectId,
+                    providerInstanceId: command.modelSelection.instanceId,
+                  }),
                 );
               return { sequence: world.buddyDispatched.length, storedEvents: [] };
             }),

@@ -34,7 +34,7 @@ export type BuddyThread = typeof BuddyThread.Type;
 export class BuddyThreadUnavailable extends Schema.TaggedError<BuddyThreadUnavailable>()(
   "BuddyThreadUnavailable",
   {
-    reason: Schema.Literals(["not-buddy", "no-project", "unavailable"]),
+    reason: Schema.Literals(["not-buddy", "no-project", "thread-conflict", "unavailable"]),
     detail: Schema.String,
   },
 ) {
@@ -70,6 +70,23 @@ const buddyProject = Effect.fn("LazurioBuddySurface.buddyProject")(function* () 
   return project;
 });
 
+/**
+ * A thread with Buddy's id is Buddy's only in Buddy's project on Buddy's instance. Any other one is
+ * left alone, archived or not, and Buddy has no thread until it is gone: a wake must never land in
+ * someone else's conversation.
+ */
+const isBuddysThread = (
+  shell: { readonly projectId: ProjectId; readonly providerInstanceId: string },
+  project: { readonly projectId: ProjectId },
+) =>
+  shell.projectId === project.projectId && shell.providerInstanceId === BUDDY_PROVIDER_INSTANCE_ID;
+
+const conflict = () =>
+  new BuddyThreadUnavailable({
+    reason: "thread-conflict",
+    detail: `A thread with Buddy's id "${BUDDY_THREAD_ID}" is not in Buddy's project on the instance "${BUDDY_PROVIDER_INSTANCE_ID}".`,
+  });
+
 /** Buddy's thread, made in Buddy's project the first time anyone asks. */
 export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")(function* () {
   if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment))
@@ -78,10 +95,12 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
       detail: "This T3 Code is not Buddy's.",
     });
   const orchestrator = yield* OrchestratorV2;
+  const project = yield* buddyProject();
   const existing = yield* orchestrator
     .getThreadShell(BUDDY_THREAD_ID)
     .pipe(Effect.mapError(unavailable));
   if (existing !== null) {
+    if (!isBuddysThread(existing, project)) return yield* conflict();
     if (existing.archivedAt !== null)
       yield* orchestrator
         .dispatch({
@@ -95,7 +114,6 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
         .pipe(Effect.mapError(unavailable));
     return { threadId: BUDDY_THREAD_ID, projectId: existing.projectId } satisfies BuddyThread;
   }
-  const project = yield* buddyProject();
   yield* orchestrator
     .dispatch({
       type: "thread.create",
@@ -122,5 +140,6 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
       reason: "unavailable",
       detail: "Buddy's thread was deleted.",
     });
+  if (!isBuddysThread(created, project)) return yield* conflict();
   return { threadId: BUDDY_THREAD_ID, projectId: created.projectId } satisfies BuddyThread;
 });

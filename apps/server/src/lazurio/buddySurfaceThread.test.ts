@@ -83,6 +83,59 @@ describe("Buddy's thread", () => {
     );
   });
 
+  it.live("is never a thread with Buddy's id in another project or on another instance", () => {
+    const { home, layer } = makeHome();
+    return Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* addProject(ProjectId.make("project:other"), home);
+      yield* addProject(ProjectId.make("project:buddy"), layer);
+      // Someone else's conversation already has the id, archived.
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("test:foreign"),
+        threadId: BUDDY_THREAD_ID,
+        projectId: ProjectId.make("project:other"),
+        title: "Not Buddy's",
+        modelSelection: { instanceId: BUDDY, model: "default" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("test:foreign:archive"),
+        threadId: BUDDY_THREAD_ID,
+      });
+      for (const _ask of [1, 2]) {
+        const refused = yield* Effect.exit(resolveBuddyThread());
+        assert.include(refusal(refused), "thread-conflict");
+      }
+      const foreign = yield* orchestrator.getThreadShell(BUDDY_THREAD_ID);
+      assert.strictEqual(foreign?.projectId, "project:other");
+      assert.isNotNull(foreign?.archivedAt);
+
+      // Not archived, it is refused too, and nothing is made over it.
+      yield* orchestrator.dispatch({
+        type: "thread.unarchive",
+        commandId: CommandId.make("test:foreign:unarchive"),
+        threadId: BUDDY_THREAD_ID,
+      });
+      assert.include(refusal(yield* Effect.exit(resolveBuddyThread())), "thread-conflict");
+      const snapshot = yield* orchestrator.getShellSnapshot({
+        projectId: ProjectId.make("project:buddy"),
+        location: "active",
+      });
+      assert.deepStrictEqual(snapshot.threads, []);
+    }).pipe(
+      Effect.provide(layerBuddyServer),
+      Effect.scoped,
+      Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
+    );
+  });
+
   it.live(
     "is refused while Buddy's project is not added, and on a server that is not Buddy's",
     () => {
