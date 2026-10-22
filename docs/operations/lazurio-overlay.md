@@ -581,9 +581,10 @@ jméno v obou jazycích). Kroky uživatele samotného žádnou novou značku nem
   agent“ nad zprávou a stojí vedle času u rozhodnuté žádosti. Česky, má-li
   prohlížeč češtinu (`prefersCzech`), jinak anglicky. Jen pro vlákna
   Environmentu, který stránku servíruje, jako záložky prohlížeče.
-- **Co se nemění.** Desktop a mobil ukazují dál upstream text: desktop se na
-  cestu přes cookie nedostane a mobilní aplikace je upstreamu. Úprava zprávy ve
-  frontě, přerušení běhu a další kroky značku nedostanou (jen zpráva a
+- **Co se nemění.** Mobilní aplikace je upstreamu a ukazuje dál upstream text.
+  Desktopová aplikace obaluje web: značku ukáže, kde se její stránka dostane na
+  cestu se svým sezením, jinak zůstane upstream text (neověřeno). Úprava zprávy
+  ve frontě, přerušení běhu a další kroky značku nedostanou (jen zpráva a
   rozhodnutí). `t3 thread read` ji agentům zatím neukazuje.
 
 Hranice je celý Environment (rozhodnutí 0172): kdo smí vydat sezení z T3 home,

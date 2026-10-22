@@ -129,7 +129,8 @@ const withStart = (running: Running, threadId: ThreadId, start: number): Running
   new Map(running).set(threadId, [...(running.get(threadId) ?? []), start]);
 const withoutStart = (running: Running, threadId: ThreadId, start: number): Running => {
   const starts = [...(running.get(threadId) ?? [])];
-  starts.splice(starts.indexOf(start), 1);
+  const index = starts.indexOf(start);
+  if (index !== -1) starts.splice(index, 1);
   const next = new Map(running);
   if (starts.length === 0) next.delete(threadId);
   else next.set(threadId, starts);
