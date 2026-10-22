@@ -2200,3 +2200,53 @@ NodeTest.test("agents ask people through the question tool through its seams", a
   ])
     NodeAssert.ok(overlayMayChange(file), file);
 });
+
+// Root decision 0210, plan DEV-6676 (row 23): Buddy's own T3 Code (T3CODE_LAZURIO_BUDDY=1) runs
+// Buddy's Hermes as the ACP instance `buddy`, and Hermes keeps every prompt as the person's words in
+// Buddy's memory. The ACP adapter leaves T3's instructions out of an instance's prompts where the
+// host says so when it builds the instance (every other instance keeps them); server.ts says so for
+// Buddy's instance where it builds its provider instances; and the turn start projects a page
+// context as the Czech block for that instance only.
+NodeTest.test("Buddy's Hermes gets only the person's words through its seams", async () => {
+  const [acpAdapter, server, turnStart] = await Promise.all(
+    [
+      "packages/provider-acp/src/server/adapter.ts",
+      "apps/server/src/server.ts",
+      "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+    ].map(read),
+  );
+  NodeAssert.match(
+    acpAdapter,
+    /export class AcpT3Instructions extends Context\.Reference<\n\s+\(instanceId: ProviderInstanceId\) => boolean\n>\("@t3tools\/provider-acp\/AcpT3Instructions", \{ defaultValue: \(\) => \(\) => true \}\) \{\}/,
+  );
+  NodeAssert.match(
+    acpAdapter,
+    /const sendsT3Instructions = \(yield\* AcpT3Instructions\)\(options\.instanceId\);/,
+  );
+  // The adapter's one prompt site: the instruction wrapper and the runtime note both ask it.
+  NodeAssert.equal(acpAdapter.match(/t3AcpPromptWithInstructions\(/g)?.length, 1);
+  NodeAssert.equal(acpAdapter.match(/buildRuntimeInstructions\(/g)?.length, 1);
+  NodeAssert.match(
+    acpAdapter,
+    /const text = sendsT3Instructions\n\s+\? t3AcpPromptWithInstructions\(\{/,
+  );
+  NodeAssert.match(
+    acpAdapter,
+    /if \(sendsT3Instructions && !isNativeSlashCommand\) \{\n\s+prompt\.push\(\{\n\s+type: "text",\n\s+text: buildRuntimeInstructions\(\{/,
+  );
+  NodeAssert.match(
+    server,
+    /Layer\.provideMerge\(\n\s+LazurioBuddyPrompt\.withBuddyInstructions\(ProviderInstanceRegistryHydration\.layer\),\n\s+\),/,
+  );
+  NodeAssert.equal(server.match(/ProviderInstanceRegistryHydration\.layer/g)?.length, 1);
+  NodeAssert.match(
+    turnStart,
+    /const userText = yield\* LazurioBuddyPrompt\.projectComposerContextForProvider\(\{\n\s+instanceId: run\.providerInstanceId,\n\s+text: message\.text,\n\s+records: message\.context\?\.records \?\? \[\],\n\s+\}\);/,
+  );
+  for (const file of [
+    "packages/provider-acp/src/server/adapter.ts",
+    "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+    "apps/server/src/server.ts",
+  ])
+    NodeAssert.ok(overlayMayChange(file), file);
+});
