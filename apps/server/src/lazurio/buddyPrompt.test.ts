@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - The mock ACP agent logs its requests to a temporary file.
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -209,7 +210,7 @@ describe("the projection a provider turn gets", () => {
 class TestAdapter extends Context.Service<
   TestAdapter,
   ProviderAdapter.ProviderAdapterV2["Service"]
->()("test/lazurio/buddyPrompt/TestAdapter") {}
+>()("t3/lazurio/buddyPrompt.test/TestAdapter") {}
 
 const layerAdapterServices = Layer.mergeAll(
   NodeServices.layer,
