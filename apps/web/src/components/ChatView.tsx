@@ -1263,7 +1263,7 @@ export default function ChatView(props: ChatViewProps) {
   // and queueing is the explicit alternative.
   const buddySurface = useBuddySurfaceMode() === true;
   // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
-  const buddyPage = useBuddyPage();
+  const buddyPage = useBuddyPage(environmentId);
   const environmentSettings = useEnvironmentSettings(environmentId);
   const settings = buddySurface
     ? { ...environmentSettings, followUpBehavior: "steer" as const }
