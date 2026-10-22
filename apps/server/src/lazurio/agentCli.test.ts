@@ -8,6 +8,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationReadScope,
+  CommandId,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentAuthorizationError,
   EnvironmentId,
@@ -89,8 +90,16 @@ import {
 } from "../serverRuntimeState.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { AGENT_CLI_EXIT_CODES, isAgentCliFailure } from "./agentCliConnection.ts";
 import { AGENT_CLI_REQUEST_NAMESPACE, withAgentCliRequestNamespace } from "./agentCliRequests.ts";
+import { addProject, buddyModel, layerBuddyServer } from "./buddySurface.testkit.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
 import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
@@ -557,6 +566,14 @@ const withLiveServer = <A, E, R>(
   baseDir: string,
   world: World,
   body: (origin: string) => Effect.Effect<A, E, R>,
+) => withLiveServerOver(baseDir, world, orchestrationFakes(world), body);
+
+/** The same server with `orchestration` behind the tools in place of the fakes. */
+const withLiveServerOver = <A, E, R, ROut, RIn>(
+  baseDir: string,
+  world: World,
+  orchestration: Layer.Layer<ROut, never, RIn>,
+  body: (origin: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const configLayer = Layer.effect(
@@ -586,7 +603,7 @@ const withLiveServer = <A, E, R>(
           ),
         ),
       ),
-      Layer.provide(orchestrationFakes(world)),
+      Layer.provide(orchestration),
     );
     const serviceLayer = HttpRouter.serve(
       Layer.mergeAll(mcpRoutes, ownerRoutes(world), buddyThreadRoute(world)),
@@ -1535,47 +1552,79 @@ describe("a command line that cannot work", () => {
   );
 });
 
+/**
+ * T3's MCP tool for sending, over the production runtime of `layerBuddyServer`, with stand-ins only
+ * for what sending never reaches.
+ */
+const realSending = Layer.mergeAll(
+  OrchestratorMcpService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        ServerSettingsService.layerTest(),
+      ),
+    ),
+  ),
+  Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({}),
+  Layer.mock(ThreadSearch.ThreadSearch)({}),
+  Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
+).pipe(Layer.orDie);
+
+const sendArgs = (baseDir: string, threadId: string, message: string, key: string) => [
+  "thread",
+  "send",
+  threadId,
+  message,
+  "--mode",
+  "queue",
+  "--idempotency-key",
+  key,
+  "--base-dir",
+  baseDir,
+  "--json",
+];
+
 describe("t3 thread send --idempotency-key", () => {
-  it.effect("names the same request in every command, so T3 runs it once per key", () =>
+  it.effect("names one request per thread, sender and key in every command", () =>
     Effect.gen(function* () {
       const baseDir = makeBaseDir();
       const world = makeWorld();
       world.shells.set("thread-buddy", threadShell("thread-buddy"));
+      world.shells.set("thread-other", threadShell("thread-other"));
       yield* withLiveServer(baseDir, world, (origin) =>
         Effect.gen(function* () {
-          // budíček's retry after a crash: a second command with the same key.
-          for (const _attempt of [1, 2]) {
-            const sent = yield* printedJson(
-              run([
-                "thread",
-                "send",
-                "thread-buddy",
-                "budíček wake-1: HOTOVO",
-                "--mode",
-                "queue",
-                "--idempotency-key",
-                "wake-1",
-                "--base-dir",
-                baseDir,
-                "--json",
-              ]),
+          const send = (threadId: string, environment: Record<string, string> = {}) =>
+            printedJson(
+              run(sendArgs(baseDir, threadId, "budíček wake-1: HOTOVO", "wake-1")).pipe(
+                Effect.provideService(HostProcess.Environment, environment),
+              ),
+            ).pipe(
+              Effect.tap((sent) =>
+                Effect.sync(() => assert.strictEqual(sent.exit._tag, "Success")),
+              ),
             );
-            assert.strictEqual(sent.exit._tag, "Success");
-          }
-          // T3's tool derives the command and message ids from the namespace and the key, and
-          // replays a command it already ran, so both commands name one send.
+          // budíček's retry after a crash: a second command with the same key and the same sender.
+          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "budicek" });
+          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "budicek" });
+          // The same key for another thread, and from another sender.
+          yield* send("thread-other", { T3CODE_ACTING_SENDER: "budicek" });
+          yield* send("thread-buddy");
+          const keys = world.sends.map((sent) => sent.input.clientRequestId ?? "");
+          for (const key of keys) assert.match(key, /^lazurio-send:[0-9a-f]{64}$/);
+          assert.strictEqual(keys[0], keys[1]);
+          assert.strictEqual(new Set(keys).size, 3);
+          // One namespace for every agent command, though each signed in with a session of its
+          // own and revoked it.
           assert.deepStrictEqual(
-            world.sends.map((send) => [
-              send.input.clientRequestId,
-              send.input.mode,
-              send.scope.requestNamespace,
-            ]),
-            [
-              ["wake-1", "queue", AGENT_CLI_REQUEST_NAMESPACE],
-              ["wake-1", "queue", AGENT_CLI_REQUEST_NAMESPACE],
-            ],
+            world.sends.map((sent) => sent.scope.requestNamespace),
+            Array(4).fill(AGENT_CLI_REQUEST_NAMESPACE),
           );
-          // Each command signed in with a session of its own, and revoked it.
           assert.notStrictEqual(
             world.sends[0]?.scope.client?.sessionId,
             world.sends[1]?.scope.client?.sessionId,
@@ -1603,10 +1652,70 @@ describe("t3 thread send --idempotency-key", () => {
             tool: "t3_thread_send",
             arguments: { threadId: "thread-buddy", message: "Ahoj", clientRequestId: "wake-1" },
           });
-          assert.match(world.sends[2]?.scope.requestNamespace ?? "", /^client:/);
+          assert.match(world.sends[4]?.scope.requestNamespace ?? "", /^client:/);
         }),
       );
     }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.live(
+    "sends once from two separate commands with one key, as an agent, with T3's own tool",
+    () => {
+      const baseDir = makeBaseDir();
+      const folder = makeBaseDir();
+      return Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projectId = ProjectId.make("project-buddy");
+        yield* addProject(projectId, folder);
+        for (const threadId of ["thread-buddy", "thread-other"])
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`command:create:${threadId}`),
+            threadId: ThreadId.make(threadId),
+            projectId,
+            title: threadId,
+            modelSelection: buddyModel,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+          });
+        const sent = yield* withLiveServerOver(baseDir, makeWorld(), realSending, () =>
+          Effect.forEach(
+            ["thread-buddy", "thread-buddy", "thread-other"],
+            (threadId) =>
+              printedJson(
+                run(sendArgs(baseDir, threadId, "budíček: úkol doběhl", "wake-7")).pipe(
+                  Effect.provideService(HostProcess.Environment, {
+                    T3CODE_ACTING_SENDER: "budicek",
+                  }),
+                ),
+              ),
+            { concurrency: 1 },
+          ),
+        ).pipe(
+          // The runtime above memoized its database's setup. The server and the commands open the
+          // T3 home's database as in production, so they build from a memo map of their own.
+          Effect.provideServiceEffect(Layer.CurrentMemoMap, Layer.makeMemoMap),
+        );
+        for (const result of sent)
+          assert.strictEqual(result.exit._tag, "Success", JSON.stringify(result.output));
+        // The repeat printed the first send's result.
+        assert.deepStrictEqual(sent[1]?.output, sent[0]?.output);
+        const messagesOf = (threadId: string) =>
+          orchestrator
+            .getThreadRecords(ThreadId.make(threadId), ["messages"], { messageRoles: ["user"] })
+            .pipe(Effect.map((records) => records.messages));
+        const buddy = yield* messagesOf("thread-buddy");
+        assert.deepStrictEqual(
+          buddy.map((message) => [message.text, message.createdBy, message.creationSource]),
+          [["budíček: úkol doběhl", "agent", "mcp"]],
+        );
+        assert.strictEqual((yield* messagesOf("thread-other")).length, 1);
+      }).pipe(Effect.provide(layerBuddyServer), Effect.scoped, Effect.provide(TestConsole.layer));
+    },
   );
 });
 
