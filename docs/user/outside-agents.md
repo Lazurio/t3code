@@ -90,7 +90,8 @@ Add the environment as a custom MCP app in ChatGPT's apps settings:
 
 Any agent that supports remote MCP servers over HTTP with OAuth can connect. Give
 it the MCP URL and choose OAuth, and the agent finds the sign-in settings itself.
-Agents without OAuth support cannot connect.
+An agent without OAuth support can use a token issued on the host instead; see
+[Agents on the host](./agent-cli.md#an-mcp-token-without-a-sign-in).
 
 ## Scripts on the host
 
@@ -113,6 +114,10 @@ the message to read it from stdin.
 `--wait` prints the agent's reply. It exits 1 when the run fails or stops, and
 2 when the agent waits for an answer you give in the app. Add `--json` for a
 result that always includes the thread id.
+
+[Agents on the host](./agent-cli.md) lists every `t3` command for threads,
+including searching them, answering their questions and permission requests,
+and following them as they change.
 
 ## Remove an agent
 

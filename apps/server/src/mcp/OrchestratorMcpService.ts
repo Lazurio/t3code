@@ -857,7 +857,7 @@ function threadPullRequests(
   }));
 }
 
-function listItemFromShell(
+export function listItemFromShell(
   shell: OrchestrationV2ThreadShell,
   nowMs: number,
 ): OrchestratorMcpThreadListItem {
