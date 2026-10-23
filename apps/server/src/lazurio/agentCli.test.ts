@@ -8,6 +8,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationReadScope,
+  CommandId,
   EnvironmentAuthorizationError,
   EnvironmentId,
   MessageId,
@@ -45,6 +46,7 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
 import { afterAll } from "vite-plus/test";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -86,7 +88,27 @@ import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "../serverRuntimeState.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import { OrchestrationCommandReceiptRepository } from "../persistence/OrchestrationCommandReceipts.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { AGENT_CLI_EXIT_CODES, isAgentCliFailure } from "./agentCliConnection.ts";
+import {
+  AGENT_CLI_REQUEST_NAMESPACE,
+  agentCliSendIds,
+  agentCliSendKey,
+  withAgentCliRequestNamespace,
+} from "./agentCliRequests.ts";
+import * as AgentCliSendState from "./agentCliSendState.ts";
+import { addProject, buddyModel, layerBuddyServer } from "./buddySurface.testkit.ts";
+import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
+import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
 // The agent commands are a contract for Buddy and other agents in an Environment: they act on the
@@ -253,6 +275,9 @@ const makeWorld = () => ({
   dispatched: [] as Array<unknown>,
   /** Commands the person's client surface dispatched. */
   ownerDispatched: [] as Array<unknown>,
+  /** The projects Buddy's thread route sees, and the commands it dispatched. */
+  buddyProjects: [] as Array<ProjectStore.ProjectRow>,
+  buddyDispatched: [] as Array<unknown>,
   fullReads: [] as Array<string>,
   subscriptions: [] as Array<OrchestrationV2SubscribeShellInput>,
   shellStream: (
@@ -543,6 +568,35 @@ const ownerRoutes = (world: World) =>
     }),
   );
 
+/** Buddy's thread route over the world's projects and threads. */
+const buddyThreadRoute = (world: World) =>
+  BuddySurfaceThreadRoute.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadShell: (threadId) => Effect.succeed(world.shells.get(threadId) ?? null),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              world.buddyDispatched.push(command);
+              if (command.type === "thread.create")
+                world.shells.set(
+                  command.threadId,
+                  threadShell(command.threadId, {
+                    projectId: command.projectId,
+                    providerInstanceId: command.modelSelection.instanceId,
+                  }),
+                );
+              return { sequence: world.buddyDispatched.length, storedEvents: [] };
+            }),
+        }),
+        Layer.mock(ProjectStore.ProjectStoreV2)({
+          list: () => Effect.succeed(world.buddyProjects),
+        }),
+        NodeServices.layer,
+      ),
+    ),
+  );
+
 /**
  * A running server for `baseDir`: the real `/mcp` with T3's tools and access checks over the
  * fakes, the person's client surface, and the runtime state the CLI finds it by.
@@ -550,6 +604,18 @@ const ownerRoutes = (world: World) =>
 const withLiveServer = <A, E, R>(
   baseDir: string,
   world: World,
+  body: (origin: string) => Effect.Effect<A, E, R>,
+) => withLiveServerOver(baseDir, world, orchestrationFakes(world), Layer.empty, body);
+
+/**
+ * The same server with `orchestration` behind the tools in place of the fakes, and `routes` served
+ * beside them.
+ */
+const withLiveServerOver = <A, E, R, ROut, RIn, RR>(
+  baseDir: string,
+  world: World,
+  orchestration: Layer.Layer<ROut, never, RIn>,
+  routes: Layer.Layer<never, never, RR>,
   body: (origin: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -568,21 +634,27 @@ const withLiveServer = <A, E, R>(
           resolve: () => Effect.void.pipe(Effect.as(undefined)),
         }),
       ),
+      // As server.ts provides it.
       Layer.provide(
-        McpOAuth.layerMcpClientAuthenticator.pipe(
-          Layer.provide(
-            Layer.mock(ServerEnvironment.ServerEnvironment)({
-              getEnvironmentId: Effect.succeed(environmentId),
-            }),
+        withAgentCliRequestNamespace(
+          McpOAuth.layerMcpClientAuthenticator.pipe(
+            Layer.provide(
+              Layer.mock(ServerEnvironment.ServerEnvironment)({
+                getEnvironmentId: Effect.succeed(environmentId),
+              }),
+            ),
           ),
         ),
       ),
-      Layer.provide(orchestrationFakes(world)),
+      Layer.provide(orchestration),
     );
-    const serviceLayer = HttpRouter.serve(Layer.mergeAll(mcpRoutes, ownerRoutes(world)), {
-      disableListenLog: true,
-      disableLogger: true,
-    }).pipe(
+    const serviceLayer = HttpRouter.serve(
+      Layer.mergeAll(mcpRoutes, ownerRoutes(world), buddyThreadRoute(world), routes),
+      {
+        disableListenLog: true,
+        disableLogger: true,
+      },
+    ).pipe(
       Layer.provideMerge(EnvironmentAuth.layerRuntime),
       Layer.provideMerge(
         NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 }),
@@ -977,6 +1049,25 @@ describe("t3 thread", () => {
               error: null,
             });
             assert.deepStrictEqual(yield* agentCliSessions, []);
+
+            // With a key, the wait comes after the key's send and keeps its command.
+            world.waitResult = (input) => ({
+              threadId: input.threadId,
+              runId: RunId.make("run-2"),
+              status: "completed",
+              timedOut: false,
+            });
+            world.pendingRequestCounts.set("thread-full", 0);
+            const keyed = yield* send(["--idempotency-key", "fix-1", "--json"]);
+            assert.strictEqual(exitCodeOf(keyed.exit), 0);
+            assert.match(
+              String(keyed.output.commandId),
+              /^command:mcp:.*lazurio-send%3A[0-9a-f]{64}$/,
+            );
+            assert.deepStrictEqual(
+              [keyed.output.runId, keyed.output.status, keyed.output.reply, keyed.output.delivery],
+              ["run-2", "completed", "The build passes.", "steered"],
+            );
           }),
         );
       }).pipe(Effect.provide(TestConsole.layer)),
@@ -1592,5 +1683,359 @@ describe("a command line that cannot work", () => {
       // Nothing was read or written: even resolving the T3 home's paths would create its folders.
       assert.deepStrictEqual(NodeFS.readdirSync(baseDir), []);
     }).pipe(Effect.provide(TestConsole.layer)),
+  );
+});
+
+/**
+ * T3's MCP tool for sending, over the production runtime of `layerBuddyServer`, with stand-ins only
+ * for what sending never reaches.
+ */
+const realSending = Layer.mergeAll(
+  OrchestratorMcpService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        ServerSettingsService.layerTest(),
+      ),
+    ),
+  ),
+  Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({}),
+  Layer.mock(ThreadSearch.ThreadSearch)({}),
+  Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
+).pipe(Layer.orDie);
+
+const sendArgs = (baseDir: string, threadId: string, message: string, key: string) => [
+  "thread",
+  "send",
+  threadId,
+  message,
+  "--mode",
+  "queue",
+  "--idempotency-key",
+  key,
+  "--base-dir",
+  baseDir,
+  "--json",
+];
+
+describe("t3 thread send --idempotency-key", () => {
+  it.effect("names one request per thread, sender and key in every command", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const world = makeWorld();
+      world.shells.set("thread-buddy", threadShell("thread-buddy"));
+      world.shells.set("thread-other", threadShell("thread-other"));
+      yield* withLiveServer(baseDir, world, (origin) =>
+        Effect.gen(function* () {
+          const send = (threadId: string, environment: Record<string, string> = {}) =>
+            printedJson(
+              run(sendArgs(baseDir, threadId, "budíček wake-1: HOTOVO", "wake-1")).pipe(
+                Effect.provideService(HostProcess.Environment, environment),
+              ),
+            ).pipe(
+              Effect.tap((sent) =>
+                Effect.sync(() => assert.strictEqual(sent.exit._tag, "Success")),
+              ),
+            );
+          // budíček's retry after a crash: a second command with the same key and the same sender.
+          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "budicek" });
+          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "budicek" });
+          // The same key for another thread, and from another sender.
+          yield* send("thread-other", { T3CODE_ACTING_SENDER: "budicek" });
+          yield* send("thread-buddy");
+          const keys = world.sends.map((sent) => sent.input.clientRequestId ?? "");
+          for (const key of keys) assert.match(key, /^lazurio-send:[0-9a-f]{64}$/);
+          assert.strictEqual(keys[0], keys[1]);
+          assert.strictEqual(new Set(keys).size, 3);
+          // One namespace for every agent command, though each signed in with a session of its
+          // own and revoked it.
+          assert.deepStrictEqual(
+            world.sends.map((sent) => sent.scope.requestNamespace),
+            Array(4).fill(AGENT_CLI_REQUEST_NAMESPACE),
+          );
+          assert.notStrictEqual(
+            world.sends[0]?.scope.client?.sessionId,
+            world.sends[1]?.scope.client?.sessionId,
+          );
+          assert.deepStrictEqual(yield* agentCliSessions, []);
+
+          // Any other MCP client keeps its own session's namespace.
+          const issued = yield* printedJson(
+            run([
+              "auth",
+              "session",
+              "issue",
+              "--base-dir",
+              baseDir,
+              "--subject",
+              "mcp-client",
+              "--runtime-mode-ceiling",
+              "full-access",
+              "--json",
+            ]),
+          );
+          yield* mcpToolSession({
+            endpoint: `${origin}/mcp`,
+            authorization: `Bearer ${String(issued.output.token)}`,
+            clientName: "t3-agent-cli-test",
+          }).pipe(
+            Effect.flatMap((session) =>
+              session.call("t3_thread_send", {
+                threadId: "thread-buddy",
+                message: "Ahoj",
+                clientRequestId: "wake-1",
+              }),
+            ),
+            Effect.scoped,
+          );
+          assert.match(world.sends[4]?.scope.requestNamespace ?? "", /^client:/);
+        }),
+      );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.live(
+    "sends once from separate commands with one key, as an agent, and reports a final refusal",
+    () => {
+      const baseDir = makeBaseDir();
+      const folder = makeBaseDir();
+      return Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projectId = ProjectId.make("project-buddy");
+        yield* addProject(projectId, folder);
+        for (const threadId of ["thread-buddy", "thread-other", "thread-refused", "thread-spaces"])
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`command:create:${threadId}`),
+            threadId: ThreadId.make(threadId),
+            projectId,
+            title: threadId,
+            modelSelection: buddyModel,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+          });
+        // T3 refused the send of one key before: its receipt says so, and T3 keeps it.
+        const refusedKey = yield* agentCliSendKey({
+          threadId: "thread-refused",
+          key: "wake-9",
+        }).pipe(
+          Effect.provideService(HostProcess.Environment, { T3CODE_ACTING_SENDER: "budicek" }),
+        );
+        yield* (yield* OrchestrationCommandReceiptRepository)
+          .upsert({
+            commandId: CommandId.make(agentCliSendIds(refusedKey).commandId),
+            aggregateKind: "thread",
+            aggregateId: ThreadId.make("thread-refused"),
+            commandType: "message.dispatch",
+            acceptedAt: "2026-10-22T10:00:00.000Z",
+            resultSequence: 0,
+            status: "rejected",
+            error: "The thread refused this message.",
+          })
+          .pipe(Effect.orDie);
+        const sends: ReadonlyArray<readonly [thread: string, text: string, key: string]> = [
+          ["thread-buddy", "budíček: úkol doběhl", "wake-7"],
+          ["thread-buddy", "budíček: úkol doběhl", "wake-7"],
+          ["thread-other", "budíček: úkol doběhl", "wake-7"],
+          ["thread-buddy", "budíček: jiný text", "wake-7"],
+          ["thread-refused", "budíček: úkol doběhl", "wake-9"],
+          ["thread-missing", "budíček: úkol doběhl", "wake-10"],
+          // T3 trims what its tool gets, so a file's newline or spaces around the same text are
+          // the same message.
+          ["thread-spaces", "budíček: s mezerami\n", "wake-11"],
+          ["thread-spaces", "  budíček: s mezerami", "wake-11"],
+        ];
+        const sendAll = (batch: typeof sends) =>
+          Effect.forEach(
+            batch,
+            ([threadId, text, key]) =>
+              printedJson(
+                run(sendArgs(baseDir, threadId, text, key)).pipe(
+                  Effect.provideService(HostProcess.Environment, {
+                    T3CODE_ACTING_SENDER: "budicek",
+                  }),
+                ),
+              ),
+            { concurrency: 1 },
+          );
+        const sent = yield* withLiveServerOver(
+          baseDir,
+          makeWorld(),
+          realSending,
+          AgentCliSendState.layer,
+          () =>
+            Effect.gen(function* () {
+              const results = yield* sendAll(sends);
+              // T3 checks a thread before it replays a receipt: the repeat of a delivered key to
+              // a thread archived since is still delivered.
+              yield* orchestrator.dispatch({
+                type: "thread.archive",
+                commandId: CommandId.make("command:archive:thread-buddy"),
+                threadId: ThreadId.make("thread-buddy"),
+              });
+              const archivedRepeat = yield* sendAll([sends[0]!]);
+              // With --wait too: a repeat T3 can no longer replay has no run to wait for.
+              const archivedWait = yield* printedJson(
+                run([
+                  ...sendArgs(baseDir, "thread-buddy", "budíček: úkol doběhl", "wake-7"),
+                  "--wait",
+                ]).pipe(
+                  Effect.provideService(HostProcess.Environment, {
+                    T3CODE_ACTING_SENDER: "budicek",
+                  }),
+                ),
+              );
+              return [...results, ...archivedRepeat, archivedWait];
+            }),
+        ).pipe(
+          // The runtime above memoized its database's setup. The server and the commands open the
+          // T3 home's database as in production, so they build from a memo map of their own.
+          Effect.provideServiceEffect(Layer.CurrentMemoMap, Layer.makeMemoMap),
+        );
+        const [
+          first,
+          repeat,
+          other,
+          conflict,
+          refused,
+          missing,
+          spaced,
+          unspaced,
+          archived,
+          waited,
+        ] = sent;
+        for (const result of [first, repeat, other, spaced, unspaced, archived, waited])
+          assert.strictEqual(result?.exit._tag, "Success", JSON.stringify(result?.output));
+        assert.deepStrictEqual(waited?.output, archived?.output);
+        assert.deepStrictEqual(unspaced?.output, spaced?.output);
+        // The archived thread's repeat: delivered, by the same command, as the same message.
+        assert.deepStrictEqual(
+          [archived?.output.delivery, archived?.output.commandId, archived?.output.messageId],
+          ["delivered", first?.output.commandId, first?.output.messageId],
+        );
+        // The repeat printed the first send's result, with the command that delivered it.
+        assert.deepStrictEqual(repeat?.output, first?.output);
+        assert.match(
+          String(first?.output.commandId),
+          /^command:mcp:lazurio%3Aagent-cli:thread-send:lazurio-send%3A[0-9a-f]{64}$/,
+        );
+        const finalCode = (result: (typeof sent)[number] | undefined) => [
+          result === undefined ? -1 : exitCodeOf(result.exit),
+          (result?.output.error as { code?: unknown } | undefined)?.code,
+        ];
+        assert.deepStrictEqual(finalCode(conflict), [1, "idempotency_conflict"]);
+        assert.deepStrictEqual(finalCode(refused), [1, "command_rejected"]);
+        assert.deepStrictEqual(finalCode(missing), [1, "thread_not_found"]);
+        const messagesOf = (threadId: string) =>
+          orchestrator
+            .getThreadRecords(ThreadId.make(threadId), ["messages"], { messageRoles: ["user"] })
+            .pipe(Effect.map((records) => records.messages));
+        // One message from the two commands and none from the conflict, sent by an agent over MCP.
+        assert.deepStrictEqual(
+          (yield* messagesOf("thread-buddy")).map((message) => [
+            message.text,
+            message.createdBy,
+            message.creationSource,
+          ]),
+          [["budíček: úkol doběhl", "agent", "mcp"]],
+        );
+        assert.strictEqual((yield* messagesOf("thread-other")).length, 1);
+        assert.strictEqual((yield* messagesOf("thread-refused")).length, 0);
+        assert.deepStrictEqual(
+          (yield* messagesOf("thread-spaces")).map((message) => message.text),
+          ["budíček: s mezerami"],
+        );
+      }).pipe(Effect.provide(layerBuddyServer), Effect.scoped, Effect.provide(TestConsole.layer));
+    },
+  );
+});
+
+describe("t3 lazurio buddy thread", () => {
+  const buddyProject = (home: string): ProjectStore.ProjectRow => ({
+    projectId: ProjectId.make("project-buddy"),
+    title: "buddy",
+    workspaceRoot: NodePath.join(home, "Lazurio", ".agents", "buddy"),
+    defaultModelSelection: null,
+    defaultThreadEnvMode: null,
+    autoPull: false,
+    faviconPath: null,
+    projectIcon: null,
+    scripts: [],
+    createdAt: "2026-10-22T00:00:00.000Z",
+    updatedAt: "2026-10-22T00:00:00.000Z",
+    deletedAt: null,
+  });
+
+  it.effect("prints Buddy's thread, made once in Buddy's project", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const home = makeBaseDir();
+      const world = makeWorld();
+      world.buddyProjects.push(buddyProject(home));
+      yield* withLiveServer(baseDir, world, () =>
+        Effect.gen(function* () {
+          for (const _ask of [1, 2]) {
+            const asked = yield* printedJson(
+              run(["lazurio", "buddy", "thread", "--base-dir", baseDir, "--json"]),
+            );
+            assert.strictEqual(exitCodeOf(asked.exit), 0);
+            assert.deepStrictEqual(asked.output, {
+              threadId: BUDDY_THREAD_ID,
+              projectId: "project-buddy",
+            });
+          }
+          assert.deepStrictEqual(
+            world.buddyDispatched.map((command) => (command as { type: string }).type),
+            ["thread.create"],
+          );
+          assert.deepStrictEqual(yield* agentCliSessions, []);
+        }),
+      ).pipe(
+        Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
+      );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect(
+    "refuses with exit 1 without Buddy's project and on a T3 Code that is not Buddy's",
+    () =>
+      Effect.gen(function* () {
+        const baseDir = makeBaseDir();
+        const home = makeBaseDir();
+        const world = makeWorld();
+        const ask = run(["lazurio", "buddy", "thread", "--base-dir", baseDir, "--json"]);
+        yield* withLiveServer(baseDir, world, () =>
+          Effect.gen(function* () {
+            const missing = yield* printedJson(ask);
+            assert.strictEqual(exitCodeOf(missing.exit), AGENT_CLI_EXIT_CODES.failed);
+            assert.strictEqual(
+              (missing.output.error as { code?: unknown } | undefined)?.code,
+              "no_project",
+            );
+          }),
+        ).pipe(
+          Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
+        );
+        yield* withLiveServer(baseDir, world, () =>
+          Effect.gen(function* () {
+            const notBuddy = yield* printedJson(ask);
+            assert.strictEqual(exitCodeOf(notBuddy.exit), AGENT_CLI_EXIT_CODES.failed);
+            assert.deepStrictEqual(notBuddy.output, {
+              error: { code: "not_buddy", message: "This T3 Code is not Buddy's." },
+            });
+          }),
+        ).pipe(Effect.provideService(HostProcess.Environment, { HOME: home }));
+        assert.deepStrictEqual(world.buddyDispatched, []);
+      }).pipe(Effect.provide(TestConsole.layer)),
   );
 });
