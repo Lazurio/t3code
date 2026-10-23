@@ -256,6 +256,7 @@ import {
 import {
   BuddyThreadDetailsPanel,
   BuddyThreadErrorBanner,
+  buddyWorkBanners,
   useBuddyChatShortcuts,
   useBuddyPage,
   useBuddySurfaceMode,
@@ -5655,11 +5656,12 @@ export default function ChatView(props: ChatViewProps) {
       : null;
   const composerBannerItems = (() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
-    const backgroundWorkItems = [
+    // Lazurio overlay (plan DEV-6676): Buddy's surface shows none of this work (BuddySurface.tsx).
+    const backgroundWorkItems = buddyWorkBanners(buddySurface, [
       childInputBannerItem,
       goalBannerItem,
       backgroundWorkBannerItem,
-    ].filter((item) => item !== null);
+    ]).filter((item) => item !== null);
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
@@ -8264,6 +8266,11 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                // Lazurio overlay (plan DEV-6676): work that still runs after the turn, which
+                // Buddy's surface says with its quiet line instead of the banner.
+                buddyBackgroundWork={
+                  !paintOnlyDisplayedTimeline && activeBackgroundTasks.length > 0
+                }
                 runlessWorkActive={runlessWorkStartedAt !== null}
                 activeTurnInProgress={
                   !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)

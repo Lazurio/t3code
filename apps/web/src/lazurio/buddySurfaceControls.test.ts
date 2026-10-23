@@ -6,7 +6,11 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import { shouldRenderTraitsControls } from "~/components/chat/TraitsPicker";
-import { ACP_SESSION_MODE_OPTION_ID, withoutSessionMode } from "./buddySurfaceControls";
+import {
+  ACP_SESSION_MODE_OPTION_ID,
+  personsQueuedRuns,
+  withoutSessionMode,
+} from "./buddySurfaceControls";
 
 const ACP = ProviderDriverKind.make("acpRegistry");
 const MODEL = "custom:buddy-fake-1";
@@ -71,5 +75,22 @@ describe("Buddy's options chip", () => {
   it("hands back the same models when no agent offers a session mode", () => {
     const models = hermes([THOUGHT_LEVEL]);
     expect(withoutSessionMode(models)).toBe(models);
+  });
+});
+
+describe("Buddy's queue", () => {
+  const queued = [{ messageId: "person" }, { messageId: "delegace" }, { messageId: "unloaded" }];
+
+  it("keeps the person's messages and one not loaded yet, and leaves out an agent's", () => {
+    expect(
+      personsQueuedRuns(queued, [
+        { id: "person", createdBy: "user" },
+        { id: "delegace", createdBy: "agent" },
+      ]),
+    ).toEqual([{ messageId: "person" }, { messageId: "unloaded" }]);
+  });
+
+  it("hands back the same queue when all of it is the person's", () => {
+    expect(personsQueuedRuns(queued, [{ id: "person", createdBy: "user" }])).toBe(queued);
   });
 });

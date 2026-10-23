@@ -476,6 +476,8 @@ interface MessagesTimelineProps {
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
   awaitingUser?: boolean;
+  /** Lazurio overlay (plan DEV-6676): work still runs after the turn; Buddy's quiet line says so. */
+  buddyBackgroundWork?: boolean;
   footer?: ReactNode;
 
   listRef: React.RefObject<LegendListRef | null>;
@@ -583,6 +585,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   isPreparingWorktree = false,
   isCompacting = false,
   awaitingUser = false,
+  buddyBackgroundWork = false,
   listRef,
   timelineEntries,
   findExpanded = false,
@@ -893,7 +896,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       parseScopedThreadKey(listIdentityKey),
     ),
     buddySurface,
-    isWorking && !awaitingUser,
+    (isWorking || buddyBackgroundWork) && !awaitingUser,
   );
   const buddyDayLines = useBuddyDayLines(rows, buddySurface);
   useBuddyDayJump({
