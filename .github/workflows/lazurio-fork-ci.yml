@@ -282,16 +282,20 @@ jobs:
             apps/server/src/auth/McpOAuth.ts
             apps/server/src/mcp/McpInvocationContext.ts
             # Buddy's chat reads like a chat with a friend (root decision 0210, addendum of
-            # 2026-10-22, point 1; plan DEV-6676): Buddy's surface shows what Buddy writes and one
-            # quiet line while he works, never T3's work rows, and a failed turn as one line in
-            # human words (MessagesTimeline.tsx, above). The thread's error banner speaks in human
-            # words too, and no task list of the turn shows above the composer (ChatView.tsx,
-            # above). The composer asks for a message to Buddy and leaves out T3's runtime access
-            # and interaction mode and Hermes's session mode (ChatComposer.tsx). The terminal's and
-            # the right panel's keys stay the browser's (ChatView.tsx and __root.tsx, above;
-            # Lazurio/t3code#109). Its code lives in apps/web/src/lazurio/
-            # (buddySurfaceTimeline.ts, buddySurfaceControls.ts, BuddySurface.tsx).
+            # 2026-10-22, point 1; plan DEV-6676; row 28): Buddy's surface shows what Buddy writes
+            # and one quiet line while he works, also on work that still runs after his turn,
+            # never T3's work rows, and a failed turn as one line in human words
+            # (MessagesTimeline.tsx, above). The thread's error banner speaks in human words too,
+            # and above the composer stands none of the turn's work: no task list, no background
+            # work, goal or child thread's question (ChatView.tsx, above). The composer asks for a
+            # message to Buddy and leaves out T3's runtime access and interaction mode and Hermes's
+            # session mode (ChatComposer.tsx); its queue holds only the person's own messages
+            # (QueuedRunsControl.tsx). The terminal's and the right panel's keys stay the
+            # browser's (ChatView.tsx and __root.tsx, above; Lazurio/t3code#109). Its code lives
+            # in apps/web/src/lazurio/ (buddySurfaceTimeline.ts, buddySurfaceControls.ts,
+            # BuddySurface.tsx).
             apps/web/src/components/chat/ChatComposer.tsx
+            apps/web/src/components/chat/QueuedRunsControl.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

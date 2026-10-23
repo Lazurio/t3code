@@ -2548,12 +2548,15 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
 
 // Root decision 0210, addendum of 2026-10-22, point 1 (row 28): Buddy's chat reads like a chat with a
 // friend. The timeline's rows pass through Buddy's conversation, which keeps what Buddy writes, adds
-// one quiet row while he works and says a failed turn in human words, and the rows Buddy draws come
-// before T3's; the thread's error banner speaks in human words too. The composer reads Buddy's placeholder and options and leaves out the block of T3's
-// access and interaction mode, the chat's shortcuts go through Buddy's surface, which leaves the
-// terminal's and the right panel's keys to the browser, and the turn's task list stays out.
+// one quiet row while he works, also on work that still runs after his turn, and says a failed turn
+// in human words, and the rows Buddy draws come before T3's; the thread's error banner speaks in
+// human words too. Above the composer stands none of the turn's work: ChatView's work banners pass
+// Buddy's surface, and the queue holds only the person's messages. The composer reads Buddy's
+// placeholder and options and leaves out the block of T3's access and interaction mode, the chat's
+// shortcuts go through Buddy's surface, which leaves the terminal's and the right panel's keys to
+// the browser, and the turn's task list stays out.
 NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", async () => {
-  const [timeline, composer, chat, root, sessionConfig, controls] = await Promise.all(
+  const [timeline, composer, chat, root, sessionConfig, controls, queue] = await Promise.all(
     [
       "apps/web/src/components/chat/MessagesTimeline.tsx",
       "apps/web/src/components/chat/ChatComposer.tsx",
@@ -2561,13 +2564,15 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
       "apps/web/src/routes/__root.tsx",
       "packages/provider-acp/src/server/sessionConfig.ts",
       "apps/web/src/lazurio/buddySurfaceControls.ts",
+      "apps/web/src/components/chat/QueuedRunsControl.tsx",
     ].map(read),
   );
   // Buddy's rows are what the thread shows after Delegace's wake is left out (row 27).
   NodeAssert.match(
     timeline,
-    /\n\s+const rows = buddySurfaceRows\(\n(?:\s+\/\/[^\n]*\n)*\s+useLazurioActingSenderRows\(\n\s+useStableRows\(rawRows, listIdentityKey\),\n\s+parseScopedThreadKey\(listIdentityKey\),\n\s+\),\n\s+buddySurface,\n\s+isWorking && !awaitingUser,\n\s+\);\n/,
+    /\n\s+const rows = buddySurfaceRows\(\n(?:\s+\/\/[^\n]*\n)*\s+useLazurioActingSenderRows\(\n\s+useStableRows\(rawRows, listIdentityKey\),\n\s+parseScopedThreadKey\(listIdentityKey\),\n\s+\),\n\s+buddySurface,\n\s+\(isWorking \|\| buddyBackgroundWork\) && !awaitingUser,\n\s+\);\n/,
   );
+  NodeAssert.match(timeline, /\n\s+buddyBackgroundWork = false,\n/);
   NodeAssert.equal(timeline.match(/\bconst rows = /g)?.length, 1);
   NodeAssert.match(
     timeline,
@@ -2608,6 +2613,24 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     /activeTasksProgress=\{\n\s+buddySurface \? null : activeComposerTasksProgress\n\s+\}/,
   );
   NodeAssert.match(root, /\{buddySurface \? null : <ReopenClosedViewShortcut \/>\}/);
+  // The work T3 shows above the composer passes Buddy's surface, and only there: each of its banners
+  // is made once and goes nowhere else. Work that still runs is the timeline's quiet line instead.
+  NodeAssert.match(
+    chat,
+    /const backgroundWorkItems = buddyWorkBanners\(buddySurface, \[\n\s+childInputBannerItem,\n\s+goalBannerItem,\n\s+backgroundWorkBannerItem,\n\s+\]\)\.filter\(\(item\) => item !== null\);/,
+  );
+  for (const banner of ["childInputBannerItem", "goalBannerItem", "backgroundWorkBannerItem"])
+    NodeAssert.equal(chat.match(new RegExp(`\\b${banner}\\b`, "g"))?.length, 2, banner);
+  NodeAssert.match(
+    chat,
+    /buddyBackgroundWork=\{\n\s+!paintOnlyDisplayedTimeline && activeBackgroundTasks\.length > 0\n\s+\}/,
+  );
+  // The queue's runs, every use of them, are the person's in Buddy's surface.
+  NodeAssert.match(
+    queue,
+    /const queued = useBuddyQueuedRuns\(\n\s+props\.environmentId,\n\s+workflow\?\.queuedRuns \?\? \[\],\n\s+projection\?\.messages,\n\s+\);/,
+  );
+  NodeAssert.equal(queue.match(/workflow\?\.queuedRuns/g)?.length, 1);
   // The thread's error banner says in human words that something went wrong.
   NodeAssert.match(chat, /\n\s+<BuddyThreadErrorBanner\n\s+error=\{timelineThreadError\}/);
   NodeAssert.doesNotMatch(chat, /<ThreadErrorBanner\b/);
@@ -2617,6 +2640,7 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   for (const file of [
     "apps/web/src/components/chat/MessagesTimeline.tsx",
     "apps/web/src/components/chat/ChatComposer.tsx",
+    "apps/web/src/components/chat/QueuedRunsControl.tsx",
     "apps/web/src/components/ChatView.tsx",
     "apps/web/src/routes/__root.tsx",
   ])

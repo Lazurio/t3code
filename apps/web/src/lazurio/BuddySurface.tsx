@@ -36,6 +36,8 @@ import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import {
+  personsQueuedRuns,
+  type QueueMessage,
   withoutModeBlock,
   withoutPanelShortcuts,
   withoutSessionMode,
@@ -334,6 +336,34 @@ export function useBuddyComposer(
 /** The chat's shortcuts, without the terminal's and the right panel's in Buddy's surface. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
   useChatShortcuts(buddy ? withoutPanelShortcuts(input) : input);
+}
+
+const NO_BANNERS: ReadonlyArray<never> = [];
+
+/**
+ * What T3 shows of the turn's work above the composer: work that still runs after the turn (a
+ * command, a subagent or a watch, with its title, its links and Stop), a provider goal and a child
+ * thread's question. None of it in Buddy's surface, where work that still runs is the timeline's
+ * quiet line instead (MessagesTimeline's `buddyBackgroundWork`). As T3's elsewhere.
+ */
+export function buddyWorkBanners<Banner>(
+  buddy: boolean,
+  banners: ReadonlyArray<Banner>,
+): ReadonlyArray<Banner> {
+  return buddy ? NO_BANNERS : banners;
+}
+
+/**
+ * The queued messages Buddy's composer shows to edit, steer or remove: the person's own. A message
+ * an agent queued for Buddy, such as Delegace's wake, is not the person's words; once it runs, the
+ * thread shows it as row 27 decides. As T3's elsewhere.
+ */
+export function useBuddyQueuedRuns<Queued extends { readonly messageId: string }>(
+  environmentId: string,
+  queued: ReadonlyArray<Queued>,
+  messages: ReadonlyArray<QueueMessage> | undefined,
+): ReadonlyArray<Queued> {
+  return useBuddySurfaceMode(environmentId) === true ? personsQueuedRuns(queued, messages) : queued;
 }
 
 function BuddyHeader() {

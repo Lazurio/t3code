@@ -2,9 +2,9 @@
  * Lazurio overlay (root decision 0210, addendum of 2026-10-22, point 1; plan DEV-6676): the controls
  * of Buddy's chat. The composer is a message box: it keeps the model chip and the options Hermes
  * receives, and leaves out the controls for how a turn may act, T3's runtime access ("Full access")
- * and interaction mode and Hermes's session mode ("Default"), which is its permission mode. The
- * surface has no terminal and no right panel, so T3's keys for them stay the browser's
- * (Lazurio/t3code#109).
+ * and interaction mode and Hermes's session mode ("Default"), which is its permission mode. Its
+ * queue holds the person's own messages. The surface has no terminal and no right panel, so T3's
+ * keys for them stay the browser's (Lazurio/t3code#109).
  */
 import type {
   KeybindingCommand,
@@ -74,4 +74,25 @@ export function withoutPanelShortcuts(input: ChatShortcutsInput): ChatShortcutsI
     keybindings: input.keybindings.filter((binding) => !PANEL_SHORTCUTS.has(binding.command)),
     scriptKeybindings: NO_KEYBINDINGS,
   };
+}
+
+/** A message as the thread's projection holds it, as far as who wrote it goes. */
+export interface QueueMessage {
+  readonly id: string;
+  readonly createdBy: string;
+}
+
+/**
+ * The queued runs whose message the person wrote. A run whose message an agent or T3 wrote is left
+ * out; one whose message the page has not loaded yet stays, as T3 shows it.
+ */
+export function personsQueuedRuns<Queued extends { readonly messageId: string }>(
+  queued: ReadonlyArray<Queued>,
+  messages: ReadonlyArray<QueueMessage> | undefined,
+): ReadonlyArray<Queued> {
+  const notThePersons = new Set(
+    (messages ?? []).filter((message) => message.createdBy !== "user").map((message) => message.id),
+  );
+  if (!queued.some((run) => notThePersons.has(run.messageId))) return queued;
+  return queued.filter((run) => !notThePersons.has(run.messageId));
 }

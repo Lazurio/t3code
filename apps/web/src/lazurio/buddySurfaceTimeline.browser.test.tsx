@@ -1,12 +1,17 @@
+import { presentPendingBackgroundWork } from "@t3tools/client-runtime/state/thread-execution";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import type { LegendListRef } from "@legendapp/list/react";
-import { createRef, type ComponentProps } from "react";
+import { createRef, Fragment, type ComponentProps, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import "~/index.css";
 
+import { ComposerBannerStack } from "~/components/chat/ComposerBannerStack";
 import { MessagesTimeline } from "~/components/chat/MessagesTimeline";
+import { Button, InlineButton } from "~/components/ui/button";
 import { render } from "../../test/render";
+import { buddyWorkBanners } from "./BuddySurface";
 
 // The timeline asks BuddySurface whether it shows Buddy's T3 Code; the rest of the module is real.
 const surface = vi.hoisted(() => ({ buddy: true }));
@@ -115,42 +120,50 @@ const run = (status: "running" | "completed" | "failed") => ({
 });
 
 // Each render gets its own thread: the timeline remembers position and disclosures per thread.
-async function renderTimeline(entries: ReadonlyArray<Entry>, props: Partial<TimelineProps>) {
+// `aboveComposer` stands below the timeline, where the chat puts its composer's banners.
+async function renderTimeline(
+  entries: ReadonlyArray<Entry>,
+  props: Partial<TimelineProps>,
+  aboveComposer?: ReactNode,
+) {
   const container = document.createElement("div");
   container.style.cssText = "height: 900px; width: 700px; display: flex; flex-direction: column;";
   const screen = await render(
-    <MessagesTimeline
-      isWorking={false}
-      activeTurnInProgress={false}
-      listRef={createRef<LegendListRef | null>()}
-      latestRun={null}
-      turnDiffSummaries={[]}
-      runs={[]}
-      routeThreadKey={`environment-buddy:thread-${Math.random().toString(36).slice(2)}`}
-      onOpenTurnDiff={() => {}}
-      onOpenThread={() => {}}
-      onForkFromRun={async () => {}}
-      onRollbackCheckpoint={() => {}}
-      supportsConversationRollback={false}
-      onRevertToTurnCount={() => {}}
-      isRevertingCheckpoint={false}
-      onImageExpand={() => {}}
-      activeThreadEnvironmentId={ENVIRONMENT_ID}
-      markdownCwd={undefined}
-      resolvedTheme="light"
-      timestampFormat="locale"
-      workspaceRoot={undefined}
-      anchorMessageId={null}
-      onAnchorReady={() => {}}
-      onAnchorSizeChanged={() => {}}
-      contentInsetEndAdjustment={0}
-      emptyPlaceholderInset={0}
-      liveFollowEnabled
-      onIsAtEndChange={() => {}}
-      onManualNavigation={() => {}}
-      timelineEntries={entries as Entry[]}
-      {...props}
-    />,
+    <>
+      <MessagesTimeline
+        isWorking={false}
+        activeTurnInProgress={false}
+        listRef={createRef<LegendListRef | null>()}
+        latestRun={null}
+        turnDiffSummaries={[]}
+        runs={[]}
+        routeThreadKey={`environment-buddy:thread-${Math.random().toString(36).slice(2)}`}
+        onOpenTurnDiff={() => {}}
+        onOpenThread={() => {}}
+        onForkFromRun={async () => {}}
+        onRollbackCheckpoint={() => {}}
+        supportsConversationRollback={false}
+        onRevertToTurnCount={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        activeThreadEnvironmentId={ENVIRONMENT_ID}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+        anchorMessageId={null}
+        onAnchorReady={() => {}}
+        onAnchorSizeChanged={() => {}}
+        contentInsetEndAdjustment={0}
+        emptyPlaceholderInset={0}
+        liveFollowEnabled
+        onIsAtEndChange={() => {}}
+        onManualNavigation={() => {}}
+        timelineEntries={entries as Entry[]}
+        {...props}
+      />
+      {aboveComposer}
+    </>,
     { container },
   );
   return Object.assign(screen, {
@@ -242,4 +255,159 @@ describe("Buddy's conversation", () => {
     );
     await vi.waitFor(() => expect(failed.text()).toContain(FAILURE_MESSAGE));
   });
+});
+
+// A settled turn whose work still runs: T3 derives the pending work from the turn's items and shows
+// it above the composer with its title, a subagent's link and Stop, as ChatView's
+// backgroundWorkBannerItem does (the release contract pins that ChatView's work banners pass
+// buddyWorkBanners). The timeline gets whether such work is pending.
+const settledRunWith = (item: Record<string, unknown>) =>
+  derivePendingBackgroundWork({
+    latestRun: { id: RUN, ordinal: 1, status: "completed" },
+    providerThreads: [],
+    turnItems: [{ runId: RUN, ...item } as never],
+  });
+
+function backgroundWorkBanner(tasks: ReturnType<typeof settledRunWith>) {
+  const presentation = presentPendingBackgroundWork(tasks);
+  if (presentation === null) return null;
+  return {
+    id: "background-work:thread-1",
+    variant: "default" as const,
+    priority: "activity" as const,
+    icon: null,
+    title: presentation.title,
+    description: presentation.items.map((item) => (
+      <Fragment key={item.taskId}>
+        {item.childThreadId === undefined ? (
+          item.label
+        ) : (
+          <InlineButton tone="muted" aria-label={`Show subagent ${item.label}`}>
+            Show
+          </InlineButton>
+        )}
+      </Fragment>
+    )),
+    actions: (
+      <Button size="xs" variant="ghost">
+        Stop
+      </Button>
+    ),
+  };
+}
+
+const DEV_SERVER = "Start the shared dev server";
+const REVIEW = "Review the calendar";
+const stillRunning = {
+  command: {
+    item: {
+      id: "command-2",
+      type: "command_execution",
+      status: "running",
+      title: DEV_SERVER,
+      nativeItemRef: { nativeId: "cmd-2" },
+      input: "pnpm dev",
+    },
+    entry: work("command-2", {
+      label: DEV_SERVER,
+      command: "pnpm dev",
+      rawCommand: "pnpm dev",
+      tone: "tool",
+      itemType: "command_execution",
+      toolLifecycleStatus: "inProgress",
+    }),
+    raw: [`Running: ${DEV_SERVER}`, DEV_SERVER, "pnpm dev", "Stop"],
+  },
+  subagent: {
+    item: {
+      id: "subagent-1",
+      type: "subagent",
+      status: "running",
+      title: REVIEW,
+      nativeItemRef: { nativeId: "agent-1" },
+      prompt: REVIEW,
+      childThreadId: "thread-child",
+    },
+    entry: {
+      id: "subagent-1",
+      kind: "event",
+      createdAt: CREATED_AT,
+      projectedItem: {
+        position: 0,
+        visibility: "local",
+        sourceThreadId: "thread-1",
+        sourceItemId: "subagent-1",
+        item: {
+          id: "subagent-1",
+          threadId: "thread-1",
+          runId: RUN,
+          nodeId: "node-subagent-1",
+          providerThreadId: "provider-thread-1",
+          providerTurnId: "provider-turn-1",
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "running",
+          title: REVIEW,
+          startedAt: null,
+          completedAt: null,
+          updatedAt: {},
+          type: "subagent",
+          subagentId: "node-subagent-1",
+          origin: "provider_native",
+          driver: "claudeAgent",
+          providerInstanceId: "claudeAgent",
+          childThreadId: "thread-child",
+          prompt: REVIEW,
+          progress: "Reading today's events",
+          result: null,
+        },
+      },
+    } as Entry,
+    raw: [`Waiting on subagent ${REVIEW}`, REVIEW, "Reading today's events", "Show", "Stop"],
+  },
+};
+
+async function renderSettledTurn(kind: keyof typeof stillRunning) {
+  const { item, entry } = stillRunning[kind];
+  const tasks = settledRunWith(item);
+  // The scenario is T3's own: the settled turn still has work running.
+  expect(tasks).toHaveLength(1);
+  return renderTimeline(
+    [message("user-1", "user", QUESTION), entry, message("assistant-2", "assistant", ANSWER)],
+    { latestRun: run("completed"), buddyBackgroundWork: tasks.length > 0 },
+    <ComposerBannerStack
+      items={buddyWorkBanners(surface.buddy, [null, null, backgroundWorkBanner(tasks)]).filter(
+        (banner) => banner !== null,
+      )}
+    />,
+  );
+}
+
+const subagentLinks = (container: HTMLElement) =>
+  container.querySelectorAll('[aria-label^="Show subagent"]').length;
+
+describe("work that still runs after Buddy's turn", () => {
+  it.each(["command", "subagent"] as const)(
+    "is the quiet line for a %s, and nothing of it shows above the composer",
+    async (kind) => {
+      setup(true);
+      await using screen = await renderSettledTurn(kind);
+      await vi.waitFor(() => expect(screen.text()).toContain(ANSWER));
+      expect(screen.getByRole("status").element().textContent).toBe(WORKING);
+      for (const raw of stillRunning[kind].raw) expect(screen.text()).not.toContain(raw);
+      expect(subagentLinks(screen.container)).toBe(0);
+    },
+  );
+
+  it.each(["command", "subagent"] as const)(
+    "stays T3's banner for a %s outside Buddy's T3 Code",
+    async (kind) => {
+      setup(false);
+      await using screen = await renderSettledTurn(kind);
+      await vi.waitFor(() => expect(screen.text()).toContain(stillRunning[kind].raw[0]));
+      expect(subagentLinks(screen.container)).toBe(kind === "subagent" ? 1 : 0);
+      expect(screen.text()).not.toContain(WORKING);
+    },
+  );
 });
