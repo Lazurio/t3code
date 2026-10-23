@@ -2371,9 +2371,10 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   );
   NodeAssert.doesNotMatch(chat, /<ThreadDetailsPanel\b/);
   // One Buddy check per timeline, for its own Environment; the rows read it from the shared state.
+  NodeAssert.equal(timeline.match(/\buseBuddySurfaceMode\(/g)?.length, 1);
   NodeAssert.match(
     timeline,
-    /const buddySurface = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddySurface\);/,
+    /const buddySurface = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n[^]*?\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddySurface\);/,
   );
   NodeAssert.match(timeline, /\n\s+workGroupViewState,\n\s+buddySurface,\n\s+\};/);
   NodeAssert.match(
@@ -2534,13 +2535,87 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
     /\.\.\.\(actingSender === undefined \? \{\} : \{ actingSender \}\),/,
   );
   // The thread's rows pass the overlay right after upstream keeps them stable, so a hidden wake is
-  // in none of the places that draw them.
+  // in none of the places that draw them. Buddy's surface (row 28) filters what comes out of it.
   NodeAssert.match(
     timeline,
-    /const rows = useLazurioActingSenderRows\(\n\s+useStableRows\(rawRows, listIdentityKey\),\n\s+parseScopedThreadKey\(listIdentityKey\),\n\s+\);/,
+    /const rows = buddySurfaceRows\(\n(?:\s+\/\/[^\n]*\n)*\s+useLazurioActingSenderRows\(\n\s+useStableRows\(rawRows, listIdentityKey\),\n\s+parseScopedThreadKey\(listIdentityKey\),\n\s+\),\n/,
   );
   NodeAssert.equal(timeline.match(/useLazurioActingSenderRows\(/g)?.length, 1);
   NodeAssert.equal(timeline.match(/<LazurioActingSenderLabel\b/g)?.length, 1);
   NodeAssert.equal(timeline.match(/<LazurioActingSenderMark\b/g)?.length, 1);
   for (const file of files) NodeAssert.ok(overlayMayChange(file), file);
+});
+
+// Root decision 0210, addendum of 2026-10-22, point 1 (row 28): Buddy's chat reads like a chat with a
+// friend. The timeline's rows pass through Buddy's conversation, which keeps what Buddy writes, adds
+// one quiet row while he works and says a failed turn in human words, and the rows Buddy draws come
+// before T3's. The composer reads Buddy's placeholder and options and leaves out the block of T3's
+// access and interaction mode, the chat's shortcuts go through Buddy's surface, which leaves the
+// terminal's and the right panel's keys to the browser, and the turn's task list stays out.
+NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", async () => {
+  const [timeline, composer, chat, root, sessionConfig, controls] = await Promise.all(
+    [
+      "apps/web/src/components/chat/MessagesTimeline.tsx",
+      "apps/web/src/components/chat/ChatComposer.tsx",
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/routes/__root.tsx",
+      "packages/provider-acp/src/server/sessionConfig.ts",
+      "apps/web/src/lazurio/buddySurfaceControls.ts",
+    ].map(read),
+  );
+  // Buddy's rows are what the thread shows after Delegace's wake is left out (row 27).
+  NodeAssert.match(
+    timeline,
+    /\n\s+const rows = buddySurfaceRows\(\n(?:\s+\/\/[^\n]*\n)*\s+useLazurioActingSenderRows\(\n\s+useStableRows\(rawRows, listIdentityKey\),\n\s+parseScopedThreadKey\(listIdentityKey\),\n\s+\),\n\s+buddySurface,\n\s+isWorking && !awaitingUser,\n\s+\);\n/,
+  );
+  NodeAssert.equal(timeline.match(/\bconst rows = /g)?.length, 1);
+  NodeAssert.match(
+    timeline,
+    /\{buddyRowContent\(item, buddySurface\) \?\? <TimelineRowContent row=\{item\} \/>\}/,
+  );
+  NodeAssert.equal(timeline.match(/<TimelineRowContent\b/g)?.length, 1);
+  NodeAssert.match(
+    composer,
+    /\n\s+const buddyComposer = useBuddyComposer\(environmentId, selectedProviderModels\);\n/,
+  );
+  // Both of the options chip's renders, the strip's and the overflow menu's, read Buddy's models.
+  NodeAssert.match(
+    composer,
+    /renderProviderTraitsMenuContent\(\{\n(?:.*\n){0,6}?\s+models: buddyComposer\.optionModels,\n/,
+  );
+  NodeAssert.match(
+    composer,
+    /const providerTraitsPickerInput = \{\n(?:.*\n){0,6}?\s+models: buddyComposer\.optionModels,\n/,
+  );
+  NodeAssert.match(composer, /const restingBlockDefs = buddyComposer\.blocks\(\[\n/);
+  // T3's access and interaction mode stay one block, the one Buddy's composer leaves out.
+  NodeAssert.match(
+    composer,
+    /\{\n\s+id: "mode",\n\s+content: \(\n\s+<ComposerFooterModeControls\b/,
+  );
+  NodeAssert.match(composer, /: \(buddyComposer\.placeholder \?\? "Ask anything\.\.\."\)\)\}/);
+  NodeAssert.match(
+    composer,
+    /: \(buddyComposer\.placeholder \?\?\n\s+"Ask anything, @tag files\/folders, \$use skills, or \/ for commands"\)/,
+  );
+  NodeAssert.match(
+    chat,
+    /\n\s+useBuddyChatShortcuts\(buddySurface, \{\n\s+enabled: activeThreadId !== null,/,
+  );
+  NodeAssert.doesNotMatch(chat, /\buseChatShortcuts\(/);
+  NodeAssert.match(
+    chat,
+    /activeTasksProgress=\{\n\s+buddySurface \? null : activeComposerTasksProgress\n\s+\}/,
+  );
+  NodeAssert.match(root, /\{buddySurface \? null : <ReopenClosedViewShortcut \/>\}/);
+  // The session mode Buddy's options chip leaves out is the option the ACP adapter makes of it.
+  const sessionModeId = /export const ACP_SESSION_MODE_OPTION_ID = ("[^"]+");/;
+  NodeAssert.equal(sessionModeId.exec(controls)?.[1], sessionModeId.exec(sessionConfig)?.[1]);
+  for (const file of [
+    "apps/web/src/components/chat/MessagesTimeline.tsx",
+    "apps/web/src/components/chat/ChatComposer.tsx",
+    "apps/web/src/components/ChatView.tsx",
+    "apps/web/src/routes/__root.tsx",
+  ])
+    NodeAssert.ok(overlayMayChange(file), file);
 });

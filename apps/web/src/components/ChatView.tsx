@@ -42,7 +42,7 @@ import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
-import { useChatShortcuts, type ChatShortcutHandler } from "./chat/useChatShortcuts";
+import type { ChatShortcutHandler } from "./chat/useChatShortcuts";
 import {
   eventPathContainsSelector,
   pasteTextToFocusComposer,
@@ -255,6 +255,7 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
+  useBuddyChatShortcuts,
   useBuddyPage,
   useBuddySurfaceMode,
 } from "../lazurio/BuddySurface";
@@ -5801,7 +5802,9 @@ export default function ChatView(props: ChatViewProps) {
     (({ event }) => {
       if (!event.repeat) composerRef.current?.openControl(command);
     }) satisfies ChatShortcutHandler;
-  useChatShortcuts({
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal or right panel, so their keys
+  // stay the browser's there (buddySurfaceControls.ts).
+  useBuddyChatShortcuts(buddySurface, {
     enabled: activeThreadId !== null,
     keybindings,
     scriptKeybindings,
@@ -8579,7 +8582,9 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
-                              activeTasksProgress={activeComposerTasksProgress}
+                              activeTasksProgress={
+                                buddySurface ? null : activeComposerTasksProgress
+                              }
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}
