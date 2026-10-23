@@ -15,6 +15,12 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  BuddyDayLine,
+  useBuddyDayJump,
+  useBuddyDayLines,
+  useBuddySurfaceMode,
+} from "../../lazurio/BuddySurface";
 import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
 import { observeResize } from "~/lib/observeResize";
@@ -600,6 +606,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
     worktreeSetup,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
+  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
+  const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
+  const buddyDayLines = useBuddyDayLines(rows, buddySurface);
+  useBuddyDayJump({
+    buddy: buddySurface,
+    rows,
+    listRef,
+    onManualNavigation,
+    history: historyControls,
+  });
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -931,6 +947,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    buddySurface,
   };
   const compactionAwaitingRow =
     isCompacting && !rows.some((row) => row.kind === "context-compaction" && row.active);
@@ -1024,12 +1041,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
           className="@container/chat-lane chat-content-lane overflow-x-clip"
           data-timeline-root="true"
         >
+          {buddyDayLines.has(item.id) ? <BuddyDayLine label={buddyDayLines.get(item.id)!} /> : null}
           <TimelineRowContent row={item} />
         </div>
       </div>
     </TimelineRowCtx>
   );
-  const listExtraData = { identity: listIdentityKey, rowCount: rows.length, sharedState };
+  const listExtraData = {
+    identity: listIdentityKey,
+    rowCount: rows.length,
+    sharedState,
+    buddyDays: [...buddyDayLines.keys()].join(),
+  };
 
   const forwardMinimapWheel = (event: WheelEvent) => {
     const scrollNode = listRef.current?.getScrollableNode();

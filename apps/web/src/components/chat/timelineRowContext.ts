@@ -64,6 +64,8 @@ export interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  /** Lazurio overlay (plan DEV-6676): Buddy's one conversation, without forks. */
+  buddySurface: boolean;
 }
 
 export interface TimelineRowActivityState {

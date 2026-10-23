@@ -1,9 +1,8 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): Buddy's one conversation. Buddy's T3 Code
- * (buddySurface.ts) holds Buddy's layer of the Lazurio Folder, `~/Lazurio/.agents/buddy`, as its
- * project, which the Platform's installer adds, and in it one thread on the provider instance
- * `buddy`. The web surface opens that thread, and budíček posts its wakes into it after asking
- * `t3 lazurio buddy thread`.
+ * (buddySurface.ts) holds Buddy's layer of the Lazurio Folder as its project (`buddyProjectFolder`),
+ * and in it one thread on the provider instance `buddy`. The web surface opens that thread, and
+ * budíček posts its wakes into it after asking `t3 lazurio buddy thread`.
  *
  * The thread is found, or made once: its id and the command that makes it are fixed, so two first
  * visits at once still make one thread. An archived Buddy thread comes back instead of being
@@ -11,6 +10,7 @@
  */
 import { CommandId, type ModelSelection, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
@@ -18,15 +18,29 @@ import * as Schema from "effect/Schema";
 
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
-import { BUDDY_PROVIDER_INSTANCE_ID, isBuddySurfaceEnvironment } from "./buddySurface.ts";
+import {
+  BUDDY_PROVIDER_INSTANCE_ID,
+  buddyProjectFolder,
+  isBuddySurfaceEnvironment,
+} from "./buddySurface.ts";
 
 export const BUDDY_THREAD_ROUTE = "/api/lazurio/buddy/thread";
 
 /** Buddy's thread: the one thread of Buddy's T3 Code. */
 export const BUDDY_THREAD_ID = ThreadId.make("buddy");
 
-/** Buddy's layer of the Lazurio Folder, under the home of the person the server runs as. */
-export const BUDDY_PROJECT_PATH = ["Lazurio", ".agents", "buddy"] as const;
+/** The one command that makes Buddy's thread; it replays once it ran. */
+export const BUDDY_THREAD_CREATE_COMMAND_ID = CommandId.make("lazurio:buddy-thread:create");
+
+/**
+ * Set only while this resolver makes Buddy's thread. In Buddy's T3 Code the orchestrator's guard
+ * (buddySurfaceGuards.ts) lets `thread.create` through only here, so no client can spend the fixed
+ * command on a thread of its own making.
+ */
+export class MakingBuddysThread extends Context.Reference<boolean>(
+  "@t3tools/server/lazurio/MakingBuddysThread",
+  { defaultValue: () => false },
+) {}
 
 export const BuddyThread = Schema.Struct({ threadId: ThreadId, projectId: ProjectId });
 export type BuddyThread = typeof BuddyThread.Type;
@@ -52,20 +66,19 @@ const unavailable = (cause: unknown) =>
 /** A new Buddy thread's model: the instance's own default, which Hermes' config chooses. */
 const buddyModel = { instanceId: BUDDY_PROVIDER_INSTANCE_ID, model: "default" } as const;
 
-/** Buddy's project: the active project at Buddy's layer. */
+/** Buddy's project: the active project at Buddy's project folder. */
 const buddyProject = Effect.fn("LazurioBuddySurface.buddyProject")(function* () {
-  const environment = yield* HostProcess.Environment;
+  const folder = yield* buddyProjectFolder;
   const path = yield* Path.Path;
-  const home = environment.HOME ?? "";
-  const expected = path.resolve(home, ...BUDDY_PROJECT_PATH);
   const projects = yield* (yield* ProjectStoreV2).list().pipe(Effect.mapError(unavailable));
-  const project = projects.find(
-    (candidate) => home !== "" && path.resolve(candidate.workspaceRoot) === expected,
-  );
+  const project =
+    folder === null
+      ? undefined
+      : projects.find((candidate) => path.resolve(candidate.workspaceRoot) === folder);
   if (project === undefined)
     return yield* new BuddyThreadUnavailable({
       reason: "no-project",
-      detail: `Buddy's project ${expected} is not in this T3 Code.`,
+      detail: `Buddy's project ${folder ?? "~/Lazurio/.agents/buddy"} is not in this T3 Code.`,
     });
   return project;
 });
@@ -119,7 +132,7 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
       type: "thread.create",
       createdBy: "user",
       creationSource: "server",
-      commandId: CommandId.make("lazurio:buddy-thread:create"),
+      commandId: BUDDY_THREAD_CREATE_COMMAND_ID,
       threadId: BUDDY_THREAD_ID,
       projectId: project.projectId,
       title: "Buddy",
@@ -130,7 +143,7 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
       branch: null,
       worktreePath: null,
     })
-    .pipe(Effect.mapError(unavailable));
+    .pipe(Effect.provideService(MakingBuddysThread, true), Effect.mapError(unavailable));
   // The fixed command replays once it ran, so a Buddy thread that was deleted stays deleted.
   const created = yield* orchestrator
     .getThreadShell(BUDDY_THREAD_ID)
