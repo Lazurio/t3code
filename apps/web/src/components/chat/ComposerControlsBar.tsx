@@ -25,6 +25,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
+import { useBuddyComposer } from "../../lazurio/BuddySurface";
 
 /**
  * The composer footer controls: model picker, traits, mode controls and the overflow menu for
@@ -128,13 +129,16 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
+  // Lazurio overlay (plan DEV-6676): Buddy's options chip and resting blocks offer no access or
+  // mode (buddySurfaceControls.ts).
+  const buddyComposer = useBuddyComposer(environmentId, selectedProviderModels);
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
-    models: selectedProviderModels,
+    models: buddyComposer.optionModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     reportedModelSelection,
     promptUltrathink,
@@ -147,7 +151,7 @@ export function ComposerControlsBar(props: {
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
-    models: selectedProviderModels,
+    models: buddyComposer.optionModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     reportedModelSelection,
     promptUltrathink,
@@ -161,7 +165,7 @@ export function ComposerControlsBar(props: {
     size: composerControlsCollapsed ? "xs" : "sm",
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
-  const restingBlockDefs = [
+  const restingBlockDefs = buddyComposer.blocks([
     ...(providerTraitsPicker
       ? [
           {
@@ -190,7 +194,7 @@ export function ComposerControlsBar(props: {
         />
       ),
     },
-  ];
+  ]);
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);

@@ -45,7 +45,6 @@ import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
-import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
 import * as Schema from "effect/Schema";
 import {
@@ -159,6 +158,8 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
+  buddyWorkBanners,
+  useBuddyChatShortcuts,
   useBuddyPage,
   useBuddySurfaceMode,
 } from "../lazurio/BuddySurface";
@@ -2625,9 +2626,12 @@ export default function ChatView(props: ChatViewProps) {
       : null;
   const composerBannerItems = (() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
-    const backgroundWorkItems = [childInputBanner, goalBanner, backgroundWorkBanner].filter(
-      (item) => item !== null,
-    );
+    // Lazurio overlay (plan DEV-6676): Buddy's surface shows none of this work (BuddySurface.tsx).
+    const backgroundWorkItems = buddyWorkBanners(buddySurface, [
+      childInputBanner,
+      goalBanner,
+      backgroundWorkBanner,
+    ]).filter((item) => item !== null);
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
@@ -2722,7 +2726,9 @@ export default function ChatView(props: ChatViewProps) {
   const openThreadFind = () => threadFindControlsRef.current?.open();
   const closeThreadFind = () => threadFindControlsRef.current?.close();
 
-  useChatShortcuts({
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal or right panel, so their keys
+  // stay the browser's there (buddySurfaceControls.ts).
+  useBuddyChatShortcuts(buddySurface, {
     enabled: activeThreadId !== null,
     keybindings,
     scriptKeybindings,
@@ -3306,6 +3312,10 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                // Lazurio overlay (plan DEV-6676): work that still runs after the turn, which
+                // Buddy's surface says with its quiet line instead of the banner. The banner
+                // exists exactly while such work runs (useThreadLifecycle.tsx).
+                buddyBackgroundWork={!paintOnlyDisplayedTimeline && backgroundWorkBanner !== null}
                 runlessWorkActive={runlessWorkStartedAt !== null}
                 activeTurnInProgress={
                   !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
@@ -3611,7 +3621,9 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
-                              activeTasksProgress={activeComposerTasksProgress}
+                              activeTasksProgress={
+                                buddySurface ? null : activeComposerTasksProgress
+                              }
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}

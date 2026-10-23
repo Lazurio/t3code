@@ -5,24 +5,45 @@
  * when framed; the days of the conversation in a pane on the left where there is room; and a date
  * line above the first message of each day. `/` opens Buddy's thread, which the server finds or
  * makes. The server holds the one conversation for every client (buddySurfaceGuards.ts); this only
- * leaves out what would be refused.
+ * leaves out what would be refused. The conversation shows what Buddy writes, not his work
+ * (buddySurfaceTimeline.ts), and the composer and the keys offer no control Buddy's chat has no use
+ * for (buddySurfaceControls.ts).
  */
 import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
+import type { ServerProviderModel } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { Maximize2, Minimize2, X } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useState, useSyncExternalStore } from "react";
+import { CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
+import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import {
   ThreadDetailsPanel,
   type ThreadDetailsPanelProps,
 } from "~/components/chat/ThreadDetailsPanel";
+import { ThreadErrorBanner } from "~/components/chat/ThreadErrorBanner";
+import { type ChatShortcutsInput, useChatShortcuts } from "~/components/chat/useChatShortcuts";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
+import {
+  personsQueuedRuns,
+  type QueueMessage,
+  withoutModeBlock,
+  withoutPanelShortcuts,
+  withoutSessionMode,
+} from "./buddySurfaceControls";
 import { pageRecordOf } from "./buddySurfacePage";
+import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
@@ -76,6 +97,10 @@ const TEXT = {
     failed: "Buddyho se nepodařilo otevřít.",
     retry: "Zkusit znovu",
     removePage: "Neposílat stránku",
+    working: "Buddy na tom pracuje…",
+    turnFailed: "Tohle se Buddymu nepovedlo dokončit. Zkuste to prosím znovu.",
+    somethingFailed: "Něco se nepovedlo. Zkuste to prosím znovu.",
+    placeholder: "Napište Buddymu…",
   },
   en: {
     fullscreen: "Full screen",
@@ -89,6 +114,10 @@ const TEXT = {
     failed: "Buddy could not be opened.",
     retry: "Try again",
     removePage: "Don't send the page",
+    working: "Buddy is on it…",
+    turnFailed: "Buddy couldn't finish this. Please try again.",
+    somethingFailed: "Something went wrong. Please try again.",
+    placeholder: "Message Buddy…",
   },
 } as const;
 
@@ -229,6 +258,113 @@ export function BuddyDayLine({ label }: { readonly label: string }) {
       <span className="h-px flex-1 bg-border" />
     </div>
   );
+}
+
+/**
+ * The timeline's rows: in Buddy's surface, Buddy's conversation (buddySurfaceTimeline.ts), with the
+ * quiet row while Buddy works; elsewhere, T3's rows as they are.
+ */
+export const buddySurfaceRows = (
+  rows: MessagesTimelineRow[],
+  buddy: boolean,
+  working: boolean,
+): MessagesTimelineRow[] => (buddy ? buddyConversationRows(rows, working) : rows);
+
+/** Static text without a timer: nothing on the row repaints while Buddy works. */
+function BuddyWorkingRow() {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  return (
+    <div className="pb-4" data-timeline-row-id={BUDDY_WORKING_ROW.id}>
+      <p className="px-1 text-muted-foreground text-sm" role="status">
+        {text.working}
+      </p>
+    </div>
+  );
+}
+
+function BuddyFailedRow({ id }: { readonly id: string }) {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  return (
+    <div className="pb-4" data-timeline-row-id={id}>
+      <p className="flex items-center gap-2 px-1 text-sm">
+        <CircleAlert aria-hidden className="size-4 shrink-0 text-destructive" />
+        {text.turnFailed}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The thread's error above the conversation: in Buddy's surface it says in human words that
+ * something went wrong, never T3's or the provider's own message ("Provider turn failed.", or
+ * T3's ChatGPT usage limit, which an error code selects).
+ */
+export function BuddyThreadErrorBanner(props: ComponentProps<typeof ThreadErrorBanner>) {
+  const buddy = useBuddySurfaceMode() === true;
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
+  return buddy && props.error !== null ? (
+    <ThreadErrorBanner {...props} error={text.somethingFailed} errorCode={null} />
+  ) : (
+    <ThreadErrorBanner {...props} />
+  );
+}
+
+/** Buddy's own presentation of a row in Buddy's surface; null where T3 draws the row. */
+export function buddyRowContent(row: MessagesTimelineRow, buddy: boolean): ReactNode {
+  if (!buddy) return null;
+  if (row.id === BUDDY_WORKING_ROW.id) return <BuddyWorkingRow />;
+  return buddyFailureOf(row) === null ? null : <BuddyFailedRow id={row.id} />;
+}
+
+/**
+ * Buddy's composer: the message box asks for a message to Buddy, and the options chip and the
+ * resting blocks leave out how a turn may act (buddySurfaceControls.ts). As T3's elsewhere.
+ */
+export function useBuddyComposer(
+  environmentId: string,
+  models: ReadonlyArray<ServerProviderModel>,
+) {
+  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
+  return {
+    placeholder: buddy ? text.placeholder : null,
+    optionModels: buddy ? withoutSessionMode(models) : models,
+    blocks: <Block extends { readonly id: string }>(blocks: Block[]) =>
+      buddy ? withoutModeBlock(blocks) : blocks,
+  };
+}
+
+/** The chat's shortcuts, without the terminal's and the right panel's in Buddy's surface. */
+export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
+  useChatShortcuts(buddy ? withoutPanelShortcuts(input) : input);
+}
+
+const NO_BANNERS: ReadonlyArray<never> = [];
+
+/**
+ * What T3 shows of the turn's work above the composer: work that still runs after the turn (a
+ * command, a subagent or a watch, with its title, its links and Stop), a provider goal and a child
+ * thread's question. None of it in Buddy's surface, where work that still runs is the timeline's
+ * quiet line instead (MessagesTimeline's `buddyBackgroundWork`). As T3's elsewhere.
+ */
+export function buddyWorkBanners<Banner>(
+  buddy: boolean,
+  banners: ReadonlyArray<Banner>,
+): ReadonlyArray<Banner> {
+  return buddy ? NO_BANNERS : banners;
+}
+
+/**
+ * The queued messages Buddy's composer shows to edit, steer or remove: the person's own. A message
+ * an agent queued for Buddy, such as Delegace's wake, is not the person's words; once it runs, the
+ * thread shows it as row 27 decides. As T3's elsewhere.
+ */
+export function useBuddyQueuedRuns<Queued extends { readonly messageId: string }>(
+  environmentId: string,
+  queued: ReadonlyArray<Queued>,
+  messages: ReadonlyArray<QueueMessage> | undefined,
+): ReadonlyArray<Queued> {
+  return useBuddySurfaceMode(environmentId) === true ? personsQueuedRuns(queued, messages) : queued;
 }
 
 function BuddyHeader() {

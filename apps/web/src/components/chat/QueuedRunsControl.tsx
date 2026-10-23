@@ -24,6 +24,7 @@ import { useThreadProjection } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { isImageAttachment, type ChatMessage } from "../../types";
 import { cn } from "~/lib/utils";
+import { useBuddyQueuedRuns } from "~/lazurio/BuddySurface";
 import { ComposerBanner } from "./ComposerBanner";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -105,7 +106,12 @@ export function QueuedRunsControl({
     queuedImageAttachmentResources,
   );
   const workflow = projection ? deriveThreadQueueWorkflowState(projection) : null;
-  const queued = workflow?.queuedRuns ?? [];
+  // Lazurio overlay (plan DEV-6676): Buddy's queue holds only the person's own messages.
+  const queued = useBuddyQueuedRuns(
+    props.environmentId,
+    workflow?.queuedRuns ?? [],
+    projection?.messages,
+  );
   const activeRun = workflow?.activeRun ?? null;
   const canReorder = workflow?.canReorder === true;
   const canSend = workflow?.canSendNow === true || workflow?.canPromoteToSteer === true;

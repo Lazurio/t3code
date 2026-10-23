@@ -6,7 +6,8 @@ import type {
 } from "@t3tools/contracts";
 import type { Dispatch, SetStateAction } from "react";
 import { ProviderStatusBanner } from "./ProviderStatusBanner";
-import { dismissThreadErrorBannerForSession, ThreadErrorBanner } from "./ThreadErrorBanner";
+import { dismissThreadErrorBannerForSession } from "./ThreadErrorBanner";
+import { BuddyThreadErrorBanner } from "../../lazurio/BuddySurface";
 
 /**
  * The banners pinned above the timeline. The dismiss handlers are built here from plain
@@ -45,7 +46,8 @@ export function ChatBannerLane(props: {
         onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
         onOpenProviderSetup={onOpenProviderSetup}
       />
-      <ThreadErrorBanner
+      {/* Lazurio overlay (plan DEV-6676): in Buddy's surface the error says it in human words. */}
+      <BuddyThreadErrorBanner
         error={threadError}
         errorClass={threadErrorClass}
         errorCode={threadErrorCode}

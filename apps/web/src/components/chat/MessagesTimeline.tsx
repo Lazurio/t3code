@@ -17,6 +17,8 @@ import {
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   BuddyDayLine,
+  buddyRowContent,
+  buddySurfaceRows,
   useBuddyDayJump,
   useBuddyDayLines,
   useBuddySurfaceMode,
@@ -200,6 +202,8 @@ interface MessagesTimelineProps {
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
   awaitingUser?: boolean;
+  /** Lazurio overlay (plan DEV-6676): work still runs after the turn; Buddy's quiet line says so. */
+  buddyBackgroundWork?: boolean;
   footer?: ReactNode;
 
   listRef: React.RefObject<LegendListRef | null>;
@@ -307,6 +311,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   isPreparingWorktree = false,
   isCompacting = false,
   awaitingUser = false,
+  buddyBackgroundWork = false,
   listRef,
   timelineEntries,
   findExpanded = false,
@@ -606,14 +611,19 @@ const ConversationTimeline = memo(function ConversationTimeline({
     availableRevertTurnCounts,
     worktreeSetup,
   });
-  // Lazurio (root decision 0210): Delegace's wake is not shown, and an agent's message waits until
-  // the server says who sent it.
-  const rows = useLazurioActingSenderRows(
-    useStableRows(rawRows, listIdentityKey),
-    parseScopedThreadKey(listIdentityKey),
-  );
-  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
+  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows what Buddy writes, with one quiet row
+  // while he works (buddySurfaceTimeline.ts), and its days, and jumps to one.
   const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
+  const rows = buddySurfaceRows(
+    // Lazurio (root decision 0210): Delegace's wake is not shown, and an agent's message waits until
+    // the server says who sent it.
+    useLazurioActingSenderRows(
+      useStableRows(rawRows, listIdentityKey),
+      parseScopedThreadKey(listIdentityKey),
+    ),
+    buddySurface,
+    (isWorking || buddyBackgroundWork) && !awaitingUser,
+  );
   const buddyDayLines = useBuddyDayLines(rows, buddySurface);
   useBuddyDayJump({
     buddy: buddySurface,
@@ -1048,7 +1058,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           data-timeline-root="true"
         >
           {buddyDayLines.has(item.id) ? <BuddyDayLine label={buddyDayLines.get(item.id)!} /> : null}
-          <TimelineRowContent row={item} />
+          {buddyRowContent(item, buddySurface) ?? <TimelineRowContent row={item} />}
         </div>
       </div>
     </TimelineRowCtx>
