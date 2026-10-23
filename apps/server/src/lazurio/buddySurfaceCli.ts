@@ -1,5 +1,5 @@
 /**
- * Lazurio overlay (root decision 0210, plan DEV-6676): `t3 lazurio buddy thread`. budíček asks it
+ * Lazurio overlay (root decision 0210, plan DEV-6676): `t3 lazurio buddy thread`. Delegace asks it
  * which thread to post a wake into: Buddy's one thread (buddySurfaceThread.ts), found or made by
  * the running Buddy T3 Code, as the web surface finds it. It runs as an agent command
  * (agentCli.ts): `--json` prints `{"threadId", "projectId"}` or `{"error": {"code", "message"}}`,

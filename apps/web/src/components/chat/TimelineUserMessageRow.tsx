@@ -45,6 +45,7 @@ import {
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { usePromptLinksOffered } from "../../lazurio/managedPromptLinks";
+import { LazurioActingSenderLabel } from "../../lazurio/LazurioActingSender";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { shouldCollapseUserMessage } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -227,7 +228,7 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
 
 function FoldedMessageHeader(props: {
   icon: LucideIcon;
-  label: string;
+  label: ReactNode;
   summary: string;
   expanded: boolean;
   onToggle: () => void;
@@ -444,7 +445,16 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         {folded ? (
           <FoldedMessageHeader
             icon={MessagesSquareIcon}
-            label={senderShell?.title.trim() || "Agent"}
+            label={
+              // Lazurio (root decision 0210): „Buddy za <user>“ where it was Buddy.
+              <LazurioActingSenderLabel
+                environmentId={ctx.activeThreadEnvironmentId}
+                threadId={ctx.threadRef?.threadId}
+                message={row.message}
+              >
+                {senderShell?.title.trim() || "Agent"}
+              </LazurioActingSenderLabel>
+            }
             summary={foldSummary}
             expanded={expanded}
             onToggle={() => setExpanded((value) => !value)}

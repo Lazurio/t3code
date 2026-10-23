@@ -17,6 +17,10 @@
  *   request as the Approve button sends it, and the live thread list as the sidebar follows it.
  *
  * It talks only to the loopback origin the running server recorded for this T3 home.
+ *
+ * When its environment names who it acts as (`T3CODE_ACTING_SENDER`, actingSender.ts: Buddy for
+ * the person, or Delegace), both sessions carry that claim, so what the command sends or decides
+ * shows it in the thread (root decision 0210, evening addendum, point 5; actingSenders.ts).
  */
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
@@ -57,6 +61,7 @@ import { resolveCliAuthConfig } from "../cli/config.ts";
 import * as ServerConfig from "../config.ts";
 import { mcpToolSession } from "../mcp/AcpMcpStdioBridge.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import { actingSenderFromEnvironment } from "./actingSender.ts";
 
 /** Exit codes of the agent commands; `docs/user/agent-cli.md` documents them. */
 export const AGENT_CLI_EXIT_CODES = {
@@ -223,6 +228,12 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
   use: (connection: AgentCliConnection) => Effect.Effect<A, E, R>,
   options?: { readonly sessionTtl?: Duration.Duration },
 ) {
+  // Read first, so an environment that names no valid sender fails before anything is read.
+  const actingSender = Option.getOrUndefined(
+    yield* actingSenderFromEnvironment.pipe(
+      Effect.mapError((error) => agentCliFailure("invalid_request", error.message)),
+    ),
+  );
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
   const state = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath).pipe(
@@ -243,7 +254,12 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
     const issue = (input: Parameters<typeof auth.issueSession>[0]) =>
       Effect.acquireRelease(
         auth
-          .issueSession({ ...input, ttl, label: AGENT_CLI_SESSION_LABEL })
+          .issueSession({
+            ...input,
+            ttl,
+            label: AGENT_CLI_SESSION_LABEL,
+            ...(actingSender === undefined ? {} : { actingSender }),
+          })
           .pipe(
             Effect.mapError((cause) =>
               agentCliFailure(

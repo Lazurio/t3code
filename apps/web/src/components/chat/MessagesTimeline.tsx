@@ -60,6 +60,7 @@ import {
   rememberTimelinePosition,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
+import { useLazurioActingSenderRows } from "../../lazurio/LazurioActingSender";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
@@ -605,7 +606,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
     availableRevertTurnCounts,
     worktreeSetup,
   });
-  const rows = useStableRows(rawRows, listIdentityKey);
+  // Lazurio (root decision 0210): Delegace's wake is not shown, and an agent's message waits until
+  // the server says who sent it.
+  const rows = useLazurioActingSenderRows(
+    useStableRows(rawRows, listIdentityKey),
+    parseScopedThreadKey(listIdentityKey),
+  );
   // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
   const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
   const buddyDayLines = useBuddyDayLines(rows, buddySurface);
