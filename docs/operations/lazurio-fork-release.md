@@ -152,6 +152,7 @@ Lazurio/t3code#97 (přestavby na v0.1.0 Lazurio/t3code#70).
 | 25  | `feat(lazurio): Buddy's T3 Code is Buddy's one conversation, framed by the bubble`              | Rozhodnutí 0210 (plán DEV-6676): Buddyho T3 Code je jediný rozhovor. Web místo aplikace T3 ukáže Buddyho povrch: hlavičku s Mattyčusem, dny rozhovoru a čáru nad prvním dnem, bez seznamu vláken, nového vlákna, větvení a návratu; další zpráva tah usměrní, frontu člověk volí výslovně. V bublině mluví s hostitelem protokolem `lazurio.buddy.*` v1. Server totéž drží pro každého klienta a v Buddyho projektu nedělá checkpointy (viz [Buddyho T3 Code](#buddyho-t3-code)).                                                                                                        | Upstream ekvivalent nemá: zůstává. Kód je v `apps/*/src/lazurio/` (`buddySurface*`, `BuddySurface.tsx`). Švy jsou dekorátory tam, kde se služby skládají (stráž příkazů v `orchestration-v2/runtimeLayer.ts`, `CheckpointStore` v `server.ts`), fáze startu v `serverRuntimeStartup.ts` před obnovou, klíč `lazurioBuddy` v konfiguraci klienta (`ws.ts`, `packages/contracts/src/server.ts`) a ve webu `routes/__root.tsx` (povrch místo sidebaru a palety), `routes/_chat.index.tsx` (`/` otevře Buddyho vlákno), `routes/_chat.tsx`, `ChatView.tsx` a `MessagesTimeline.tsx`. Při přestavbě ověřte, že usměrnění dál volí `followUpBehavior`, že `throughEntryId` historie dál přijímá id zprávy a že upstream nepřidal další cestu k větvení nebo návratu mimo příkazy orchestrace.                                                                                                                                                                      |
 | 26  | `feat(lazurio): the page Buddy is asked from travels as a chip the person can remove`           | Rozhodnutí 0210 (plán DEV-6676): Buddyho povrch ukáže nad composerem poslední platný kontext stránky hostitele jako čip, který člověk může odebrat. Dokud tam je, nese zpráva, kterou člověk napíše, stránku jako záznam `lazurio-page` s odkazem v textu a Hermes ji dostane jako český blok řádku 23. Odeslaná zpráva ukáže stejný čip (viz [Buddyho T3 Code](#buddyho-t3-code)).                                                                                                                                                                                                      | Upstream ekvivalent nemá: zůstává. Kód je v `apps/web/src/lazurio/` (`buddySurfacePage.ts`, `BuddySurfacePageChip.tsx`). Švy: v `ChatView.tsx` odkaz v textu a záznam při odeslání a čip nad composerem, a záložní vykreslení neznámého kontextu v `composerContextPresentation.tsx` a `MessagesTimeline.tsx`, kde by upstream jinak ukázal nedostupný kontext. Záznam je obecný `UnknownContextRecord` kontraktů, takže se kontrakt nemění. Při přestavbě ověřte, že `messageTextForSend` dál drží jen slova člověka, která neúspěšné odeslání vrací do composeru, že stránka přibývá jen do odesílaného textu a do záznamů v `buildOutgoingMessageContext` a že neznámé druhy dál končí v záložním vykreslení registrů.                                                                                                                                                                                                                                    |
 | 27  | `feat(lazurio): a thread shows when Buddy or Delegace sent a message or decided a request`      | Rozhodnutí 0210, večerní dodatek, bod 5 (úkol task-2026-10-20-330): co Buddy napíše nebo schválí ve vlákně, nese viditelnou značku „Buddy za <jméno uživatele>“, a probuzení od Delegace v Buddyho vlastním vlákně se neukáže (rozhodnuto 2026-10-22). Agentní příkaz, jehož prostředí jmenuje, za koho jedná (`T3CODE_ACTING_SENDER`), vydá sezení s podepsaným tvrzením; server podle něj zapíše zprávy a rozhodnutí žádostí, které sezení poslalo, a web je ve vlákně označí, nebo probuzení skryje (viz [Kdo jednal: Buddy a Delegace](#kdo-jednal-buddy-a-delegace)).               | Upstream ekvivalent nemá: zprávu od agenta označí jen „Sent by another agent“ a u rozhodnutí žádosti autora nezná. Jde o pojem Lazuria (Buddy jednající za člověka), proto zůstává v overlayi; upstreamu by šlo nabídnout jen obecné tvrzení sezení. Šev: tvrzení `act` vedle `rtc` v `SessionStore.ts`, `actingSender` v `EnvironmentAuth.ts` (vydání a ověřené sezení), přenos do vyvolání klienta MCP (`McpOAuth.ts`, `McpInvocationContext.ts`), jedno volání v `ws.ts`, jedno obalení orchestrátoru v `runtimeLayer.ts` a tři švy v `MessagesTimeline.tsx` (řádky vlákna, popisek a značka). Záznam leží v souborech v T3 home, databáze zůstává upstreamu. Při přestavbě ověřte, že upstream nezměnil tvar tvrzení tokenu sezení ani to, že dispatch klienta MCP a plochy uživatele běží ve vlákně požadavku.                                                                                                                                          |
+| 28  | `feat(lazurio): Buddy's chat reads like a chat with a friend`                                   | Rozhodnutí 0210, dodatek z 2026-10-22, bod 1 (plán DEV-6676): Buddyho chat ukazuje jen to, co Buddy napíše, a za běhu tahu jeden tichý řádek „Buddy na tom pracuje…“. Práci T3 (nástroje, příkazy, úpravy souborů, uvažování, „Worked for“, úkoly tahu) neukazuje, nepovedený tah řekne jedním řádkem lidskými slovy. Composer nenabízí přístup T3 ani režim sezení Hermesu („Default“), model a ostatní volby nechá a pole zprávy říká „Napište Buddymu…“. Klávesy terminálu a pravého panelu nechá prohlížeči (Lazurio/t3code#109). Viz [Buddyho T3 Code](#buddyho-t3-code).           | Upstream ekvivalent nemá: zůstává. Kód je v `apps/web/src/lazurio/` (`buddySurfaceTimeline.ts`, `buddySurfaceControls.ts`, `BuddySurface.tsx`). Švy: `MessagesTimeline.tsx` (řádky za `useStableRows` projdou `buddySurfaceRows`, vykreslení řádku nejdřív zkusí `buddyRowContent`), `ChatComposer.tsx` (`useBuddyComposer`: placeholder, čip voleb bez režimu sezení a `restingBlockDefs` bez bloku `mode`), `ChatView.tsx` (`useBuddyChatShortcuts` a žádné úkoly tahu) a `__root.tsx` (`ReopenClosedViewShortcut` jen mimo povrch). Při přestavbě ověřte, že časová osa dál vzniká z řádků `deriveMessagesTimelineRows` s pracovními druhy `working`, `thinking`, `work*` a `turn-fold`, že nepovedený tah nese položka `error` se stavem `failed` bez rodiče a že přístup a režim interakce drží blok `mode`. Id režimu sezení ACP (`_t3/session-mode`) hlídá kontraktní test.                                                                           |
 
 Řádek 14 (`feat(web): reorder right panel tabs by dragging (#17730)`, backport
 upstream 410793042) přestavba na v0.1.0 odebrala: upstream ho má i se stejným
@@ -366,6 +367,12 @@ Commity v pořadí na `main`:
   `components/chat/MessagesTimeline.tsx`\*; `apps/web/src/lazurio/`:
   `actingSender.ts` a jeho test, `LazurioActingSender.tsx`. Uživatelský návod
   `docs/user/agent-cli.md`.
+- **28.** Přibyl po přestavbě na v0.1.1 (rozhodnutí 0210, dodatek z 2026-10-22, plán DEV-6676), na
+  `main` je za commitem řádku 27 s předmětem z tabulky. Web: `components/chat/MessagesTimeline.tsx`\*
+  (řádky a jejich vykreslení), `components/chat/ChatComposer.tsx`, `components/ChatView.tsx`\* (zkratky
+  a úkoly tahu), `routes/__root.tsx`\* (`ReopenClosedViewShortcut`); `apps/web/src/lazurio/`:
+  `buddySurfaceTimeline.ts` a jeho test v prohlížeči, `buddySurfaceControls.ts` a jeho testy
+  (`buddySurfaceControls.test.ts`, `buddySurfaceControls.browser.test.tsx`), `BuddySurface.tsx`\*.
 - **5.** Tento commit, poslední. Soubory distribuce.
 
 ### Lazurio shell
@@ -877,7 +884,7 @@ drží, dokud člověk neodpoví.
 
 ### Buddyho T3 Code
 
-**Rozhodnutí 0210 (řádky 23 až 26, plán DEV-6676).** Buddyho webový chat je Lazurio T3 Code
+**Rozhodnutí 0210 (řádky 23 až 26 a 28, plán DEV-6676).** Buddyho webový chat je Lazurio T3 Code
 s Hermes Agentem připojeným přes ACP. Na Osobním Prostředí ho drží druhý server T3, jen Buddyho:
 stejná binárka s vlastním home a portem (`--base-dir ~/.t3-buddy`, port 3774), kterou Machines
 spouští s `T3CODE_LAZURIO_BUDDY=1` a `T3CODE_LAZURIO_FOLDER=<složka Lazuria>/.agents/buddy`. Home
@@ -956,15 +963,30 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   jako český blok výše. Prázdná zpráva ho nenese. Odebraný čip platí pro tu stránku; jiná stránka
   hostitele ukáže čip znovu. V odeslané zprávě stojí stejný čip, ne upstreamový „nedostupný
   kontext“.
+- **Rozhovor jako s kamarádem (řádek 28).** Rozhodnutí 0210, dodatek z 2026-10-22, bod 1: člověk
+  vidí a slyší jen to, co Buddy napíše lidskými slovy. Rozhovor ukazuje zprávy a to, na co člověk
+  odpovídá (žádost o tajemství, odpovědi na Buddyho otázky), nikdy záznam práce T3: volání nástrojů,
+  příkazy, úpravy souborů, uvažování, „Worked for“, přerušení ani zhuštění kontextu. Za běhu tahu
+  stojí na konci jeden tichý řádek „Buddy na tom pracuje…“ (anglicky „Buddy is on it…“) bez
+  rozbalení, časovače a animace, ne když Buddy čeká na člověka. Po tahu zůstane Buddyho poslední
+  zpráva. Nepovedený tah ukáže jeden řádek „Tohle se Buddymu nepovedlo dokončit. Zkuste to prosím
+  znovu.“ místo chyby T3; chyba se neztratí. Nad composerem není seznam úkolů tahu. Composer
+  nenabízí přístup T3 („Full access“), režim interakce T3 ani režim sezení Hermesu („Default“, jeho
+  oprávnění), nechá model a ostatní volby, které Hermes dostává, a v poli zprávy stojí „Napište
+  Buddymu…“ („Message Buddy…“). Jazyk určuje `lang` stránky hostitele. Klávesy terminálu a
+  pravého panelu včetně projektových skriptů a Mod+Shift+T povrch nechá prohlížeči
+  (Lazurio/t3code#109). Banner chyby vlákna nad rozhovorem zůstává upstreamu.
 - **Co zůstává upstreamu.** Když se Hermesovo sezení nenačte (`session/load`), T3 začne nové se
   shrnutím vlákna. To je obnova kontextu, ne pokyn, a řádek ji nemění.
 
 Kontraktní testy hlídají švy: „Buddy's Hermes gets only the person's words through its seams“
 otázku adaptéru, jeho jediné místo skládání promptu, odpověď v `server.ts` a projekci
 v `ProviderTurnStartService.ts`, „Buddy keeps one conversation through its seams“ stráže, fázi
-startu před obnovou a háčky webu. `buddyPrompt.orchestrator.test.ts` pouští produkční runtime V2
-s mock agentem ACP na místě Hermesu a čte, co agent dostal; `buddySurfaceGuards.test.ts` pouští
-stráž přes orchestrátor serveru.
+startu před obnovou a háčky webu a „Buddy's chat reads like a chat with a friend through its
+seams“ švy řádku 28. `buddyPrompt.orchestrator.test.ts` pouští produkční runtime V2 s mock agentem
+ACP na místě Hermesu a čte, co agent dostal; `buddySurfaceGuards.test.ts` pouští stráž přes
+orchestrátor serveru a `buddySurfaceTimeline.browser.test.tsx` skutečnou časovou osu v Buddyho
+povrchu.
 
 ### Kdo jednal: Buddy a Delegace
 
@@ -2005,6 +2027,10 @@ t3code.service && systemctl --user start t3code.service` (#25).
    v `HERMES_HOME`) zkontrolujte, že zpráva člověka nese jen jeho text a blok „Kontext stránky“,
    bez `<t3_code_instructions>`, `<runtime_info>` a `<pull_request_linking>`, i po Stop a po
    restartu služby. Ostatní Environmenty řádek nemění.
+
+   U vydání s řádkem 28 pošlete Buddymu z bubliny prosbu, kterou splní nástrojem: za běhu tahu
+   stojí pod ní jen „Buddy na tom pracuje…“ a po tahu jen Buddyho odpověď, composer nemá „Default“
+   ani „Full access“ a pole zprávy říká „Napište Buddymu…“ (na anglické stránce „Message Buddy…“).
 
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
    zeleném canary a výslovném souhlasu Admina. Canary Environmenty vraťte

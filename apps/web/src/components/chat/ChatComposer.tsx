@@ -1117,6 +1117,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { readEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import { useBuddyComposer } from "../../lazurio/BuddySurface";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
 
@@ -2327,6 +2328,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     lockedInstanceId:
       activeThread?.runtime?.providerInstanceId ?? activeThreadModelSelection?.instanceId,
   });
+  // Lazurio overlay (plan DEV-6676): Buddy's composer asks for a message to Buddy and offers no
+  // access or mode (buddySurfaceControls.ts).
+  const buddyComposer = useBuddyComposer(environmentId, selectedProviderModels);
   const noProviderAvailable =
     selectedProviderEntry === undefined && multipleModelSelections === null;
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
@@ -2897,7 +2901,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
-    models: selectedProviderModels,
+    models: buddyComposer.optionModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     reportedModelSelection,
     prompt,
@@ -2910,7 +2914,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
-    models: selectedProviderModels,
+    models: buddyComposer.optionModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     reportedModelSelection,
     prompt,
@@ -5108,7 +5112,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     size: composerControlsCollapsed ? "xs" : "sm",
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
-  const restingBlockDefs = [
+  const restingBlockDefs = buddyComposer.blocks([
     ...(providerTraitsPicker
       ? [
           {
@@ -5137,7 +5141,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         />
       ),
     },
-  ];
+  ]);
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
@@ -6629,7 +6633,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   aria-label="Expand composer"
                 >
                   {prompt.trim() ||
-                    (showProviderUnavailable ? "Enable a provider in Settings" : "Ask anything...")}
+                    (showProviderUnavailable
+                      ? "Enable a provider in Settings"
+                      : (buddyComposer.placeholder ?? "Ask anything..."))}
                 </button>
                 {collapsedComposerImagePreviews}
                 <button
@@ -7200,7 +7206,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : (buddyComposer.placeholder ??
+                                    "Ask anything, @tag files/folders, $use skills, or / for commands")
                     }
                     disabled={
                       isConnecting ||

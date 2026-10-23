@@ -247,7 +247,7 @@ function RootRouteView() {
           <SshPasswordPromptDialog />
           <SnapShotCoordinator />
           <ThreadNotificationCoordinator />
-          <ReopenClosedViewShortcut />
+          {buddySurface ? null : <ReopenClosedViewShortcut />}
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
           <SlowRpcRequestToastCoordinator />
