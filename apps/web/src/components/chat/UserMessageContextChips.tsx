@@ -54,6 +54,7 @@ import {
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
 import { TimelineRowCtx } from "./timelineRowContext";
+import { buddyPageReferenceChip } from "../../lazurio/BuddySurfacePageChip";
 
 function UserMessageMentionChip(props: {
   record: Extract<KnownComposerContextRecord, { kind: "mention" }>;
@@ -497,7 +498,11 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
         ),
     },
   ],
-  fallback: (_kind, _record, context) => <UnavailableUserMessageContextChip {...context} />,
+  // Lazurio overlay (plan DEV-6676): the page Buddy was asked from is a context of its own.
+  fallback: (kind, _record, context) =>
+    buddyPageReferenceChip(kind, context.reference.label, context.copyMarkdown) ?? (
+      <UnavailableUserMessageContextChip {...context} />
+    ),
 });
 
 export function UserMessageContextReferenceChip(props: {

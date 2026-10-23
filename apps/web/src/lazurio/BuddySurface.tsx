@@ -22,6 +22,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
+import { pageRecordOf } from "./buddySurfacePage";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
@@ -74,6 +75,7 @@ const TEXT = {
     notReady: "Buddy se teprve instaluje.",
     failed: "Buddyho se nepodařilo otevřít.",
     retry: "Zkusit znovu",
+    removePage: "Neposílat stránku",
   },
   en: {
     fullscreen: "Full screen",
@@ -86,8 +88,33 @@ const TEXT = {
     notReady: "Buddy is still being set up.",
     failed: "Buddy could not be opened.",
     retry: "Try again",
+    removePage: "Don't send the page",
   },
 } as const;
+
+const NO_REMOVED_PAGES: ReadonlySet<string> = new Set();
+
+/**
+ * The page the next message in Buddy's composer carries: the last valid page context of the host,
+ * unless the person removed that page's chip, which stays removed while the surface is open.
+ * Another page shows its own chip. None outside Buddy's T3 Code or in a thread of another
+ * Environment than Buddy's.
+ */
+export function useBuddyPage(environmentId: string) {
+  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const { context } = useBuddyFrame(buddy);
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(NO_REMOVED_PAGES);
+  const page = context === null ? null : pageRecordOf(context);
+  const record = page !== null && !removed.has(page.contextId) ? page : null;
+  return {
+    record,
+    removeLabel: text.removePage,
+    remove: () => {
+      if (page !== null) setRemoved((current) => new Set([...current, page.contextId]));
+    },
+  };
+}
 
 const localDayOf = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
