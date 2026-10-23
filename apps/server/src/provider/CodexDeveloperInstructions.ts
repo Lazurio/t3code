@@ -7,6 +7,8 @@ import {
   T3_CODE_ORCHESTRATION_SECTIONS,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 
+import * as LazurioQuestionTool from "../lazurio/questionTool.ts";
+
 /**
  * Codex cuts the middle out of any `additionalContext` value over 1,000 tokens,
  * which it counts as UTF-8 bytes divided by four. It does this silently, so
@@ -184,7 +186,7 @@ Your active mode changes only when new developer instructions with a different \
 
 Use the \`request_user_input\` tool only when it is listed in the available tools for this turn.
 
-In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
+In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions.
 </collaboration_mode>`;
 
 export interface CodexRuntimeInfo {
@@ -223,5 +225,7 @@ export function buildCodexAdditionalContext(
       value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
     },
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
+    // Lazurio overlay (root decision 0211): ask the user through request_user_input.
+    ...LazurioQuestionTool.codexAdditionalContext,
   };
 }
