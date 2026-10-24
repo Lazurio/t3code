@@ -82,7 +82,9 @@ have.
 `t3 thread send` delivers a message the way the composer does. With
 `--mode queue`, the default, a busy thread gets it as its next turn and nothing
 is interrupted. `--mode auto` starts an idle thread, steers a running turn or
-queues behind it, `--mode steer` goes into the running turn, and
+queues behind it; while the turn waits on the person's answer to a question or
+an approval, it queues, so the question stays. `--mode steer` goes into the
+running turn, and
 `--mode restart` stops the turn and starts again with your message. Pass `-` as
 the message, or `--message-file -`, to read it from standard input, and
 `--message-file <path>` to read it from a file.
