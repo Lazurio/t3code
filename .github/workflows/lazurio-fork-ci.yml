@@ -313,6 +313,11 @@ jobs:
             apps/web/src/components/chat/ChatComposer.tsx
             apps/web/src/components/chat/ComposerControlsBar.tsx
             apps/web/src/components/chat/QueuedRunsControl.tsx
+            # A message sent in auto mode queues while the running turn waits on the person's
+            # answer to a question or an approval, instead of steering into it and aborting the
+            # provider's pending callback (row 30, Lazurio/t3code#119).
+            apps/server/src/orchestration-v2/ThreadManagementService.ts
+            apps/server/src/orchestration-v2/ThreadManagementService.test.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
