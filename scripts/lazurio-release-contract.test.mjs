@@ -2341,11 +2341,13 @@ NodeTest.test("agents ask people through the question tool through its seams", a
 // Buddy's instance where it builds its provider instances; and the turn start projects a page
 // context as the Czech block for that instance only.
 NodeTest.test("Buddy's Hermes gets only the person's words through its seams", async () => {
-  const [acpAdapter, server, turnStart] = await Promise.all(
+  const [acpAdapter, server, turnStart, buddyPrompt, buddyControls] = await Promise.all(
     [
       "packages/provider-acp/src/server/adapter.ts",
       "apps/server/src/server.ts",
       "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+      "apps/server/src/lazurio/buddyPrompt.ts",
+      "apps/web/src/lazurio/buddySurfaceControls.ts",
     ].map(read),
   );
   NodeAssert.match(
@@ -2367,9 +2369,39 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
     acpAdapter,
     /if \(sendsT3Instructions && !isNativeSlashCommand\) \{\n\s+prompt\.push\(\{\n\s+type: "text",\n\s+text: buildRuntimeInstructions\(\{/,
   );
+  // Root decision 0210, addendum of 2026-10-25: the Platform sets Buddy's model and effort in
+  // Hermes's own config, so the adapter's one place that applies a selection asks AcpT3Selection
+  // first and sets no model and only the options it names for Buddy's instance.
+  NodeAssert.match(
+    acpAdapter,
+    /export class AcpT3Selection extends Context\.Reference<\n\s+\(instanceId: ProviderInstanceId\) => ReadonlySet<string> \| null\n>\("@t3tools\/provider-acp\/AcpT3Selection", \{ defaultValue: \(\) => \(\) => null \}\) \{\}/,
+  );
+  NodeAssert.match(
+    acpAdapter,
+    /const t3SelectionOptions = \(yield\* AcpT3Selection\)\(options\.instanceId\);/,
+  );
+  NodeAssert.match(
+    acpAdapter,
+    /let appliedModel: string \| undefined;\n\s+if \(t3SelectionOptions !== null\) \{\n(?:\s+\/\/[^\n]*\n)*\s+\} else if \(flavor\.applyModelSelection !== undefined\) \{/,
+  );
+  NodeAssert.match(
+    acpAdapter,
+    /const optionSelections = \(modelSelection\.options \?\? \[\]\)\n\s+\.filter\(\n\s+\(selection\) => t3SelectionOptions === null \|\| t3SelectionOptions\.has\(selection\.id\),\n\s+\)/,
+  );
+  NodeAssert.equal(acpAdapter.match(/modelSelection\.options/g)?.length, 1);
+  NodeAssert.equal(acpAdapter.match(/\.applyModelSelection\(\{/g)?.length, 1);
+  NodeAssert.equal(acpAdapter.match(/\.setSessionModel\(/g)?.length, 1);
+  NodeAssert.equal(acpAdapter.match(/const configureSession = /g)?.length, 1);
+  // The one option Buddy's sessions take is the speed Buddy's composer offers.
+  const buddyOption = /new Set\(\["([^"]+)"\]\)/.exec(buddyPrompt)?.[1];
+  NodeAssert.ok(buddyOption);
+  NodeAssert.equal(
+    /\nconst BUDDY_SPEED_OPTION_ID = "([^"]+)";/.exec(buddyControls)?.[1],
+    buddyOption,
+  );
   NodeAssert.match(
     server,
-    /Layer\.provideMerge\(\n\s+LazurioBuddyPrompt\.withBuddyInstructions\(ProviderInstanceRegistryHydration\.layer\),\n\s+\),/,
+    /Layer\.provideMerge\(LazurioBuddyPrompt\.withBuddyInstance\(ProviderInstanceRegistryHydration\.layer\)\),/,
   );
   NodeAssert.equal(server.match(/ProviderInstanceRegistryHydration\.layer/g)?.length, 1);
   NodeAssert.match(

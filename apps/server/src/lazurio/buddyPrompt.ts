@@ -6,9 +6,14 @@
  *
  * - T3's instructions (`<t3_code_instructions>`, `<runtime_info>`, `<pull_request_linking>`) are
  *   left out by the ACP adapter, which asks `AcpT3Instructions` when it builds the instance.
- *   `withBuddyInstructions` answers it where the server builds its provider instances, so it holds
+ *   `withBuddyInstance` answers it where the server builds its provider instances, so it holds
  *   for every prompt of the instance: the first one, the one after Stop or a steer (a steer of an
  *   ACP turn is a new turn) and the first one after a restart of the server or of Hermes.
+ * - T3's model and options (addendum of 2026-10-25): the Lazurio Platform sets Buddy's model and
+ *   reasoning effort in Hermes's own config, through its profiles, and the chat never overrides
+ *   them. The adapter asks `AcpT3Selection` too, and `withBuddyInstance` keeps Buddy's sessions to
+ *   Hermes's speed, `fast` (Normal or Fast): whatever selection a client sends, T3 sets Hermes no
+ *   model, reasoning effort or session mode, at session start, load or a change of the selection.
  * - The page context is a composer record of kind `lazurio-page` that Buddy's surface fills from
  *   the host page's `lazurio.buddy.context`. The person's message keeps the record, so their bubble
  *   shows what was sent; Hermes gets it as the block below instead of T3's generic `<t3_context>`
@@ -19,7 +24,7 @@ import type {
   ComposerContextRecord,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { AcpT3Instructions } from "@t3tools/provider-acp/server/adapter";
+import { AcpT3Instructions, AcpT3Selection } from "@t3tools/provider-acp/server/adapter";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   collectComposerContextReferences,
@@ -163,15 +168,35 @@ export const buddyT3Instructions =
   (instanceId: ProviderInstanceId): boolean =>
     !isBuddyInstance(environment, instanceId);
 
-/** The provider instances `layer` builds leave T3's instructions out of Buddy's prompts. */
-export const withBuddyInstructions = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
+/** The one option of T3's selection Buddy's sessions take: Hermes's speed (Lazurio/hermes-agent). */
+const BUDDY_T3_SELECTION: ReadonlySet<string> = new Set(["fast"]);
+
+/** T3's whole selection for every ACP instance but Buddy's, which takes only Hermes's speed. */
+export const buddyT3Selection =
+  (environment: NodeJS.ProcessEnv) =>
+  (instanceId: ProviderInstanceId): ReadonlySet<string> | null =>
+    isBuddyInstance(environment, instanceId) ? BUDDY_T3_SELECTION : null;
+
+/**
+ * The provider instances `layer` builds treat Buddy's instance as Buddy's: T3's instructions stay
+ * out of its prompts, and its sessions take only Hermes's speed from T3's selection.
+ */
+export const withBuddyInstance = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
   layer.pipe(
     Layer.provide(
-      Layer.effect(
-        AcpT3Instructions,
-        Effect.gen(function* () {
-          return buddyT3Instructions(yield* HostProcess.Environment);
-        }),
+      Layer.mergeAll(
+        Layer.effect(
+          AcpT3Instructions,
+          Effect.gen(function* () {
+            return buddyT3Instructions(yield* HostProcess.Environment);
+          }),
+        ),
+        Layer.effect(
+          AcpT3Selection,
+          Effect.gen(function* () {
+            return buddyT3Selection(yield* HostProcess.Environment);
+          }),
+        ),
       ),
     ),
   );

@@ -8,6 +8,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   type ChatAttachment,
   type ComposerContextRecord,
+  type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionId,
@@ -19,6 +20,7 @@ import {
   type AcpAdapterV2Flavor,
   makeAcpAdapterV2,
 } from "@t3tools/provider-acp/server/adapter";
+import { acpProviderOptionDescriptors } from "@t3tools/provider-acp/server/sessionConfig";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -36,10 +38,11 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { makeTurnInput } from "../orchestration-v2/Adapters/AcpAdapterV2.testkit.ts";
 import {
   buddyProviderText,
+  buddyT3Selection,
   type LazurioPageContext,
   lazurioPageContextBlock,
   projectComposerContextForProvider,
-  withBuddyInstructions,
+  withBuddyInstance,
 } from "./buddyPrompt.ts";
 
 const BUDDY_ENV = { T3CODE_LAZURIO_BUDDY: "1" };
@@ -249,6 +252,16 @@ function mockAgentRuntime(input: {
     });
 }
 
+/** Every request the agent received, in order. */
+function receivedRequests(
+  requestLogPath: string,
+): Array<{ readonly method?: string; readonly params?: Record<string, unknown> }> {
+  if (!NodeFS.existsSync(requestLogPath)) return [];
+  return NodeFS.readFileSync(requestLogPath, "utf8")
+    .split("\n")
+    .flatMap((line) => (line.trim() === "" ? [] : [JSON.parse(line)]));
+}
+
 /** The text blocks of every `session/prompt` the agent received, in order. */
 function receivedPrompts(requestLogPath: string): Array<Array<string>> {
   if (!NodeFS.existsSync(requestLogPath)) return [];
@@ -272,7 +285,7 @@ function receivedPrompts(requestLogPath: string): Array<Array<string>> {
 
 /**
  * One server's life of an ACP instance as Buddy's T3 Code builds it (server.ts provides
- * `withBuddyInstructions` where it builds its provider instances), running `turns` in one thread.
+ * `withBuddyInstance` where it builds its provider instances), running `turns` in one thread.
  */
 const runTurns = Effect.fn("test.runTurns")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
@@ -283,6 +296,7 @@ const runTurns = Effect.fn("test.runTurns")(function* (input: {
     readonly text: string;
     readonly interactionMode?: "default" | "plan";
     readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly selection?: Omit<ModelSelection, "instanceId">;
   }>;
 }) {
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -297,7 +311,7 @@ const runTurns = Effect.fn("test.runTurns")(function* (input: {
     browserToolsAvailable: false,
   });
   const context = yield* Layer.build(
-    withBuddyInstructions(
+    withBuddyInstance(
       Layer.effect(
         TestAdapter,
         makeAcpAdapterV2({
@@ -344,6 +358,9 @@ const runTurns = Effect.fn("test.runTurns")(function* (input: {
       now,
       ordinal: index + 1,
       messageText: turn.text,
+      ...(turn.selection === undefined
+        ? {}
+        : { modelSelection: { ...turn.selection, instanceId: input.instanceId } }),
     });
     yield* runtime.startTurn({
       ...turnInput,
@@ -428,6 +445,95 @@ describe("what Buddy's Hermes receives", () => {
         assert.include(prompt?.[0] ?? "", "<t3_code_instructions>");
         assert.include(prompt?.[0] ?? "", "<user_request>\nAhoj.\n</user_request>");
         assert.include(prompt?.[1] ?? "", "<runtime_info>");
+      }
+    }).pipe(Effect.provide(layerAdapterServices), Effect.scoped),
+  );
+});
+
+describe("what Buddy's Hermes is set to", () => {
+  it("takes Hermes's speed option as Hermes advertises it", () => {
+    // Lazurio Hermes v0.22.4-lazurio.3 on a route with fast mode: one session config option.
+    const hermesSpeed = {
+      id: "fast",
+      name: "Fast mode",
+      type: "select",
+      currentValue: "normal",
+      options: [
+        { value: "normal", name: "Normal" },
+        { value: "fast", name: "Fast" },
+      ],
+    } as const;
+    assert.deepStrictEqual(
+      acpProviderOptionDescriptors({ configOptions: [hermesSpeed], modeState: undefined }),
+      [
+        {
+          id: "fast",
+          label: "Fast mode",
+          type: "select",
+          options: [
+            { id: "normal", label: "Normal" },
+            { id: "fast", label: "Fast" },
+          ],
+          currentValue: "normal",
+        },
+      ],
+    );
+    assert.isTrue(buddyT3Selection(BUDDY_ENV)(BUDDY)?.has(hermesSpeed.id));
+  });
+
+  it("is only Hermes's speed from T3's selection, for Buddy's instance in Buddy's T3 Code", () => {
+    assert.deepStrictEqual([...(buddyT3Selection(BUDDY_ENV)(BUDDY) ?? [])], ["fast"]);
+    assert.isNull(buddyT3Selection(BUDDY_ENV)(ProviderInstanceId.make("hermes-coding")));
+    assert.isNull(buddyT3Selection({})(BUDDY));
+    assert.isNull(buddyT3Selection({ T3CODE_LAZURIO_BUDDY: "true" })(BUDDY));
+  });
+
+  it.live("never its model, mode or other options, whatever selection a client sends", () =>
+    Effect.gen(function* () {
+      // The agent offers a model, a mode and the agent option, and no speed.
+      const selection = {
+        model: "composer-2",
+        options: [
+          { id: "mode", value: "code" },
+          { id: "agent", value: "example" },
+          { id: "fast", value: "fast" },
+        ],
+      };
+      const configured = (scenario: {
+        readonly environment: NodeJS.ProcessEnv;
+        readonly instanceId: ProviderInstanceId;
+        readonly name: string;
+      }) =>
+        Effect.gen(function* () {
+          const log = tempLog(`${scenario.name}.jsonl`);
+          yield* runTurns({
+            environment: scenario.environment,
+            instanceId: scenario.instanceId,
+            requestLogPath: log,
+            threadId: ThreadId.make(`thread-buddy-selection-${scenario.name}`),
+            turns: [{ text: "Ahoj.", selection }],
+          });
+          const requests = receivedRequests(log);
+          assert.isTrue(requests.some((request) => request.method === "session/prompt"));
+          assert.isFalse(requests.some((request) => request.method === "session/set_model"));
+          return requests
+            .filter((request) => request.method === "session/set_config_option")
+            .map((request) => request.params?.configId);
+        });
+      assert.deepStrictEqual(
+        yield* configured({ environment: BUDDY_ENV, instanceId: BUDDY, name: "buddy" }),
+        [],
+      );
+      // Every other instance, and `buddy` without the switch, gets T3's selection as upstream.
+      for (const scenario of [
+        {
+          environment: BUDDY_ENV,
+          instanceId: ProviderInstanceId.make("hermes-coding"),
+          name: "other",
+        },
+        { environment: {}, instanceId: BUDDY, name: "no-switch" },
+      ]) {
+        assert.includeMembers(yield* configured(scenario), ["model", "mode"], scenario.name);
       }
     }).pipe(Effect.provide(layerAdapterServices), Effect.scoped),
   );
