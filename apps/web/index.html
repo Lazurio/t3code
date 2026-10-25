@@ -518,6 +518,31 @@
         background-repeat: repeat;
         background-size: var(--surface-grain-size);
       }
+      /* Buddy's launcher stands in the window's bottom-right corner, and while the shell draws it,
+         --lazurio-buddy-clearance on the document is the width it takes from the right edge
+         (LazurioPlatform F60, addendum of 2026-10-25). The Chat composer keeps its send button out
+         of that corner: where the centred composer would come nearer the edge, it moves left, then
+         narrows, just enough. The gutter is the end padding of .chat-composer-lane (index.css).
+         Unset, the composer stays where T3 puts it. */
+      [data-chat-composer-stack] {
+        --lazurio-composer-gutter: calc(
+          env(safe-area-inset-right) + 0.75rem + var(--chat-lane-inset-end, 0px)
+        );
+        --lazurio-composer-end: max(
+          0px,
+          var(--lazurio-buddy-clearance, 0px) - var(--lazurio-composer-gutter),
+          (100% - var(--chat-content-max-width)) / 2
+        );
+        margin-inline-end: var(--lazurio-composer-end);
+        max-width: min(var(--chat-content-max-width), 100% - var(--lazurio-composer-end));
+      }
+      @media (min-width: 640px) {
+        [data-chat-composer-stack] {
+          --lazurio-composer-gutter: calc(
+            env(safe-area-inset-right) + 3rem + var(--chat-lane-inset-end, 0px)
+          );
+        }
+      }
     </style>
   </head>
   <body>
