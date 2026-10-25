@@ -1108,14 +1108,40 @@ NodeTest.test(
 );
 
 NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag", async () => {
-  const [page, layout, sidebarUi, chrome, threads, legacy] = await Promise.all([
+  const [page, layout, sidebarUi, chrome, threads, legacy, styles, chat] = await Promise.all([
     read("apps/web/index.html"),
     read("apps/web/src/components/AppSidebarLayout.tsx"),
     read("apps/web/src/components/ui/sidebar.tsx"),
     read("apps/web/src/components/sidebar/SidebarChrome.tsx"),
     read("apps/web/src/components/Sidebar.tsx"),
     read("apps/web/src/components/LegacySidebar.tsx"),
+    read("apps/web/src/index.css"),
+    read("apps/web/src/components/ChatView.tsx"),
   ]);
+  // LazurioPlatform F60, addendum of 2026-10-25: while the shell draws Buddy's launcher in the
+  // window's bottom-right corner it sets --lazurio-buddy-clearance, and the Chat composer keeps its
+  // send button out of that corner. The rule repeats the end padding of upstream's composer lane,
+  // so the lane's padding and the stack the rule moves must stay as upstream draws them.
+  NodeAssert.match(
+    page,
+    /\[data-chat-composer-stack\] \{\s*--lazurio-composer-gutter: calc\(\s*env\(safe-area-inset-right\) \+ 0\.75rem \+ var\(--chat-lane-inset-end, 0px\)\s*\);\s*--lazurio-composer-end: max\(\s*0px,\s*var\(--lazurio-buddy-clearance, 0px\) - var\(--lazurio-composer-gutter\),\s*\(100% - var\(--chat-content-max-width\)\) \/ 2\s*\);\s*margin-inline-end: var\(--lazurio-composer-end\);\s*max-width: min\(var\(--chat-content-max-width\), 100% - var\(--lazurio-composer-end\)\);\s*\}/,
+  );
+  NodeAssert.match(
+    page,
+    /@media \(min-width: 640px\) \{\s*\[data-chat-composer-stack\] \{\s*--lazurio-composer-gutter: calc\(\s*env\(safe-area-inset-right\) \+ 3rem \+ var\(--chat-lane-inset-end, 0px\)\s*\);\s*\}\s*\}/,
+  );
+  NodeAssert.match(
+    styles,
+    /\.chat-composer-lane \{\n(?:.*\n){0,3}?\s+padding-inline-end: calc\(\n\s+env\(safe-area-inset-right\) \+ 0\.75rem \+ var\(--chat-lane-inset-end, 0px\)\n\s+\);/,
+  );
+  NodeAssert.match(
+    styles,
+    /@media \(min-width: 640px\) \{\n\s+\.chat-composer-lane \{\n(?:.*\n){0,3}?\s+padding-inline-end: calc\(env\(safe-area-inset-right\) \+ 3rem \+ var\(--chat-lane-inset-end, 0px\)\);/,
+  );
+  NodeAssert.match(
+    chat,
+    /<div ref=\{draftHeroTransitionGroupRef\} className="chat-composer-lane w-full">\n\s+<div\n\s+data-chat-composer-stack="true"\n\s+className="group\/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-\(--chat-content-max-width\)"/,
+  );
   // Same-origin loader that Vite leaves alone; the Environment's Launchpad serves it.
   NodeAssert.match(
     page,
