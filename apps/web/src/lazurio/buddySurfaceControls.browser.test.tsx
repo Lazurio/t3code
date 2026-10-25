@@ -1,14 +1,25 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ProviderOptionDescriptor,
+  type ProviderOptionSelection,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   compileResolvedKeybindingsConfig,
   DEFAULT_RESOLVED_KEYBINDINGS,
   isMacPlatform,
 } from "@t3tools/shared/keybindings";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
 
+import { useComposerDraftStore } from "~/composerDraftStore";
 import type { ChatShortcutsInput } from "~/components/chat/useChatShortcuts";
 import { confirmTerminalClose } from "~/lib/terminalCloseConfirm";
 import { render } from "../../test/render";
-import { useBuddyChatShortcuts } from "./BuddySurface";
+import { BuddyComposerControls, useBuddyChatShortcuts } from "./BuddySurface";
 
 // A terminal's close confirmation waits on the desktop dialog; the test holds it open.
 const dialog = vi.hoisted(() => ({ answer: null as ((confirmed: boolean) => void) | null }));
@@ -33,7 +44,10 @@ function Chat(props: { readonly buddy: boolean; readonly input: ChatShortcutsInp
   return null;
 }
 
-/** The chat's shortcuts as ChatView gives them, with a project script bound to Mod+Shift+R. */
+/**
+ * The chat's shortcuts as ChatView gives them, with a project script bound to Mod+Shift+R and the
+ * reasoning effort's steps, which have no default keys, bound to Mod+Alt+Up and Mod+Alt+Down.
+ */
 function chatShortcuts() {
   const handlers = {
     "terminal.toggle": vi.fn(),
@@ -42,11 +56,22 @@ function chatShortcuts() {
     "diff.toggle": vi.fn(),
     "threadPanel.toggle": vi.fn(),
     "modelPicker.toggle": vi.fn(),
+    "composer.effort": vi.fn(),
+    "composer.increaseEffort": vi.fn(),
+    "composer.decreaseEffort": vi.fn(),
+    "composer.mode": vi.fn(),
+    "chat.find": vi.fn(),
   };
   const script = vi.fn();
   const input: ChatShortcutsInput = {
     enabled: true,
-    keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+    keybindings: [
+      ...DEFAULT_RESOLVED_KEYBINDINGS,
+      ...compileResolvedKeybindingsConfig([
+        { key: "mod+alt+arrowup", command: "composer.increaseEffort" },
+        { key: "mod+alt+arrowdown", command: "composer.decreaseEffort" },
+      ]),
+    ],
     scriptKeybindings: compileResolvedKeybindingsConfig([
       { key: "mod+shift+r", command: "script.setup.run" },
     ]),
@@ -72,7 +97,11 @@ function chatShortcuts() {
 /** Presses Mod plus `key`, as the platform spells Mod, and says whether the chat took the key. */
 function press(
   key: string,
-  options: { readonly shiftKey?: boolean; readonly repeat?: boolean } = {},
+  options: {
+    readonly shiftKey?: boolean;
+    readonly altKey?: boolean;
+    readonly repeat?: boolean;
+  } = {},
 ) {
   const mod = isMacPlatform(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
   const event = new KeyboardEvent("keydown", {
@@ -98,7 +127,7 @@ async function pendingTerminalClose() {
   };
 }
 
-describe("T3's terminal and right-panel keys in Buddy's surface", () => {
+describe("T3's terminal, right-panel and choice keys in Buddy's surface", () => {
   it("do nothing and stay the browser's, while the chat's other keys still work", async () => {
     setup();
     const { input, handlers, script } = chatShortcuts();
@@ -111,11 +140,17 @@ describe("T3's terminal and right-panel keys in Buddy's surface", () => {
     // Mod+W closes the browser's tab, held down too, where T3 would hold it for a terminal.
     expect(press("w")).toBe(false);
     expect(press("w", { repeat: true })).toBe(false);
-    const { "modelPicker.toggle": modelPicker, ...panelHandlers } = handlers;
-    for (const handler of Object.values(panelHandlers)) expect(handler).not.toHaveBeenCalled();
+    // No model, reasoning effort, access or mode to choose (root decision 0210, 2026-10-25).
+    expect(press("M", { shiftKey: true })).toBe(false);
+    expect(press("E", { shiftKey: true })).toBe(false);
+    expect(press("A", { shiftKey: true })).toBe(false);
+    expect(press("ArrowUp", { altKey: true })).toBe(false);
+    expect(press("ArrowDown", { altKey: true })).toBe(false);
+    const { "chat.find": find, ...unusedHandlers } = handlers;
+    for (const handler of Object.values(unusedHandlers)) expect(handler).not.toHaveBeenCalled();
     expect(script).not.toHaveBeenCalled();
-    expect(press("M", { shiftKey: true })).toBe(true);
-    expect(modelPicker).toHaveBeenCalledOnce();
+    expect(press("f")).toBe(true);
+    expect(find).toHaveBeenCalledOnce();
   });
 
   it("leave Mod+W to the browser while a terminal's close confirmation is still open", async () => {
@@ -136,12 +171,105 @@ describe("T3's terminal and right-panel keys in Buddy's surface", () => {
     expect(press("d")).toBe(true);
     expect(press("R", { shiftKey: true })).toBe(true);
     expect(press("w", { repeat: true })).toBe(true);
+    expect(press("M", { shiftKey: true })).toBe(true);
+    expect(press("ArrowUp", { altKey: true })).toBe(true);
     expect(handlers["terminal.toggle"]).toHaveBeenCalledOnce();
     expect(handlers["diff.toggle"]).toHaveBeenCalledOnce();
+    expect(handlers["modelPicker.toggle"]).toHaveBeenCalledOnce();
+    expect(handlers["composer.increaseEffort"]).toHaveBeenCalledOnce();
     expect(script).toHaveBeenCalledOnce();
     {
       await using _closing = await pendingTerminalClose();
       expect(press("w")).toBe(true);
     }
+  });
+});
+
+const ENVIRONMENT = EnvironmentId.make("environment-buddy");
+const BUDDY = ProviderInstanceId.make("buddy");
+const THREAD = scopeThreadRef(ENVIRONMENT, ThreadId.make("buddy"));
+const MODEL = "default";
+
+/**
+ * Hermes's speed as T3 offers the one ACP session option Lazurio Hermes v0.22.4-lazurio.3
+ * advertises on a route with fast mode, in the tier its session runs.
+ */
+const SPEED: ProviderOptionDescriptor = {
+  id: "fast",
+  label: "Fast mode",
+  type: "select",
+  options: [
+    { id: "normal", label: "Normal" },
+    { id: "fast", label: "Fast" },
+  ],
+  currentValue: "normal",
+};
+
+/** Buddy's composer controls as the composer gives them for Hermes's options and its selection. */
+function Controls(props: {
+  readonly descriptors: ReadonlyArray<ProviderOptionDescriptor>;
+  readonly options?: ReadonlyArray<ProviderOptionSelection>;
+}) {
+  return (
+    <BuddyComposerControls
+      routeKind="server"
+      routeThreadRef={THREAD}
+      draftId={null}
+      selectedProvider={ProviderDriverKind.make("acpRegistry")}
+      selectedInstanceId={BUDDY}
+      selectedModel={MODEL}
+      selectedProviderModels={[
+        {
+          slug: MODEL,
+          name: "Default",
+          isCustom: false,
+          capabilities: { optionDescriptors: [...props.descriptors] },
+        },
+      ]}
+      composerModelOptions={props.options === undefined ? null : { [BUDDY]: [...props.options] }}
+      reportedModelSelection={null}
+    />
+  );
+}
+
+const draftedOptions = () =>
+  useComposerDraftStore.getState().getComposerDraft(THREAD)?.modelSelectionByProvider[BUDDY]
+    ?.options;
+
+describe("Buddy's composer controls", () => {
+  it("are Hermes's Normal / Fast switch, and a pick is the next message's only option", async () => {
+    setup();
+    useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
+    // The controls read no route.
+    await using screen = await render(<Controls descriptors={[SPEED]} />, { router: false });
+    const speed = page.getByRole("group", { name: "Speed" });
+    await expect.element(speed).toBeVisible();
+    await expect
+      .element(speed.getByRole("button", { name: "Normal" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await speed.getByRole("button", { name: "Fast" }).click();
+    expect(draftedOptions()).toEqual([{ id: "fast", value: "fast" }]);
+    await screen.rerender(<Controls descriptors={[SPEED]} options={draftedOptions() ?? []} />);
+    await expect
+      .element(speed.getByRole("button", { name: "Fast" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.container.querySelectorAll("button")).toHaveLength(2);
+  });
+
+  it("say Normální and Rychlý in Czech", async () => {
+    setup();
+    using _czech = vi.spyOn(navigator, "language", "get").mockReturnValue("cs-CZ");
+    // The controls read no route.
+    await using _screen = await render(<Controls descriptors={[SPEED]} />, { router: false });
+    const speed = page.getByRole("group", { name: "Rychlost" });
+    await expect.element(speed.getByRole("button", { name: "Normální" })).toBeVisible();
+    await expect.element(speed.getByRole("button", { name: "Rychlý" })).toBeVisible();
+  });
+
+  it("are nothing on a route where Hermes offers no speed", async () => {
+    setup();
+    // The controls read no route.
+    await using screen = await render(<Controls descriptors={[]} />, { router: false });
+    expect(screen.container.childElementCount).toBe(0);
   });
 });

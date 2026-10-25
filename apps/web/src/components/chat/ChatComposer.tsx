@@ -960,9 +960,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     lockedInstanceId:
       activeThread?.runtime?.providerInstanceId ?? activeThreadModelSelection?.instanceId,
   });
-  // Lazurio overlay (plan DEV-6676): Buddy's composer asks for a message to Buddy; its controls
-  // offer no access or mode (ComposerControlsBar.tsx, buddySurfaceControls.ts).
-  const buddyComposer = useBuddyComposer(environmentId, selectedProviderModels);
+  // Lazurio overlay (plan DEV-6676): Buddy's composer asks for a message to Buddy, and its controls
+  // are Buddy's (ComposerControlsBar.tsx, BuddySurface.tsx).
+  const buddyComposer = useBuddyComposer(environmentId, {
+    provider: selectedProvider,
+    model: selectedModel,
+    models: selectedProviderModels,
+    modelOptions: composerModelOptions?.[selectedInstanceId],
+  });
   const noProviderAvailable =
     selectedProviderEntry === undefined && multipleModelSelections === null;
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
@@ -2380,7 +2385,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerControlsCollapsed = isComposerResting || isComposerCollapsedMobile;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
   const composerControlsVisibleInStrip =
-    composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
+    composerControlsCollapsed &&
+    restingControlsHost !== null &&
+    restingControlsVisible &&
+    buddyComposer.hasControls;
   const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
   if (composerControlsHidden && isComposerModelPickerOpen) {
     setIsComposerModelPickerOpen(false);

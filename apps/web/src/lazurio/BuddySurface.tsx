@@ -6,12 +6,12 @@
  * line above the first message of each day. `/` opens Buddy's thread, which the server finds or
  * makes. The server holds the one conversation for every client (buddySurfaceGuards.ts); this only
  * leaves out what would be refused. The conversation shows what Buddy writes, not his work
- * (buddySurfaceTimeline.ts), and the composer and the keys offer no control Buddy's chat has no use
- * for (buddySurfaceControls.ts).
+ * (buddySurfaceTimeline.ts), and the composer and the keys offer no choice but Hermes's speed
+ * (buddySurfaceControls.ts).
  */
 import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
-import type { ServerProviderModel } from "@t3tools/contracts";
+import type { RuntimeMode } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
 import {
@@ -23,6 +23,8 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useComposerDraftStore } from "~/composerDraftStore";
+import type { ComposerControlsBar } from "~/components/chat/ComposerControlsBar";
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import {
   ThreadDetailsPanel,
@@ -32,15 +34,19 @@ import { ThreadErrorBanner } from "~/components/chat/ThreadErrorBanner";
 import { type ChatShortcutsInput, useChatShortcuts } from "~/components/chat/useChatShortcuts";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import {
+  type BuddyComposerSelection,
+  buddySpeedOf,
+  buddySpeedOption,
+  buddySpeedSelection,
+  isBuddySpeed,
   personsQueuedRuns,
   type QueueMessage,
-  withoutModeBlock,
-  withoutPanelShortcuts,
-  withoutSessionMode,
+  withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
 import { pageRecordOf } from "./buddySurfacePage";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
@@ -101,6 +107,9 @@ const TEXT = {
     turnFailed: "Tohle se Buddymu nepovedlo dokončit. Zkuste to prosím znovu.",
     somethingFailed: "Něco se nepovedlo. Zkuste to prosím znovu.",
     placeholder: "Napište Buddymu…",
+    speed: "Rychlost",
+    normal: "Normální",
+    fast: "Rychlý",
   },
   en: {
     fullscreen: "Full screen",
@@ -118,6 +127,9 @@ const TEXT = {
     turnFailed: "Buddy couldn't finish this. Please try again.",
     somethingFailed: "Something went wrong. Please try again.",
     placeholder: "Message Buddy…",
+    speed: "Speed",
+    normal: "Normal",
+    fast: "Fast",
   },
 } as const;
 
@@ -317,26 +329,87 @@ export function buddyRowContent(row: MessagesTimelineRow, buddy: boolean): React
 }
 
 /**
- * Buddy's composer: the message box asks for a message to Buddy, and the options chip and the
- * resting blocks leave out how a turn may act (buddySurfaceControls.ts). As T3's elsewhere.
+ * Buddy's composer: the message box asks for a message to Buddy, and its controls are Buddy's
+ * (BuddyComposerControls) in place of T3's, so the strip under the resting composer has something
+ * to hold only while Hermes offers its speed. As T3's elsewhere.
  */
-export function useBuddyComposer(
-  environmentId: string,
-  models: ReadonlyArray<ServerProviderModel>,
-) {
+export function useBuddyComposer(environmentId: string, selection: BuddyComposerSelection) {
   const buddy = useBuddySurfaceMode(environmentId) === true;
   const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
   return {
     placeholder: buddy ? text.placeholder : null,
-    optionModels: buddy ? withoutSessionMode(models) : models,
-    blocks: <Block extends { readonly id: string }>(blocks: Block[]) =>
-      buddy ? withoutModeBlock(blocks) : blocks,
+    hasControls: !buddy || buddySpeedOption(selection) !== null,
   };
 }
 
-/** The chat's shortcuts, without the terminal's and the right panel's in Buddy's surface. */
+/**
+ * The controls of Buddy's composer in place of T3's model, options, access and mode: Hermes's speed,
+ * Normal or Fast, where Hermes offers it, and nothing else (buddySurfaceControls.ts). A pick is the
+ * composer's option for Hermes's model, as T3's options are, so the next message carries it.
+ */
+export function BuddyComposerControls(
+  props: Pick<
+    ComponentProps<typeof ComposerControlsBar>,
+    | "routeKind"
+    | "routeThreadRef"
+    | "draftId"
+    | "selectedProvider"
+    | "selectedInstanceId"
+    | "selectedModel"
+    | "selectedProviderModels"
+    | "composerModelOptions"
+    | "reportedModelSelection"
+  >,
+) {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const modelOptions = props.composerModelOptions?.[props.selectedInstanceId] ?? [];
+  const option = buddySpeedOption({
+    provider: props.selectedProvider,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    modelOptions,
+  });
+  if (option === null) return null;
+  const speed = buddySpeedOf(
+    option,
+    { instanceId: props.selectedInstanceId, model: props.selectedModel, options: modelOptions },
+    props.reportedModelSelection,
+  );
+  const target = props.routeKind === "server" ? props.routeThreadRef : props.draftId;
+  return (
+    <ToggleGroup
+      aria-label={text.speed}
+      className="shrink-0"
+      value={speed === null ? [] : [speed]}
+      onValueChange={(value) => {
+        const next = value[0];
+        if (!isBuddySpeed(next) || next === speed || target === null) return;
+        setProviderModelOptions(target, props.selectedProvider, buddySpeedSelection(next), {
+          instanceId: props.selectedInstanceId,
+          model: props.selectedModel,
+          persistSticky: true,
+        });
+      }}
+    >
+      <Toggle value="normal">{text.normal}</Toggle>
+      <Toggle value="fast">{text.fast}</Toggle>
+    </ToggleGroup>
+  );
+}
+
+/**
+ * The runtime mode of the chat's next turn: in Buddy's surface full access, whatever a draft or the
+ * thread holds, since Buddy always works with full access (root decision 0210, addendum of
+ * 2026-10-25). So the web never asks Buddy's thread for less, and a lower mode the thread holds goes
+ * back to full access with the next message. As T3's elsewhere.
+ */
+export const buddyRuntimeMode = (buddy: boolean, mode: RuntimeMode): RuntimeMode =>
+  buddy ? "full-access" : mode;
+
+/** The chat's shortcuts, without those Buddy's surface has no use for there. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
-  useChatShortcuts(buddy ? withoutPanelShortcuts(input) : input);
+  useChatShortcuts(buddy ? withoutUnusedShortcuts(input) : input);
 }
 
 const NO_BANNERS: ReadonlyArray<never> = [];
