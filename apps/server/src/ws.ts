@@ -200,6 +200,7 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { refreshPushedPullRequests } from "./git/refreshPushedPullRequests.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
+import { detachedProgressStream } from "./git/detachedProgressStream.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
@@ -2822,43 +2823,35 @@ export const layerWsRpc = (
             }),
           ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
-          Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
+          detachedProgressStream<GitActionProgressEvent, GitManagerServiceError, never>((offer) =>
             gitWorkflow
               .runStackedAction(input, {
                 actionId: input.actionId,
-                progressReporter: {
-                  publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
-                },
+                progressReporter: { publish: offer },
               })
               .pipe(
-                Effect.matchCauseEffect({
-                  onFailure: (cause) => Queue.failCause(queue, cause),
-                  onSuccess: (result) =>
-                    (input.threadId === undefined
-                      ? Effect.void
-                      : linkCreatedPullRequest({
-                          threadId: input.threadId,
-                          result,
-                          commandId: serverCommandId("pr-created-link"),
-                        }).pipe(
-                          Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
-                          Effect.provideService(ProjectService.ProjectService, projectService),
-                        )
-                    ).pipe(
-                      Effect.andThen(
-                        refreshPushedPullRequests(input, result).pipe(
-                          Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
-                          Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
-                          Effect.provideService(
-                            PullRequestService.PullRequestService,
-                            pullRequests,
-                          ),
-                        ),
+                Effect.flatMap((result) =>
+                  (input.threadId === undefined
+                    ? Effect.void
+                    : linkCreatedPullRequest({
+                        threadId: input.threadId,
+                        result,
+                        commandId: serverCommandId("pr-created-link"),
+                      }).pipe(
+                        Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
+                        Effect.provideService(ProjectService.ProjectService, projectService),
+                      )
+                  ).pipe(
+                    Effect.andThen(
+                      refreshPushedPullRequests(input, result).pipe(
+                        Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
+                        Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
+                        Effect.provideService(PullRequestService.PullRequestService, pullRequests),
                       ),
-                      Effect.andThen(refreshGitStatus(input.cwd)),
-                      Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
                     ),
-                }),
+                    Effect.andThen(refreshGitStatus(input.cwd)),
+                  ),
+                ),
               ),
           ),
         [WS_METHODS.gitResolvePullRequest]: (input) => gitWorkflow.resolvePullRequest(input),

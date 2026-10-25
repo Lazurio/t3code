@@ -17,6 +17,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { RpcClientError } from "effect/rpc";
+import * as Socket from "effect/socket/Socket";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import {
@@ -40,6 +42,7 @@ import {
   EMPTY_VCS_ACTION_STATE,
   normalizeVcsActionProgressEvent,
   parseVcsActionTargetKey,
+  VcsActionConnectionLostError,
   VcsActionMissingTerminalEventError,
   VcsActionRemoteFailureError,
   VcsActionTargetKeyParseError,
@@ -374,6 +377,43 @@ describe("vcsActionState", () => {
       expect(error.message).toBe(
         "Source control action 'commit_push' ended without a terminal result.",
       );
+    }),
+  );
+
+  it.effect("reports a dropped connection as lost, not as a failed action", () =>
+    Effect.gen(function* () {
+      const target = { environmentId, cwd };
+      const transportActionId = createVcsActionTransportId(target, actionId);
+      const error = yield* consumeVcsActionProgress(
+        Stream.fromIterable<GitActionProgressEvent>([
+          {
+            actionId: transportActionId,
+            action,
+            cwd,
+            kind: "phase_started",
+            phase: "push",
+            label: "Pushing...",
+          },
+        ]).pipe(
+          Stream.concat(
+            Stream.fail(
+              new RpcClientError.RpcClientError({
+                reason: new Socket.SocketCloseError({ code: 1006 }),
+              }),
+            ),
+          ),
+        ),
+        {
+          target,
+          transportActionId,
+          actionId,
+          action,
+          onProgress: () => Effect.void,
+        },
+      ).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(VcsActionConnectionLostError);
+      expect(error).toMatchObject({ actionId, transportActionId, action, environmentId, cwd });
     }),
   );
 
