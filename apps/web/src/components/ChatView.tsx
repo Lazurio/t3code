@@ -158,6 +158,7 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
+  buddyRuntimeMode,
   buddyWorkBanners,
   useBuddyChatShortcuts,
   useBuddyPage,
@@ -848,10 +849,13 @@ export default function ChatView(props: ChatViewProps) {
     localServerError === null && visibleThreadError === serverRuntime?.lastError;
   const defaultRuntimeMode = resolveProjectSettings(settings, activeThread?.projectId ?? null)
     .settings.defaultRuntimeMode;
-  const runtimeMode =
+  // Lazurio overlay (plan DEV-6676): Buddy always works with full access (BuddySurface.tsx).
+  const runtimeMode = buddyRuntimeMode(
+    buddySurface,
     composerRuntimeMode ??
-    (isServerThread ? activeThread?.runtimeMode : undefined) ??
-    defaultRuntimeMode;
+      (isServerThread ? activeThread?.runtimeMode : undefined) ??
+      defaultRuntimeMode,
+  );
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = canWriteSourceControl && isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;

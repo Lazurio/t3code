@@ -1,79 +1,84 @@
 import {
   ProviderDriverKind,
+  ProviderInstanceId,
+  type ModelSelection,
   type ProviderOptionDescriptor,
-  type ServerProviderModel,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { shouldRenderTraitsControls } from "~/components/chat/TraitsPicker";
 import {
-  ACP_SESSION_MODE_OPTION_ID,
+  buddySpeedOf,
+  buddySpeedOption,
+  buddySpeedSelection,
   personsQueuedRuns,
-  withoutSessionMode,
 } from "./buddySurfaceControls";
 
-const ACP = ProviderDriverKind.make("acpRegistry");
-const MODEL = "custom:buddy-fake-1";
+const BUDDY = ProviderInstanceId.make("buddy");
+const MODEL = "default";
 
-/** Hermes's session modes as the ACP adapter offers them (Default, Accept Edits, Don't Ask). */
-const SESSION_MODE: ProviderOptionDescriptor = {
-  id: ACP_SESSION_MODE_OPTION_ID,
-  label: "Mode",
+/**
+ * Hermes's speed in the tier its session runs, as T3 offers the one ACP session option Lazurio
+ * Hermes v0.22.4-lazurio.3 advertises on a route with fast mode: `fast`, a select of `normal` and
+ * `fast` without a category, and no model or reasoning option beside it.
+ */
+const speedOption = (tier: string): Extract<ProviderOptionDescriptor, { type: "select" }> => ({
+  id: "fast",
+  label: "Fast mode",
   type: "select",
   options: [
-    { id: "default", label: "Default" },
-    { id: "accept_edits", label: "Accept Edits" },
-    { id: "dont_ask", label: "Don't Ask" },
+    { id: "normal", label: "Normal" },
+    { id: "fast", label: "Fast" },
   ],
-  currentValue: "default",
-};
-const THOUGHT_LEVEL: ProviderOptionDescriptor = {
-  id: "thought_level",
-  label: "Thinking",
-  type: "select",
-  options: [
-    { id: "low", label: "Low" },
-    { id: "high", label: "High" },
-  ],
-  currentValue: "low",
-};
+  currentValue: tier,
+});
 
-const hermes = (
-  optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>,
-): ReadonlyArray<ServerProviderModel> => [
-  {
-    slug: MODEL,
-    name: "Custom endpoint · buddy-fake-1",
-    isCustom: false,
-    capabilities: { optionDescriptors: [...optionDescriptors] },
-  },
-];
-
-/** Whether the composer shows an options chip for these models. */
-const optionsChip = (models: ReadonlyArray<ServerProviderModel>) =>
-  shouldRenderTraitsControls({
-    provider: ACP,
-    models,
+/** The speed the switch shows for Hermes's options and the composer's selection. */
+function shownSpeed(
+  descriptors: ReadonlyArray<ProviderOptionDescriptor>,
+  selection: ModelSelection = { instanceId: BUDDY, model: MODEL },
+) {
+  const option = buddySpeedOption({
+    provider: ProviderDriverKind.make("acpRegistry"),
     model: MODEL,
-    modelOptions: undefined,
-    planModeEnabled: false,
+    models: [
+      {
+        slug: MODEL,
+        name: "Default",
+        isCustom: false,
+        capabilities: { optionDescriptors: [...descriptors] },
+      },
+    ],
+    modelOptions: selection.options,
+  });
+  return option === null ? "no switch" : buddySpeedOf(option, selection, null);
+}
+
+describe("Buddy's speed switch", () => {
+  it("shows the speed Hermes's session runs, until the person picks one", () => {
+    expect(shownSpeed([speedOption("fast")])).toBe("fast");
+    expect(shownSpeed([speedOption("normal")])).toBe("normal");
+    expect(
+      shownSpeed([speedOption("normal")], {
+        instanceId: BUDDY,
+        model: MODEL,
+        options: buddySpeedSelection("fast"),
+      }),
+    ).toBe("fast");
   });
 
-describe("Buddy's options chip", () => {
-  it("leaves out Hermes's session mode, so Hermes with no other option shows no chip", () => {
-    expect(optionsChip(hermes([SESSION_MODE]))).toBe(true);
-    expect(optionsChip(withoutSessionMode(hermes([SESSION_MODE])))).toBe(false);
+  it("is not there unless Hermes offers both speeds as its `fast` option", () => {
+    // A route without fast mode advertises no option at all.
+    expect(shownSpeed([])).toBe("no switch");
+    expect(shownSpeed([{ ...speedOption("fast"), options: [{ id: "fast", label: "Fast" }] }])).toBe(
+      "no switch",
+    );
+    expect(shownSpeed([{ id: "fast", label: "Fast", type: "boolean", currentValue: true }])).toBe(
+      "no switch",
+    );
   });
 
-  it("keeps an option Hermes receives besides its mode", () => {
-    const [model] = withoutSessionMode(hermes([SESSION_MODE, THOUGHT_LEVEL]));
-    expect(model?.capabilities?.optionDescriptors).toEqual([THOUGHT_LEVEL]);
-    expect(optionsChip(withoutSessionMode(hermes([SESSION_MODE, THOUGHT_LEVEL])))).toBe(true);
-  });
-
-  it("hands back the same models when no agent offers a session mode", () => {
-    const models = hermes([THOUGHT_LEVEL]);
-    expect(withoutSessionMode(models)).toBe(models);
+  it("picks the speed as the selection's only option", () => {
+    expect(buddySpeedSelection("normal")).toEqual([{ id: "fast", value: "normal" }]);
   });
 });
 

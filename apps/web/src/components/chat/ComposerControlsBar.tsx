@@ -25,7 +25,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
-import { useBuddyComposer } from "../../lazurio/BuddySurface";
+import { BuddyComposerControls, useBuddySurfaceMode } from "../../lazurio/BuddySurface";
 
 /**
  * The composer footer controls: model picker, traits, mode controls and the overflow menu for
@@ -129,16 +129,17 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
-  // Lazurio overlay (plan DEV-6676): Buddy's options chip and resting blocks offer no access or
-  // mode (buddySurfaceControls.ts).
-  const buddyComposer = useBuddyComposer(environmentId, selectedProviderModels);
+  // Lazurio overlay (plan DEV-6676): Buddy's chat offers no model, effort, access or mode, only
+  // Hermes's Normal / Fast switch (BuddySurface.tsx).
+  const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  if (buddySurface) return <BuddyComposerControls {...props} />;
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
-    models: buddyComposer.optionModels,
+    models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     reportedModelSelection,
     promptUltrathink,
@@ -151,7 +152,7 @@ export function ComposerControlsBar(props: {
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     model: selectedModel,
-    models: buddyComposer.optionModels,
+    models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     reportedModelSelection,
     promptUltrathink,
@@ -165,7 +166,7 @@ export function ComposerControlsBar(props: {
     size: composerControlsCollapsed ? "xs" : "sm",
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
-  const restingBlockDefs = buddyComposer.blocks([
+  const restingBlockDefs = [
     ...(providerTraitsPicker
       ? [
           {
@@ -194,7 +195,7 @@ export function ComposerControlsBar(props: {
         />
       ),
     },
-  ]);
+  ];
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);

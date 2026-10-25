@@ -7,7 +7,9 @@
  *   Buddy's thread is never deleted. A fork or a rollback would start Hermes on a new session and
  *   fork Buddy's memory; another thread would be a second conversation. Buddy's own thread is made
  *   only by Buddy's thread route (`MakingBuddysThread`), never by a client's `thread.create`, even
- *   one with Buddy's ids: that would spend the route's fixed command on a thread of its own.
+ *   one with Buddy's ids: that would spend the route's fixed command on a thread of its own. And
+ *   Buddy's thread keeps full access: Buddy always works with it (root decision 0210, addendum of
+ *   2026-10-25), so no client sets it a lower runtime mode.
  * - checkpoints (withoutBuddyCheckpoints): none in Buddy's project. Buddy's layer lives in the
  *   Lazurio Folder, which may be inside a Git repository; T3 would otherwise write its hidden
  *   checkpoint refs there on every turn, for a rollback that Buddy never offers.
@@ -31,6 +33,8 @@ import {
 
 const oneConversation =
   "Buddy keeps one conversation: Buddy's T3 Code has no other threads, forks or rollbacks.";
+const fullAccess =
+  "Buddy always works with full access: Buddy's thread keeps the full-access mode.";
 
 /**
  * Why Buddy's T3 Code refuses `command`, or null when it runs. `makingBuddysThread` holds only
@@ -52,6 +56,10 @@ export function buddyCommandRefusal(
         : oneConversation;
     case "thread.delete":
       return command.threadId === BUDDY_THREAD_ID ? oneConversation : null;
+    case "thread.runtime-mode.set":
+      return command.threadId === BUDDY_THREAD_ID && command.runtimeMode !== "full-access"
+        ? fullAccess
+        : null;
     default:
       return null;
   }

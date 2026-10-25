@@ -302,13 +302,14 @@ jobs:
             # (MessagesTimeline.tsx, above). The thread's error banner speaks in human words too
             # (ChatBannerLane.tsx), and above the composer stands none of the turn's work: no task
             # list, no background work, goal or child thread's question (ChatView.tsx, above). The
-            # composer asks for a message to Buddy (ChatComposer.tsx), and its controls leave out
-            # T3's runtime access and interaction mode and Hermes's session mode
-            # (ComposerControlsBar.tsx); its queue holds only the person's own messages
-            # (QueuedRunsControl.tsx). The terminal's and the right panel's keys stay the
-            # browser's (ChatView.tsx and __root.tsx, above; Lazurio/t3code#109). Its code lives
-            # in apps/web/src/lazurio/ (buddySurfaceTimeline.ts, buddySurfaceControls.ts,
-            # BuddySurface.tsx).
+            # composer asks for a message to Buddy (ChatComposer.tsx). Since the addendum of
+            # 2026-10-25 its only control is Hermes's Normal / Fast switch, in place of T3's model,
+            # options, access and mode (ComposerControlsBar.tsx), and the runtime mode it asks for
+            # is always full access (ChatView.tsx, above). Its queue holds only the person's own
+            # messages (QueuedRunsControl.tsx). The keys of the terminal, the right panel and the
+            # choices it does not offer stay the browser's (ChatView.tsx and __root.tsx, above;
+            # Lazurio/t3code#109). Its code lives in apps/web/src/lazurio/
+            # (buddySurfaceTimeline.ts, buddySurfaceControls.ts, BuddySurface.tsx).
             apps/web/src/components/chat/ChatBannerLane.tsx
             apps/web/src/components/chat/ChatComposer.tsx
             apps/web/src/components/chat/ComposerControlsBar.tsx

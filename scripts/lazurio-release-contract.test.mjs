@@ -2768,33 +2768,20 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
 // composer's controls are ComposerControlsBar.tsx (#23058), the thread's error banner renders in
 // ChatBannerLane.tsx (#23101), and useThreadLifecycle.tsx makes the work banners ChatView joins.
 NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", async () => {
-  const [
-    timeline,
-    composer,
-    chat,
-    root,
-    sessionConfig,
-    controls,
-    queue,
-    controlsBar,
-    bannerLane,
-    lifecycle,
-    surface,
-  ] = await Promise.all(
-    [
-      "apps/web/src/components/chat/MessagesTimeline.tsx",
-      "apps/web/src/components/chat/ChatComposer.tsx",
-      "apps/web/src/components/ChatView.tsx",
-      "apps/web/src/routes/__root.tsx",
-      "packages/provider-acp/src/server/sessionConfig.ts",
-      "apps/web/src/lazurio/buddySurfaceControls.ts",
-      "apps/web/src/components/chat/QueuedRunsControl.tsx",
-      "apps/web/src/components/chat/ComposerControlsBar.tsx",
-      "apps/web/src/components/chat/ChatBannerLane.tsx",
-      "apps/web/src/components/chat/useThreadLifecycle.tsx",
-      "apps/web/src/lazurio/BuddySurface.tsx",
-    ].map(read),
-  );
+  const [timeline, composer, chat, root, queue, controlsBar, bannerLane, lifecycle, surface] =
+    await Promise.all(
+      [
+        "apps/web/src/components/chat/MessagesTimeline.tsx",
+        "apps/web/src/components/chat/ChatComposer.tsx",
+        "apps/web/src/components/ChatView.tsx",
+        "apps/web/src/routes/__root.tsx",
+        "apps/web/src/components/chat/QueuedRunsControl.tsx",
+        "apps/web/src/components/chat/ComposerControlsBar.tsx",
+        "apps/web/src/components/chat/ChatBannerLane.tsx",
+        "apps/web/src/components/chat/useThreadLifecycle.tsx",
+        "apps/web/src/lazurio/BuddySurface.tsx",
+      ].map(read),
+    );
   // Buddy's rows are what the thread shows after Delegace's wake is left out (row 27).
   NodeAssert.match(
     timeline,
@@ -2809,28 +2796,25 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   NodeAssert.equal(timeline.match(/<TimelineRowContent\b/g)?.length, 1);
   NodeAssert.match(
     composer,
-    /\n\s+const buddyComposer = useBuddyComposer\(environmentId, selectedProviderModels\);\n/,
+    /\n\s+const buddyComposer = useBuddyComposer\(environmentId, \{\n\s+provider: selectedProvider,\n\s+model: selectedModel,\n\s+models: selectedProviderModels,\n\s+modelOptions: composerModelOptions\?\.\[selectedInstanceId\],\n\s+\}\);\n/,
   );
-  // Both of the options chip's renders, the strip's and the overflow menu's, read Buddy's models.
+  // Root decision 0210, addendum of 2026-10-25: Buddy's controls stand in for all of T3's (model
+  // picker, options chip, access and mode, the overflow menu) before the bar builds any of them,
+  // and the strip under the resting composer stands only while they hold something.
   NodeAssert.match(
     controlsBar,
-    /\n\s+const buddyComposer = useBuddyComposer\(environmentId, selectedProviderModels\);\n/,
+    /\n\s+getModelDisabledReason,\n\s+\} = props;\n(?:\s+\/\/[^\n]*\n)*\s+const buddySurface = useBuddySurfaceMode\(environmentId\) === true;\n\s+if \(buddySurface\) return <BuddyComposerControls \{\.\.\.props\} \/>;\n\s+const providerTraitsMenuContent = /,
   );
   NodeAssert.match(
-    controlsBar,
-    /renderProviderTraitsMenuContent\(\{\n(?:.*\n){0,6}?\s+models: buddyComposer\.optionModels,\n/,
+    composer,
+    /const composerControlsVisibleInStrip =\n\s+composerControlsCollapsed &&\n\s+restingControlsHost !== null &&\n\s+restingControlsVisible &&\n\s+buddyComposer\.hasControls;/,
   );
+  // Buddy always works with full access: the web never asks Buddy's thread for another mode.
   NodeAssert.match(
-    controlsBar,
-    /const providerTraitsPickerInput = \{\n(?:.*\n){0,6}?\s+models: buddyComposer\.optionModels,\n/,
+    chat,
+    /\n\s+const runtimeMode = buddyRuntimeMode\(\n\s+buddySurface,\n\s+composerRuntimeMode \?\?\n/,
   );
-  NodeAssert.doesNotMatch(controlsBar, /models: selectedProviderModels/);
-  NodeAssert.match(controlsBar, /const restingBlockDefs = buddyComposer\.blocks\(\[\n/);
-  // T3's access and interaction mode stay one block, the one Buddy's composer leaves out.
-  NodeAssert.match(
-    controlsBar,
-    /\{\n\s+id: "mode",\n\s+content: \(\n\s+<ComposerFooterModeControls\b/,
-  );
+  NodeAssert.equal(chat.match(/\bconst runtimeMode = /g)?.length, 1);
   NodeAssert.match(composer, /: \(buddyComposer\.placeholder \?\? "Ask anything\.\.\."\)\)\}/);
   NodeAssert.match(
     composer,
@@ -2879,9 +2863,6 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   NodeAssert.doesNotMatch(bannerLane, /<ThreadErrorBanner\b/);
   NodeAssert.doesNotMatch(chat, /<ThreadErrorBanner\b/);
   NodeAssert.match(surface, /error=\{text\.somethingFailed\} errorCode=\{null\}/);
-  // The session mode Buddy's options chip leaves out is the option the ACP adapter makes of it.
-  const sessionModeId = /export const ACP_SESSION_MODE_OPTION_ID = ("[^"]+");/;
-  NodeAssert.equal(sessionModeId.exec(controls)?.[1], sessionModeId.exec(sessionConfig)?.[1]);
   for (const file of [
     "apps/web/src/components/chat/MessagesTimeline.tsx",
     "apps/web/src/components/chat/ChatComposer.tsx",
