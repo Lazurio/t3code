@@ -36,6 +36,7 @@ import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { syncBrowserChromeTheme, useTheme } from "~/hooks/useTheme";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import {
@@ -542,10 +543,31 @@ function BuddyDayPane() {
 }
 
 /**
+ * In the bubble the surface wears the host page's theme, light or dark, from the first context and
+ * whenever the host sends another, so Buddy looks like the page around him. It goes through T3's own
+ * appearance preference, which every part of the app reads. A frame that cannot keep the preference
+ * (its browser blocks the frame's storage) takes the host's appearance on the document instead, and
+ * again whenever T3 puts back its own; there, T3's renderers that read the preference (code blocks,
+ * the terminal) keep the system's appearance.
+ */
+function useHostTheme() {
+  const { context } = useBuddyFrame(true);
+  const theme = context?.theme ?? null;
+  const { resolvedTheme, setAppearanceMode } = useTheme();
+  useEffect(() => {
+    if (theme === null) return;
+    if (resolvedTheme !== theme && setAppearanceMode(theme)) return;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    syncBrowserChromeTheme();
+  }, [theme, resolvedTheme, setAppearanceMode]);
+}
+
+/**
  * The app around Buddy's thread, in place of T3's sidebar and command palette. The day pane is
  * there only where the window has room for it beside the conversation, as in full screen.
  */
 export function BuddySurfaceLayout({ children }: { readonly children: ReactNode }) {
+  useHostTheme();
   const roomForDays = useMediaQuery("sm");
   return (
     <div className="flex h-dvh w-full min-w-0 flex-col bg-background" data-lazurio-buddy-surface>
