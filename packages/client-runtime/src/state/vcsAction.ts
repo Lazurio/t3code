@@ -19,7 +19,7 @@ import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as Persistence from "../platform/persistence.ts";
-import { runStreamGuarded, RpcPermissionGuard } from "../rpc/client.ts";
+import { isRpcClientError, runStreamGuarded, RpcPermissionGuard } from "../rpc/client.ts";
 import {
   createRuntimeCommand,
   runStreamInEnvironment,
@@ -130,6 +130,21 @@ export class VcsActionMissingTerminalEventError extends Schema.TaggedError<VcsAc
   }
 }
 
+export class VcsActionConnectionLostError extends Schema.TaggedError<VcsActionConnectionLostError>()(
+  "VcsActionConnectionLostError",
+  {
+    actionId: Schema.String,
+    transportActionId: Schema.String,
+    action: GitStackedAction,
+    environmentId: EnvironmentId,
+    cwd: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Lost the connection to the server during '${this.action}'. The action can still finish there; the status updates once the connection returns.`;
+  }
+}
+
 export class VcsActionTargetKeyParseError extends Schema.TaggedError<VcsActionTargetKeyParseError>()(
   "VcsActionTargetKeyParseError",
   {
@@ -145,6 +160,7 @@ export class VcsActionTargetKeyParseError extends Schema.TaggedError<VcsActionTa
 export const VcsActionExecutionError = Schema.Union([
   VcsActionRemoteFailureError,
   VcsActionMissingTerminalEventError,
+  VcsActionConnectionLostError,
 ]);
 export type VcsActionExecutionError = typeof VcsActionExecutionError.Type;
 
@@ -313,6 +329,21 @@ export function consumeVcsActionProgress<E, R>(
           }),
         );
       }),
+      // The server runs the action detached from the socket, so losing the transport says
+      // nothing about whether the action failed.
+      Effect.catchIf(
+        (error) => isRpcClientError(error) && error.reason._tag !== "RpcClientDefect",
+        () =>
+          Effect.fail<VcsActionExecutionError>(
+            new VcsActionConnectionLostError({
+              actionId: input.actionId,
+              transportActionId: input.transportActionId,
+              action: input.action,
+              environmentId: input.target.environmentId,
+              cwd: input.target.cwd,
+            }),
+          ),
+      ),
     );
   });
 }
