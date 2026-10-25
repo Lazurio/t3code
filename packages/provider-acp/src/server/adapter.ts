@@ -391,6 +391,16 @@ export class AcpT3Instructions extends Context.Reference<
   (instanceId: ProviderInstanceId) => boolean
 >("@t3tools/provider-acp/AcpT3Instructions", { defaultValue: () => () => true }) {}
 
+/**
+ * How much of T3's model selection an instance's sessions take. Null, the default, is all of it: the
+ * model and every option. A host that sets its agent's model and reasoning in the agent's own config
+ * names the options T3 may still apply; T3 then applies no model and only those options, whenever a
+ * session starts, loads or gets a new selection. Read when the adapter is built.
+ */
+export class AcpT3Selection extends Context.Reference<
+  (instanceId: ProviderInstanceId) => ReadonlySet<string> | null
+>("@t3tools/provider-acp/AcpT3Selection", { defaultValue: () => () => null }) {}
+
 export function acpScopedNativeId(instanceId: ProviderInstanceId, nativeId: string): string {
   return `provider-instance:${encodeURIComponent(instanceId)}:${nativeId}`;
 }
@@ -1385,6 +1395,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const sendsT3Instructions = (yield* AcpT3Instructions)(options.instanceId);
+  const t3SelectionOptions = (yield* AcpT3Selection)(options.instanceId);
   const { flavor, selfInvocation: self } = options;
   const readMcpContext = (threadId: ThreadId | null) =>
     threadId === null
@@ -6659,7 +6670,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               ? new AcpModelSelectionError({ model: modelSelection.model, cause: error })
               : error;
           let appliedModel: string | undefined;
-          if (flavor.applyModelSelection !== undefined) {
+          if (t3SelectionOptions !== null) {
+            // The host sets the agent's model (AcpT3Selection).
+          } else if (flavor.applyModelSelection !== undefined) {
             appliedModel = yield* flavor
               .applyModelSelection({
                 runtime,
@@ -6717,9 +6730,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               };
             });
           }
-          const optionSelections = (modelSelection.options ?? []).map((selection) =>
-            selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
-          );
+          const optionSelections = (modelSelection.options ?? [])
+            .filter(
+              (selection) => t3SelectionOptions === null || t3SelectionOptions.has(selection.id),
+            )
+            .map((selection) =>
+              selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
+            );
           const configOptions = yield* runtime.getConfigOptions;
           const availableConfigIds = new Set(configOptions.map((option) => option.id));
           const hasNativeConfigWithSyntheticModeId = availableConfigIds.has(
