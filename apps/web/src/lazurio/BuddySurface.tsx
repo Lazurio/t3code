@@ -19,6 +19,7 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -37,6 +38,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { syncBrowserChromeTheme, useTheme } from "~/hooks/useTheme";
+import { applyThemePalette } from "~/themePalette";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import {
@@ -543,23 +545,35 @@ function BuddyDayPane() {
 }
 
 /**
- * In the bubble the surface wears the host page's theme, light or dark, from the first context and
- * whenever the host sends another, so Buddy looks like the page around him. It goes through T3's own
- * appearance preference, which every part of the app reads. A frame that cannot keep the preference
- * (its browser blocks the frame's storage) takes the host's appearance on the document instead, and
- * again whenever T3 puts back its own; there, T3's renderers that read the preference (code blocks,
- * the terminal) keep the system's appearance.
+ * In the bubble the surface wears the host page's appearance, light or dark, from the first context
+ * and whenever the host sends another, so Buddy looks like the page around him. It asks T3 to wear
+ * it through T3's own appearance preference, which every part of the app reads, and judges by what
+ * T3 then resolves, not by the preference being stored. Where T3 cannot wear it (the frame's storage
+ * is blocked, or the saved theme has no such appearance, so T3 keeps the theme's own), the document
+ * wears T3's standard palette in the host's appearance until T3 can again; there T3's renderers that
+ * read the preference (code blocks, the terminal) keep T3's appearance.
  */
 function useHostTheme() {
   const { context } = useBuddyFrame(true);
-  const theme = context?.theme ?? null;
-  const { resolvedTheme, setAppearanceMode } = useTheme();
+  const host = context?.theme ?? null;
+  const { resolvedTheme, appearanceMode, setAppearanceMode, refreshTheme } = useTheme();
+  const standIn = useRef(false);
   useEffect(() => {
-    if (theme === null) return;
-    if (resolvedTheme !== theme && setAppearanceMode(theme)) return;
-    document.documentElement.classList.toggle("dark", theme === "dark");
+    if (host === null) return;
+    if (resolvedTheme === host) {
+      // T3 wears the host's appearance itself: it takes the document back.
+      if (standIn.current) refreshTheme();
+      standIn.current = false;
+      return;
+    }
+    // The effect runs again with what T3 resolves once the preference is stored.
+    if (appearanceMode !== host && setAppearanceMode(host)) return;
+    standIn.current = true;
+    // "system" is T3's default theme, whose palette has both appearances.
+    applyThemePalette("system", host);
+    document.documentElement.classList.toggle("dark", host === "dark");
     syncBrowserChromeTheme();
-  }, [theme, resolvedTheme, setAppearanceMode]);
+  }, [host, resolvedTheme, appearanceMode, setAppearanceMode, refreshTheme]);
 }
 
 /**

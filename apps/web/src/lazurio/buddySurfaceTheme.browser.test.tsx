@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { useTheme } from "~/hooks/useTheme";
-import { THEME_APPEARANCE_MODE_STORAGE_KEY } from "~/themePalette";
+import {
+  getStandardThemeColors,
+  installCustomTheme,
+  removeCustomTheme,
+  THEME_APPEARANCE_MODE_STORAGE_KEY,
+  type ThemeAppearance,
+} from "~/themePalette";
 import { render } from "../../test/render";
 import { BuddySurfaceLayout } from "./BuddySurface";
 import type { BuddyContext } from "./buddySurfaceProtocol";
@@ -33,6 +39,33 @@ const hostPage = (theme: BuddyContext["theme"]): BuddyContext => ({
 });
 
 const dark = () => document.documentElement.classList.contains("dark");
+const themeId = () => document.documentElement.dataset.themeId;
+
+/** The key under which useTheme.ts keeps the person's saved T3 theme. */
+const SAVED_THEME_STORAGE_KEY = "t3code:theme";
+
+/** A custom T3 theme with only one appearance, saved as the person's theme. */
+function savedThemeWithOnly(appearance: ThemeAppearance) {
+  const id = `buddy-test-${appearance}-only`;
+  removeCustomTheme(id);
+  installCustomTheme({
+    id,
+    label: `Only ${appearance}`,
+    appearance,
+    colors: getStandardThemeColors(appearance),
+  });
+  localStorage.setItem(SAVED_THEME_STORAGE_KEY, id);
+  return {
+    id,
+    [Symbol.dispose]: () => {
+      localStorage.removeItem(SAVED_THEME_STORAGE_KEY);
+      removeCustomTheme(id);
+    },
+  };
+}
+
+/** T3 reads its saved theme again and applies it, as after a change in another tab. */
+const reloadSavedTheme = () => window.dispatchEvent(new StorageEvent("storage"));
 
 /** T3's appearance as the test found it: no stored mode and the system's light look. */
 function restoreAppearance() {
@@ -92,5 +125,37 @@ describe("Buddy's surface in the bubble", () => {
     await using _screen = await render(layout());
     await vi.waitFor(() => expect(dark()).toBe(true));
     expect(localStorage.getItem(THEME_APPEARANCE_MODE_STORAGE_KEY)).toBe("dark");
+  });
+
+  it("wears the host's light over a saved dark-only theme, and that theme on a dark host", async () => {
+    setup();
+    using _appearance = restoreAppearance();
+    using saved = savedThemeWithOnly("dark");
+    frame.context = hostPage("light");
+    await using screen = await render(layout());
+    reloadSavedTheme();
+    await vi.waitFor(() => {
+      expect(dark()).toBe(false);
+      expect(themeId()).toBeUndefined();
+    });
+    frame.context = hostPage("dark");
+    await screen.rerender(layout());
+    await vi.waitFor(() => {
+      expect(dark()).toBe(true);
+      expect(themeId()).toBe(saved.id);
+    });
+  });
+
+  it("wears the host's dark over a saved light-only theme", async () => {
+    setup();
+    using _appearance = restoreAppearance();
+    using _saved = savedThemeWithOnly("light");
+    frame.context = hostPage("dark");
+    await using _screen = await render(layout());
+    reloadSavedTheme();
+    await vi.waitFor(() => {
+      expect(dark()).toBe(true);
+      expect(themeId()).toBeUndefined();
+    });
   });
 });
