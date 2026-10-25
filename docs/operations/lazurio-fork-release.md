@@ -1014,11 +1014,13 @@ server chová jako upstream, i s instancí, která se jmenuje `buddy`.
   celé obrazovce úzkého okna: rozložení povrch nikdy neodvozuje ze šířky. Mimo
   rám hostitele nebo mimo Buddyho T3 Code s nikým nemluví.
 - **Vzhled hostitele (dodatek z 2026-10-25).** Povrch v bublině nosí vzhled stránky hostitele,
-  světlý nebo tmavý (`theme` kontextu), od prvního kontextu a při každé jeho změně. Jde přes
-  vlastní předvolbu vzhledu T3, kterou čte celá aplikace. Rám, který předvolbu uložit nemůže
-  (prohlížeč mu blokuje úložiště), dostane vzhled hostitele přímo na dokument, i znovu, když T3
-  vrátí svůj; vykreslení, která čtou předvolbu (bloky kódu, terminál), tam zůstanou ve vzhledu
-  systému. Mimo rám platí vzhled, který si člověk v T3 nastavil.
+  světlý nebo tmavý (`theme` kontextu), od prvního kontextu a při každé jeho změně. Požádá o něj
+  T3 přes jeho vlastní předvolbu vzhledu, kterou čte celá aplikace, a řídí se tím, jaký vzhled T3
+  potom vyřeší, ne tím, že se předvolba uložila. Kde T3 vzhled hostitele vyřešit nemůže (prohlížeč
+  rámu blokuje úložiště, nebo uložený motiv takový vzhled nemá a T3 drží jeho vlastní), nosí
+  dokument standardní paletu T3 ve vzhledu hostitele, dokud to T3 zase nedokáže; vykreslení, která
+  čtou předvolbu (bloky kódu, terminál), tam zůstanou ve vzhledu T3. Mimo rám platí vzhled, který
+  si člověk v T3 nastavil.
 - **Stránka u zprávy (řádek 26).** Poslední platný kontext stránky ukáže povrch nad composerem jako
   čip (například „Apps /apps“) s tlačítkem, které ho odebere. Dokud tam čip je, nese zpráva, kterou
   člověk napíše, stránku jako záznam composeru `lazurio-page` s odkazem v textu a Hermes ji dostane
