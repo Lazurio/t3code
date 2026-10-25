@@ -381,23 +381,24 @@ export function BuddyComposerControls(
   );
   const target = props.routeKind === "server" ? props.routeThreadRef : props.draftId;
   return (
-    <ToggleGroup
-      aria-label={text.speed}
-      className="shrink-0"
-      value={speed === null ? [] : [speed]}
-      onValueChange={(value) => {
-        const next = value[0];
-        if (!isBuddySpeed(next) || next === speed || target === null) return;
-        setProviderModelOptions(target, props.selectedProvider, buddySpeedSelection(next), {
-          instanceId: props.selectedInstanceId,
-          model: props.selectedModel,
-          persistSticky: true,
-        });
-      }}
-    >
-      <Toggle value="normal">{text.normal}</Toggle>
-      <Toggle value="fast">{text.fast}</Toggle>
-    </ToggleGroup>
+    <div className="shrink-0">
+      <ToggleGroup
+        aria-label={text.speed}
+        value={speed === null ? [] : [speed]}
+        onValueChange={(value) => {
+          const next = value[0];
+          if (!isBuddySpeed(next) || next === speed || target === null) return;
+          setProviderModelOptions(target, props.selectedProvider, buddySpeedSelection(next), {
+            instanceId: props.selectedInstanceId,
+            model: props.selectedModel,
+            persistSticky: true,
+          });
+        }}
+      >
+        <Toggle value="normal">{text.normal}</Toggle>
+        <Toggle value="fast">{text.fast}</Toggle>
+      </ToggleGroup>
+    </div>
   );
 }
 
