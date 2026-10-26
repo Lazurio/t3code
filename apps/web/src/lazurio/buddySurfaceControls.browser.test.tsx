@@ -140,7 +140,7 @@ describe("T3's terminal, right-panel and choice keys in Buddy's surface", () => 
     // Mod+W closes the browser's tab, held down too, where T3 would hold it for a terminal.
     expect(press("w")).toBe(false);
     expect(press("w", { repeat: true })).toBe(false);
-    // No model, reasoning effort, access or mode to choose (root decision 0210, 2026-10-25).
+    // No model, reasoning effort, access or mode to choose (root decision 0210, HumanAndMachines/Lazurio#648).
     expect(press("M", { shiftKey: true })).toBe(false);
     expect(press("E", { shiftKey: true })).toBe(false);
     expect(press("A", { shiftKey: true })).toBe(false);

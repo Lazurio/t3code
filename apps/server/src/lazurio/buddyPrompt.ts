@@ -9,7 +9,7 @@
  *   `withBuddyInstance` answers it where the server builds its provider instances, so it holds
  *   for every prompt of the instance: the first one, the one after Stop or a steer (a steer of an
  *   ACP turn is a new turn) and the first one after a restart of the server or of Hermes.
- * - T3's model and options (addendum of 2026-10-25): the Lazurio Platform sets Buddy's model and
+ * - T3's model and options (0210's addendum of HumanAndMachines/Lazurio#648): the Lazurio Platform sets Buddy's model and
  *   reasoning effort in Hermes's own config, through its profiles, and the chat never overrides
  *   them. The adapter asks `AcpT3Selection` too, and `withBuddyInstance` keeps Buddy's sessions to
  *   Hermes's speed, `fast` (Normal or Fast): whatever selection a client sends, T3 sets Hermes no
