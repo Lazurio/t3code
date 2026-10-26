@@ -2888,6 +2888,38 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     /activeTasksProgress=\{\n\s+buddySurface \? null : activeComposerTasksProgress\n\s+\}/,
   );
   NodeAssert.match(root, /\{buddySurface \? null : <ReopenClosedViewShortcut \/>\}/);
+  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's surface shows no terminal,
+  // whatever the thread holds. The chat reads the thread's drawer as closed (its one read of it),
+  // draws no drawer, no terminal toggle where the right panel puts its controls (its one
+  // PanelLayoutControls takes them from panelToggleControlProps) and none of the terminals the right
+  // panel holds, and offers no Terminal in "+" or Nová karta. The timeline's rows get no
+  // Run in terminal for a code block.
+  NodeAssert.match(
+    chat,
+    /\n\s+const terminalUiState = buddyTerminalUiState\(\n\s+buddySurface,\n\s+useTerminalUiStateStore\(\(state\) =>\n\s+selectThreadTerminalUiState\(state\.terminalUiStateByThreadKey, routeThreadRef\),\n/,
+  );
+  NodeAssert.equal(chat.match(/\bselectThreadTerminalUiState\(/g)?.length, 1);
+  NodeAssert.match(chat, /\{buddySurface \? null : \(\n\s+<ChatTerminalDrawers\n/);
+  NodeAssert.equal(chat.match(/<ChatTerminalDrawers\b/g)?.length, 1);
+  NodeAssert.match(
+    chat,
+    /const panelToggleControlProps = \{\n(?:\s+\/\/[^\n]*\n)*\s+showTerminalControl: !buddySurface,\n/,
+  );
+  NodeAssert.match(chat, /<PanelLayoutControls\n\s+\{\.\.\.panelToggleControlProps\}/);
+  NodeAssert.equal(chat.match(/<PanelLayoutControls\b/g)?.length, 1);
+  NodeAssert.match(
+    chat,
+    /\n\s+const rightPanelPresenceValue = buddyPanelSurfaces\(buddySurface, \{\n\s+activeSurface: activeRightPanelSurface,\n\s+surfaces: rightPanelState\.surfaces,\n\s+\}\);\n/,
+  );
+  NodeAssert.match(
+    chat,
+    /\n\s+terminalAvailable=\{activeProject !== null && canOperateTerminal && !buddySurface\}\n/,
+  );
+  NodeAssert.equal(chat.match(/\bterminalAvailable=\{/g)?.length, 1);
+  NodeAssert.match(
+    timeline,
+    /\n\s+onRunShellCommand: buddySurface \? undefined : onRunShellCommand,\n/,
+  );
   // The work T3 shows above the composer passes Buddy's surface, and only there: each of its banners
   // is made once and goes nowhere else. Work that still runs is the timeline's quiet line instead.
   NodeAssert.match(

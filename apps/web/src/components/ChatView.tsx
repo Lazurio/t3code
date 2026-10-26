@@ -158,7 +158,9 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
+  buddyPanelSurfaces,
   buddyRuntimeMode,
+  buddyTerminalUiState,
   buddyWorkBanners,
   useBuddyChatShortcuts,
   useBuddyPage,
@@ -718,8 +720,13 @@ export default function ChatView(props: ChatViewProps) {
   const feedbackUploadsInFlightRef = useRef(new Set<string>());
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
 
-  const terminalUiState = useTerminalUiStateStore((state) =>
-    selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal, whatever the thread holds
+  // (BuddySurface.tsx).
+  const terminalUiState = buddyTerminalUiState(
+    buddySurface,
+    useTerminalUiStateStore((state) =>
+      selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
+    ),
   );
 
   const fallbackDraftProjectRef = draftThread
@@ -979,10 +986,12 @@ export default function ChatView(props: ChatViewProps) {
   });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
-  const rightPanelPresenceValue = {
+  // Lazurio overlay (plan DEV-6676): Buddy's surface shows none of the thread's terminals the panel
+  // holds (BuddySurface.tsx).
+  const rightPanelPresenceValue = buddyPanelSurfaces(buddySurface, {
     activeSurface: activeRightPanelSurface,
     surfaces: rightPanelState.surfaces,
-  };
+  });
   const rightPanelPresence = usePanelPresence(
     rightPanelOpen && activeThreadRef !== null,
     rightPanelPresenceValue,
@@ -3160,6 +3169,9 @@ export default function ChatView(props: ChatViewProps) {
     </LazurioRightPanelSurfaces>
   ) : null;
   const panelToggleControlProps = {
+    // Lazurio overlay (plan DEV-6676): no terminal toggle in Buddy's surface, wherever the right
+    // panel puts these controls.
+    showTerminalControl: !buddySurface,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3874,19 +3886,23 @@ export default function ChatView(props: ChatViewProps) {
           </ThreadFindCanvas>
         </div>
 
-        <ChatTerminalDrawers
-          activeThreadKey={activeThreadKey}
-          activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
-          composerHeight={composerReservedHeight}
-          launchContext={activeTerminalLaunchContext ?? null}
-          focusRequestId={terminalFocusRequestId}
-          splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-          splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-          newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-          closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-          keybindings={keybindings}
-          onAddTerminalContext={addTerminalContextToDraftStable}
-        />
+        {/* Lazurio overlay (plan DEV-6676): Buddy's surface draws no drawer, not even one still
+        closing or one of another thread (BuddySurface.tsx). */}
+        {buddySurface ? null : (
+          <ChatTerminalDrawers
+            activeThreadKey={activeThreadKey}
+            activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
+            composerHeight={composerReservedHeight}
+            launchContext={activeTerminalLaunchContext ?? null}
+            focusRequestId={terminalFocusRequestId}
+            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+            keybindings={keybindings}
+            onAddTerminalContext={addTerminalContextToDraftStable}
+          />
+        )}
       </div>
 
       {rightPanelPresent && activeThreadRef ? (
@@ -3933,7 +3949,9 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
           browserAvailable={canOperatePreview && browserAvailable}
-          terminalAvailable={activeProject !== null && canOperateTerminal}
+          // Lazurio overlay (plan DEV-6676): no Terminal in "+" or Nová karta's tools in Buddy's
+          // surface.
+          terminalAvailable={activeProject !== null && canOperateTerminal && !buddySurface}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}

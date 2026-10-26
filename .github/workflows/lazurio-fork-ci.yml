@@ -313,7 +313,10 @@ jobs:
             # is always full access (ChatView.tsx, above). Its queue holds only the person's own
             # messages (QueuedRunsControl.tsx). The keys of the terminal, the right panel and the
             # choices it does not offer stay the browser's (ChatView.tsx and __root.tsx, above;
-            # Lazurio/t3code#109). Its code lives in apps/web/src/lazurio/
+            # Lazurio/t3code#109). It shows no terminal, whatever the thread holds: no drawer,
+            # terminal toggle or terminal in the right panel and no Terminal to open from "+" or
+            # Nová karta (ChatView.tsx, above), and no Run in terminal on a code block
+            # (MessagesTimeline.tsx, above). Its code lives in apps/web/src/lazurio/
             # (buddySurfaceTimeline.ts, buddySurfaceControls.ts, BuddySurface.tsx).
             apps/web/src/components/chat/ChatBannerLane.tsx
             apps/web/src/components/chat/ChatComposer.tsx

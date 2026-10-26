@@ -3,9 +3,10 @@
  * controls of Buddy's chat. The composer is a message box. It offers no model, reasoning effort,
  * access or mode: the Lazurio Platform sets Buddy's model and effort in Hermes's own config, and
  * Buddy always works with full access. Its one choice is Hermes's speed, Normal or Fast, where
- * Hermes offers it. Its queue holds the person's own messages. The surface has no terminal and no
- * right panel (Lazurio/t3code#109) and none of those choices, so T3's keys for them stay the
- * browser's.
+ * Hermes offers it. Its queue holds the person's own messages. The surface has no terminal: it shows
+ * none of the thread's terminals, whatever T3 holds of them, and offers nothing that opens one. It
+ * offers no right panel (Lazurio/t3code#109) and none of those choices, so T3's keys for them stay
+ * the browser's.
  */
 import { getDescriptorStringValue } from "@t3tools/client-runtime/model-traits";
 import type {
@@ -21,6 +22,7 @@ import { getProviderOptionDescriptors } from "@t3tools/shared/model";
 
 import type { ChatShortcutsInput } from "~/components/chat/useChatShortcuts";
 import { getProviderModelCapabilities } from "~/providerModels";
+import type { RightPanelSurface } from "~/rightPanelStore";
 
 /** Hermes's ACP session option for its speed (Lazurio/hermes-agent), a select of these values. */
 const BUDDY_SPEED_OPTION_ID = "fast";
@@ -117,6 +119,27 @@ export function withoutUnusedShortcuts(input: ChatShortcutsInput): ChatShortcuts
     ...input,
     keybindings: input.keybindings.filter((binding) => !UNUSED_SHORTCUTS.has(binding.command)),
     scriptKeybindings: NO_KEYBINDINGS,
+  };
+}
+
+/** The right panel's tabs as the chat shows them, and the one in front. */
+export interface PanelSurfaces {
+  readonly activeSurface: RightPanelSurface | null;
+  readonly surfaces: RightPanelSurface[];
+}
+
+/**
+ * The right panel without the thread's terminals, which it may hold from before: where a terminal
+ * was in front, the first tab left takes its place. The panel's state and the terminals' shells
+ * stay as they are. The same panel where it holds no terminal.
+ */
+export function withoutTerminalSurfaces(panel: PanelSurfaces): PanelSurfaces {
+  if (!panel.surfaces.some((surface) => surface.kind === "terminal")) return panel;
+  const surfaces = panel.surfaces.filter((surface) => surface.kind !== "terminal");
+  return {
+    activeSurface:
+      panel.activeSurface?.kind === "terminal" ? (surfaces[0] ?? null) : panel.activeSurface,
+    surfaces,
   };
 }
 
