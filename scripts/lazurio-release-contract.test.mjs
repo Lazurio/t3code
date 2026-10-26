@@ -1691,10 +1691,11 @@ NodeTest.test(
     NodeAssert.doesNotMatch(tabs, /environmentBrowserTitles|previewBridge \? browserDefaults/);
     // ChatView: one hook call, and upstream's surface in view wrapped once beside the frames.
     NodeAssert.equal(chatView.match(/useLazurioThreadTabs\(/g)?.length, 1);
-    // A draft opens no stream until its first message makes it a thread (Lazurio/t3code#53).
+    // A draft opens no stream until its first message makes it a thread (Lazurio/t3code#53), and
+    // Buddy's surface, which has no right panel, follows no thread's tabs (row 28).
     NodeAssert.match(
       chatView,
-      /useLazurioThreadTabs\(activeThreadRef, \{\n\s+inlinePanel: !shouldUsePlanSidebarSheet,\n\s+draft: !isServerThread,\n\s+\}\);/,
+      /useLazurioThreadTabs\(buddySurface \? null : activeThreadRef, \{\n\s+inlinePanel: !shouldUsePlanSidebarSheet,\n\s+draft: !isServerThread,\n\s+\}\);/,
     );
     NodeAssert.match(chatView, /const rightPanelActiveContent = activeThreadRef \? \(/);
     NodeAssert.match(
@@ -2826,20 +2827,31 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
 // composer's controls are ComposerControlsBar.tsx (#23058), the thread's error banner renders in
 // ChatBannerLane.tsx (#23101), and useThreadLifecycle.tsx makes the work banners ChatView joins.
 NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", async () => {
-  const [timeline, composer, chat, root, queue, controlsBar, bannerLane, lifecycle, surface] =
-    await Promise.all(
-      [
-        "apps/web/src/components/chat/MessagesTimeline.tsx",
-        "apps/web/src/components/chat/ChatComposer.tsx",
-        "apps/web/src/components/ChatView.tsx",
-        "apps/web/src/routes/__root.tsx",
-        "apps/web/src/components/chat/QueuedRunsControl.tsx",
-        "apps/web/src/components/chat/ComposerControlsBar.tsx",
-        "apps/web/src/components/chat/ChatBannerLane.tsx",
-        "apps/web/src/components/chat/useThreadLifecycle.tsx",
-        "apps/web/src/lazurio/BuddySurface.tsx",
-      ].map(read),
-    );
+  const [
+    timeline,
+    composer,
+    chat,
+    root,
+    queue,
+    controlsBar,
+    bannerLane,
+    lifecycle,
+    surface,
+    markdown,
+  ] = await Promise.all(
+    [
+      "apps/web/src/components/chat/MessagesTimeline.tsx",
+      "apps/web/src/components/chat/ChatComposer.tsx",
+      "apps/web/src/components/ChatView.tsx",
+      "apps/web/src/routes/__root.tsx",
+      "apps/web/src/components/chat/QueuedRunsControl.tsx",
+      "apps/web/src/components/chat/ComposerControlsBar.tsx",
+      "apps/web/src/components/chat/ChatBannerLane.tsx",
+      "apps/web/src/components/chat/useThreadLifecycle.tsx",
+      "apps/web/src/lazurio/BuddySurface.tsx",
+      "apps/web/src/components/ChatMarkdown.tsx",
+    ].map(read),
+  );
   // Buddy's rows are what the thread shows after Delegace's wake is left out (row 27).
   NodeAssert.match(
     timeline,
@@ -2888,12 +2900,13 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     /activeTasksProgress=\{\n\s+buddySurface \? null : activeComposerTasksProgress\n\s+\}/,
   );
   NodeAssert.match(root, /\{buddySurface \? null : <ReopenClosedViewShortcut \/>\}/);
-  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's surface shows no terminal,
-  // whatever the thread holds. The chat reads the thread's drawer as closed (its one read of it),
-  // draws no drawer, no terminal toggle where the right panel puts its controls (its one
-  // PanelLayoutControls takes them from panelToggleControlProps) and none of the terminals the right
-  // panel holds, and offers no Terminal in "+" or Nová karta. The timeline's rows get no
-  // Run in terminal for a code block.
+  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's chat is only the
+  // conversation, so Buddy's surface shows neither T3's terminal nor its right panel, whatever the
+  // thread holds. The chat reads the thread's drawer and panel as closed (its one read of each),
+  // draws no drawer at all and the panel only while its reading is open, and does not follow the
+  // thread's Environment browser tabs. The timeline's rows get no Run in terminal for a code block.
+  // A link in the conversation opens in a new tab: Buddy's surface takes the chat's `_blank` web
+  // links inside the timeline's root before T3's handlers can (BuddySurface.tsx).
   NodeAssert.match(
     chat,
     /\n\s+const terminalUiState = buddyTerminalUiState\(\n\s+buddySurface,\n\s+useTerminalUiStateStore\(\(state\) =>\n\s+selectThreadTerminalUiState\(state\.terminalUiStateByThreadKey, routeThreadRef\),\n/,
@@ -2903,23 +2916,27 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   NodeAssert.equal(chat.match(/<ChatTerminalDrawers\b/g)?.length, 1);
   NodeAssert.match(
     chat,
-    /const panelToggleControlProps = \{\n(?:\s+\/\/[^\n]*\n)*\s+showTerminalControl: !buddySurface,\n/,
+    /\n\s+const rightPanelState = buddyRightPanelState\(\n\s+buddySurface,\n\s+useRightPanelStore\(\(state\) => selectThreadRightPanelState\(state\.byThreadKey, activeThreadRef\)\),\n/,
   );
-  NodeAssert.match(chat, /<PanelLayoutControls\n\s+\{\.\.\.panelToggleControlProps\}/);
-  NodeAssert.equal(chat.match(/<PanelLayoutControls\b/g)?.length, 1);
+  NodeAssert.equal(chat.match(/\bselectThreadRightPanelState\(/g)?.length, 1);
+  NodeAssert.match(chat, /\n\s+const rightPanelOpen = rightPanelState\.isOpen;\n/);
   NodeAssert.match(
     chat,
-    /\n\s+const rightPanelPresenceValue = buddyPanelSurfaces\(buddySurface, \{\n\s+activeSurface: activeRightPanelSurface,\n\s+surfaces: rightPanelState\.surfaces,\n\s+\}\);\n/,
+    /const rightPanelPresence = usePanelPresence\(\n\s+rightPanelOpen && activeThreadRef !== null,\n/,
   );
-  NodeAssert.match(
-    chat,
-    /\n\s+terminalAvailable=\{activeProject !== null && canOperateTerminal && !buddySurface\}\n/,
-  );
-  NodeAssert.equal(chat.match(/\bterminalAvailable=\{/g)?.length, 1);
+  NodeAssert.match(chat, /\{rightPanelPresent && activeThreadRef \? \(\n\s+<ChatRightPanel\n/);
+  NodeAssert.equal(chat.match(/<ChatRightPanel\b/g)?.length, 1);
+  NodeAssert.match(chat, /\n\s+useLazurioThreadTabs\(buddySurface \? null : activeThreadRef, \{\n/);
   NodeAssert.match(
     timeline,
     /\n\s+onRunShellCommand: buddySurface \? undefined : onRunShellCommand,\n/,
   );
+  NodeAssert.match(timeline, /\n\s+data-timeline-root="true"\n/);
+  NodeAssert.match(
+    markdown,
+    /\n\s+target=\{isSameDocumentLink \? undefined : "_blank"\}\n\s+rel=\{isSameDocumentLink \? undefined : "noopener noreferrer"\}\n/,
+  );
+  NodeAssert.match(surface, /link\.target === "_blank" && \(link\.protocol === "https:"/);
   // The work T3 shows above the composer passes Buddy's surface, and only there: each of its banners
   // is made once and goes nowhere else. Work that still runs is the timeline's quiet line instead.
   NodeAssert.match(

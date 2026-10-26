@@ -6,8 +6,9 @@
  * line above the first message of each day. `/` opens Buddy's thread, which the server finds or
  * makes. The server holds the one conversation for every client (buddySurfaceGuards.ts); this only
  * leaves out what would be refused. The conversation shows what Buddy writes, not his work
- * (buddySurfaceTimeline.ts), the composer and the keys offer no choice but Hermes's speed, and the
- * surface shows no terminal (buddySurfaceControls.ts).
+ * (buddySurfaceTimeline.ts), the composer and the keys offer no choice but Hermes's speed
+ * (buddySurfaceControls.ts), the surface shows neither T3's terminal nor its right panel, and a link
+ * in the conversation opens in a new tab.
  */
 import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
@@ -39,6 +40,7 @@ import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { syncBrowserChromeTheme, useTheme } from "~/hooks/useTheme";
 import { applyThemePalette } from "~/themePalette";
+import { selectThreadRightPanelState } from "~/rightPanelStore";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import { selectThreadTerminalUiState } from "~/terminalUiStateStore";
@@ -48,12 +50,11 @@ import {
   buddySpeedOption,
   buddySpeedSelection,
   isBuddySpeed,
-  type PanelSurfaces,
   personsQueuedRuns,
   type QueueMessage,
-  withoutTerminalSurfaces,
   withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
+import { isPlainPrimaryClick } from "./environmentBrowser";
 import { pageRecordOf } from "./buddySurfacePage";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
@@ -426,6 +427,17 @@ type TerminalUiState = ReturnType<typeof selectThreadTerminalUiState>;
 export const buddyTerminalUiState = (buddy: boolean, state: TerminalUiState): TerminalUiState =>
   buddy ? selectThreadTerminalUiState({}, null) : state;
 
+type RightPanelState = ReturnType<typeof selectThreadRightPanelState>;
+
+/**
+ * The thread's right panel as the chat reads it: in Buddy's surface closed and empty, whatever the
+ * thread holds (a panel opened on it earlier, a link followed into it, a page an agent showed),
+ * since Buddy's chat is only the conversation (root decision 0210, addendum of
+ * HumanAndMachines/Lazurio#648). The stored panel stays as it is. As T3's elsewhere.
+ */
+export const buddyRightPanelState = (buddy: boolean, state: RightPanelState): RightPanelState =>
+  buddy ? selectThreadRightPanelState({}, null) : state;
+
 /** The chat's shortcuts, without those Buddy's surface has no use for there. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
   useChatShortcuts(buddy ? withoutUnusedShortcuts(input) : input);
@@ -445,13 +457,6 @@ export function buddyWorkBanners<Banner>(
 ): ReadonlyArray<Banner> {
   return buddy ? NO_BANNERS : banners;
 }
-
-/**
- * The right panel's tabs the chat shows: in Buddy's surface none of the thread's terminals, which
- * the panel may hold from before (buddySurfaceControls.ts). As T3's elsewhere.
- */
-export const buddyPanelSurfaces = (buddy: boolean, panel: PanelSurfaces): PanelSurfaces =>
-  buddy ? withoutTerminalSurfaces(panel) : panel;
 
 /**
  * The queued messages Buddy's composer shows to edit, steer or remove: the person's own. A message
@@ -599,12 +604,44 @@ function useHostTheme() {
   }, [host, resolvedTheme, appearanceMode, setAppearanceMode, refreshTheme]);
 }
 
+/** The conversation's timeline (MessagesTimeline), which holds the chat's links. */
+const CONVERSATION = "[data-timeline-root]";
+
+/** A link T3 opens away from its page, as the chat draws a web link: a `_blank` http(s) link. */
+const isWebLink = (link: HTMLAnchorElement) =>
+  link.target === "_blank" && (link.protocol === "https:" || link.protocol === "http:");
+
+/**
+ * A web link in Buddy's conversation opens in a new browser tab, never in T3's preview or right
+ * panel. A plain click opens it there without an opener or referrer; a click with a modifier goes
+ * to the browser as on any page. The window's capture phase runs before every handler of T3 that
+ * would take the link into the app: the chat's own, and the Environment browser's on the document.
+ */
+function useLinksInNewTab() {
+  useEffect(() => {
+    const open = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const link = event.target.closest("a[href]");
+      if (!(link instanceof HTMLAnchorElement) || !isWebLink(link)) return;
+      if (link.closest(CONVERSATION) === null) return;
+      event.stopPropagation();
+      if (!isPlainPrimaryClick(event)) return;
+      event.preventDefault();
+      window.open(link.href, "_blank", "noopener,noreferrer");
+    };
+    window.addEventListener("click", open, true);
+    return () => window.removeEventListener("click", open, true);
+  }, []);
+}
+
 /**
  * The app around Buddy's thread, in place of T3's sidebar and command palette. The day pane is
- * there only where the window has room for it beside the conversation, as in full screen.
+ * there only where the window has room for it beside the conversation, as in full screen. A link
+ * in the conversation opens in a new tab.
  */
 export function BuddySurfaceLayout({ children }: { readonly children: ReactNode }) {
   useHostTheme();
+  useLinksInNewTab();
   const roomForDays = useMediaQuery("sm");
   return (
     <div className="flex h-dvh w-full min-w-0 flex-col bg-background" data-lazurio-buddy-surface>
