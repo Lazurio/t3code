@@ -189,7 +189,8 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
 - **Web: záložky v pravém panelu.** Bez desktopového náhledu
   (`window.desktopBridge.preview`) a jen pro vlákna Environmentu, který stránku
   servíruje, sleduje stránka seznam vlákna a každé zařízení srovná svůj pás s
-  tímtéž seznamem. Nové záložky přidá na konec v pořadí souboru a neotevře jimi
+  tímtéž seznamem. Buddyho povrch pravý panel nemá, a tak seznam nesleduje a odkaz
+  v rozhovoru otevře v nové záložce prohlížeče (runbook, Buddyho T3 Code). Nové záložky přidá na konec v pořadí souboru a neotevře jimi
   zavřený panel; kde už záložku ukazuje, zůstává volbou zařízení (záložky jde
   přetahovat, i povrchy overlaye). Kde není vybraný žádný povrch, nebo vybraný
   zmizel, vybere první záložku prohlížeče jako upstream srovnání svého

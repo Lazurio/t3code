@@ -11,7 +11,7 @@ import { ComposerBannerStack } from "~/components/chat/ComposerBannerStack";
 import { MessagesTimeline } from "~/components/chat/MessagesTimeline";
 import { Button, InlineButton } from "~/components/ui/button";
 import { render } from "../../test/render";
-import { buddyWorkBanners } from "./BuddySurface";
+import { BuddySurfaceLayout, buddyWorkBanners } from "./BuddySurface";
 
 // The timeline asks BuddySurface whether it shows Buddy's T3 Code; the rest of the module is real.
 const surface = vi.hoisted(() => ({ buddy: true }));
@@ -120,16 +120,19 @@ const run = (status: "running" | "completed" | "failed") => ({
 });
 
 // Each render gets its own thread: the timeline remembers position and disclosures per thread.
-// `aboveComposer` stands below the timeline, where the chat puts its composer's banners.
+// `aboveComposer` stands below the timeline, where the chat puts its composer's banners, and
+// `inSurface` puts both in Buddy's surface as the app shell draws it.
 async function renderTimeline(
   entries: ReadonlyArray<Entry>,
   props: Partial<TimelineProps>,
   aboveComposer?: ReactNode,
+  inSurface = false,
 ) {
   const container = document.createElement("div");
   container.style.cssText = "height: 900px; width: 700px; display: flex; flex-direction: column;";
+  const Shell = inSurface ? BuddySurfaceLayout : Fragment;
   const screen = await render(
-    <>
+    <Shell>
       <MessagesTimeline
         isWorking={false}
         activeTurnInProgress={false}
@@ -163,7 +166,7 @@ async function renderTimeline(
         {...props}
       />
       {aboveComposer}
-    </>,
+    </Shell>,
     { container },
   );
   return Object.assign(screen, {
@@ -286,6 +289,59 @@ describe("a shell code block in Buddy's reply", () => {
     await using screen = await renderShellReply();
     await screen.getByRole("button", { name: "Run in terminal" }).click();
     expect(screen.runInTerminal).toHaveBeenCalledWith("ls");
+  });
+});
+
+// A web link in a reply, which T3 takes into its preview or right panel where it can: the chat's
+// handler and the Environment browser's both listen below the window.
+const CALENDAR = "https://calendar.example.com/today";
+const LINK_REPLY = `Your agenda is in [the calendar](${CALENDAR}).`;
+
+/**
+ * The clicks that reach the document, where T3's handlers of a link listen. The test page stays
+ * where it is: a tab the browser itself would open is not under test.
+ */
+function clicksOnTheDocument() {
+  const clicks: MouseEvent[] = [];
+  const count = (event: MouseEvent) => {
+    clicks.push(event);
+    event.preventDefault();
+  };
+  document.addEventListener("click", count, true);
+  return { clicks, [Symbol.dispose]: () => document.removeEventListener("click", count, true) };
+}
+
+const renderLinkReply = (inSurface: boolean) =>
+  renderTimeline(
+    [message("user-1", "user", QUESTION), message("assistant-1", "assistant", LINK_REPLY)],
+    { latestRun: run("completed") },
+    undefined,
+    inSurface,
+  );
+
+describe("a link in Buddy's reply", () => {
+  it("opens in a new browser tab, and nothing of T3 takes it", async () => {
+    setup(true);
+    await using screen = await renderLinkReply(true);
+    using onTheDocument = clicksOnTheDocument();
+    using open = vi.spyOn(window, "open").mockReturnValue(null);
+    const link = screen.getByRole("link", { name: "the calendar" });
+    await expect.element(link).toHaveAttribute("target", "_blank");
+    await expect.element(link).toHaveAttribute("rel", "noopener noreferrer");
+    await link.click();
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith(CALENDAR, "_blank", "noopener,noreferrer");
+    expect(onTheDocument.clicks).toHaveLength(0);
+  });
+
+  it("stays T3's outside Buddy's T3 Code", async () => {
+    setup(false);
+    await using screen = await renderLinkReply(false);
+    using onTheDocument = clicksOnTheDocument();
+    using open = vi.spyOn(window, "open").mockReturnValue(null);
+    await screen.getByRole("link", { name: "the calendar" }).click();
+    expect(onTheDocument.clicks).toHaveLength(1);
+    expect(open).not.toHaveBeenCalled();
   });
 });
 

@@ -158,7 +158,7 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
-  buddyPanelSurfaces,
+  buddyRightPanelState,
   buddyRuntimeMode,
   buddyTerminalUiState,
   buddyWorkBanners,
@@ -956,8 +956,11 @@ export default function ChatView(props: ChatViewProps) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     }
   }, [activeThreadRef, diffOpen]);
-  const rightPanelState = useRightPanelStore((state) =>
-    selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no right panel, whatever the thread holds
+  // (BuddySurface.tsx).
+  const rightPanelState = buddyRightPanelState(
+    buddySurface,
+    useRightPanelStore((state) => selectThreadRightPanelState(state.byThreadKey, activeThreadRef)),
   );
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
@@ -979,19 +982,18 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
-  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio).
-  useLazurioThreadTabs(activeThreadRef, {
+  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio),
+  // which Buddy's surface, with no panel, does not follow (plan DEV-6676).
+  useLazurioThreadTabs(buddySurface ? null : activeThreadRef, {
     inlinePanel: !shouldUsePlanSidebarSheet,
     draft: !isServerThread,
   });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
-  // Lazurio overlay (plan DEV-6676): Buddy's surface shows none of the thread's terminals the panel
-  // holds (BuddySurface.tsx).
-  const rightPanelPresenceValue = buddyPanelSurfaces(buddySurface, {
+  const rightPanelPresenceValue = {
     activeSurface: activeRightPanelSurface,
     surfaces: rightPanelState.surfaces,
-  });
+  };
   const rightPanelPresence = usePanelPresence(
     rightPanelOpen && activeThreadRef !== null,
     rightPanelPresenceValue,
@@ -3169,9 +3171,6 @@ export default function ChatView(props: ChatViewProps) {
     </LazurioRightPanelSurfaces>
   ) : null;
   const panelToggleControlProps = {
-    // Lazurio overlay (plan DEV-6676): no terminal toggle in Buddy's surface, wherever the right
-    // panel puts these controls.
-    showTerminalControl: !buddySurface,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3949,9 +3948,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
           browserAvailable={canOperatePreview && browserAvailable}
-          // Lazurio overlay (plan DEV-6676): no Terminal in "+" or Nová karta's tools in Buddy's
-          // surface.
-          terminalAvailable={activeProject !== null && canOperateTerminal && !buddySurface}
+          terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
