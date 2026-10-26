@@ -249,7 +249,7 @@ jobs:
             # which keeps every prompt in Buddy's memory. The ACP adapter leaves T3's instructions
             # out of an instance's prompts where its host says so (AcpT3Instructions; server.ts,
             # above, says so for Buddy's instance), and the turn start projects a page context as a
-            # labelled Czech block for that instance. Since the addendum of 2026-10-25 the Platform
+            # labelled Czech block for that instance. Since 0210's addendum of HumanAndMachines/Lazurio#648 the Platform
             # sets Buddy's model and effort in Hermes's own config: the adapter applies no model
             # and only the options a host names where it says so (AcpT3Selection, Hermes's speed
             # for Buddy's instance), and the adapter's test checks that on the mock agent
@@ -307,8 +307,8 @@ jobs:
             # (MessagesTimeline.tsx, above). The thread's error banner speaks in human words too
             # (ChatBannerLane.tsx), and above the composer stands none of the turn's work: no task
             # list, no background work, goal or child thread's question (ChatView.tsx, above). The
-            # composer asks for a message to Buddy (ChatComposer.tsx). Since the addendum of
-            # 2026-10-25 its only control is Hermes's Normal / Fast switch, in place of T3's model,
+            # composer asks for a message to Buddy (ChatComposer.tsx). Since 0210's addendum of
+            # HumanAndMachines/Lazurio#648 its only control is Hermes's Normal / Fast switch, in place of T3's model,
             # options, access and mode (ComposerControlsBar.tsx), and the runtime mode it asks for
             # is always full access (ChatView.tsx, above). Its queue holds only the person's own
             # messages (QueuedRunsControl.tsx). The keys of the terminal, the right panel and the

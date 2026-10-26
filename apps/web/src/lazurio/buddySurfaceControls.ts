@@ -1,5 +1,5 @@
 /**
- * Lazurio overlay (root decision 0210, addenda of 2026-10-22 and 2026-10-25; plan DEV-6676): the
+ * Lazurio overlay (root decision 0210, addenda of 2026-10-22 and of HumanAndMachines/Lazurio#648; plan DEV-6676): the
  * controls of Buddy's chat. The composer is a message box. It offers no model, reasoning effort,
  * access or mode: the Lazurio Platform sets Buddy's model and effort in Hermes's own config, and
  * Buddy always works with full access. Its one choice is Hermes's speed, Normal or Fast, where

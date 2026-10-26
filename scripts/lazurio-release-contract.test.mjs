@@ -2395,7 +2395,7 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
     acpAdapter,
     /if \(sendsT3Instructions && !isNativeSlashCommand\) \{\n\s+prompt\.push\(\{\n\s+type: "text",\n\s+text: buildRuntimeInstructions\(\{/,
   );
-  // Root decision 0210, addendum of 2026-10-25: the Platform sets Buddy's model and effort in
+  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: the Platform sets Buddy's model and effort in
   // Hermes's own config, so the adapter's one place that applies a selection asks AcpT3Selection
   // first and sets no model and only the options it names for Buddy's instance.
   NodeAssert.match(
@@ -2856,7 +2856,7 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     composer,
     /\n\s+const buddyComposer = useBuddyComposer\(environmentId, \{\n\s+provider: selectedProvider,\n\s+model: selectedModel,\n\s+models: selectedProviderModels,\n\s+modelOptions: composerModelOptions\?\.\[selectedInstanceId\],\n\s+\}\);\n/,
   );
-  // Root decision 0210, addendum of 2026-10-25: Buddy's controls stand in for all of T3's (model
+  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's controls stand in for all of T3's (model
   // picker, options chip, access and mode, the overflow menu) before the bar builds any of them,
   // and the strip under the resting composer stands only while they hold something.
   NodeAssert.match(

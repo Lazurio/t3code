@@ -405,7 +405,7 @@ export function BuddyComposerControls(
 /**
  * The runtime mode of the chat's next turn: in Buddy's surface full access, whatever a draft or the
  * thread holds, since Buddy always works with full access (root decision 0210, addendum of
- * 2026-10-25). So the web never asks Buddy's thread for less, and a lower mode the thread holds goes
+ * HumanAndMachines/Lazurio#648). So the web never asks Buddy's thread for less, and a lower mode the thread holds goes
  * back to full access with the next message. As T3's elsewhere.
  */
 export const buddyRuntimeMode = (buddy: boolean, mode: RuntimeMode): RuntimeMode =>

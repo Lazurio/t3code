@@ -9,7 +9,7 @@
  *   only by Buddy's thread route (`MakingBuddysThread`), never by a client's `thread.create`, even
  *   one with Buddy's ids: that would spend the route's fixed command on a thread of its own. And
  *   Buddy's thread keeps full access: Buddy always works with it (root decision 0210, addendum of
- *   2026-10-25), so no client sets it a lower runtime mode.
+ *   HumanAndMachines/Lazurio#648), so no client sets it a lower runtime mode.
  * - checkpoints (withoutBuddyCheckpoints): none in Buddy's project. Buddy's layer lives in the
  *   Lazurio Folder, which may be inside a Git repository; T3 would otherwise write its hidden
  *   checkpoint refs there on every turn, for a rollback that Buddy never offers.
