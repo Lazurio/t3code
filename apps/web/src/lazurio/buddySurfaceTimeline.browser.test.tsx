@@ -257,6 +257,38 @@ describe("Buddy's conversation", () => {
   });
 });
 
+// T3 offers to run a closed shell code block in a terminal, which ChatView hands the timeline for a
+// thread with a project, as Buddy's thread has.
+const SHELL_REPLY = "You can list the folder yourself:\n\n```bash\nls\n```\n";
+const CODE_BLOCK_ACTIONS = '[aria-label="Code block actions"]';
+
+async function renderShellReply() {
+  const runInTerminal = vi.fn();
+  const screen = await renderTimeline(
+    [message("user-1", "user", QUESTION), message("assistant-1", "assistant", SHELL_REPLY)],
+    { latestRun: run("completed"), onRunShellCommand: runInTerminal },
+  );
+  return Object.assign(screen, { runInTerminal });
+}
+
+describe("a shell code block in Buddy's reply", () => {
+  it("offers no Run in terminal, since Buddy's surface has no terminal", async () => {
+    setup(true);
+    await using screen = await renderShellReply();
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector(CODE_BLOCK_ACTIONS)).not.toBeNull(),
+    );
+    expect(screen.container.querySelector('[aria-label="Run in terminal"]')).toBeNull();
+  });
+
+  it("keeps T3's Run in terminal outside Buddy's T3 Code", async () => {
+    setup(false);
+    await using screen = await renderShellReply();
+    await screen.getByRole("button", { name: "Run in terminal" }).click();
+    expect(screen.runInTerminal).toHaveBeenCalledWith("ls");
+  });
+});
+
 // A settled turn whose work still runs: T3 derives the pending work from the turn's items and shows
 // it above the composer with its title, a subagent's link and Stop, as ChatView's
 // backgroundWorkBannerItem does (the release contract pins that ChatView's work banners pass

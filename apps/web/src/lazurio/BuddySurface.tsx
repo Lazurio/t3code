@@ -6,8 +6,8 @@
  * line above the first message of each day. `/` opens Buddy's thread, which the server finds or
  * makes. The server holds the one conversation for every client (buddySurfaceGuards.ts); this only
  * leaves out what would be refused. The conversation shows what Buddy writes, not his work
- * (buddySurfaceTimeline.ts), and the composer and the keys offer no choice but Hermes's speed
- * (buddySurfaceControls.ts).
+ * (buddySurfaceTimeline.ts), the composer and the keys offer no choice but Hermes's speed, and the
+ * surface shows no terminal (buddySurfaceControls.ts).
  */
 import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
@@ -41,14 +41,17 @@ import { syncBrowserChromeTheme, useTheme } from "~/hooks/useTheme";
 import { applyThemePalette } from "~/themePalette";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
+import { selectThreadTerminalUiState } from "~/terminalUiStateStore";
 import {
   type BuddyComposerSelection,
   buddySpeedOf,
   buddySpeedOption,
   buddySpeedSelection,
   isBuddySpeed,
+  type PanelSurfaces,
   personsQueuedRuns,
   type QueueMessage,
+  withoutTerminalSurfaces,
   withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
 import { pageRecordOf } from "./buddySurfacePage";
@@ -411,6 +414,18 @@ export function BuddyComposerControls(
 export const buddyRuntimeMode = (buddy: boolean, mode: RuntimeMode): RuntimeMode =>
   buddy ? "full-access" : mode;
 
+type TerminalUiState = ReturnType<typeof selectThreadTerminalUiState>;
+
+/**
+ * The thread's terminal drawer as the chat reads it: in Buddy's surface closed and empty, whatever
+ * the thread holds (a drawer opened on it earlier, in T3 or by an action), since the surface has no
+ * terminal (root decision 0210, addendum of HumanAndMachines/Lazurio#648). So no drawer opens there
+ * and the composer keeps its focus as without one. The stored state and the terminals' shells stay
+ * as they are. As T3's elsewhere.
+ */
+export const buddyTerminalUiState = (buddy: boolean, state: TerminalUiState): TerminalUiState =>
+  buddy ? selectThreadTerminalUiState({}, null) : state;
+
 /** The chat's shortcuts, without those Buddy's surface has no use for there. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
   useChatShortcuts(buddy ? withoutUnusedShortcuts(input) : input);
@@ -430,6 +445,13 @@ export function buddyWorkBanners<Banner>(
 ): ReadonlyArray<Banner> {
   return buddy ? NO_BANNERS : banners;
 }
+
+/**
+ * The right panel's tabs the chat shows: in Buddy's surface none of the thread's terminals, which
+ * the panel may hold from before (buddySurfaceControls.ts). As T3's elsewhere.
+ */
+export const buddyPanelSurfaces = (buddy: boolean, panel: PanelSurfaces): PanelSurfaces =>
+  buddy ? withoutTerminalSurfaces(panel) : panel;
 
 /**
  * The queued messages Buddy's composer shows to edit, steer or remove: the person's own. A message

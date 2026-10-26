@@ -939,7 +939,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     runs,
     activeThreadEnvironmentId,
     onRevertToTurnCount,
-    onRunShellCommand,
+    // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal to run a code block in.
+    onRunShellCommand: buddySurface ? undefined : onRunShellCommand,
     findActive,
     onImageExpand,
     onFileOpen,

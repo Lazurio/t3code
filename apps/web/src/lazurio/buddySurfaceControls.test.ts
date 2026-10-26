@@ -6,11 +6,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import type { RightPanelSurface } from "~/rightPanelStore";
 import {
   buddySpeedOf,
   buddySpeedOption,
   buddySpeedSelection,
   personsQueuedRuns,
+  withoutTerminalSurfaces,
 } from "./buddySurfaceControls";
 
 const BUDDY = ProviderInstanceId.make("buddy");
@@ -96,5 +98,35 @@ describe("Buddy's queue", () => {
 
   it("hands back the same queue when all of it is the person's", () => {
     expect(personsQueuedRuns(queued, [{ id: "person", createdBy: "user" }])).toBe(queued);
+  });
+});
+
+describe("Buddy's right panel", () => {
+  const page: RightPanelSurface = { id: "environment-browser:0A1B", kind: "environment-browser" };
+  const files: RightPanelSurface = { id: "files", kind: "files" };
+  const terminal: RightPanelSurface = {
+    id: "terminal:term-2",
+    kind: "terminal",
+    resourceId: "term-2",
+    terminalIds: ["term-2"],
+    activeTerminalId: "term-2",
+  };
+
+  it("shows none of the thread's terminals, and the first tab left where one was in front", () => {
+    expect(
+      withoutTerminalSurfaces({ activeSurface: terminal, surfaces: [terminal, page, files] }),
+    ).toEqual({ activeSurface: page, surfaces: [page, files] });
+    expect(
+      withoutTerminalSurfaces({ activeSurface: files, surfaces: [page, terminal, files] }),
+    ).toEqual({ activeSurface: files, surfaces: [page, files] });
+    expect(withoutTerminalSurfaces({ activeSurface: terminal, surfaces: [terminal] })).toEqual({
+      activeSurface: null,
+      surfaces: [],
+    });
+  });
+
+  it("hands back the same panel when it holds no terminal", () => {
+    const panel = { activeSurface: page, surfaces: [page, files] };
+    expect(withoutTerminalSurfaces(panel)).toBe(panel);
   });
 });
