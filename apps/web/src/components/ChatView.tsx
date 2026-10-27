@@ -721,10 +721,10 @@ export default function ChatView(props: ChatViewProps) {
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
 
   // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal, whatever the thread holds
-  // (BuddySurface.tsx).
-  const terminalUiState = buddyTerminalUiState(
-    buddySurface,
-    useTerminalUiStateStore((state) =>
+  // (BuddySurface.tsx). Read inside the selector, as the right panel's state below is.
+  const terminalUiState = useTerminalUiStateStore((state) =>
+    buddyTerminalUiState(
+      buddySurface,
       selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
     ),
   );
@@ -957,10 +957,14 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [activeThreadRef, diffOpen]);
   // Lazurio overlay (plan DEV-6676): Buddy's surface has no right panel, whatever the thread holds
-  // (BuddySurface.tsx).
-  const rightPanelState = buddyRightPanelState(
-    buddySurface,
-    useRightPanelStore((state) => selectThreadRightPanelState(state.byThreadKey, activeThreadRef)),
+  // (BuddySurface.tsx). Read inside the selector: the React Compiler treats a plain function's
+  // result as mutable and stops memoizing what reads it, and the panel's presence value below then
+  // changed on every render and looped as soon as the panel opened.
+  const rightPanelState = useRightPanelStore((state) =>
+    buddyRightPanelState(
+      buddySurface,
+      selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+    ),
   );
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),

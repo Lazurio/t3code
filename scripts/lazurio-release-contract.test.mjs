@@ -2902,21 +2902,23 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   NodeAssert.match(root, /\{buddySurface \? null : <ReopenClosedViewShortcut \/>\}/);
   // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's chat is only the
   // conversation, so Buddy's surface shows neither T3's terminal nor its right panel, whatever the
-  // thread holds. The chat reads the thread's drawer and panel as closed (its one read of each),
+  // thread holds. The chat reads the thread's drawer and panel as closed (its one read of each,
+  // inside the store's selector: a plain function's result outside one leaves what reads it
+  // unmemoized by the React Compiler, and the open panel then re-rendered without end, #301),
   // draws no drawer at all and the panel only while its reading is open, and does not follow the
   // thread's Environment browser tabs. The timeline's rows get no Run in terminal for a code block.
   // A link in the conversation opens in a new tab: Buddy's surface takes the chat's `_blank` web
   // links inside the timeline's root before T3's handlers can (BuddySurface.tsx).
   NodeAssert.match(
     chat,
-    /\n\s+const terminalUiState = buddyTerminalUiState\(\n\s+buddySurface,\n\s+useTerminalUiStateStore\(\(state\) =>\n\s+selectThreadTerminalUiState\(state\.terminalUiStateByThreadKey, routeThreadRef\),\n/,
+    /\n\s+const terminalUiState = useTerminalUiStateStore\(\(state\) =>\n\s+buddyTerminalUiState\(\n\s+buddySurface,\n\s+selectThreadTerminalUiState\(state\.terminalUiStateByThreadKey, routeThreadRef\),\n/,
   );
   NodeAssert.equal(chat.match(/\bselectThreadTerminalUiState\(/g)?.length, 1);
   NodeAssert.match(chat, /\{buddySurface \? null : \(\n\s+<ChatTerminalDrawers\n/);
   NodeAssert.equal(chat.match(/<ChatTerminalDrawers\b/g)?.length, 1);
   NodeAssert.match(
     chat,
-    /\n\s+const rightPanelState = buddyRightPanelState\(\n\s+buddySurface,\n\s+useRightPanelStore\(\(state\) => selectThreadRightPanelState\(state\.byThreadKey, activeThreadRef\)\),\n/,
+    /\n\s+const rightPanelState = useRightPanelStore\(\(state\) =>\n\s+buddyRightPanelState\(\n\s+buddySurface,\n\s+selectThreadRightPanelState\(state\.byThreadKey, activeThreadRef\),\n/,
   );
   NodeAssert.equal(chat.match(/\bselectThreadRightPanelState\(/g)?.length, 1);
   NodeAssert.match(chat, /\n\s+const rightPanelOpen = rightPanelState\.isOpen;\n/);
