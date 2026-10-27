@@ -9,9 +9,15 @@ import { useNpmReleasePublished } from "~/state/npmRelease";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentUpdateStatesAtom } from "~/state/server";
 import { environmentSessionStatesAtom } from "~/state/session";
+import { advertisedServerUpdateVersion } from "~/versionSkew";
 import { getProviderUpdateRunOutcome } from "../ProviderUpdateLaunchNotification.logic";
 import { useProviderUpdates } from "../ProviderUpdatesAction";
-import { canUpdateServer, type ServerUpdateOutcome, useServerUpdate } from "../ServerUpdateAction";
+import {
+  canUpdateServer,
+  type ServerUpdateOutcome,
+  type ServerUpdateTarget,
+  useServerUpdate,
+} from "../ServerUpdateAction";
 import {
   closeFinishedUpdateRun,
   collectRestartingMachines,
@@ -59,11 +65,17 @@ export function useUpdateEverything(localUpdateVersion: string | null) {
     targetVersion,
   );
   // Desktop-managed servers use their app feed; only npm installs need to wait for publication.
-  const needsNpm = behindServers.some((server) => server.selfUpdate !== "desktop-managed");
+  // Lazurio overlay: a release a server advertised is on its own release channel, not on npm.
+  const waitsForNpm = (server: ServerUpdateTarget) =>
+    server.selfUpdate !== "desktop-managed" &&
+    advertisedServerUpdateVersion(
+      machines.find((machine) => machine.environmentId === server.environmentId)?.serverConfig,
+    ) === undefined;
+  const needsNpm = behindServers.some(waitsForNpm);
   const published = useNpmReleasePublished(needsNpm ? targetVersion : null);
   const servers = published
     ? behindServers
-    : behindServers.filter((server) => server.selfUpdate === "desktop-managed");
+    : behindServers.filter((server) => !waitsForNpm(server));
   const skipped: ReadonlyArray<SkippedMachine> = [
     ...unreachable,
     ...behindServers

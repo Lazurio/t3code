@@ -12,11 +12,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { resolveServerInstallation } from "../cli/invocation.ts";
 import { readAgentActivityPublishingActive } from "../cloud/config.ts";
+import { watchAvailableServerUpdate } from "../cloud/releaseIndex.ts";
 import { resolveServerSelfUpdateCapability } from "../cloud/selfUpdate.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
@@ -202,6 +204,10 @@ export const make = Effect.gen(function* () {
 
   const desktopAppUpdate =
     serverSelfUpdate === "desktop-managed" && serverConfig.desktopTelemetryControlFd !== undefined;
+  const availableServerUpdate = yield* watchAvailableServerUpdate({
+    managed: serverSelfUpdate === "boot-service",
+    currentVersion: packageJson.version,
+  });
 
   const descriptor: ExecutionEnvironmentDescriptor = {
     environmentId,
@@ -270,11 +276,17 @@ export const make = Effect.gen(function* () {
 
   return ServerEnvironment.of({
     getEnvironmentId: Effect.succeed(environmentId),
-    // Publishing opt-in and relay links change at runtime; read the capability per request.
-    getDescriptor: readAgentActivityPublishingActive(secrets).pipe(
-      Effect.map((agentActivityPublishing) => ({
+    // Publishing opt-in, relay links and the update check change at runtime; read them per request.
+    getDescriptor: Effect.all([
+      readAgentActivityPublishingActive(secrets),
+      SubscriptionRef.get(availableServerUpdate),
+    ]).pipe(
+      Effect.map(([agentActivityPublishing, availableVersion]) => ({
         ...descriptor,
         capabilities: { ...descriptor.capabilities, agentActivityPublishing },
+        ...(availableVersion === undefined
+          ? {}
+          : { availableServerUpdate: { version: availableVersion } }),
       })),
     ),
   });

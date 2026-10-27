@@ -4,6 +4,14 @@ The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, the update button at the bottom
 of the sidebar and **Settings → Environments** offer to update it.
 
+A server running as a [background service](./background-service.md) also checks
+its own release train every few hours; a preview build never checks. When a
+newer release is out, the update button at the bottom of the sidebar and
+**Settings → Environments** offer it, also in the web app that server hosts, and
+update the server to that release. The official desktop and mobile apps do not
+offer it. Set `T3CODE_UPDATE_CHECK_ENABLED=false` in the service's environment to
+turn the check off.
+
 ## Update everything at once
 
 The update button at the bottom of the sidebar updates every connected machine

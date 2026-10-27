@@ -3,6 +3,7 @@ import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
 import { cliReleaseChannelOf } from "@t3tools/shared/cliRelease";
 
 import {
+  advertisedServerUpdateVersion,
   resolveServerSelfUpdateCapability,
   resolveVersionMismatch,
   supportsDesktopAppUpdate,
@@ -71,8 +72,12 @@ export function collectServerUpdateTargets(
   for (const machine of machines) {
     const config = machine.serverConfig;
     if (machine.hostedByThisApp) continue;
+    // Lazurio overlay: a server advertises only a strictly newer release from its own channel.
+    const advertised = advertisedServerUpdateVersion(config);
+    const machineTarget = advertised ?? targetVersion;
     if (
       config !== null &&
+      advertised === undefined &&
       resolveVersionMismatch(config.environment.serverVersion, targetVersion) === null
     ) {
       continue;
@@ -104,7 +109,7 @@ export function collectServerUpdateTargets(
     const serverVersion = config.environment.serverVersion;
     if (
       selfUpdate !== "desktop-managed" &&
-      cliReleaseChannelOf(serverVersion) !== cliReleaseChannelOf(targetVersion)
+      cliReleaseChannelOf(serverVersion) !== cliReleaseChannelOf(machineTarget)
     ) {
       skip(`on the ${cliReleaseChannelOf(serverVersion)} channel`);
       continue;
@@ -117,7 +122,7 @@ export function collectServerUpdateTargets(
       desktopAppUpdate,
       threadContinuation: supportsServerUpdateThreadContinuation(config),
       continueThreadsAfterServerUpdate: config.settings.continueThreadsAfterServerUpdate ?? false,
-      targetVersion,
+      targetVersion: machineTarget,
     });
   }
   return { targets, skipped };

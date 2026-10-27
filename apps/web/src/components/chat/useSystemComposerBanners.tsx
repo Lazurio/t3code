@@ -242,7 +242,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
             installation={versionMismatchInstallation}
             desktopAppUpdate={versionMismatchDesktopAppUpdate}
             threadContinuation={versionMismatchThreadContinuation}
-            targetVersion={versionMismatch.clientVersion}
+            targetVersion={versionMismatch.targetVersion}
             label="Retry"
             variant="ghost"
           />

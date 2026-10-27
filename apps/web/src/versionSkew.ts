@@ -14,6 +14,8 @@ import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorag
 export interface VersionMismatch {
   readonly clientVersion: string;
   readonly serverVersion: string;
+  /** The version an update installs: this client's, or the release the server advertised. */
+  readonly targetVersion: string;
   readonly hint: string;
 }
 
@@ -73,14 +75,40 @@ export function resolveVersionMismatch(
   return {
     clientVersion: normalizedClientVersion,
     serverVersion: normalizedServerVersion,
+    targetVersion: normalizedClientVersion,
     hint: "Version mismatch. Try syncing the client and server to the same T3 Code version.",
   };
 }
 
+/** Only a server the boot service manages checks its own release channel for a newer release. */
+export function advertisedServerUpdateVersion(
+  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
+): string | undefined {
+  const environment = serverConfig?.environment;
+  return environment?.capabilities.serverSelfUpdate === "boot-service"
+    ? environment.availableServerUpdate?.version
+    : undefined;
+}
+
+/**
+ * A boot-service server advertises a newer release from its own channel. That target wins over
+ * this client's version, which may not exist there, and it reaches a browser that server serves,
+ * which never sees skew. Otherwise the client-ahead skew applies.
+ */
 export function resolveServerConfigVersionMismatch(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): VersionMismatch | null {
-  return resolveVersionMismatch(serverConfig?.environment.serverVersion);
+  const environment = serverConfig?.environment;
+  const advertised = advertisedServerUpdateVersion(serverConfig);
+  if (environment && advertised) {
+    return {
+      clientVersion: normalizeVersion(APP_VERSION) ?? APP_VERSION,
+      serverVersion: environment.serverVersion,
+      targetVersion: advertised,
+      hint: "A newer T3 Code release is available for this server.",
+    };
+  }
+  return resolveVersionMismatch(environment?.serverVersion);
 }
 
 export function resolveServerSelfUpdateCapability(
@@ -114,11 +142,12 @@ export function manualServerUpdateCommand(
   return `${runner} t3@${targetVersion}`;
 }
 
+/** Keyed by the offered target, so dismissing one release does not hide the next. */
 export function buildVersionMismatchDismissalKey(
   environmentId: EnvironmentId,
-  mismatch: Pick<VersionMismatch, "clientVersion" | "serverVersion">,
+  mismatch: Pick<VersionMismatch, "targetVersion" | "serverVersion">,
 ): string {
-  return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}`;
+  return `${environmentId}:${mismatch.targetVersion}:${mismatch.serverVersion}`;
 }
 
 function readVersionMismatchDismissals(): VersionMismatchDismissals {
