@@ -345,6 +345,11 @@ jobs:
             apps/server/src/orchestration-v2/Orchestrator.ts
             apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts
             apps/server/src/orchestration-v2/ThreadManagementService.test.ts
+            # A follow-up `queue` saved before the v0.1.3 line becomes `steer` once, and the marker
+            # the web client's settings store next to them keeps a later `queue` (Lazurio/t3code#140;
+            # the migration is apps/web/src/lazurio/followUpSteerMigration.ts).
+            apps/web/src/clientPersistenceStorage.ts
+            apps/web/src/clientPersistenceStorage.test.ts
             # A commit, push or pull request runs detached from the socket that started it and
             # finishes when that socket closes; the client reports a dropped connection as lost,
             # not as a failed action (row 31, Lazurio/t3code#125). ws.ts is listed above.

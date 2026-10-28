@@ -78,4 +78,39 @@ describe("clientPersistenceStorage", () => {
     expect(readBrowserClientSettings()).toEqual(settings);
     expect(write).not.toHaveBeenCalled();
   });
+
+  it("moves a queue saved before the v0.1.3 line to steer once", async () => {
+    const testWindow = getTestWindow();
+    const saved = { ...DEFAULT_CLIENT_SETTINGS, followUpBehavior: "queue" as const };
+    testWindow.localStorage.setItem("t3code:client-settings:v1", JSON.stringify(saved));
+    const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()).toEqual({ ...saved, followUpBehavior: "steer" });
+    expect(JSON.parse(testWindow.localStorage.getItem("t3code:client-settings:v1")!)).toEqual(
+      expect.objectContaining({ followUpBehavior: "steer", lazurioFollowUpSteer: true }),
+    );
+  });
+
+  it("keeps a queue saved on the v0.1.3 line", async () => {
+    const testWindow = getTestWindow();
+    const saved = { ...DEFAULT_CLIENT_SETTINGS, followUpBehavior: "queue" as const };
+    testWindow.localStorage.setItem(
+      "t3code:client-settings:v1",
+      JSON.stringify({ ...saved, lazurioFollowUpSteer: true }),
+    );
+    const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()).toEqual(saved);
+  });
+
+  it("starts a fresh client on steer and keeps the queue it chooses later", async () => {
+    getTestWindow();
+    const { readBrowserClientSettings, writeBrowserClientSettings } =
+      await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()).toBeNull();
+    expect(DEFAULT_CLIENT_SETTINGS.followUpBehavior).toBe("steer");
+    writeBrowserClientSettings({ ...DEFAULT_CLIENT_SETTINGS, followUpBehavior: "queue" });
+    expect(readBrowserClientSettings()?.followUpBehavior).toBe("queue");
+  });
 });
