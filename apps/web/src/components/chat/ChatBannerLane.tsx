@@ -1,4 +1,5 @@
 import type {
+  EnvironmentId,
   OrchestrationV2ProviderFailureClass,
   ProviderInstanceId,
   ServerProvider,
@@ -6,7 +7,8 @@ import type {
 } from "@t3tools/contracts";
 import type { Dispatch, SetStateAction } from "react";
 import { ProviderStatusBanner } from "./ProviderStatusBanner";
-import { dismissThreadErrorBannerForSession, ThreadErrorBanner } from "./ThreadErrorBanner";
+import { dismissThreadErrorBannerForSession } from "./ThreadErrorBanner";
+import { BuddyThreadErrorBanner } from "../../lazurio/BuddySurface";
 
 /**
  * The banners pinned above the timeline. The dismiss handlers are built here from plain
@@ -17,6 +19,7 @@ export function ChatBannerLane(props: {
   providerStatusBannerKey: string | null;
   setDismissedProviderStatusBannerKey: Dispatch<SetStateAction<string | null>>;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
+  environmentId: EnvironmentId;
   threadId: ThreadId;
   threadError: string | null;
   threadErrorClass: OrchestrationV2ProviderFailureClass | null;
@@ -30,6 +33,7 @@ export function ChatBannerLane(props: {
     providerStatusBannerKey,
     setDismissedProviderStatusBannerKey,
     onOpenProviderSetup,
+    environmentId,
     threadId,
     threadError,
     threadErrorClass,
@@ -45,7 +49,9 @@ export function ChatBannerLane(props: {
         onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
         onOpenProviderSetup={onOpenProviderSetup}
       />
-      <ThreadErrorBanner
+      {/* Lazurio overlay (plan DEV-6676): in Buddy's surface the error says it in human words. */}
+      <BuddyThreadErrorBanner
+        environmentId={environmentId}
         error={threadError}
         errorClass={threadErrorClass}
         errorCode={threadErrorCode}

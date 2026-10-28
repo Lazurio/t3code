@@ -47,7 +47,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
-import { withBuddyInstructions } from "./buddyPrompt.ts";
+import { withBuddyInstance } from "./buddyPrompt.ts";
 
 export const BUDDY = ProviderInstanceId.make("buddy");
 export const buddyModel = { instanceId: BUDDY, model: "default" } satisfies ModelSelection;
@@ -85,7 +85,7 @@ const layerCheckpointStore = CheckpointStore.layer.pipe(
   ),
 );
 // Wrapped as server.ts wraps it.
-const layerProviderInstanceRegistry = withBuddyInstructions(
+const layerProviderInstanceRegistry = withBuddyInstance(
   ProviderInstanceRegistryHydration.layer,
 ).pipe(
   Layer.provide(

@@ -638,10 +638,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
-  // Lazurio overlay (plan DEV-6676): Buddy's Hermes never gets T3's instructions.
-  Layer.provideMerge(
-    LazurioBuddyPrompt.withBuddyInstructions(ProviderInstanceRegistryHydration.layer),
-  ),
+  // Lazurio overlay (plan DEV-6676): Buddy's Hermes never gets T3's instructions, model or effort.
+  Layer.provideMerge(LazurioBuddyPrompt.withBuddyInstance(ProviderInstanceRegistryHydration.layer)),
   Layer.provideMerge(
     Layer.mergeAll(
       AntigravityInstallation.AntigravityInstallation.layer,

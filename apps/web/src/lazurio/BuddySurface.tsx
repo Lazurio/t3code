@@ -1,26 +1,57 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): in Buddy's T3 Code (`lazurioBuddy` in the
- * server config) the web client is Buddy's one conversation: no thread list, new thread, fork or
- * rollback, Buddy's header and the bubble's window buttons, a day pane and day lines. The server
- * holds the one conversation (buddySurfaceGuards.ts); this only leaves out what it would refuse.
+ * server config) the web client is Buddy's one conversation, read like a chat: no thread list, new
+ * thread, fork, rollback, work rows, terminal or right panel, only Hermes's speed to choose, and
+ * Buddy's header, day pane and day lines. The server holds it (buddySurfaceGuards.ts).
  */
 import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
+import type { RuntimeMode } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { Maximize2, Minimize2, X } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useState, useSyncExternalStore } from "react";
+import { CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
+import { useComposerDraftStore } from "~/composerDraftStore";
+import type { ComposerControlsBar } from "~/components/chat/ComposerControlsBar";
+import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import {
   ThreadDetailsPanel,
   type ThreadDetailsPanelProps,
 } from "~/components/chat/ThreadDetailsPanel";
+import { ThreadErrorBanner } from "~/components/chat/ThreadErrorBanner";
+import { type ChatShortcutsInput, useChatShortcuts } from "~/components/chat/useChatShortcuts";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { subscribeRenderedAppearance, syncBrowserChromeTheme, useTheme } from "~/hooks/useTheme";
+import { applyThemePalette } from "~/themePalette";
+import { selectThreadRightPanelState } from "~/rightPanelStore";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
+import { selectThreadTerminalUiState } from "~/terminalUiStateStore";
+import {
+  type BuddyComposerSelection,
+  buddySpeedOf,
+  buddySpeedOption,
+  buddySpeedSelection,
+  isBuddySpeed,
+  personsQueuedRuns,
+  type QueueMessage,
+  withoutUnusedShortcuts,
+} from "./buddySurfaceControls";
+import { isPlainPrimaryClick } from "./environmentBrowser";
 import { pageRecordOf } from "./buddySurfacePage";
+import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
@@ -80,6 +111,13 @@ const TEXT = {
     failed: "Buddyho se nepodařilo otevřít.",
     retry: "Zkusit znovu",
     removePage: "Neposílat stránku",
+    working: "Buddy na tom pracuje…",
+    turnFailed: "Tohle se Buddymu nepovedlo dokončit. Zkuste to prosím znovu.",
+    somethingFailed: "Něco se nepovedlo. Zkuste to prosím znovu.",
+    placeholder: "Napište Buddymu…",
+    speed: "Rychlost",
+    normal: "Normální",
+    fast: "Rychlý",
   },
   en: {
     fullscreen: "Full screen",
@@ -93,6 +131,13 @@ const TEXT = {
     failed: "Buddy could not be opened.",
     retry: "Try again",
     removePage: "Don't send the page",
+    working: "Buddy is on it…",
+    turnFailed: "Buddy couldn't finish this. Please try again.",
+    somethingFailed: "Something went wrong. Please try again.",
+    placeholder: "Message Buddy…",
+    speed: "Speed",
+    normal: "Normal",
+    fast: "Fast",
   },
 } as const;
 
@@ -236,6 +281,202 @@ export function BuddyDayLine({ label }: { readonly label: string }) {
   );
 }
 
+/**
+ * The timeline's rows: in Buddy's surface, Buddy's conversation (buddySurfaceTimeline.ts), with the
+ * quiet row while Buddy works; elsewhere, T3's rows as they are.
+ */
+export const buddySurfaceRows = (
+  rows: MessagesTimelineRow[],
+  buddy: boolean,
+  working: boolean,
+): MessagesTimelineRow[] => (buddy ? buddyConversationRows(rows, working) : rows);
+
+/** Static text without a timer: nothing on the row repaints while Buddy works. */
+function BuddyWorkingRow() {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  return (
+    <div className="pb-4" data-timeline-row-id={BUDDY_WORKING_ROW.id}>
+      <p className="px-1 text-muted-foreground text-sm" role="status">
+        {text.working}
+      </p>
+    </div>
+  );
+}
+
+function BuddyFailedRow({ id }: { readonly id: string }) {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  return (
+    <div className="pb-4" data-timeline-row-id={id}>
+      <p className="flex items-center gap-2 px-1 text-sm">
+        <CircleAlert aria-hidden className="size-4 shrink-0 text-destructive" />
+        {text.turnFailed}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The thread's error above the conversation: in Buddy's surface it says in human words that
+ * something went wrong, never T3's or the provider's own message ("Provider turn failed.", or
+ * T3's ChatGPT usage limit, which an error code selects).
+ */
+export function BuddyThreadErrorBanner({
+  environmentId,
+  ...props
+}: ComponentProps<typeof ThreadErrorBanner> & { readonly environmentId: string }) {
+  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
+  return buddy && props.error !== null ? (
+    <ThreadErrorBanner {...props} error={text.somethingFailed} errorCode={null} />
+  ) : (
+    <ThreadErrorBanner {...props} />
+  );
+}
+
+/** Buddy's own presentation of a row in Buddy's surface; null where T3 draws the row. */
+export function buddyRowContent(row: MessagesTimelineRow, buddy: boolean): ReactNode {
+  if (!buddy) return null;
+  if (row.id === BUDDY_WORKING_ROW.id) return <BuddyWorkingRow />;
+  return buddyFailureOf(row) === null ? null : <BuddyFailedRow id={row.id} />;
+}
+
+/**
+ * Buddy's composer: the message box asks for a message to Buddy, and its controls are Buddy's
+ * (BuddyComposerControls) in place of T3's, so the strip under the resting composer has something
+ * to hold only while Hermes offers its speed. As T3's elsewhere.
+ */
+export function useBuddyComposer(environmentId: string, selection: BuddyComposerSelection) {
+  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
+  return {
+    placeholder: buddy ? text.placeholder : null,
+    hasControls: !buddy || buddySpeedOption(selection) !== null,
+  };
+}
+
+/**
+ * The controls of Buddy's composer in place of T3's model, options, access and mode: Hermes's speed,
+ * Normal or Fast, where Hermes offers it, and nothing else (buddySurfaceControls.ts). A pick is the
+ * composer's option for Hermes's model, as T3's options are, so the next message carries it.
+ */
+export function BuddyComposerControls(
+  props: Pick<
+    ComponentProps<typeof ComposerControlsBar>,
+    | "routeKind"
+    | "routeThreadRef"
+    | "draftId"
+    | "selectedProvider"
+    | "selectedInstanceId"
+    | "selectedModel"
+    | "selectedProviderModels"
+    | "composerModelOptions"
+    | "reportedModelSelection"
+  >,
+) {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const modelOptions = props.composerModelOptions?.[props.selectedInstanceId] ?? [];
+  const option = buddySpeedOption({
+    provider: props.selectedProvider,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    modelOptions,
+  });
+  if (option === null) return null;
+  const speed = buddySpeedOf(
+    option,
+    { instanceId: props.selectedInstanceId, model: props.selectedModel, options: modelOptions },
+    props.reportedModelSelection,
+  );
+  const target = props.routeKind === "server" ? props.routeThreadRef : props.draftId;
+  return (
+    <div className="shrink-0">
+      <ToggleGroup
+        aria-label={text.speed}
+        value={speed === null ? [] : [speed]}
+        onValueChange={(value) => {
+          const next = value[0];
+          if (!isBuddySpeed(next) || next === speed || target === null) return;
+          setProviderModelOptions(target, props.selectedProvider, buddySpeedSelection(next), {
+            instanceId: props.selectedInstanceId,
+            model: props.selectedModel,
+            persistSticky: true,
+          });
+        }}
+      >
+        <Toggle value="normal">{text.normal}</Toggle>
+        <Toggle value="fast">{text.fast}</Toggle>
+      </ToggleGroup>
+    </div>
+  );
+}
+
+/**
+ * The runtime mode of the chat's next turn: in Buddy's surface full access, whatever a draft or the
+ * thread holds, since Buddy always works with full access (root decision 0210, addendum of
+ * HumanAndMachines/Lazurio#648). So the web never asks Buddy's thread for less, and a lower mode the thread holds goes
+ * back to full access with the next message. As T3's elsewhere.
+ */
+export const buddyRuntimeMode = (buddy: boolean, mode: RuntimeMode): RuntimeMode =>
+  buddy ? "full-access" : mode;
+
+type TerminalUiState = ReturnType<typeof selectThreadTerminalUiState>;
+
+/**
+ * The thread's terminal drawer as the chat reads it: in Buddy's surface closed and empty, whatever
+ * the thread holds, since the surface has no terminal, so the composer keeps its focus. The stored
+ * state and the shells stay as they are. As T3's elsewhere.
+ */
+export const buddyTerminalUiState = (buddy: boolean, state: TerminalUiState): TerminalUiState =>
+  buddy ? selectThreadTerminalUiState({}, null) : state;
+
+type RightPanelState = ReturnType<typeof selectThreadRightPanelState>;
+
+/**
+ * The thread's right panel as the chat reads it: in Buddy's surface closed and empty, whatever the
+ * thread holds (a panel opened on it earlier, a link followed into it, a page an agent showed),
+ * since Buddy's chat is only the conversation (root decision 0210, addendum of
+ * HumanAndMachines/Lazurio#648). The stored panel stays as it is. As T3's elsewhere.
+ */
+export const buddyRightPanelState = (buddy: boolean, state: RightPanelState): RightPanelState =>
+  buddy ? selectThreadRightPanelState({}, null) : state;
+
+/** The chat's shortcuts, without those Buddy's surface has no use for there. */
+export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
+  useChatShortcuts(buddy ? withoutUnusedShortcuts(input) : input);
+}
+
+/**
+ * The queued messages Buddy's composer shows to edit, steer or remove: the person's own. A message
+ * an agent queued for Buddy, such as Delegace's wake, is not the person's words; once it runs, the
+ * thread shows it as row 27 decides. As T3's elsewhere.
+ */
+export function useBuddyQueuedRuns<Queued extends { readonly messageId: string }>(
+  environmentId: string,
+  queued: ReadonlyArray<Queued>,
+  messages: ReadonlyArray<QueueMessage> | undefined,
+): ReadonlyArray<Queued> {
+  return useBuddySurfaceMode(environmentId) === true ? personsQueuedRuns(queued, messages) : queued;
+}
+
+/**
+ * How many of the thread's queued runs are the person's: in Buddy's surface an agent's queued
+ * message, such as Delegace's wake, is not counted, as the queue does not show it.
+ */
+export function useBuddyQueuedRunCount(
+  environmentId: string,
+  runs: ReadonlyArray<{ readonly userMessageId: string }> | null,
+  messages: ReadonlyArray<QueueMessage> | undefined,
+): number {
+  const buddy = useBuddySurfaceMode(environmentId) === true;
+  if (runs === null) return 0;
+  if (!buddy) return runs.length;
+  return personsQueuedRuns(
+    runs.map((run) => ({ messageId: run.userMessageId })),
+    messages,
+  ).length;
+}
+
 function BuddyHeader() {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
   const text = useCzech(true) ? TEXT.cs : TEXT.en;
@@ -338,10 +579,79 @@ function BuddyDayPane() {
 }
 
 /**
+ * In the bubble the surface wears the host page's appearance, through T3's own appearance
+ * preference, judged by what T3 then resolves. Where T3 cannot wear it (storage blocked, or a saved
+ * single-appearance theme), the document wears T3's standard palette in the host's appearance.
+ */
+function useHostTheme() {
+  const { context } = useBuddyFrame(true);
+  const host = context?.theme ?? null;
+  const { resolvedTheme, appearanceMode, setAppearanceMode, refreshTheme } = useTheme();
+  const standIn = useRef(false);
+  // oxlint-disable-next-line t3code/react-effect-budget -- applies the host page's appearance, which arrives over postMessage, to the document
+  useEffect(() => {
+    if (host === null) return;
+    if (resolvedTheme === host) {
+      // T3 wears the host's appearance itself: it takes the document back.
+      if (standIn.current) refreshTheme();
+      standIn.current = false;
+      return;
+    }
+    // The effect runs again with what T3 resolves once the preference is stored.
+    if (appearanceMode !== host && setAppearanceMode(host)) return;
+    standIn.current = true;
+    const wear = () => {
+      // "system" is T3's default theme, whose palette has both appearances.
+      applyThemePalette("system", host);
+      document.documentElement.classList.toggle("dark", host === "dark");
+      syncBrowserChromeTheme();
+    };
+    wear();
+    // T3 applies its saved theme again (another tab, a reload of its themes) without a new
+    // snapshot when nothing it resolves changed, so the stand-in follows every application.
+    return subscribeRenderedAppearance(wear);
+  }, [host, resolvedTheme, appearanceMode, setAppearanceMode, refreshTheme]);
+}
+
+/** The conversation's timeline (MessagesTimeline), which holds the chat's links. */
+const CONVERSATION = "[data-timeline-root]";
+
+/** A link T3 opens away from its page, as the chat draws a web link: a `_blank` http(s) link. */
+const isWebLink = (link: HTMLAnchorElement) =>
+  link.target === "_blank" && (link.protocol === "https:" || link.protocol === "http:");
+
+/**
+ * A web link in Buddy's conversation opens in a new browser tab, never in T3's preview or right
+ * panel. A plain click opens it there without an opener or referrer; a click with a modifier goes
+ * to the browser as on any page. The window's capture phase runs before every handler of T3 that
+ * would take the link into the app: the chat's own, and the Environment browser's on the document.
+ */
+function useLinksInNewTab() {
+  // oxlint-disable-next-line t3code/react-effect-budget -- a window capture listener that must run before T3's own link handlers
+  useEffect(() => {
+    const open = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const link = event.target.closest("a[href]");
+      if (!(link instanceof HTMLAnchorElement) || !isWebLink(link)) return;
+      if (link.closest(CONVERSATION) === null) return;
+      event.stopPropagation();
+      if (!isPlainPrimaryClick(event)) return;
+      event.preventDefault();
+      window.open(link.href, "_blank", "noopener,noreferrer");
+    };
+    window.addEventListener("click", open, true);
+    return () => window.removeEventListener("click", open, true);
+  }, []);
+}
+
+/**
  * The app around Buddy's thread, in place of T3's sidebar and command palette. The day pane is
- * there only where the window has room for it beside the conversation, as in full screen.
+ * there only where the window has room for it beside the conversation, as in full screen. A link
+ * in the conversation opens in a new tab.
  */
 export function BuddySurfaceLayout({ children }: { readonly children: ReactNode }) {
+  useHostTheme();
+  useLinksInNewTab();
   const roomForDays = useMediaQuery("sm");
   return (
     <div className="flex h-dvh w-full min-w-0 flex-col bg-background" data-lazurio-buddy-surface>

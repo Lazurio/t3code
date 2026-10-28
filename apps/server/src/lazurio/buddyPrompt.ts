@@ -1,15 +1,15 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): Hermes keeps every prompt in Buddy's memory
- * as the person's words, so prompts of Buddy's instance carry only what the person sent. The ACP
- * adapter leaves T3's instructions out (`AcpT3Instructions`), and the page the person asked from
- * goes as one labelled Czech block instead of T3's `<t3_context>` JSON.
+ * as the person's words, so prompts of Buddy's instance carry only what the person sent, without
+ * T3's instructions (`AcpT3Instructions`) or model and options (`AcpT3Selection`, Hermes's speed
+ * only), and the page the person asked from goes as one Czech block, not `<t3_context>` JSON.
  */
 import type {
   ComposerContextId,
   ComposerContextRecord,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { AcpT3Instructions } from "@t3tools/provider-acp/server/adapter";
+import { AcpT3Instructions, AcpT3Selection } from "@t3tools/provider-acp/server/adapter";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   collectComposerContextReferences,
@@ -153,15 +153,35 @@ export const buddyT3Instructions =
   (instanceId: ProviderInstanceId): boolean =>
     !isBuddyInstance(environment, instanceId);
 
-/** The provider instances `layer` builds leave T3's instructions out of Buddy's prompts. */
-export const withBuddyInstructions = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
+/** The one option of T3's selection Buddy's sessions take: Hermes's speed (Lazurio/hermes-agent). */
+const BUDDY_T3_SELECTION: ReadonlySet<string> = new Set(["fast"]);
+
+/** T3's whole selection for every ACP instance but Buddy's, which takes only Hermes's speed. */
+export const buddyT3Selection =
+  (environment: NodeJS.ProcessEnv) =>
+  (instanceId: ProviderInstanceId): ReadonlySet<string> | null =>
+    isBuddyInstance(environment, instanceId) ? BUDDY_T3_SELECTION : null;
+
+/**
+ * The provider instances `layer` builds treat Buddy's instance as Buddy's: T3's instructions stay
+ * out of its prompts, and its sessions take only Hermes's speed from T3's selection.
+ */
+export const withBuddyInstance = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
   layer.pipe(
     Layer.provide(
-      Layer.effect(
-        AcpT3Instructions,
-        Effect.gen(function* () {
-          return buddyT3Instructions(yield* HostProcess.Environment);
-        }),
+      Layer.mergeAll(
+        Layer.effect(
+          AcpT3Instructions,
+          Effect.gen(function* () {
+            return buddyT3Instructions(yield* HostProcess.Environment);
+          }),
+        ),
+        Layer.effect(
+          AcpT3Selection,
+          Effect.gen(function* () {
+            return buddyT3Selection(yield* HostProcess.Environment);
+          }),
+        ),
       ),
     ),
   );

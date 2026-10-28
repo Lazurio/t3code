@@ -55,7 +55,6 @@ import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
-import { useChatShortcuts } from "./chat/useChatShortcuts";
 import { ChatBannerLane } from "./chat/ChatBannerLane";
 import * as Schema from "effect/Schema";
 import {
@@ -168,7 +167,12 @@ import {
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
   BuddyThreadDetailsPanel,
+  buddyRightPanelState,
+  buddyRuntimeMode,
+  buddyTerminalUiState,
+  useBuddyChatShortcuts,
   useBuddyPage,
+  useBuddyQueuedRunCount,
   useBuddySurfaceMode,
 } from "../lazurio/BuddySurface";
 import { BuddyPageChip } from "../lazurio/BuddySurfacePageChip";
@@ -753,8 +757,13 @@ export default function ChatView(props: ChatViewProps) {
   const setMultipleModelSelectionsStable = useStableCallback(setMultipleModelSelections);
   const feedbackUploadsInFlightRef = useRef(new Set<string>());
 
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal, whatever the thread holds
+  // (BuddySurface.tsx). Read inside the selector, as the right panel's state below is.
   const terminalUiState = useTerminalUiStateStore((state) =>
-    selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
+    buddyTerminalUiState(
+      buddySurface,
+      selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
+    ),
   );
 
   const fallbackDraftProjectRef = draftThread
@@ -882,10 +891,13 @@ export default function ChatView(props: ChatViewProps) {
     localServerError === null && visibleThreadError === serverRuntime?.lastError;
   const defaultRuntimeMode = resolveProjectSettings(settings, activeThread?.projectId ?? null)
     .settings.defaultRuntimeMode;
-  const runtimeMode =
+  // Lazurio overlay (plan DEV-6676): Buddy always works with full access (BuddySurface.tsx).
+  const runtimeMode = buddyRuntimeMode(
+    buddySurface,
     composerRuntimeMode ??
-    (isServerThread ? activeThread?.runtimeMode : undefined) ??
-    defaultRuntimeMode;
+      (isServerThread ? activeThread?.runtimeMode : undefined) ??
+      defaultRuntimeMode,
+  );
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = canWriteSourceControl && isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
@@ -975,8 +987,15 @@ export default function ChatView(props: ChatViewProps) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     }
   }, [activeThreadRef, diffOpen]);
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no right panel, whatever the thread holds
+  // (BuddySurface.tsx). Read inside the selector: the React Compiler treats a plain function's
+  // result as mutable and stops memoizing what reads it, and the panel's presence value below then
+  // changed on every render and looped as soon as the panel opened.
   const rightPanelState = useRightPanelStore((state) =>
-    selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+    buddyRightPanelState(
+      buddySurface,
+      selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+    ),
   );
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
@@ -997,8 +1016,9 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
-  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio).
-  useLazurioThreadTabs(activeThreadRef, {
+  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio),
+  // which Buddy's surface, with no panel, does not follow (plan DEV-6676).
+  useLazurioThreadTabs(buddySurface ? null : activeThreadRef, {
     inlinePanel: !shouldUsePlanSidebarSheet,
     draft: !isServerThread,
   });
@@ -2617,7 +2637,9 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread && serverConfig?.threadFind === true && !paintOnlyDisplayedTimeline;
   const isThreadFindActive = useThreadFindOpen(activeThreadRef, threadFindEnabled);
 
-  useChatShortcuts({
+  // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal or right panel, so their keys
+  // stay the browser's there (buddySurfaceControls.ts).
+  useBuddyChatShortcuts(buddySurface, {
     enabled: activeThreadId !== null && !backgroundThread,
     keybindings,
     scriptKeybindings,
@@ -2973,12 +2995,22 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
+  // Lazurio overlay (plan DEV-6676): Buddy's surface shows none of the turn's work; work that still
+  // runs is its timeline's quiet line instead (buddyBackgroundWork).
+  const shownChildInputNow = buddySurface ? null : childInputNow;
+  const shownBackgroundWorkNow = buddySurface ? null : backgroundWorkNow;
+  const shownGoalNow = buddySurface ? null : goalNow;
   const hasThreadNow =
-    childInputNow !== null ||
-    backgroundWorkNow !== null ||
-    goalNow !== null ||
+    shownChildInputNow !== null ||
+    shownBackgroundWorkNow !== null ||
+    shownGoalNow !== null ||
     shownThreadSyncPhase !== null;
-  const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
+  // Lazurio overlay (plan DEV-6676): Buddy's queue counts the person's messages, not Delegace's wake.
+  const queuedRunCount = useBuddyQueuedRunCount(
+    environmentId,
+    serverProjection ? getUserQueuedThreadRuns(serverProjection) : null,
+    serverProjection?.messages,
+  );
   // The queue control is mounted for every server thread but joins the footer only while it shows
   // something, by its own rule: an optimistic message stops counting once the server has it.
   const hasQueuedTurns =
@@ -2990,7 +3022,7 @@ export default function ChatView(props: ChatViewProps) {
     );
   const scrollToEndSummary =
     [
-      childInputNow === null ? null : "Subagent waiting",
+      shownChildInputNow === null ? null : "Subagent waiting",
       queuedRunCount === 0 ? null : `${queuedRunCount} queued`,
     ]
       .filter((part) => part !== null)
@@ -3016,10 +3048,10 @@ export default function ChatView(props: ChatViewProps) {
         )}
         <ThreadNow
           key={routeThreadKey}
-          attention={childInputNow}
-          work={backgroundWorkNow}
+          attention={shownChildInputNow}
+          work={shownBackgroundWorkNow}
           syncPhase={shownThreadSyncPhase}
-          goal={goalNow}
+          goal={shownGoalNow}
         />
         {threadStatusLine}
         {pendingGuestMessageCount > 0 && isServerThread && activeThread ? (
@@ -3266,6 +3298,7 @@ export default function ChatView(props: ChatViewProps) {
               providerStatusBannerKey={providerStatusBannerKey}
               setDismissedProviderStatusBannerKey={setDismissedProviderStatusBannerKey}
               onOpenProviderSetup={openProviderSetupStable}
+              environmentId={activeThread.environmentId}
               threadId={activeThread.id}
               threadError={timelineThreadError}
               threadErrorClass={
@@ -3297,6 +3330,10 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                // Lazurio overlay (plan DEV-6676): work that still runs after the turn, which
+                // Buddy's surface says with its quiet line. backgroundWorkNow exists exactly
+                // while such work runs (useThreadLifecycle.tsx).
+                buddyBackgroundWork={!paintOnlyDisplayedTimeline && backgroundWorkNow !== null}
                 runlessWorkActive={runlessWorkStartedAt !== null}
                 activeTurnInProgress={
                   !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
@@ -3851,18 +3888,22 @@ export default function ChatView(props: ChatViewProps) {
           </ThreadFindCanvas>
         </div>
 
-        <ChatTerminalDrawers
-          activeThreadKey={activeThreadKey}
-          activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
-          composerHeight={composerReservedHeight}
-          launchContext={activeTerminalLaunchContext ?? null}
-          splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-          splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-          newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-          closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-          keybindings={keybindings}
-          onAddTerminalContext={addTerminalContextToDraftStable}
-        />
+        {/* Lazurio overlay (plan DEV-6676): Buddy's surface draws no drawer, not even one still
+        closing or one of another thread (BuddySurface.tsx). */}
+        {buddySurface ? null : (
+          <ChatTerminalDrawers
+            activeThreadKey={activeThreadKey}
+            activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
+            composerHeight={composerReservedHeight}
+            launchContext={activeTerminalLaunchContext ?? null}
+            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+            keybindings={keybindings}
+            onAddTerminalContext={addTerminalContextToDraftStable}
+          />
+        )}
       </div>
 
       {rightPanelPresent && activeThreadRef ? (

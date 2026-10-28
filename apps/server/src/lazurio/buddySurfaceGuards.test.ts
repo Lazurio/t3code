@@ -13,6 +13,7 @@ import {
   GuestShareId,
   ProjectId,
   ProviderInstanceId,
+  type RuntimeMode,
   ThreadId,
   type OrchestrationV2ServerCommand,
 } from "@t3tools/contracts";
@@ -49,6 +50,14 @@ const create = (threadId: string, commandId: string, projectId = "project:buddy"
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+  }) satisfies OrchestrationV2ServerCommand;
+
+const setRuntimeMode = (runtimeMode: RuntimeMode, threadId: string = BUDDY_THREAD_ID) =>
+  ({
+    type: "thread.runtime-mode.set",
+    commandId: CommandId.make(`command:runtime-mode:${runtimeMode}`),
+    threadId: ThreadId.make(threadId),
+    runtimeMode,
   }) satisfies OrchestrationV2ServerCommand;
 
 describe("Buddy's one conversation", () => {
@@ -153,6 +162,12 @@ describe("Buddy's one conversation", () => {
     );
   });
 
+  it("keeps Buddy's thread in full access", () => {
+    for (const mode of ["approval-required", "auto-accept-edits", "auto"] as const)
+      assert.isNotNull(buddyCommandRefusal(setRuntimeMode(mode), false), mode);
+    assert.isNull(buddyCommandRefusal(setRuntimeMode("full-access"), false));
+  });
+
   it.live("holds through the server's orchestrator, which still makes Buddy's thread", () => {
     const { home, layer } = makeHome();
     return Effect.gen(function* () {
@@ -180,6 +195,17 @@ describe("Buddy's one conversation", () => {
       assert.isTrue(Exit.isFailure(refused));
       assert.include(JSON.stringify(refused), "Buddy keeps one conversation");
       assert.isNull(yield* orchestrator.getThreadShell(ThreadId.make("another")));
+      // A client asking Buddy's thread for less than full access is refused; full access passes.
+      const supervised = yield* Effect.exit(
+        orchestrator.dispatch(setRuntimeMode("approval-required")),
+      );
+      assert.isTrue(Exit.isFailure(supervised));
+      assert.include(JSON.stringify(supervised), "Buddy always works with full access");
+      yield* orchestrator.dispatch(setRuntimeMode("full-access"));
+      assert.strictEqual(
+        (yield* orchestrator.getThreadShell(BUDDY_THREAD_ID))?.runtimeMode,
+        "full-access",
+      );
     }).pipe(
       Effect.provide(layerBuddyServer),
       Effect.scoped,
