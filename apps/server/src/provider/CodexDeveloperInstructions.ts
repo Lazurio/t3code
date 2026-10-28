@@ -6,6 +6,8 @@ import {
   T3_CODE_ORCHESTRATION_SECTIONS,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 
+import * as LazurioQuestionTool from "../lazurio/questionTool.ts";
+
 /** Codex silently truncates additionalContext values over 1,000 tokens, counted as UTF-8 bytes / 4. */
 export const CODEX_ADDITIONAL_CONTEXT_VALUE_MAX_BYTES = 4_000;
 
@@ -59,5 +61,7 @@ export function buildCodexAdditionalContext(
       value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
     },
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
+    // Lazurio overlay (root decision 0211): ask the user through request_user_input.
+    ...LazurioQuestionTool.codexAdditionalContext,
   };
 }
