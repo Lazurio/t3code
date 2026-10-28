@@ -1,3 +1,4 @@
+import { lazurioFolderOf } from "../../lazurio/managedFolder";
 import type { DraftId } from "~/composerDraftStore";
 import { composerDraftHasUserContent, useComposerDraftStore } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
@@ -218,7 +219,7 @@ export function DraftHeroHeadline({
     return true;
   };
 
-  const projectSelector = shouldShowProjectMenu ? (
+  const projectPicker = shouldShowProjectMenu ? (
     <Combobox
       items={pickerItems}
       filteredItems={filteredPickerItems}
@@ -310,6 +311,10 @@ export function DraftHeroHeadline({
       <DraftProjectName value={activeProjectTitle ?? "Add a project"} singleLine />
     </button>
   );
+  // Lazurio (LazurioPlatform F51): new chats of a managed Environment start in its Folder, so the
+  // hero names the Lazurio project instead of offering a picker or "Add a project".
+  const managedFolder = lazurioFolderOf(environments, activeProjectRef?.environmentId);
+  const projectSelector = managedFolder === undefined ? projectPicker : <span>Lazurio</span>;
 
   const noProjectShortcut = shortcutLabelForCommand(keybindings, "chat.newWithoutProject");
   const orStartWithoutProject =

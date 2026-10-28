@@ -12,6 +12,7 @@ const testState = vi.hoisted(() => {
     defaultModelSelection: null,
     defaultRuntimeMode: "full-access" as RuntimeMode,
   };
+  let managedFolder: string | undefined;
   let storedDraft: {
     readonly draftId: string;
     readonly environmentId: string;
@@ -39,6 +40,12 @@ const testState = vi.hoisted(() => {
   };
 
   return {
+    get managedFolder() {
+      return managedFolder;
+    },
+    setManagedFolder: (value: string) => {
+      managedFolder = value;
+    },
     completeProjectFileRead: (value: null) => completeProjectFileRead(value),
     draftStore,
     get projectFileRead() {
@@ -66,6 +73,7 @@ const testState = vi.hoisted(() => {
         startFromOrigin: false,
       },
     ) {
+      managedFolder = undefined;
       storedDraft = nextStoredDraft;
       projectRemoved = false;
       connectedEnvironmentIds = ["environment-primary", "environment-ssh"];
@@ -98,7 +106,10 @@ const testServerConfigs = () =>
         },
       },
     ],
-    ["environment-ssh", { settings: testState.targetSettings }],
+    [
+      "environment-ssh",
+      { settings: testState.targetSettings, lazurioFolder: testState.managedFolder },
+    ],
   ]);
 
 vi.mock("../rpc/atomRegistry", () => ({
@@ -274,5 +285,53 @@ describe("useNewThreadHandler", () => {
 
     expect(opened).toEqual({ draftId: "draft-delayed", threadId: "thread-delayed" });
     expect(testState.router.navigate).toHaveBeenCalledOnce();
+  });
+});
+
+describe("managed Lazurio entry", () => {
+  it("starts at the Folder even when a caller and saved settings request a worktree", async () => {
+    testState.reset(null, { envMode: "worktree", startFromOrigin: true });
+    testState.setManagedFolder("/remote/project");
+    const result = await useNewThreadHandler()(
+      { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+      { branch: "feature", worktreePath: "/tmp/worktree", envMode: "worktree" },
+    );
+    expect(result).not.toBeNull();
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        worktreePath: null,
+        branch: null,
+        envMode: "local",
+        startFromOrigin: false,
+      }),
+    );
+  });
+  it("routes a New chat request from historical context to the Folder project", async () => {
+    testState.reset(null);
+    testState.setManagedFolder("/remote/project");
+    await useNewThreadHandler()({
+      environmentId: "environment-ssh",
+      projectId: "historical-project",
+    } as never);
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      { environmentId: "environment-ssh", projectId: "project-remote" },
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+  it("waits until the managed project is available", async () => {
+    testState.reset(null);
+    testState.setManagedFolder("/remote/Lazurio");
+    await expect(
+      useNewThreadHandler()({
+        environmentId: "environment-ssh",
+        projectId: "project-remote",
+      } as never),
+    ).resolves.toBeNull();
+    expect(testState.router.navigate).not.toHaveBeenCalled();
   });
 });

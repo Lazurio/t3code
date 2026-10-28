@@ -16,6 +16,7 @@ import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as LazurioManagedFolder from "../lazurio/managedFolderGuards.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -92,7 +93,7 @@ const layerLegacyV1ThreadImporterProvided = LegacyV1ThreadImporter.layer.pipe(
   Layer.provide(layerEventSinkProvided),
 );
 
-export const layerProjectService = ProjectService.layer.pipe(
+export const layerProjectService = LazurioManagedFolder.guardProjects(ProjectService.layer).pipe(
   Layer.provide(
     Layer.mergeAll(
       ProjectStore.layer,
@@ -133,7 +134,9 @@ const layerCommandOutputHubProvided = CommandOutputHub.layer.pipe(
   Layer.provide(Layer.merge(layerEventSinkProvided, ProjectionStore.layer)),
 );
 
-const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
+const layerProviderSessionManagerProvided = LazurioManagedFolder.guardTurns(
+  ProviderSessionManager.layer,
+).pipe(
   Layer.provide(
     Layer.mergeAll(
       layerCommandOutputHubProvided,
@@ -213,7 +216,7 @@ const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
   Layer.provide(Layer.merge(layerCheckpointCaptureServiceProvided, ProjectionStore.layer)),
 );
 
-const layerOrchestratorProvided = Orchestrator.layer.pipe(
+const layerOrchestratorProvided = LazurioManagedFolder.guardCommands(Orchestrator.layer).pipe(
   Layer.provide(
     Layer.mergeAll(
       layerCheckpointServiceProvided,
@@ -263,9 +266,9 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
 export const layerProjectSetupScriptRunner = ProjectSetupScriptRunner.layer.pipe(
   Layer.provide(layerProjectService),
 );
-const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
-  Layer.provide(layerProjectService),
-);
+const layerManagedProjectFoldersProvided = LazurioManagedFolder.guardScratch(
+  ManagedProjectFolders.layer,
+).pipe(Layer.provide(layerProjectService));
 const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(

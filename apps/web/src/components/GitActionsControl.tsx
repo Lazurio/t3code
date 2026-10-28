@@ -1613,7 +1613,7 @@ export default function GitActionsControl({
     </>
   );
 
-  if (!gitCwd) return null;
+  if (!gitCwd || serverConfig?.lazurioFolder === gitCwd) return null;
 
   return (
     <>

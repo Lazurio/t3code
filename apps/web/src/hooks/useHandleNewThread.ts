@@ -1,3 +1,4 @@
+import { managedNewThread } from "../lazurio/managedFolder";
 import {
   scopedProjectKey,
   scopeProjectRef,
@@ -87,6 +88,10 @@ export function createNewThreadHandler(router: AnyRouter) {
     const projectGroupingSettings = selectProjectGroupingSettings(getClientSettings());
     // Read at call time; status pushes replace the config map and would recreate every sidebar handler.
     const environmentServerConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
+    // Lazurio (LazurioPlatform F51): a managed Environment starts every thread in its Folder.
+    const managed = managedNewThread(environmentServerConfigs, projects, projectRef, options);
+    if (managed === null) return Promise.resolve(null);
+    ({ projectRef, options } = managed);
     const targetServerSettings =
       environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
     const {
