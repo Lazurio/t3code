@@ -36,6 +36,7 @@ import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as LazurioAgentBrowserSession from "./lazurio/agentBrowserSession.ts";
+import * as LazurioBuddyPrompt from "./lazurio/buddyPrompt.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
@@ -632,7 +633,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
-  Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
+  // Lazurio overlay (plan DEV-6676): Buddy's Hermes never gets T3's instructions.
+  Layer.provideMerge(
+    LazurioBuddyPrompt.withBuddyInstructions(ProviderInstanceRegistryHydration.layer),
+  ),
   Layer.provideMerge(
     Layer.mergeAll(
       AntigravityInstallation.AntigravityInstallation.layer,

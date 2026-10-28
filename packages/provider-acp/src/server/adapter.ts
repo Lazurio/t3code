@@ -39,6 +39,7 @@ import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
 import { compactDynamicToolOutput, htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import { FILE_HEADERS_ONLY, formatPatch, structuredPatch } from "diff";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -377,6 +378,16 @@ function acpSupportsImagePrompts(input: {
 }): boolean {
   return input.flavorSupportsImagePrompts === true || input.negotiatedImage === true;
 }
+
+/**
+ * Whether an instance's prompts carry T3's own instructions (interaction mode, tools, runtime and
+ * pull-request notes) beside the user's message. An agent that keeps its own persona and memory
+ * stores every prompt as the user's words, so its host can leave them out. Read when the adapter
+ * is built.
+ */
+export class AcpT3Instructions extends Context.Reference<
+  (instanceId: ProviderInstanceId) => boolean
+>("@t3tools/provider-acp/AcpT3Instructions", { defaultValue: () => () => true }) {}
 
 export function acpScopedNativeId(instanceId: ProviderInstanceId, nativeId: string): string {
   return `provider-instance:${encodeURIComponent(instanceId)}:${nativeId}`;
@@ -1346,6 +1357,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const sendsT3Instructions = (yield* AcpT3Instructions)(options.instanceId);
   const { flavor, selfInvocation: self } = options;
   const readMcpContext = (threadId: ThreadId | null) =>
     threadId === null
@@ -7155,13 +7167,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             resolveExtractedTextPath: host.resolveExtractedTextPath,
           });
           const isNativeSlashCommand = userText.trimStart().startsWith("/");
-          const text = t3AcpPromptWithInstructions({
-            prompt: messageText,
-            state: instructionState,
-            ...(previousInstructionState === undefined || compactionMarker !== undefined
-              ? {}
-              : { previousState: previousInstructionState }),
-          });
+          const text = sendsT3Instructions
+            ? t3AcpPromptWithInstructions({
+                prompt: messageText,
+                state: instructionState,
+                ...(previousInstructionState === undefined || compactionMarker !== undefined
+                  ? {}
+                  : { previousState: previousInstructionState }),
+              })
+            : messageText;
           if (text.length > 0) {
             prompt.push({ type: "text", text });
           }
@@ -7225,7 +7239,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               detail: "ACP turn requires non-empty text or attachments",
             });
           }
-          if (!isNativeSlashCommand) {
+          if (sendsT3Instructions && !isNativeSlashCommand) {
             prompt.push({
               type: "text",
               text: buildRuntimeInstructions({
