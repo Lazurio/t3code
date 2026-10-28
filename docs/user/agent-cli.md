@@ -65,7 +65,8 @@ t3 thread send 4f1c0b2e-… "Use the staging database" --mode steer --json
 | 4         | `t3 thread wait` timed out. It prints the thread's state, and the run goes on.                  |
 
 A command is not retried for you. If one ends without an answer, check the
-thread with `t3 thread read` or `t3 thread list` before you send it again.
+thread with `t3 thread read` or `t3 thread list` before you send it again, or
+send with an idempotency key (below).
 
 ## Start and message threads
 
@@ -90,6 +91,45 @@ the message, or `--message-file -`, to read it from standard input, and
 With `--json` it prints the send's result with the run's `status`, `reply` and
 `error`. It exits 1 when the run fails or stops, and 2 when the agent waits for
 an answer, which `t3 request list --thread <thread>` shows.
+
+`--idempotency-key <key>` sends the message once per key, also when you run the
+same command again later or after T3 Code restarts: a repeat sends nothing and
+prints the first send's result, with the same `commandId`. Where T3 Code cannot
+replay that result, for example because the thread was archived since, the
+repeat prints `"delivery": "delivered"` with the message's `messageId`, `runId`
+and `commandId`. A key belongs to its thread and to who sends: the same key sent
+to another thread, or by another sender, is another message. T3 Code trims a
+message, so spaces or a final newline around the same text do not make another
+one. Use a key that names this one message, such as an id your script keeps
+with it. With `--wait`, a repeat waits for the first send's run; a repeat that prints
+`"delivery": "delivered"` has no run to wait for and ends there.
+
+```sh
+printf '%s' "$report" | t3 thread send 4f1c0b2e-… --message-file - --mode queue \
+  --idempotency-key "report-$job_id" --json
+```
+
+With a key, a failure's code tells whether sending again can help. These
+refusals are final: sending again as it is never helps, so fix the cause first.
+After `idempotency_conflict` and `command_rejected` the key is spent, so send
+with a new one; after the others the same key works once the cause is fixed.
+
+| Code                                                                                        | Meaning                                                                      |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `idempotency_conflict`                                                                      | This key already sent another message to this thread. Nothing was sent.      |
+| `command_rejected`                                                                          | T3 Code refused the message for this key. A key it refused stays refused.    |
+| `thread_not_found`                                                                          | There is no such thread.                                                     |
+| `thread_not_sendable`                                                                       | The thread is archived, or `--mode steer` found no running turn.             |
+| `invalid_request`                                                                           | The command line or the message is invalid, or the thread's provider is off. |
+| `capability_denied`, `runtime_mode_escalation_denied`, `interaction_mode_escalation_denied` | The command may not act on this thread.                                      |
+
+Any other failure may pass, such as `server_not_running` (exit code 3),
+`request_failed`, `auth_unavailable` or `orchestration_error`: send again later
+with the same key, which never sends twice.
+
+In Buddy's T3 Code on a Lazurio Environment, `t3 lazurio buddy thread --json`
+prints Buddy's one thread as `{"threadId": "...", "projectId": "..."}`, and makes
+it the first time anyone asks. It follows the output and exit codes above.
 
 ## Questions and permission requests
 

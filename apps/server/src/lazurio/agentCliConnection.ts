@@ -33,7 +33,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { GlobalFlag } from "effect/cli";
-import { FetchHttpClient } from "effect/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcSerialization from "effect/rpc/RpcSerialization";
@@ -112,7 +112,8 @@ const requestFailed = (cause: unknown) =>
 
 /** One command's sessions live this long unless it revokes them first, as it does on exit. */
 export const AGENT_CLI_SESSION_TTL = Duration.minutes(10);
-const SESSION_LABEL = "t3 agent cli";
+/** The label of every session an agent command issues. */
+export const AGENT_CLI_SESSION_LABEL = "t3 agent cli";
 const SOCKET_OPEN_TIMEOUT = "15 seconds";
 /** The scopes of the person's client surface this needs: reading threads and deciding requests. */
 const OWNER_SCOPES = [AuthOrchestrationReadScope, AuthOrchestrationOperateScope];
@@ -176,6 +177,14 @@ export interface AgentCliConnection {
   readonly dispatch: (
     command: OrchestrationV2Command,
   ) => Effect.Effect<{ readonly sequence: number }, AgentCliFailure>;
+  /**
+   * POST JSON to one of the overlay's routes as the person's client surface, and read its answer.
+   * Every status comes back; the command decides what each one means.
+   */
+  readonly postRoute: (
+    route: string,
+    body: unknown,
+  ) => Effect.Effect<{ readonly status: number; readonly body: unknown }, AgentCliFailure>;
   /** The live thread list, as the sidebar follows it. */
   readonly subscribeShell: (
     input: OrchestrationV2SubscribeShellInput,
@@ -220,7 +229,7 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
     const issue = (input: Parameters<typeof auth.issueSession>[0]) =>
       Effect.acquireRelease(
         auth
-          .issueSession({ ...input, ttl, label: SESSION_LABEL })
+          .issueSession({ ...input, ttl, label: AGENT_CLI_SESSION_LABEL })
           .pipe(
             Effect.mapError((cause) =>
               agentCliFailure(
@@ -249,6 +258,7 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
     );
     const ownerToken = yield* lazily(issue({ scopes: OWNER_SCOPES }));
     const http = yield* makeOwnerHttpClient(origin);
+    const httpClient = yield* HttpClient.HttpClient;
     const ownerHeaders = ownerToken.pipe(
       Effect.map(
         (token) =>
@@ -341,6 +351,28 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
                 ? agentCliFailure("orchestration_error", messageOf(cause))
                 : requestFailed(cause),
           ),
+        ),
+      postRoute: (route, body) =>
+        ownerToken.pipe(
+          Effect.flatMap((token) =>
+            httpClient
+              .execute(
+                HttpClientRequest.post(new URL(route, origin)).pipe(
+                  HttpClientRequest.bearerToken(token),
+                  HttpClientRequest.bodyJsonUnsafe(body),
+                ),
+              )
+              .pipe(
+                Effect.flatMap((response) =>
+                  Effect.map(response.text, (text) => ({ status: response.status, text })),
+                ),
+                Effect.mapError(requestFailed),
+              ),
+          ),
+          Effect.map(({ status, text }) => ({
+            status,
+            body: Option.getOrUndefined(decodeJson(text)),
+          })),
         ),
       subscribeShell: (input) =>
         Stream.unwrap(

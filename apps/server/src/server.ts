@@ -36,6 +36,7 @@ import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as LazurioAgentBrowserSession from "./lazurio/agentBrowserSession.ts";
+import * as LazurioAgentCliRequests from "./lazurio/agentCliRequests.ts";
 import * as LazurioBuddyPrompt from "./lazurio/buddyPrompt.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
@@ -733,7 +734,10 @@ const layerMakeRoutes = Layer.mergeAll(
   ),
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
-    Layer.provide(McpOAuth.layerMcpClientAuthenticator),
+    // Lazurio overlay (plan DEV-6676): an agent command's idempotency key holds across commands.
+    Layer.provide(
+      LazurioAgentCliRequests.withAgentCliRequestNamespace(McpOAuth.layerMcpClientAuthenticator),
+    ),
   ),
   // Lazurio overlay (plan DEV-6646): T3's browser tools drive the Environment browser and each
   // thread keeps its tabs of it. It shares the routes' one preview broker, provided below.
