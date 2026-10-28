@@ -336,10 +336,14 @@ jobs:
             apps/web/src/components/chat/ChatComposer.tsx
             apps/web/src/components/chat/ComposerControlsBar.tsx
             apps/web/src/components/chat/QueuedRunsControl.tsx
-            # A message sent in auto mode queues while the running turn waits on the person's
-            # answer to a question or an approval, instead of steering into it and aborting the
-            # provider's pending callback (row 30, Lazurio/t3code#119).
-            apps/server/src/orchestration-v2/ThreadManagementService.ts
+            # Any steer queues while the running turn waits on the person's answer to a question or
+            # an approval, instead of aborting the provider's pending callback (row 30,
+            # Lazurio/t3code#119, Lazurio/t3code#139): the guard in CommandPolicy.ts, a promoted
+            # message first in the queue (Orchestrator.ts), and their tests.
+            apps/server/src/orchestration-v2/CommandPolicy.test.ts
+            apps/server/src/orchestration-v2/CommandPolicy.ts
+            apps/server/src/orchestration-v2/Orchestrator.ts
+            apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts
             apps/server/src/orchestration-v2/ThreadManagementService.test.ts
             # A commit, push or pull request runs detached from the socket that started it and
             # finishes when that socket closes; the client reports a dropped connection as lost,
