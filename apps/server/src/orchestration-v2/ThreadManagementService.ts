@@ -770,7 +770,11 @@ const make = Effect.gen(function* () {
   const sendToThread: ThreadManagementServiceShape["sendToThread"] = Effect.fn(
     "ThreadManagementService.sendToThread",
   )(function* (input) {
-    const target = yield* getProjectThreadRecords(input, ["runs", "providerTurns"]);
+    const target = yield* getProjectThreadRecords(input, [
+      "runs",
+      "providerTurns",
+      "runtimeRequests",
+    ]);
     if (target.thread.archivedAt !== null) {
       return yield* new ThreadManagementThreadArchivedError({
         threadId: input.threadId,
@@ -793,7 +797,11 @@ const make = Effect.gen(function* () {
         targetRunId: steerableRun.id,
       };
     } else if (input.mode === "auto" && steerableRun !== undefined) {
-      dispatchMode = { type: "steer_active", targetRunId: steerableRun.id };
+      // Steering a turn that waits on the person's answer aborts the provider's pending
+      // permission callback, so the question or approval vanishes before anyone sees it.
+      dispatchMode = target.runtimeRequests.some((request) => request.status === "pending")
+        ? { type: "queue_after_active" }
+        : { type: "steer_active", targetRunId: steerableRun.id };
     } else {
       dispatchMode = {
         type: input.mode === "queue" ? "queue_after_active" : "start_immediately",
