@@ -9,6 +9,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { useClosedViewStore } from "./closedViewStore";
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
 import type { ChatFileAttachment } from "./types";
 
@@ -228,6 +229,9 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "device":
       return { id: "device", kind };
+    case "environment-browser":
+      // Lazurio overlay: Nová karta, a new tab of the strip each time (lazurio/threadTabs.ts).
+      return { id: `environment-browser:new-tab:${randomUUID()}`, kind };
   }
 };
 
