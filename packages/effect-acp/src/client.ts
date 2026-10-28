@@ -583,6 +583,7 @@ function normalizeInitializeResponse(
     protocolVersion: response.protocolVersion,
     agentInfo: response.info,
     agentCapabilities: {
+      ...(response.capabilities?._meta == null ? {} : { _meta: response.capabilities._meta }),
       loadSession: session !== undefined && session !== null,
       promptCapabilities: {
         image: prompt?.image != null,
