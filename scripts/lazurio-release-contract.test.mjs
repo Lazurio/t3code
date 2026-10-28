@@ -3002,3 +3002,79 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   ])
     NodeAssert.ok(overlayMayChange(file), file);
 });
+
+// Lazurio/t3code#119 and Lazurio/t3code#139 (row 30): a steer into a turn that waits on the person's
+// answer aborts the provider's pending callback. One guard in resolveMessageDispatchIntent queues
+// every steer while a runtime request is pending; promoting a queued message checks the same
+// predicate and puts it first in the queue. sendToThread no longer carries a check of its own.
+NodeTest.test(
+  "a steer waits behind a turn that waits on the person through its seams",
+  async () => {
+    const [policy, orchestrator] = await Promise.all([
+      read("apps/server/src/orchestration-v2/CommandPolicy.ts"),
+      read("apps/server/src/orchestration-v2/Orchestrator.ts"),
+    ]);
+    NodeAssert.match(
+      policy,
+      /\n\s+return projection\.runtimeRequests\.some\(\(request\) => request\.status === "pending"\);\n/,
+    );
+    NodeAssert.match(
+      policy,
+      /const mode = resolveDeliveryIntent\(projection, requestedMode, deliveryIntent\);\n\s+if \(mode\.type !== "steer_active"\) return mode;\n\s+if \(waitsOnPendingRequest\(projection\)\) return \{ type: "queue_after_active" \};\n/,
+    );
+    // message.dispatch reads the thread with its runtime requests and resolves the mode once.
+    NodeAssert.match(
+      orchestrator,
+      /const readCommandProjection = [^]*?"providerTurns",\n\s+"runtimeRequests",\n/,
+    );
+    NodeAssert.equal(orchestrator.match(/\bresolveMessageDispatchIntent\(/g)?.length, 1);
+    const promote = /const dispatchQueuedMessagePromoteToSteer = [^]*?\n {2}\}\);\n/.exec(
+      orchestrator,
+    )?.[0];
+    NodeAssert.ok(promote, "the promote to a steer must stay one function");
+    NodeAssert.match(promote, /\n\s+"runtimeRequests",\n/);
+    NodeAssert.match(
+      promote,
+      /\n\s+if \(waitsOnPendingRequest\(projection\)\) \{\n[^]*?payload: \{ \.\.\.queuedRun, queuePosition: 1 \},\n\s+\}\);\n\s+return yield\* stopRunForGoalCommand\(\{\n[^]*?targetRunId: undefined,\n[^]*?\n\s+\}\n\s+yield\* emitEvent\(\{\n[^]*?yield\* dispatchSteerIntoRun\(\{/,
+    );
+    NodeAssert.equal(orchestrator.match(/\bwaitsOnPendingRequest\(/g)?.length, 1);
+    for (const file of [
+      "apps/server/src/orchestration-v2/CommandPolicy.ts",
+      "apps/server/src/orchestration-v2/Orchestrator.ts",
+    ])
+      NodeAssert.ok(overlayMayChange(file), file);
+    NodeAssert.ok(!overlayMayChange("apps/server/src/orchestration-v2/ThreadManagementService.ts"));
+  },
+);
+
+// Lazurio/t3code#140 (row 32): a follow-up `queue` saved before the v0.1.3 line becomes `steer`
+// once. The web client's one read and write of its settings go through the overlay's storage
+// schema, whose marker every write stores, so a later `queue` sticks.
+NodeTest.test("a saved follow-up queue becomes steer once through its seam", async () => {
+  const [storage, source, migration] = await Promise.all([
+    read("apps/web/src/clientPersistenceStorage.ts"),
+    read("apps/web/src/lazurio/followUpSteerMigration.ts"),
+    import("../apps/web/src/lazurio/followUpSteerMigration.ts"),
+  ]);
+  NodeAssert.match(storage, /const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";/);
+  NodeAssert.match(
+    storage,
+    /getLocalStorageItem\(CLIENT_SETTINGS_STORAGE_KEY, StoredClientSettingsSchema\);\n[^]*?migrateFollowUpToSteerOnce\(stored\);\n/,
+  );
+  NodeAssert.match(
+    storage,
+    /setLocalStorageItem\(\n\s+CLIENT_SETTINGS_STORAGE_KEY,\n\s+withFollowUpSteerMarker\(settings\),\n\s+StoredClientSettingsSchema,\n\s+\);/,
+  );
+  NodeAssert.doesNotMatch(storage, /\bClientSettingsSchema\b/);
+  NodeAssert.match(source, /lazurioFollowUpSteer: Schema\.optionalKey\(Schema\.Literal\(true\)\)/);
+  const queued = { followUpBehavior: "queue", wordWrap: false };
+  NodeAssert.deepEqual(migration.migrateFollowUpToSteerOnce(queued), {
+    settings: { followUpBehavior: "steer", wordWrap: false },
+    migrated: true,
+  });
+  NodeAssert.deepEqual(
+    migration.migrateFollowUpToSteerOnce({ ...queued, lazurioFollowUpSteer: true }),
+    { settings: queued, migrated: false },
+  );
+  NodeAssert.ok(overlayMayChange("apps/web/src/clientPersistenceStorage.ts"));
+});
