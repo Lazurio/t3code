@@ -166,6 +166,7 @@ import {
   LazurioRightPanelSurfaces,
   useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
+import { BuddyThreadDetailsPanel, useBuddySurfaceMode } from "../lazurio/BuddySurface";
 import {
   ThreadPreviewMiniPlayer,
   useThreadPreviewCanvasSource,
@@ -293,7 +294,6 @@ import {
   WorkspaceTitlebarControls,
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
@@ -565,7 +565,13 @@ export default function ChatView(props: ChatViewProps) {
     }
     return ids;
   })();
-  const settings = useEnvironmentSettings(environmentId);
+  // Lazurio overlay (plan DEV-6676): in Buddy's one conversation a follow-up steers by default,
+  // and queueing is the explicit alternative.
+  const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  const environmentSettings = useEnvironmentSettings(environmentId);
+  const settings = buddySurface
+    ? { ...environmentSettings, followUpBehavior: "steer" as const }
+    : environmentSettings;
   const clientSettingsHydrated = useClientSettingsHydrated();
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
@@ -1241,6 +1247,7 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses.find((status) => status.instanceId === activeRuntime?.providerInstanceId) ??
     activeProviderStatus;
   const supportsConversationRollback =
+    !buddySurface &&
     canOperateThread &&
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
@@ -3186,6 +3193,8 @@ export default function ChatView(props: ChatViewProps) {
         <header
           ref={threadPanelPopoverAnchorRef}
           data-chat-header
+          // Lazurio overlay (plan DEV-6676): Buddy's surface draws its own header.
+          hidden={buddySurface}
           className={cn(
             "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
             isElectron
@@ -3755,7 +3764,7 @@ export default function ChatView(props: ChatViewProps) {
               onConfirm={handleSwitchCheckoutToThreadStable}
             />
 
-            <ThreadDetailsPanel
+            <BuddyThreadDetailsPanel
               anchor={threadPanelPopoverAnchorRef}
               handle={threadPanelPopoverHandle}
               forceNewWorktree={multipleModelSelections !== null}

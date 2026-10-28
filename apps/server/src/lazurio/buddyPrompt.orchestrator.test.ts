@@ -28,11 +28,12 @@ import {
   layerBuddyServer,
   receivedPrompts,
 } from "./buddySurface.testkit.ts";
+import { resolveBuddyThread } from "./buddySurfaceThread.ts";
 
-const requestLog = NodePath.join(
-  NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "buddy-prompt-orchestrator-")),
-  "requests.jsonl",
-);
+const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "buddy-prompt-orchestrator-"));
+const buddyLayer = NodePath.join(home, "Lazurio", ".agents", "buddy");
+NodeFS.mkdirSync(buddyLayer, { recursive: true });
+const requestLog = NodePath.join(home, "requests.jsonl");
 const page = {
   v: 1,
   environment: { id: "vm-01.example", kind: "work", name: "Pracovní" },
@@ -87,25 +88,9 @@ const send = Effect.fn("test.buddyPrompt.send")(function* (
 describe("Buddy's T3 Code", () => {
   it.live("gives Hermes the person's words and the page as a Czech block, turn after turn", () =>
     Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projectId = ProjectId.make("project:buddy");
-      // Buddy's project is the Buddy layer, a folder without Git.
-      yield* addProject(projectId, NodePath.dirname(requestLog));
-      const threadId = ThreadId.make("thread:buddy-prompt");
-      yield* orchestrator.dispatch({
-        type: "thread.create",
-        createdBy: "user",
-        creationSource: "web",
-        commandId: CommandId.make("command:buddy-prompt:create"),
-        threadId,
-        projectId,
-        title: "Buddy",
-        modelSelection: buddyModel,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-      });
+      // Buddy's project is Buddy's layer, a folder without Git, and the thread is Buddy's own.
+      yield* addProject(ProjectId.make("project:buddy"), buddyLayer);
+      const { threadId } = yield* resolveBuddyThread();
       const record = {
         version: 1,
         kind: "lazurio-page",
@@ -128,6 +113,7 @@ describe("Buddy's T3 Code", () => {
       Effect.scoped,
       Effect.provideService(HostProcess.Environment, {
         ...process.env,
+        HOME: home,
         T3CODE_LAZURIO_BUDDY: "1",
         T3_ACP_REQUEST_LOG_PATH: requestLog,
       }),

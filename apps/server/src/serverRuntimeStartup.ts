@@ -26,6 +26,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "./config.ts";
+import { startBuddySurface } from "./lazurio/buddySurfaceStartup.ts";
 import { ensureManagedFolderProject } from "./lazurio/managedFolderStartup.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import { flushCompileCache } from "./compileCache.ts";
@@ -518,6 +519,10 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
         ),
       ),
     );
+
+    // Lazurio overlay (plan DEV-6676): Buddy's defaults in Buddy's T3 Code, before recovery reads
+    // them.
+    yield* runStartupPhase("lazurio.buddy", startBuddySurface);
 
     const welcomeBase = yield* resolveWelcomeBase;
     const environment = yield* serverEnvironment.getDescriptor;

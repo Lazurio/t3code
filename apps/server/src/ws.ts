@@ -215,6 +215,7 @@ import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import { buddySurfaceClientConfig } from "./lazurio/buddySurface.ts";
 import { managedFolderClientConfig } from "./lazurio/managedFolder.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1753,6 +1754,7 @@ export const layerWsRpc = (
           auth,
           cwd: config.cwd,
           ...managedFolderClientConfig(config),
+          ...(yield* buddySurfaceClientConfig),
           keybindingsConfigPath: config.keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
