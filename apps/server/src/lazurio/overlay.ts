@@ -7,6 +7,8 @@ import * as Layer from "effect/Layer";
 
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
+import * as ProviderRefresh from "./providerRefresh.ts";
+import * as ProviderRefreshRoute from "./providerRefreshRoute.ts";
 import * as ThreadLifecycle from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import * as ThreadTabsRoute from "./threadTabsRoute.ts";
@@ -15,4 +17,5 @@ export const layer = Layer.mergeAll(
   EnvironmentBrowser.layer,
   ThreadTabsRoute.layer,
   ModelRecommendationRoute.layer,
+  ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
 ).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));
