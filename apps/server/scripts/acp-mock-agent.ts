@@ -56,6 +56,8 @@ const emitForeignSessionUpdates = process.env.T3_ACP_EMIT_FOREIGN_SESSION_UPDATE
 const omitInitializeModelState = process.env.T3_ACP_OMIT_INITIALIZE_MODEL_STATE === "1";
 const waitForResumeRelease = process.env.T3_ACP_WAIT_FOR_RESUME_RELEASE === "1";
 const completeFirstPromptOnCancel = process.env.T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
+// Lazurio's `_lazurio/steer`: the first prompt waits for a steer and answers with its text.
+const lazurioActiveSteer = process.env.T3_ACP_LAZURIO_ACTIVE_STEER === "1";
 const floodStderr = process.env.T3_ACP_FLOOD_STDERR === "1";
 const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
 const clientFsProbePath = process.env.T3_ACP_CLIENT_FS_PROBE_PATH;
@@ -534,6 +536,8 @@ const program = Effect.gen(function* () {
   const resumeRelease = yield* Deferred.make<void>();
   const nativeCancelRequested = yield* Deferred.make<void>();
   const nativeCancelRelease = yield* Deferred.make<void>();
+  const lazurioSteer = yield* Deferred.make<string>();
+  let lazurioSteerablePrompt = false;
   const publishAntigravityCommands = (targetSessionId: string) =>
     agent.client.sessionUpdate({
       sessionId: targetSessionId,
@@ -579,6 +583,7 @@ const program = Effect.gen(function* () {
         info: { name: "t3-acp-mock-agent", version: "0.0.0" },
         ...(omitInitializeModelState ? {} : { _meta: { modelState: modelState() } }),
         capabilities: {
+          ...(lazurioActiveSteer ? { _meta: { "lazurio.activeSteer": 1 } } : {}),
           session: {
             ...(supportsSessionLifecycle ? { fork: {}, additionalDirectories: {} } : {}),
             ...(supportsV2Management ? { delete: {} } : {}),
@@ -1509,6 +1514,38 @@ const program = Effect.gen(function* () {
 
       if (Number.isFinite(promptDelayMs) && promptDelayMs > 0) {
         yield* Effect.sleep(`${promptDelayMs} millis`);
+      }
+
+      if (lazurioActiveSteer && promptCount === 1) {
+        lazurioSteerablePrompt = true;
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "lazurio-steer-tool",
+            title: "Long command",
+            kind: "execute",
+            status: "in_progress",
+          },
+        });
+        const steered = yield* Deferred.await(lazurioSteer);
+        lazurioSteerablePrompt = false;
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "lazurio-steer-tool",
+            status: "completed",
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `steered: ${steered}` },
+          },
+        });
+        return yield* finishPrompt(requestedSessionId, "end_turn");
       }
 
       if (compactionPromptOrdinals.has(promptCount)) {
@@ -2620,6 +2657,14 @@ const program = Effect.gen(function* () {
     }
     if (method === "_test/finish-cancel") {
       return Deferred.succeed(nativeCancelRelease, undefined).pipe(Effect.as({}));
+    }
+    if (method === "_lazurio/steer" && lazurioActiveSteer) {
+      const text =
+        typeof params === "object" && params !== null ? Reflect.get(params, "text") : undefined;
+      if (!lazurioSteerablePrompt || typeof text !== "string") {
+        return Effect.succeed({ steered: false, reason: "not_running" });
+      }
+      return Deferred.succeed(lazurioSteer, text).pipe(Effect.as({ steered: true }));
     }
     if (method === "_test/startup-metadata") {
       return Effect.gen(function* () {
