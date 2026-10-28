@@ -1,8 +1,8 @@
 /**
- * Lazurio overlay (root decision 0210, addendum 3): how the agent commands reach this Environment's
- * T3 server as its owner. Each command issues its own in-memory sessions from the T3 home (the
- * Environment is the boundary, 0172) and revokes them at exit; thread work goes through `/mcp` with
- * the full-access ceiling, and only what no MCP tool does uses the person's client surface.
+ * Lazurio overlay (root decision 0210, addendum 3): the agent commands reach this Environment's T3
+ * server as its owner with in-memory sessions from the T3 home (0172), revoked at exit: `/mcp` with
+ * the full-access ceiling, else the person's client surface. Both carry the acting sender the
+ * environment names (`T3CODE_ACTING_SENDER`, actingSender.ts).
  */
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
@@ -43,6 +43,7 @@ import { resolveCliAuthConfig } from "../cli/config.ts";
 import * as ServerConfig from "../config.ts";
 import { mcpToolSession } from "../mcp/AcpMcpStdioBridge.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import { actingSenderFromEnvironment } from "./actingSender.ts";
 
 /** Exit codes of the agent commands; `docs/user/agent-cli.md` documents them. */
 export const AGENT_CLI_EXIT_CODES = {
@@ -209,6 +210,12 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
   use: (connection: AgentCliConnection) => Effect.Effect<A, E, R>,
   options?: { readonly sessionTtl?: Duration.Duration },
 ) {
+  // Read first, so an environment that names no valid sender fails before anything is read.
+  const actingSender = Option.getOrUndefined(
+    yield* actingSenderFromEnvironment.pipe(
+      Effect.mapError((error) => agentCliFailure("invalid_request", error.message)),
+    ),
+  );
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
   const state = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath).pipe(
@@ -229,7 +236,12 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
     const issue = (input: Parameters<typeof auth.issueSession>[0]) =>
       Effect.acquireRelease(
         auth
-          .issueSession({ ...input, ttl, label: AGENT_CLI_SESSION_LABEL })
+          .issueSession({
+            ...input,
+            ttl,
+            label: AGENT_CLI_SESSION_LABEL,
+            ...(actingSender === undefined ? {} : { actingSender }),
+          })
           .pipe(
             Effect.mapError((cause) =>
               agentCliFailure(

@@ -12,6 +12,8 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 
+import type { ActingSender } from "../lazurio/actingSender.ts";
+
 const ALL_MCP_CAPABILITIES = [
   "preview",
   "orchestration",
@@ -33,6 +35,8 @@ export interface McpClientCaller {
   readonly sessionId: string;
   readonly label: string;
   readonly access: AuthMcpClientAccess;
+  /** Lazurio overlay (root decision 0210): who the client's session acts as. */
+  readonly actingSender?: ActingSender;
 }
 
 /** Read-only clients map to the lowest mode because McpToolAccess blocks writes first. */
