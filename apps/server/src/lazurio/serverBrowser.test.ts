@@ -35,6 +35,16 @@ const lazurioEnvironment = { [LAZURIO_FOLDER_ENV]: "/home/environment/Lazurio" }
  */
 const gatedServerBrowser = (environment: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
+    // Counted by a memoized sibling layer; Layer.tap is not memoized and would count every use.
+    let activityBuilds = 0;
+    const activity = Layer.merge(
+      PreviewAgentActivity.layer,
+      Layer.effectDiscard(
+        Effect.sync(() => {
+          activityBuilds += 1;
+        }),
+      ),
+    );
     const registrations: Array<PreviewAutomationHost> = [];
     const chromium: Array<string> = [];
     const broker = PreviewAutomationBroker.PreviewAutomationBroker.of({
@@ -65,11 +75,13 @@ const gatedServerBrowser = (environment: NodeJS.ProcessEnv) =>
                 pointer: () => Effect.void,
                 turn: () => Effect.void,
               }),
-              PreviewAgentActivity.layer,
+              activity,
             ),
           ),
         ),
       ).pipe(
+        // RunExecutionService's use of the same layer beside the gate.
+        Layer.merge(activity),
         Layer.provide(
           Layer.mergeAll(
             PreviewManager.layer,
@@ -91,7 +103,7 @@ const gatedServerBrowser = (environment: NodeJS.ProcessEnv) =>
     // Upstream's server browser registers from a fiber of its own.
     yield* Effect.yieldNow;
     yield* Effect.yieldNow;
-    return { browser, registrations, chromium };
+    return { browser, registrations, chromium, activityBuilds };
   });
 
 describe("upstream's server browser", () => {
@@ -131,8 +143,10 @@ describe("upstream's server browser", () => {
 
   it.effect("registers as before elsewhere", () =>
     Effect.gen(function* () {
-      const { registrations } = yield* gatedServerBrowser({});
+      const { registrations, activityBuilds } = yield* gatedServerBrowser({});
 
+      // One agent-activity instance, shared with RunExecutionService by layer memoization.
+      assert.strictEqual(activityBuilds, 1);
       assert.deepStrictEqual(registrations, [
         {
           clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID,
