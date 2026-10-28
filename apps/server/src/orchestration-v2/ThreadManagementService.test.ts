@@ -25,6 +25,7 @@ import * as Stream from "effect/Stream";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import { resolveMessageDispatchIntent } from "./CommandPolicy.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -445,9 +446,10 @@ it.effect.each([
 it.effect.each([
   { mode: "auto" as const, pendingRequest: false, dispatchMode: "steer_active" },
   { mode: "auto" as const, pendingRequest: true, dispatchMode: "queue_after_active" },
-  { mode: "steer" as const, pendingRequest: true, dispatchMode: "steer_active" },
+  { mode: "steer" as const, pendingRequest: false, dispatchMode: "steer_active" },
+  { mode: "steer" as const, pendingRequest: true, dispatchMode: "queue_after_active" },
 ])(
-  "sendToThread in $mode mode with a pending request: $pendingRequest dispatches $dispatchMode",
+  "sendToThread in $mode mode with a pending request: $pendingRequest resolves to $dispatchMode",
   ({ mode, pendingRequest, dispatchMode }) =>
     Effect.gen(function* () {
       const projectId = ProjectId.make("project:thread-management:send-pending");
@@ -477,7 +479,12 @@ it.effect.each([
             getThreadRecords: () => Effect.succeed(projection),
             dispatch: (command) =>
               Effect.sync(() => {
-                dispatched.push(command.type === "message.dispatch" ? command.dispatchMode : null);
+                // The orchestrator resolves the mode against the thread it reads.
+                dispatched.push(
+                  command.type === "message.dispatch"
+                    ? resolveMessageDispatchIntent(projection, command.dispatchMode)
+                    : null,
+                );
                 return { sequence: 1, storedEvents: [] } as never;
               }),
           }),
