@@ -6,6 +6,7 @@ import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -927,6 +928,32 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         host: undefined,
         privateNetworkOnly: undefined,
       });
+    }),
+  );
+
+  it.effect("reads the client session lifetime from env and rejects invalid values", () =>
+    Effect.gen(function* () {
+      const { join } = yield* Path.Path;
+      const resolveWith = (env: Record<string, string>) =>
+        resolveServerConfig(
+          minimalWebFlags(join(NodeOS.tmpdir(), "t3-cli-config-session-ttl-base")),
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+        );
+
+      const unset = yield* resolveWith({});
+      expect(unset.clientSessionTtl).toBeUndefined();
+
+      const configured = yield* resolveWith({ T3CODE_CLIENT_SESSION_TTL: "365d" });
+      expect(configured.clientSessionTtl).toEqual(Duration.days(365));
+
+      for (const value of ["0d", "forever", "-1d"]) {
+        const error = yield* resolveWith({ T3CODE_CLIENT_SESSION_TTL: value }).pipe(Effect.flip);
+        expect(String(error)).toContain("T3CODE_CLIENT_SESSION_TTL");
+      }
     }),
   );
 });
