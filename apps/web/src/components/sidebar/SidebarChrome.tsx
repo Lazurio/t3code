@@ -1,6 +1,6 @@
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo } from "react";
+import { createElement, memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -31,7 +31,7 @@ import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUp
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 
-export const SidebarChromeHeader = memo(function SidebarChromeHeader({
+const SidebarChromeTitlebar = memo(function SidebarChromeTitlebar({
   isElectron,
 }: {
   isElectron: boolean;
@@ -73,6 +73,20 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         ) : null}
       </div>
     </div>
+  );
+});
+
+// Lazurio shell (docs/operations/lazurio-fork-release.md): every sidebar's top row, with its toggle
+// and the wordmark, has the column head under it: the Environment picker and the app switch.
+// Undefined, the element renders nothing.
+export const SidebarChromeHeader = memo(function SidebarChromeHeader(props: {
+  isElectron: boolean;
+}) {
+  return (
+    <>
+      <SidebarChromeTitlebar {...props} />
+      {createElement("lazurio-column-head", { active: "chat" })}
+    </>
   );
 });
 
