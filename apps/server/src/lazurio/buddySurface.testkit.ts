@@ -142,7 +142,7 @@ export const layerBuddyServer = Layer.mergeAll(
   Layer.provide(ProviderInstallationGate.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStore),
-  Layer.provide(layerServerConfig),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(layerServerSettings),
   Layer.provide(ModelManifest.layerTest),
   Layer.provide(ResetCreditCoordinator.layer),
