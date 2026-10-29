@@ -220,6 +220,8 @@ const appendSessionCookie = (
     Cookies.set(Cookies.empty, cookieName, token, {
       ...sessionCookieOptions(request),
       expires: DateTime.toDate(expiresAt),
+      // Browsers accept `__Host-` cookies only when they are Secure.
+      ...(cookieName.startsWith("__Host-") ? { secure: true } : {}),
     }),
   ).pipe(
     Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")),
@@ -338,6 +340,8 @@ export const layer = HttpApiBuilder.group(
               Cookies.set(Cookies.empty, cookieName, result.sessionToken, {
                 ...sessionCookieOptions(request),
                 expires: DateTime.toDate(result.response.expiresAt),
+                // Browsers accept `__Host-` cookies only when they are Secure.
+                ...(cookieName.startsWith("__Host-") ? { secure: true } : {}),
               }),
             ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")));
             const sessionCookies = result.expireNormalCookie
