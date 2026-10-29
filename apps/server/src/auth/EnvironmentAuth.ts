@@ -41,6 +41,7 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
+import type { ActingSender } from "../lazurio/actingSender.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -90,6 +91,8 @@ export interface McpClientSession {
   readonly access: AuthMcpClientAccess;
   /** Another T3 Code environment's link, whose work here stays within it. */
   readonly peerLink: boolean;
+  /** Lazurio overlay (root decision 0210): who the session acts as. */
+  readonly actingSender?: ActingSender;
 }
 
 export interface AuthenticatedSession {
@@ -99,6 +102,8 @@ export interface AuthenticatedSession {
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly proofKeyThumbprint?: string;
   readonly expiresAt?: DateTime.DateTime;
+  /** Lazurio overlay (root decision 0210): who the session acts as. */
+  readonly actingSender?: ActingSender;
 }
 
 const serverAuthInternalErrorContext = {
@@ -581,6 +586,11 @@ export class EnvironmentAuth extends Context.Service<
        * every other session ignores it.
        */
       readonly runtimeModeCeiling?: RuntimeMode;
+      /**
+       * Lazurio overlay (root decision 0210): who the session acts as, signed into its token. Its
+       * messages and decisions show it in the thread.
+       */
+      readonly actingSender?: ActingSender;
     }) => Effect.Effect<IssuedBearerSession, ServerAuthInternalError>;
     readonly listSessions: () => Effect.Effect<
       ReadonlyArray<AuthClientSession>,
@@ -818,6 +828,7 @@ export const make = Effect.gen(function* () {
         scopes: session.scopes,
         ...(session.proofKeyThumbprint ? { proofKeyThumbprint: session.proofKeyThumbprint } : {}),
         ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+        ...(session.actingSender ? { actingSender: session.actingSender } : {}),
       })),
     );
 
@@ -1304,6 +1315,7 @@ export const make = Effect.gen(function* () {
         },
         ...(input?.ttl ? { ttl: input.ttl } : {}),
         ...(input?.runtimeModeCeiling ? { runtimeModeCeiling: input.runtimeModeCeiling } : {}),
+        ...(input?.actingSender ? { actingSender: input.actingSender } : {}),
       })
       .pipe(
         Effect.map(
@@ -1547,6 +1559,7 @@ export const make = Effect.gen(function* () {
                 ? (session.runtimeModeCeiling ?? "approval-required")
                 : "read-only",
               peerLink: session.peerLink === true,
+              ...(session.actingSender ? { actingSender: session.actingSender } : {}),
             } satisfies McpClientSession)
           : Effect.fail(
               new ServerAuthInvalidCredentialError({

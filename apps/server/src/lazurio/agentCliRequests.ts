@@ -45,7 +45,7 @@ export const withAgentCliRequestNamespace = <E, R>(
     }),
   ).pipe(Layer.provide(authenticator));
 
-/** The variables that name who an agent command sends as: Buddy for a person, or budíček. */
+/** The variables that name who an agent command sends as: Buddy for a person, or Delegace. */
 const SENDER_VARIABLES = ["T3CODE_ACTING_SENDER", "T3CODE_ACTING_FOR"] as const;
 
 /**

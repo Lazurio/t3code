@@ -23,6 +23,7 @@ import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { ActingSender } from "../lazurio/actingSender.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as PayloadSigner from "./PayloadSigner.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -60,6 +61,8 @@ export interface VerifiedSession {
   readonly runtimeModeCeiling?: RuntimeMode;
   /** An MCP client that is another T3 Code environment's peer link. */
   readonly peerLink?: true;
+  /** Lazurio overlay (root decision 0210): who the session acts as, signed as `act`. */
+  readonly actingSender?: ActingSender;
 }
 
 export interface VerifiedWebSocketTicket extends VerifiedSession {
@@ -395,6 +398,7 @@ export class SessionStore extends Context.Service<
       readonly proofKeyThumbprint?: string;
       readonly runtimeModeCeiling?: RuntimeMode;
       readonly peerLink?: boolean;
+      readonly actingSender?: ActingSender;
       readonly replaceActiveForSubjectAndMethod?: boolean;
       readonly replaceSessionId?: AuthSessionId;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
@@ -459,6 +463,7 @@ const SessionClaims = Schema.Struct({
   rtc: Schema.optionalKey(RuntimeMode),
   /** Signed, so a client cannot shed its peer link's limits. */
   plk: Schema.optionalKey(Schema.Literal(1)),
+  act: Schema.optionalKey(ActingSender),
   iat: Schema.Number,
   exp: Schema.Number,
 });
@@ -685,6 +690,7 @@ const make = Effect.gen(function* () {
         ...(input?.proofKeyThumbprint ? { jkt: input.proofKeyThumbprint } : {}),
         ...(input?.runtimeModeCeiling ? { rtc: input.runtimeModeCeiling } : {}),
         ...(input?.peerLink === true ? { plk: 1 as const } : {}),
+        ...(input?.actingSender ? { act: input.actingSender } : {}),
         iat: issuedAt.epochMilliseconds,
         exp: expiresAt.epochMilliseconds,
       };
@@ -868,6 +874,7 @@ const make = Effect.gen(function* () {
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
         ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
         ...(claims.plk === 1 ? { peerLink: true as const } : {}),
+        ...(claims.act ? { actingSender: claims.act } : {}),
       } satisfies VerifiedSession;
     },
   );

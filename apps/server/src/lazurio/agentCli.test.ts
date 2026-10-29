@@ -21,6 +21,7 @@ import {
   OrchestrationV2RpcSchemas,
   OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
+  type OrchestrationV2StoredEvent,
   type OrchestrationV2SubscribeShellInput,
   OrchestrationV2ThreadBoundedSnapshot,
   OrchestrationV2ThreadDetailSnapshot,
@@ -50,6 +51,7 @@ import { afterAll } from "vite-plus/test";
 import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Cause from "effect/Cause";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -92,6 +94,7 @@ import * as PeerLinkRequests from "../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { OrchestratorToolkit } from "../mcp/toolkits/orchestrator/tools.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
@@ -99,7 +102,6 @@ import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "../serverRuntimeState.ts";
-import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
@@ -109,6 +111,9 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSettingsService from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import type { ActingSender } from "./actingSender.ts";
+import * as ActingSenders from "./actingSenders.ts";
+import * as ActingSendersRoute from "./actingSendersRoute.ts";
 import { AGENT_CLI_EXIT_CODES, isAgentCliFailure } from "./agentCliConnection.ts";
 import {
   AGENT_CLI_REQUEST_NAMESPACE,
@@ -290,15 +295,28 @@ const makeWorld = () => ({
     readonly input: OrchestratorMcpThreadSendInput;
     readonly scope: McpInvocationContext.McpInvocationScope;
   }>,
+  /** Runs once after the next send is dispatched, before T3 answers it. */
+  afterSend: undefined as Effect.Effect<void> | undefined,
+  /** Runs once when the next send arrives, before T3 dispatches it. */
+  beforeSend: undefined as Effect.Effect<void> | undefined,
+  /** Fails the next send before T3 dispatches it. */
+  failSend: undefined as OrchestratorMcpFailure | undefined,
+  /** Ends the next send with `answer` before T3 dispatches it, which it does once `until` ends. */
+  loseAnswer: undefined as
+    | { readonly until: Effect.Effect<void>; readonly answer: Effect.Effect<never> }
+    | undefined,
+  lateSends: [] as Array<Fiber.Fiber<unknown>>,
   waitTimeouts: [] as Array<number | undefined>,
   launches: [] as Array<{ readonly input: unknown; readonly modes: McpToolAccess.StartedModes }>,
-  /** Commands the MCP tools dispatched. */
+  /** Commands the MCP tools dispatched, and who each acted as (root decision 0210). */
   dispatched: [] as Array<unknown>,
-  /** Commands the person's client surface dispatched. */
+  dispatchedAs: [] as Array<ActingSender | undefined>,
+  /** Commands the person's client surface dispatched, and who each acted as. */
   ownerDispatched: [] as Array<unknown>,
   /** The projects Buddy's thread route sees, and the commands it dispatched. */
   buddyProjects: [] as Array<ProjectStore.ProjectRow>,
   buddyDispatched: [] as Array<unknown>,
+  ownerDispatchedAs: [] as Array<ActingSender | undefined>,
   fullReads: [] as Array<string>,
   subscriptions: [] as Array<OrchestrationV2SubscribeShellInput>,
   shellStream: (
@@ -314,8 +332,66 @@ const threadNotFound = (threadId: string) =>
     message: `Thread ${threadId} was not found.`,
   });
 
+/** What the orchestrator commits for a command, as far as the overlay reads it: new events. */
+let lastSequence = 0;
+const committedEvents = (
+  command: Parameters<Orchestrator.OrchestratorV2["Service"]["dispatch"]>[0],
+): ReadonlyArray<OrchestrationV2StoredEvent> => {
+  const stored = (event: object) =>
+    ({
+      sequence: ++lastSequence,
+      commandId: command.commandId,
+      event: { id: `event-${command.commandId}`, ...event },
+    }) as unknown as OrchestrationV2StoredEvent;
+  switch (command.type) {
+    case "message.dispatch":
+      return [
+        stored({
+          type: "message.updated",
+          threadId: command.threadId,
+          payload: { id: command.messageId, threadId: command.threadId, role: "user" },
+        }),
+      ];
+    case "runtime-request.respond":
+      return [
+        stored({
+          type: "runtime-request.updated",
+          threadId: command.threadId,
+          payload: { id: command.requestId, status: "resolved" },
+        }),
+      ];
+    default:
+      return [];
+  }
+};
+
+/**
+ * The orchestrator behind the fakes, through the overlay's recorder of acting senders, as T3
+ * builds it (runtimeLayer.ts); the route the web reads them by takes the same store.
+ */
+const layerOrchestrator = () =>
+  ActingSenders.recordSteps(
+    Layer.mock(Orchestrator.OrchestratorV2)({
+      getThreadEventSequence: () => Effect.sync(() => lastSequence),
+      dispatch: (command) =>
+        Effect.sync(() => {
+          const storedEvents = committedEvents(command);
+          return { sequence: lastSequence, storedEvents };
+        }),
+    }),
+  );
+
 /** The orchestration services behind the real tools, answering from `world`. */
 const orchestrationFakes = (world: World) =>
+  Layer.unwrap(
+    Effect.map(Orchestrator.OrchestratorV2, (orchestrator) =>
+      orchestrationFakesOver(world, orchestrator),
+    ),
+  );
+const orchestrationFakesOver = (
+  world: World,
+  orchestrator: Orchestrator.OrchestratorV2["Service"],
+) =>
   Layer.mergeAll(
     Layer.mock(ThreadManagement.ThreadManagementService)({
       getThreadShell: (threadId) => Effect.succeed(world.shells.get(threadId) ?? null),
@@ -336,8 +412,10 @@ const orchestrationFakes = (world: World) =>
             ),
         ),
       dispatch: (command) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           world.dispatched.push(command);
+          world.dispatchedAs.push(yield* ActingSenders.currentActingSender);
+          yield* orchestrator.dispatch(command).pipe(Effect.orDie);
           return { sequence: world.dispatched.length, storedEvents: [] };
         }),
     } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
@@ -383,11 +461,47 @@ const orchestrationFakes = (world: World) =>
         }),
       sendToThread: (scope, input) =>
         world.shells.has(input.threadId)
-          ? Effect.sync(() => {
-              world.sends.push({ input, scope });
+          ? Effect.gen(function* () {
+              const beforeSend = world.beforeSend;
+              world.beforeSend = undefined;
+              if (beforeSend !== undefined) yield* beforeSend;
+              const failure = world.failSend;
+              world.failSend = undefined;
+              if (failure !== undefined) return yield* failure;
+              const dispatchSend = Effect.gen(function* () {
+                world.sends.push({ input, scope });
+                // As T3's own tool sends it: a message from an agent over MCP.
+                const messageId = MessageId.make(`message-${world.sends.length}`);
+                yield* orchestrator
+                  .dispatch({
+                    type: "message.dispatch",
+                    commandId: CommandId.make(`command-send-${world.sends.length}`),
+                    threadId: input.threadId,
+                    messageId,
+                    text: input.message,
+                    attachments: [],
+                    dispatchMode: { type: "start_immediately" },
+                    createdBy: "agent",
+                    creationSource: "mcp",
+                  })
+                  .pipe(Effect.orDie);
+                return messageId;
+              });
+              const loseAnswer = world.loseAnswer;
+              world.loseAnswer = undefined;
+              if (loseAnswer !== undefined) {
+                world.lateSends.push(
+                  yield* Effect.forkDetach(loseAnswer.until.pipe(Effect.andThen(dispatchSend))),
+                );
+                return yield* loseAnswer.answer;
+              }
+              const messageId = yield* dispatchSend;
+              const afterSend = world.afterSend;
+              world.afterSend = undefined;
+              if (afterSend !== undefined) yield* afterSend;
               return {
                 threadId: input.threadId,
-                messageId: MessageId.make("message-1"),
+                messageId,
                 runId: RunId.make("run-2"),
                 status: "running" as const,
                 delivery: "steered" as const,
@@ -493,6 +607,24 @@ const projectHandlers = (world: World) =>
                 "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
             });
           world.launches.push({ input, modes });
+          // As T3 launches: the thread's first message, an agent's over MCP.
+          if (input.message !== undefined)
+            yield* ThreadManagement.ThreadManagementService.pipe(
+              Effect.flatMap((threads) =>
+                threads.dispatch({
+                  type: "message.dispatch",
+                  commandId: CommandId.make(`command-launch-${world.launches.length}`),
+                  threadId: ThreadId.make("thread-launched"),
+                  messageId: MessageId.make(`message-launched-${world.launches.length}`),
+                  text: input.message ?? "",
+                  attachments: [],
+                  dispatchMode: { type: "defer_start" },
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                }),
+              ),
+              Effect.orDie,
+            );
           return {
             threadId: "thread-launched",
             projectId: input.projectId ?? "scratch",
@@ -527,6 +659,7 @@ const encodeDetail = Schema.encodeSync(OrchestrationV2ThreadDetailSnapshot);
 const ownerRoutes = (world: World) =>
   HttpRouter.use((router) =>
     Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
       yield* router.add(
         "GET",
         "/api/orchestration/shell",
@@ -586,11 +719,14 @@ const ownerRoutes = (world: World) =>
             .pipe(Effect.option);
           if (Option.isNone(session)) return HttpServerResponse.empty({ status: 401 });
           const handlers = TestWsGroup.toLayer({
+            // As ws.ts runs a dispatch: as the session's acting sender, when it has one.
             [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
-              Effect.sync(() => {
+              Effect.gen(function* () {
                 world.ownerDispatched.push(command);
+                world.ownerDispatchedAs.push(yield* ActingSenders.currentActingSender);
+                yield* orchestrator.dispatch(command).pipe(Effect.orDie);
                 return { sequence: 100 + world.ownerDispatched.length };
-              }),
+              }).pipe(ActingSenders.actingAs(session.value)),
             [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) => {
               world.subscriptions.push(input);
               return world.shellStream(input, world.subscriptions.length - 1);
@@ -649,18 +785,28 @@ const withLiveServer = <A, E, R>(
   baseDir: string,
   world: World,
   body: (origin: string) => Effect.Effect<A, E, R>,
-) => withLiveServerOver(baseDir, world, orchestrationFakes(world), Layer.empty, body);
+) =>
+  withLiveServerOver(
+    baseDir,
+    world,
+    orchestrationFakes(world),
+    Layer.empty,
+    body,
+    layerOrchestrator(),
+  );
 
 /**
  * The same server with `orchestration` behind the tools in place of the fakes, and `routes` served
- * beside them.
+ * beside them. `orchestrator` is the orchestrator behind the server: the fakes' stand-in through the
+ * recorder of acting senders, or none, so that real sending keeps its own runtime's.
  */
-const withLiveServerOver = <A, E, R, ROut, RIn, RR>(
+const withLiveServerOver = <A, E, R, ROut, RIn, RR, RO, ROIn>(
   baseDir: string,
   world: World,
   orchestration: Layer.Layer<ROut, never, RIn>,
   routes: Layer.Layer<never, never, RR>,
   body: (origin: string) => Effect.Effect<A, E, R>,
+  orchestrator: Layer.Layer<RO, never, ROIn>,
 ) =>
   Effect.gen(function* () {
     const configLayer = Layer.effect(
@@ -694,12 +840,16 @@ const withLiveServerOver = <A, E, R, ROut, RIn, RR>(
       Layer.provide(orchestration),
     );
     const serviceLayer = HttpRouter.serve(
-      Layer.mergeAll(mcpRoutes, ownerRoutes(world), buddyThreadRoute(world), routes),
-      {
-        disableListenLog: true,
-        disableLogger: true,
-      },
+      Layer.mergeAll(
+        mcpRoutes,
+        ownerRoutes(world),
+        buddyThreadRoute(world),
+        ActingSendersRoute.layer.pipe(Layer.provide(ActingSenders.layer)),
+        routes,
+      ),
+      { disableListenLog: true, disableLogger: true },
     ).pipe(
+      Layer.provideMerge(orchestrator),
       Layer.provideMerge(layerAuth),
       Layer.provideMerge(
         NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 }),
@@ -1072,12 +1222,32 @@ describe("t3 thread", () => {
               ...json,
             ]),
           );
-        // The route a keyed send records its wait with, over a T3 that has not seen the key.
+        // The route a keyed send claims its key through, over a T3 that accepted a key's command
+        // once the fakes sent it.
         const sendState = AgentCliSendState.layer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(OrchestrationCommandReceiptRepository)({
-                getByCommandId: () => Effect.succeedNone,
+                getByCommandId: ({ commandId }) =>
+                  Effect.succeed(
+                    Option.fromNullishOr(
+                      world.sends.find(
+                        (sent) =>
+                          agentCliSendIds(sent.input.clientRequestId ?? "").commandId === commandId,
+                      ),
+                    ).pipe(
+                      Option.map((sent) => ({
+                        commandId,
+                        aggregateKind: "thread" as const,
+                        aggregateId: ThreadId.make(sent.input.threadId),
+                        commandType: "message.dispatch",
+                        acceptedAt: "2026-10-20T10:00:00.000Z",
+                        resultSequence: 1,
+                        status: "accepted" as const,
+                        error: null,
+                      })),
+                    ),
+                  ),
               }),
               Layer.mock(Orchestrator.OrchestratorV2)({
                 getThreadRecords: (threadId) =>
@@ -1086,77 +1256,288 @@ describe("t3 thread", () => {
             ),
           ),
         );
-        yield* withLiveServerOver(baseDir, world, orchestrationFakes(world), sendState, () =>
-          Effect.gen(function* () {
-            const replied = yield* send(["--json"]);
-            assert.strictEqual(exitCodeOf(replied.exit), 0);
-            assert.deepStrictEqual(replied.output, {
-              threadId: "thread-full",
-              messageId: "message-1",
-              runId: "run-2",
-              status: "completed",
-              delivery: "steered",
-              reply: "The build passes.",
-              error: null,
-            });
-            // The thread was idle, so the wait also asks whether background work the run left
-            // wakes it again, as upstream's send does: the idle check, the run, the work.
-            assert.deepStrictEqual(world.waitTimeouts, [1, 15_000, 15_000]);
+        yield* withLiveServerOver(
+          baseDir,
+          world,
+          orchestrationFakes(world),
+          sendState,
+          () =>
+            Effect.gen(function* () {
+              const replied = yield* send(["--json"]);
+              assert.strictEqual(exitCodeOf(replied.exit), 0);
+              assert.deepStrictEqual(replied.output, {
+                threadId: "thread-full",
+                messageId: "message-1",
+                runId: "run-2",
+                status: "completed",
+                delivery: "steered",
+                reply: "The build passes.",
+                error: null,
+              });
+              // The thread was idle, so the wait also asks whether background work the run left
+              // wakes it again, as upstream's send does: the idle check, the run, the work.
+              assert.deepStrictEqual(world.waitTimeouts, [1, 15_000, 15_000]);
 
-            // A run that stops to ask the person ends the wait with exit 2, its state printed.
-            world.waitResult = (input) => ({
-              threadId: input.threadId,
-              runId: RunId.make("run-2"),
-              status: "running",
-              timedOut: true,
-            });
-            world.pendingRequestCounts.set("thread-full", 1);
-            const asked = yield* send(["--json"]);
-            assert.strictEqual(exitCodeOf(asked.exit), AGENT_CLI_EXIT_CODES.needsInput);
-            assert.deepStrictEqual(asked.output, {
-              threadId: "thread-full",
-              messageId: "message-1",
-              runId: "run-2",
-              status: "waiting",
-              delivery: "steered",
-              reply: null,
-              error: null,
-            });
-            assert.deepStrictEqual(yield* agentCliSessions, []);
+              // A run that stops to ask the person ends the wait with exit 2, its state printed.
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: "running",
+                timedOut: true,
+              });
+              world.pendingRequestCounts.set("thread-full", 1);
+              const asked = yield* send(["--json"]);
+              assert.strictEqual(exitCodeOf(asked.exit), AGENT_CLI_EXIT_CODES.needsInput);
+              assert.deepStrictEqual(asked.output, {
+                threadId: "thread-full",
+                messageId: "message-2",
+                runId: "run-2",
+                status: "waiting",
+                delivery: "steered",
+                reply: null,
+                error: null,
+              });
+              assert.deepStrictEqual(yield* agentCliSessions, []);
 
-            // With a key, the wait comes after the key's send and keeps its command.
-            world.waitResult = (input) => ({
-              threadId: input.threadId,
-              runId: RunId.make("run-2"),
-              status: "completed",
-              timedOut: false,
-            });
-            world.pendingRequestCounts.set("thread-full", 0);
-            const keyed = yield* send(["--idempotency-key", "fix-1", "--json"]);
-            assert.strictEqual(exitCodeOf(keyed.exit), 0);
-            assert.match(
-              String(keyed.output.commandId),
-              /^command:mcp:.*lazurio-send%3A[0-9a-f]{64}$/,
-            );
-            assert.deepStrictEqual(
-              [keyed.output.runId, keyed.output.status, keyed.output.reply, keyed.output.delivery],
-              ["run-2", "completed", "The build passes.", "steered"],
-            );
+              // With a key, the wait comes after the key's send and keeps its command.
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: "completed",
+                timedOut: false,
+              });
+              world.pendingRequestCounts.set("thread-full", 0);
+              const keyed = yield* send(["--idempotency-key", "fix-1", "--json"]);
+              assert.strictEqual(exitCodeOf(keyed.exit), 0);
+              assert.match(
+                String(keyed.output.commandId),
+                /^command:mcp:.*lazurio-send%3A[0-9a-f]{64}$/,
+              );
+              assert.deepStrictEqual(
+                [
+                  keyed.output.runId,
+                  keyed.output.status,
+                  keyed.output.reply,
+                  keyed.output.delivery,
+                ],
+                ["run-2", "completed", "The build passes.", "steered"],
+              );
 
-            // A repeat of the key finds the thread busy with the first send's run, and still waits
-            // as the first send did, for the work that run left too.
-            world.waitTimeouts.length = 0;
-            world.waitResult = (input) => ({
-              threadId: input.threadId,
-              runId: RunId.make("run-2"),
-              status: input.timeoutMs === 1 ? "running" : "completed",
-              timedOut: input.timeoutMs === 1,
-            });
-            const repeat = yield* send(["--idempotency-key", "fix-1", "--json"]);
-            assert.strictEqual(exitCodeOf(repeat.exit), 0);
-            assert.strictEqual(repeat.output.commandId, keyed.output.commandId);
-            assert.deepStrictEqual(world.waitTimeouts, [1, 15_000, 15_000]);
-          }),
+              // A repeat of the key finds the thread busy with the first send's run, and still waits
+              // as the first send did, for the work that run left too.
+              world.waitTimeouts.length = 0;
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: input.timeoutMs === 1 ? "running" : "completed",
+                timedOut: input.timeoutMs === 1,
+              });
+              const repeat = yield* send(["--idempotency-key", "fix-1", "--json"]);
+              assert.strictEqual(exitCodeOf(repeat.exit), 0);
+              assert.strictEqual(repeat.output.commandId, keyed.output.commandId);
+              assert.deepStrictEqual(world.waitTimeouts, [1, 15_000, 15_000]);
+
+              // A repeat that runs after the first send is dispatched but before that send has
+              // answered finds the thread busy, and still waits as the first send does.
+              world.waitTimeouts.length = 0;
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: "completed",
+                timedOut: false,
+              });
+              const dispatched = yield* Deferred.make<void>();
+              const repeated = yield* Deferred.make<void>();
+              world.afterSend = Deferred.succeed(dispatched, undefined).pipe(
+                Effect.andThen(Deferred.await(repeated)),
+              );
+              const first = yield* Effect.forkChild(
+                Effect.exit(
+                  run([
+                    "thread",
+                    "send",
+                    "thread-full",
+                    "Fix it",
+                    "--wait",
+                    "--base-dir",
+                    baseDir,
+                    "--idempotency-key",
+                    "fix-2",
+                    "--json",
+                  ]),
+                ),
+              );
+              yield* Deferred.await(dispatched);
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: input.timeoutMs === 1 ? "running" : "completed",
+                timedOut: input.timeoutMs === 1,
+              });
+              const racing = yield* send(["--idempotency-key", "fix-2", "--json"]);
+              const printedBefore = (yield* TestConsole.logLines).length;
+              yield* Deferred.succeed(repeated, undefined);
+              const firstExit = yield* Fiber.join(first);
+              const firstOutput = decodeJson(
+                (yield* TestConsole.logLines).slice(printedBefore).join(""),
+              ) as Record<string, unknown>;
+              assert.strictEqual(exitCodeOf(racing.exit), 0);
+              assert.strictEqual(exitCodeOf(firstExit), 0);
+              assert.strictEqual(racing.output.commandId, firstOutput.commandId);
+              // The first's idle check, the repeat's idle check and its two waits, the first's two.
+              assert.deepStrictEqual(world.waitTimeouts, [1, 1, 15_000, 15_000, 15_000, 15_000]);
+
+              // A send that fails before T3 accepts it leaves no wait behind: the retry, once the
+              // thread turned idle, waits for the work its run leaves, as its own idle check says.
+              world.waitTimeouts.length = 0;
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: input.timeoutMs === 1 ? "running" : "completed",
+                timedOut: input.timeoutMs === 1,
+              });
+              world.failSend = threadNotFound("thread-full");
+              const failed = yield* Effect.exit(
+                run([
+                  "thread",
+                  "send",
+                  "thread-full",
+                  "Fix it",
+                  "--wait",
+                  "--base-dir",
+                  baseDir,
+                  "--idempotency-key",
+                  "fix-3",
+                  "--json",
+                ]),
+              );
+              assert.notStrictEqual(exitCodeOf(failed), 0);
+              world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: "completed",
+                timedOut: false,
+              });
+              const retried = yield* send(["--idempotency-key", "fix-3", "--json"]);
+              assert.strictEqual(exitCodeOf(retried.exit), 0);
+              assert.deepStrictEqual(world.waitTimeouts, [1, 1, 15_000, 15_000]);
+
+              // While one send of a key runs, another is refused before it sends, so the wait T3
+              // keeps is the accepted send's: the first finds the thread idle, then work starts
+              // and a concurrent send of the key finds it busy before the first is dispatched.
+              world.waitTimeouts.length = 0;
+              const idle: typeof world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: "completed",
+                timedOut: false,
+              });
+              const busy: typeof world.waitResult = (input) => ({
+                threadId: input.threadId,
+                runId: RunId.make("run-2"),
+                status: input.timeoutMs === 1 ? "running" : "completed",
+                timedOut: input.timeoutMs === 1,
+              });
+              const keyedSend = (key: string) =>
+                Effect.exit(
+                  run([
+                    "thread",
+                    "send",
+                    "thread-full",
+                    "Fix it",
+                    "--wait",
+                    "--base-dir",
+                    baseDir,
+                    "--idempotency-key",
+                    key,
+                    "--json",
+                  ]),
+                );
+              const errorCode = (refused: { readonly output: Record<string, unknown> }) =>
+                (refused.output.error as { code?: unknown } | null)?.code;
+              world.waitResult = idle;
+              const claimedArrived = yield* Deferred.make<void>();
+              const claimedGo = yield* Deferred.make<void>();
+              world.beforeSend = Deferred.succeed(claimedArrived, undefined).pipe(
+                Effect.andThen(Deferred.await(claimedGo)),
+              );
+              const sendsBefore = world.sends.length;
+              const claimed = yield* Effect.forkChild(keyedSend("fix-4"));
+              yield* Deferred.await(claimedArrived);
+              world.waitResult = busy;
+              const refused = yield* send(["--idempotency-key", "fix-4", "--json"]);
+              assert.deepStrictEqual(
+                [exitCodeOf(refused.exit), errorCode(refused)],
+                [1, "send_in_progress"],
+              );
+              const printedBefore4 = (yield* TestConsole.logLines).length;
+              yield* Deferred.succeed(claimedGo, undefined);
+              assert.strictEqual(exitCodeOf(yield* Fiber.join(claimed)), 0);
+              const claimedOutput = decodeJson(
+                (yield* TestConsole.logLines).slice(printedBefore4).join(""),
+              ) as Record<string, unknown>;
+              assert.strictEqual(world.sends.length, sendsBefore + 1);
+              // The refused send's retry replays the first's command and waits as the first did.
+              const again = yield* send(["--idempotency-key", "fix-4", "--json"]);
+              assert.strictEqual(exitCodeOf(again.exit), 0);
+              assert.strictEqual(again.output.commandId, claimedOutput.commandId);
+              // The first's idle check, the refused send's, the first's two waits, the retry's three.
+              assert.deepStrictEqual(world.waitTimeouts, [1, 1, 15_000, 15_000, 1, 15_000, 15_000]);
+
+              // A claim whose send never ends, such as a killed one, holds the key for
+              // CLAIM_TTL_MS; then the next send of the key claims it and waits as its own check
+              // says, and the stale send's late failure leaves that claim alone.
+              world.waitTimeouts.length = 0;
+              world.waitResult = idle;
+              const stuckArrived = yield* Deferred.make<void>();
+              const stuckGo = yield* Deferred.make<void>();
+              world.beforeSend = Deferred.succeed(stuckArrived, undefined).pipe(
+                Effect.andThen(Deferred.await(stuckGo)),
+              );
+              const stuck = yield* Effect.forkChild(keyedSend("fix-5"));
+              yield* Deferred.await(stuckArrived);
+              world.waitResult = busy;
+              const held = yield* send(["--idempotency-key", "fix-5", "--json"]);
+              assert.deepStrictEqual(
+                [exitCodeOf(held.exit), errorCode(held)],
+                [1, "send_in_progress"],
+              );
+              yield* TestClock.adjust(AgentCliSendState.CLAIM_TTL_MS);
+              const taken = yield* send(["--idempotency-key", "fix-5", "--json"]);
+              assert.strictEqual(exitCodeOf(taken.exit), 0);
+              world.failSend = threadNotFound("thread-full");
+              yield* Deferred.succeed(stuckGo, undefined);
+              assert.notStrictEqual(exitCodeOf(yield* Fiber.join(stuck)), 0);
+              // The stuck send's idle check, the held one's, then the claim's check and one wait.
+              assert.deepStrictEqual(world.waitTimeouts, [1, 1, 1, 15_000]);
+
+              // A send whose answer was lost, or that failed inside T3, may still be accepted, so
+              // it keeps its claim: a retry that finds the thread busy is refused until T3 accepts
+              // the failed send, then replays it and waits as the failed send's idle check said.
+              for (const [key, answer] of [
+                ["fix-6", Effect.interrupt],
+                ["fix-7", Effect.die("The tool failed.")],
+              ] as const) {
+                world.waitTimeouts.length = 0;
+                world.waitResult = idle;
+                const accept = yield* Deferred.make<void>();
+                world.loseAnswer = { until: Deferred.await(accept), answer };
+                assert.strictEqual(exitCodeOf(yield* keyedSend(key)), 1);
+                world.waitResult = busy;
+                const pending = yield* send(["--idempotency-key", key, "--json"]);
+                assert.deepStrictEqual(
+                  [exitCodeOf(pending.exit), errorCode(pending)],
+                  [1, "send_in_progress"],
+                );
+                yield* Deferred.succeed(accept, undefined);
+                yield* Fiber.join(world.lateSends.pop()!);
+                const replayed = yield* send(["--idempotency-key", key, "--json"]);
+                assert.strictEqual(exitCodeOf(replayed.exit), 0);
+                // The failed send's idle check, the refused one's, the replay's check and two waits.
+                assert.deepStrictEqual(world.waitTimeouts, [1, 1, 1, 15_000, 15_000]);
+              }
+            }),
+          layerOrchestrator(),
         );
       }).pipe(Effect.provide(TestConsole.layer)),
   );
@@ -1627,6 +2008,227 @@ describe("t3 queue and t3 thread fork", () => {
   );
 });
 
+// Root decision 0210, evening addendum, point 5: what Buddy sends or decides through these commands
+// shows „Buddy za <user>“, and Delegace's wake in Buddy's thread is hidden. A command acts as one
+// only when its environment says so; the server reads it from the session, never from the words.
+const buddy: ActingSender = { kind: "buddy", for: "Alena", forAccusative: "Alenu" };
+const ambientEnvironment = Object.fromEntries(
+  Object.entries(process.env).flatMap(([name, value]) =>
+    value === undefined ? [] : [[name, value]],
+  ),
+);
+const withEnvironment =
+  (env: Readonly<Record<string, string>>) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.provide(
+        ConfigProvider.layer(ConfigProvider.fromEnv({ env: { ...ambientEnvironment, ...env } })),
+      ),
+    );
+const asBuddy = withEnvironment({
+  T3CODE_ACTING_SENDER: "buddy",
+  T3CODE_ACTING_FOR: "Alena",
+  T3CODE_ACTING_FOR_ACCUSATIVE: "Alenu",
+});
+const asDelegace = withEnvironment({ T3CODE_ACTING_SENDER: "delegace" });
+
+/** The thread's record as the web reads it: the overlay's route, with a reader's session. */
+const actingSendersOf = (origin: string, threadId: string) =>
+  Effect.gen(function* () {
+    const auth = yield* EnvironmentAuth.EnvironmentAuth;
+    const reader = yield* auth.issueSession({ scopes: [AuthOrchestrationReadScope] });
+    const answer = yield* Effect.promise(() =>
+      // @effect-diagnostics-next-line globalFetchInEffect:off
+      fetch(
+        `${origin}${ActingSendersRoute.ACTING_SENDERS_ROUTE}?threadId=${encodeURIComponent(threadId)}`,
+        { headers: { authorization: `Bearer ${reader.token}` } },
+      ).then((response) => response.json() as Promise<Record<string, unknown>>),
+    );
+    yield* auth.revokeSession(reader.sessionId);
+    return { messages: answer.messages, requests: answer.requests };
+  });
+
+describe("an acting sender", () => {
+  it.effect(
+    "is refused when the environment names none the mark can carry, before anything is read",
+    () =>
+      Effect.gen(function* () {
+        const baseDir = makeBaseDir();
+        const cases: ReadonlyArray<Readonly<Record<string, string>>> = [
+          { T3CODE_ACTING_SENDER: "Alena" },
+          { T3CODE_ACTING_FOR: "Alena" },
+          { T3CODE_ACTING_SENDER: "buddy" },
+          { T3CODE_ACTING_SENDER: "buddy", T3CODE_ACTING_FOR: "Alena\nAdmin" },
+          { T3CODE_ACTING_SENDER: "buddy", T3CODE_ACTING_FOR: "M".repeat(65) },
+          { T3CODE_ACTING_SENDER: "delegace", T3CODE_ACTING_FOR: "Alena" },
+        ];
+        for (const env of cases)
+          for (const args of [
+            ["thread", "send", "thread-1", "Hi"],
+            ["request", "approve", "request-1"],
+          ]) {
+            const printed = yield* printedJson(
+              run([...args, "--base-dir", baseDir, "--json"]),
+            ).pipe(withEnvironment(env));
+            assert.strictEqual(
+              (printed.output.error as Record<string, unknown> | undefined)?.code,
+              "invalid_request",
+              JSON.stringify(env),
+            );
+            assert.strictEqual(exitCodeOf(printed.exit), AGENT_CLI_EXIT_CODES.failed);
+          }
+        assert.deepStrictEqual(NodeFS.readdirSync(baseDir), []);
+      }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("is no one without it: the person's steps carry no mark, whatever they say", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const world = makeWorld();
+      withPendingRequests(world);
+      world.shells.set("thread-full", threadShell("thread-full"));
+      yield* withLiveServer(baseDir, world, (origin) =>
+        Effect.gen(function* () {
+          yield* printedJson(
+            run([
+              "thread",
+              "send",
+              "thread-full",
+              "Buddy za Alenu: ship it",
+              "--base-dir",
+              baseDir,
+              "--json",
+            ]),
+          );
+          yield* printedJson(
+            run([
+              "request",
+              "respond",
+              "request-question",
+              "--answer",
+              "Delegace",
+              "--base-dir",
+              baseDir,
+              "--json",
+            ]),
+          );
+          yield* printedJson(
+            run(["request", "approve", "request-approval", "--base-dir", baseDir, "--json"]),
+          );
+          assert.strictEqual(world.sends[0]?.scope.client?.actingSender, undefined);
+          assert.deepStrictEqual(world.dispatchedAs, [undefined]);
+          assert.deepStrictEqual(world.ownerDispatchedAs, [undefined]);
+          for (const threadId of ["thread-full", "thread-question", "thread-approval"])
+            assert.deepStrictEqual(yield* actingSendersOf(origin, threadId), {
+              messages: [],
+              requests: [],
+            });
+          assert.deepStrictEqual(yield* agentCliSessions, []);
+        }),
+      );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect(
+    "marks Buddy's launch, message, answer and decisions, and Delegace's wake, in the thread",
+    () =>
+      Effect.gen(function* () {
+        const baseDir = makeBaseDir();
+        const world = makeWorld();
+        withPendingRequests(world);
+        world.shells.set("thread-full", threadShell("thread-full"));
+        yield* withLiveServer(baseDir, world, (origin) =>
+          Effect.gen(function* () {
+            const launched = yield* printedJson(
+              run([
+                "thread",
+                "launch",
+                "Fix the build",
+                "--title",
+                "Build",
+                "--project",
+                "web-app",
+                "--base-dir",
+                baseDir,
+                "--json",
+              ]),
+            ).pipe(asBuddy);
+            assert.strictEqual(launched.exit._tag, "Success");
+            yield* printedJson(
+              run(["thread", "send", "thread-full", "Continue", "--base-dir", baseDir, "--json"]),
+            ).pipe(asBuddy);
+            yield* printedJson(
+              run([
+                "request",
+                "respond",
+                "request-question",
+                "--answer",
+                "Yes",
+                "--base-dir",
+                baseDir,
+                "--json",
+              ]),
+            ).pipe(asBuddy);
+            yield* printedJson(
+              run(["request", "approve", "request-approval", "--base-dir", baseDir, "--json"]),
+            ).pipe(asBuddy);
+            yield* printedJson(
+              run(["request", "deny", "request-approval", "--base-dir", baseDir, "--json"]),
+            ).pipe(asBuddy);
+            // Delegace's wake waits for its own turn behind a running one.
+            const woken = yield* printedJson(
+              run([
+                "thread",
+                "send",
+                "thread-full",
+                "Delegace wake-1: DONE",
+                "--mode",
+                "queue",
+                "--base-dir",
+                baseDir,
+                "--json",
+              ]),
+            ).pipe(asDelegace);
+            assert.strictEqual(woken.exit._tag, "Success");
+            // The person, on the same thread.
+            yield* printedJson(
+              run(["thread", "send", "thread-full", "Thanks", "--base-dir", baseDir, "--json"]),
+            );
+
+            // Both sessions of each command carry the claim to the server.
+            assert.deepStrictEqual(
+              world.sends.map((send) => send.scope.client?.actingSender),
+              [buddy, { kind: "delegace" }, undefined],
+            );
+            assert.deepStrictEqual(world.dispatchedAs, [buddy, buddy]);
+            assert.deepStrictEqual(world.ownerDispatchedAs, [buddy, buddy]);
+
+            assert.deepStrictEqual(yield* actingSendersOf(origin, "thread-launched"), {
+              messages: [{ messageId: "message-launched-1", sender: buddy }],
+              requests: [],
+            });
+            assert.deepStrictEqual(yield* actingSendersOf(origin, "thread-full"), {
+              messages: [
+                { messageId: "message-1", sender: buddy },
+                { messageId: "message-2", sender: { kind: "delegace" } },
+              ],
+              requests: [],
+            });
+            assert.deepStrictEqual(yield* actingSendersOf(origin, "thread-question"), {
+              messages: [],
+              requests: [{ requestId: "request-question", sender: buddy }],
+            });
+            assert.deepStrictEqual(yield* actingSendersOf(origin, "thread-approval"), {
+              messages: [],
+              requests: [{ requestId: "request-approval", sender: buddy }],
+            });
+            assert.deepStrictEqual(yield* agentCliSessions, []);
+          }),
+        );
+      }).pipe(Effect.provide(TestConsole.layer)),
+  );
+});
+
 const shellSnapshotItem = (
   sequence: number,
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
@@ -1959,7 +2561,7 @@ describe("t3 thread send --idempotency-key", () => {
         Effect.gen(function* () {
           const send = (threadId: string, environment: Record<string, string> = {}) =>
             printedJson(
-              run(sendArgs(baseDir, threadId, "budíček wake-1: HOTOVO", "wake-1")).pipe(
+              run(sendArgs(baseDir, threadId, "Delegace wake-1: HOTOVO", "wake-1")).pipe(
                 Effect.provideService(HostProcess.Environment, environment),
               ),
             ).pipe(
@@ -1967,11 +2569,11 @@ describe("t3 thread send --idempotency-key", () => {
                 Effect.sync(() => assert.strictEqual(sent.exit._tag, "Success")),
               ),
             );
-          // budíček's retry after a crash: a second command with the same key and the same sender.
-          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "budicek" });
-          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "budicek" });
+          // Delegace's retry after a crash: a second command with the same key and the same sender.
+          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "delegace" });
+          yield* send("thread-buddy", { T3CODE_ACTING_SENDER: "delegace" });
           // The same key for another thread, and from another sender.
-          yield* send("thread-other", { T3CODE_ACTING_SENDER: "budicek" });
+          yield* send("thread-other", { T3CODE_ACTING_SENDER: "delegace" });
           yield* send("thread-buddy");
           const keys = world.sends.map((sent) => sent.input.clientRequestId ?? "");
           for (const key of keys) assert.match(key, /^lazurio-send:[0-9a-f]{64}$/);
@@ -2062,7 +2664,7 @@ describe("t3 thread send --idempotency-key", () => {
           threadId: "thread-refused",
           key: "wake-9",
         }).pipe(
-          Effect.provideService(HostProcess.Environment, { T3CODE_ACTING_SENDER: "budicek" }),
+          Effect.provideService(HostProcess.Environment, { T3CODE_ACTING_SENDER: "delegace" }),
         );
         yield* (yield* OrchestrationCommandReceiptRepository)
           .upsert({
@@ -2077,16 +2679,16 @@ describe("t3 thread send --idempotency-key", () => {
           })
           .pipe(Effect.orDie);
         const sends: ReadonlyArray<readonly [thread: string, text: string, key: string]> = [
-          ["thread-buddy", "budíček: úkol doběhl", "wake-7"],
-          ["thread-buddy", "budíček: úkol doběhl", "wake-7"],
-          ["thread-other", "budíček: úkol doběhl", "wake-7"],
-          ["thread-buddy", "budíček: jiný text", "wake-7"],
-          ["thread-refused", "budíček: úkol doběhl", "wake-9"],
-          ["thread-missing", "budíček: úkol doběhl", "wake-10"],
+          ["thread-buddy", "Delegace: úkol doběhl", "wake-7"],
+          ["thread-buddy", "Delegace: úkol doběhl", "wake-7"],
+          ["thread-other", "Delegace: úkol doběhl", "wake-7"],
+          ["thread-buddy", "Delegace: jiný text", "wake-7"],
+          ["thread-refused", "Delegace: úkol doběhl", "wake-9"],
+          ["thread-missing", "Delegace: úkol doběhl", "wake-10"],
           // T3 trims what its tool gets, so a file's newline or spaces around the same text are
           // the same message.
-          ["thread-spaces", "budíček: s mezerami\n", "wake-11"],
-          ["thread-spaces", "  budíček: s mezerami", "wake-11"],
+          ["thread-spaces", "Delegace: s mezerami\n", "wake-11"],
+          ["thread-spaces", "  Delegace: s mezerami", "wake-11"],
         ];
         const sendAll = (batch: typeof sends) =>
           Effect.forEach(
@@ -2095,7 +2697,7 @@ describe("t3 thread send --idempotency-key", () => {
               printedJson(
                 run(sendArgs(baseDir, threadId, text, key)).pipe(
                   Effect.provideService(HostProcess.Environment, {
-                    T3CODE_ACTING_SENDER: "budicek",
+                    T3CODE_ACTING_SENDER: "delegace",
                   }),
                 ),
               ),
@@ -2120,16 +2722,18 @@ describe("t3 thread send --idempotency-key", () => {
               // With --wait too: a repeat T3 can no longer replay has no run to wait for.
               const archivedWait = yield* printedJson(
                 run([
-                  ...sendArgs(baseDir, "thread-buddy", "budíček: úkol doběhl", "wake-7"),
+                  ...sendArgs(baseDir, "thread-buddy", "Delegace: úkol doběhl", "wake-7"),
                   "--wait",
                 ]).pipe(
                   Effect.provideService(HostProcess.Environment, {
-                    T3CODE_ACTING_SENDER: "budicek",
+                    T3CODE_ACTING_SENDER: "delegace",
                   }),
                 ),
               );
               return [...results, ...archivedRepeat, archivedWait];
             }),
+          // Its own runtime's orchestrator, which the sends reach.
+          Layer.empty,
         ).pipe(
           // The runtime above memoized its database's setup. The server and the commands open the
           // T3 home's database as in production, so they build from a memo map of their own.
@@ -2180,13 +2784,13 @@ describe("t3 thread send --idempotency-key", () => {
             message.createdBy,
             message.creationSource,
           ]),
-          [["budíček: úkol doběhl", "agent", "mcp"]],
+          [["Delegace: úkol doběhl", "agent", "mcp"]],
         );
         assert.strictEqual((yield* messagesOf("thread-other")).length, 1);
         assert.strictEqual((yield* messagesOf("thread-refused")).length, 0);
         assert.deepStrictEqual(
           (yield* messagesOf("thread-spaces")).map((message) => message.text),
-          ["budíček: s mezerami"],
+          ["Delegace: s mezerami"],
         );
       }).pipe(Effect.provide(layerBuddyServer), Effect.scoped, Effect.provide(TestConsole.layer));
     },
