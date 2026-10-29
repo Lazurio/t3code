@@ -1,0 +1,176 @@
+{
+  "schema": "lazurio.browser-vectors.v1",
+  "contract": "unverified-binding",
+  "cases": [
+    {
+      "name": "v1",
+      "call": "unverifiedBindingSchema",
+      "expect": "lazurio.browser-unverified-binding.v1"
+    },
+    {
+      "name": "the marks live in the runtime directory",
+      "call": "unverifiedBindingDirectory",
+      "args": [{ "XDG_RUNTIME_DIR": "/run/user/1000" }],
+      "expect": "/run/user/1000/lazurio-browser/unverified"
+    },
+    {
+      "name": "a relative runtime directory is none",
+      "call": "unverifiedBindingDirectory",
+      "args": [{ "XDG_RUNTIME_DIR": "run/user" }],
+      "expect": { "$": "undefined" }
+    },
+    {
+      "name": "no runtime directory",
+      "call": "unverifiedBindingDirectory",
+      "args": [{}],
+      "expect": { "$": "undefined" }
+    },
+    {
+      "name": "a mark names its session and the tabs it keeps, in upper case",
+      "call": "unverifiedBindingText",
+      "args": [
+        {
+          "session": "t3-thread",
+          "targetId": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+          "before": null
+        }
+      ],
+      "expect": {
+        "$json": {
+          "schema": "lazurio.browser-unverified-binding.v1",
+          "session": "t3-thread",
+          "targetId": "0E0E0E0E0E0E0E0E0E0E0E0E0E0E0E0E",
+          "before": null
+        }
+      }
+    },
+    {
+      "name": "a mark of the session its file is named for",
+      "call": "parseUnverifiedBinding",
+      "args": [
+        "codex-019a.json",
+        {
+          "$json": {
+            "schema": "lazurio.browser-unverified-binding.v1",
+            "session": "codex-019a",
+            "targetId": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+            "before": "1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A"
+          }
+        }
+      ],
+      "expect": {
+        "session": "codex-019a",
+        "targetId": "0E0E0E0E0E0E0E0E0E0E0E0E0E0E0E0E",
+        "before": "1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A"
+      }
+    },
+    {
+      "name": "a tab that is no target id is kept as none",
+      "call": "parseUnverifiedBinding",
+      "args": [
+        "codex-019a.json",
+        {
+          "$json": {
+            "schema": "lazurio.browser-unverified-binding.v1",
+            "session": "codex-019a",
+            "targetId": "WINDOW_1"
+          }
+        }
+      ],
+      "expect": { "session": "codex-019a", "targetId": null, "before": null }
+    },
+    {
+      "name": "a mark of another session is none",
+      "call": "parseUnverifiedBinding",
+      "args": [
+        "codex-019a.json",
+        {
+          "$json": {
+            "schema": "lazurio.browser-unverified-binding.v1",
+            "session": "codex-019b",
+            "targetId": null,
+            "before": null
+          }
+        }
+      ],
+      "expect": null
+    },
+    {
+      "name": "another schema is none",
+      "call": "parseUnverifiedBinding",
+      "args": [
+        "codex-019a.json",
+        {
+          "$json": {
+            "schema": "lazurio.browser-unverified-binding.v2",
+            "session": "codex-019a"
+          }
+        }
+      ],
+      "expect": null
+    },
+    {
+      "name": "a text that is no JSON is none",
+      "call": "parseUnverifiedBinding",
+      "args": ["codex-019a.json", "{"],
+      "expect": null
+    },
+    {
+      "name": "a file name outside the grammar is none",
+      "call": "parseUnverifiedBinding",
+      "args": [
+        "codex 019a.json",
+        {
+          "$json": {
+            "schema": "lazurio.browser-unverified-binding.v1",
+            "session": "codex 019a"
+          }
+        }
+      ],
+      "expect": null
+    },
+    {
+      "name": "every mark counts, whatever its text, also one that cannot be read; other names do not",
+      "call": "readUnverifiedSessions",
+      "args": [{ "XDG_RUNTIME_DIR": "$dir" }],
+      "directory": {
+        "lazurio-browser/unverified/t3-thread.json": {
+          "$json": {
+            "schema": "lazurio.browser-unverified-binding.v1",
+            "session": "t3-thread",
+            "targetId": "0E0E0E0E0E0E0E0E0E0E0E0E0E0E0E0E",
+            "before": null
+          }
+        },
+        "lazurio-browser/unverified/codex-2.json": "not a mark",
+        "lazurio-browser/unverified/claude-1.json": { "unreadable": true },
+        "lazurio-browser/unverified/.codex-3.json.tmp": "",
+        "lazurio-browser/unverified/codex 4.json": "",
+        "lazurio-browser/unverified/codex-5.txt": ""
+      },
+      "expect": ["claude-1", "codex-2", "t3-thread"]
+    },
+    {
+      "name": "no directory: no session is marked",
+      "call": "readUnverifiedSessions",
+      "args": [{ "XDG_RUNTIME_DIR": "$dir" }],
+      "directory": {},
+      "expect": []
+    },
+    {
+      "name": "no runtime directory: no session is marked",
+      "call": "readUnverifiedSessions",
+      "args": [{}],
+      "expect": []
+    },
+    {
+      "name": "a directory that cannot be listed is thrown",
+      "call": "readUnverifiedSessions",
+      "args": [{ "XDG_RUNTIME_DIR": "$dir" }],
+      "directory": {
+        "lazurio-browser/unverified/": { "unreadable": true }
+      },
+      "expect": { "$": "throws" }
+    }
+  ]
+}
