@@ -27,6 +27,7 @@ import { useEnvironment } from "../../state/environments";
 import { previewEnvironment } from "../../state/preview";
 import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { openPageInPanel } from "../../lazurio/threadTabs";
 import { openDiscoveredPort } from "../preview/openDiscoveredPort";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -90,6 +91,8 @@ function ThreadServersList(props: ThreadServersPanelProps) {
         .catch((error: unknown) => reportFailure("Unable to open in browser", error));
       return;
     }
+    // Lazurio overlay: with the Environment browser, the page opens there (lazurio/threadTabs.ts).
+    if (await openPageInPanel(threadRef, server.url)) return;
     const result = await openDiscoveredPort({ threadRef, port: server, openPreview });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       reportFailure("Unable to open preview", squashAtomCommandFailure(result));
