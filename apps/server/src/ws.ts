@@ -220,6 +220,7 @@ import * as ProjectService from "./project/ProjectService.ts";
 import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
+import { buddySurfaceClientConfig } from "./lazurio/buddySurface.ts";
 import { managedFolderClientConfig } from "./lazurio/managedFolder.ts";
 import * as LazurioProviderSignIn from "./lazurio/providerSignIn.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -1939,6 +1940,7 @@ export const layerWsRpc = (
           auth,
           cwd: config.cwd,
           ...managedFolderClientConfig(config),
+          ...(yield* buddySurfaceClientConfig),
           keybindingsConfigPath: config.keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
