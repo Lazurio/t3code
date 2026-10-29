@@ -1,3 +1,4 @@
+import { makeFolderGuard } from "../lazurio/managedFolder.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -38,10 +39,18 @@ function resolveRequestedKind(
 /** @public */
 export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+  const lazurioFolderGuard = yield* makeFolderGuard;
 
   const initRepository: VcsProvisioningService["Service"]["initRepository"] = Effect.fn(
     "VcsProvisioningService.initRepository",
   )(function* (input) {
+    const lazurioRefusal = yield* lazurioFolderGuard.repositoryRefusal(input.cwd);
+    if (lazurioRefusal !== null)
+      return yield* new VcsUnsupportedOperationError({
+        operation: "VcsProvisioningService.initRepository",
+        kind: input.kind ?? "git",
+        detail: lazurioRefusal,
+      });
     const kind = yield* resolveRequestedKind(input.kind);
     const driver = yield* registry.get(kind);
     return yield* driver.initRepository(input);

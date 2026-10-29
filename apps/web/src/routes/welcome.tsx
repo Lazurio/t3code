@@ -1,4 +1,11 @@
-import { createFileRoute, redirect, useLocation, useNavigate } from "@tanstack/react-router";
+import { usePrimaryLazurioFolder } from "../lazurio/managedFirstRun";
+import {
+  createFileRoute,
+  Navigate,
+  redirect,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useState } from "react";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -41,6 +48,10 @@ function WelcomeRouteView() {
   const isWelcomeRoute = useLocation({ select: (location) => location.pathname === "/welcome" });
   const [dismissed, setDismissed] = useState(false);
   const openNewThread = useNewThreadHandler();
+  // Lazurio (LazurioPlatform F51): a managed Environment has no setup here. Behind the same route
+  // guard as the welcome page, it goes to the index, which starts a chat in its Folder.
+  const lazurioFolder = usePrimaryLazurioFolder();
+  if (lazurioFolder !== undefined) return isWelcomeRoute ? <Navigate to="/" replace /> : null;
   if (waitingForCatalog) return null;
   if (environmentId === null || !isWelcomeRoute || dismissed) return <NoProjectsHero />;
   return (

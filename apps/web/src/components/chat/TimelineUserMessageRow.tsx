@@ -60,6 +60,7 @@ import {
 import { GuestMessageName, guestBubbleClassName } from "./guestMessageStyle";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
+import { usePromptLinksOffered } from "../../lazurio/managedPromptLinks";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { formatBytes } from "../../lib/formatBytes";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -294,7 +295,8 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
     "";
 
   const revertTurnCount = row.revertTurnCount;
-  const promptLink = promptLinkFor(text);
+  // Lazurio (Lazurio/t3code#77): on a managed Environment a prompt link opens no thread.
+  const promptLink = usePromptLinksOffered() ? promptLinkFor(text) : null;
   // Find reads the DOM, so a folded prompt stays mounted but hidden while find is open.
   const bodyMounted = expanded || ctx.findActive;
 
@@ -566,7 +568,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     resolvedContext.text,
     (reference) => reference.label,
   );
-  const promptLink = promptLinkFor(plainText);
+  // Lazurio (Lazurio/t3code#77): on a managed Environment a prompt link opens no thread.
+  const promptLink = usePromptLinksOffered() ? promptLinkFor(plainText) : null;
   const foldSummary =
     plainText
       .split(/\r?\n/)
