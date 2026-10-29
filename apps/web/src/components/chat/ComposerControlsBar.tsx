@@ -29,6 +29,7 @@ import {
 } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import { BuddyComposerControls, useBuddySurfaceMode } from "../../lazurio/BuddySurface";
 
 /**
  * The composer footer controls: model picker, traits, mode controls and the overflow menu for
@@ -137,6 +138,10 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
+  // Lazurio overlay (plan DEV-6676): Buddy's chat offers no model, effort, access or mode, only
+  // Hermes's Normal / Fast switch (BuddySurface.tsx).
+  const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  if (buddySurface) return <BuddyComposerControls {...props} />;
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
