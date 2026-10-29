@@ -357,6 +357,13 @@ jobs:
             apps/server/src/git/detachedProgressStream.test.ts
             packages/client-runtime/src/state/vcsAction.ts
             packages/client-runtime/src/state/vcsAction.test.ts
+            # A message sent while an ACP agent works steers its running turn through the extension
+            # request _lazurio/steer instead of cancelling it, where the agent lists
+            # lazurio.activeSteer in initialize's _meta (row 33, Lazurio/t3code#138): the adapter and
+            # its test are listed above, effect-acp keeps capabilities._meta, and the mock agent
+            # answers the request.
+            apps/server/scripts/acp-mock-agent.ts
+            packages/effect-acp/src/client.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
