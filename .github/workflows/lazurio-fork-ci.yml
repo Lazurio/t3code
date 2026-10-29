@@ -361,9 +361,13 @@ jobs:
             # request _lazurio/steer instead of cancelling it, where the agent lists
             # lazurio.activeSteer in initialize's _meta (row 33, Lazurio/t3code#138): the adapter and
             # its test are listed above, effect-acp keeps capabilities._meta, and the mock agent
-            # answers the request.
+            # answers the request. Such an agent confirms steers (ProviderAdapter.ts): the turn
+            # control service asks it about a turn that completed while the steer was on its way,
+            # and only its refusal sends the message as the next turn (Lazurio/t3code#141).
             apps/server/scripts/acp-mock-agent.ts
             packages/effect-acp/src/client.ts
+            packages/provider-core/src/server/ProviderAdapter.ts
+            apps/server/src/orchestration-v2/ProviderTurnControlService.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

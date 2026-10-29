@@ -129,6 +129,14 @@ export const layer: Layer.Layer<
         : { ...providerThread, providerSessionId: input.providerSessionId };
       if (providerTurn.status !== "running") {
         if (input.operation === "steer") {
+          // A confirming agent may have taken the message before the turn completed; it is asked.
+          const session =
+            providerTurn.status === "completed"
+              ? yield* sessions.get(input.providerSessionId)
+              : Option.none();
+          if (Option.isSome(session) && session.value.confirmsSteers === true) {
+            return { context, providerThread: interruptProviderThread, providerTurn, session };
+          }
           return yield* new ProviderTurnControlError({
             threadId: input.threadId,
             operation: "steer",
@@ -336,6 +344,7 @@ export const layer: Layer.Layer<
           }
           const loaded = yield* load({ ...input, operation: "steer" });
           if (Option.isNone(loaded.session)) return;
+          const session = loaded.session.value;
           const { message, run } = loaded.context;
           if (message === undefined || run === undefined) {
             return yield* new ProviderTurnControlError({
@@ -345,7 +354,7 @@ export const layer: Layer.Layer<
               cause: "The persisted steering message or target run is missing.",
             });
           }
-          yield* loaded.session.value
+          yield* session
             .steerTurn({
               threadId: input.threadId,
               runId: run.id,
@@ -379,7 +388,11 @@ export const layer: Layer.Layer<
                     threadId: input.threadId,
                     operation: "steer",
                     providerTurnId: input.providerTurnId,
-                    turnCompleted: current.providerTurn?.status === "completed",
+                    // A confirming agent may have taken a message whose answer failed; only its refusal is final.
+                    turnCompleted:
+                      current.providerTurn?.status === "completed" &&
+                      (session.confirmsSteers !== true ||
+                        (cause._tag === "ProviderAdapterSteerRunError" && cause.refused === true)),
                     cause,
                   });
                 }),

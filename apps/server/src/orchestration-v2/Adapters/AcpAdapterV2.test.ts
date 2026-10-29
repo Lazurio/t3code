@@ -18,6 +18,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   CheckpointId,
   EnvironmentId,
+  MessageId,
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -323,6 +324,9 @@ const pollProtocolRequests = (events: Queue.Queue<EffectAcpProtocol.AcpProtocolL
     return requests;
   });
 
+const steerRefused = (error: ProviderAdapter.ProviderAdapterV2Error) =>
+  error._tag === "ProviderAdapterSteerRunError" && error.refused === true;
+
 /** A turn of the mock agent in Lazurio's steer mode, running until `finishPrompt`. */
 const makeLazurioSteerHarness = Effect.fnUntraced(function* (
   environment: Readonly<Record<string, string>>,
@@ -399,13 +403,13 @@ const makeLazurioSteerHarness = Effect.fnUntraced(function* (
     turnInput,
     providerTurnId,
     protocolEvents,
-    steer: (text: string) =>
+    steer: (text: string, messageId = turnInput.message.messageId) =>
       runtime.steerTurn({
         threadId,
         runId: turnInput.runId,
         providerThread,
         providerTurnId,
-        message: { ...turnInput.message, text },
+        message: { ...turnInput.message, messageId, text },
       }),
     finishPrompt: agent.request("_test/finish-steered-prompt", {}),
     settled: Effect.gen(function* () {
@@ -4111,6 +4115,7 @@ describe("AcpAdapterV2", () => {
       Effect.gen(function* () {
         const steer = yield* makeLazurioSteerHarness({ T3_ACP_LAZURIO_ACTIVE_STEER: "1" });
         assert.isTrue(steer.runtime.providerSession.capabilities.turns.supportsActiveSteering);
+        assert.equal(steer.runtime.confirmsSteers, true);
 
         yield* steer.steer("only the ACP changes");
         yield* steer.finishPrompt;
@@ -4142,9 +4147,21 @@ describe("AcpAdapterV2", () => {
           "session/cancel",
         );
 
-        // After the turn there is nothing to steer: the message is left to the next turn.
-        const late = yield* steer.steer("too late").pipe(Effect.flip);
-        assert.equal(late._tag, "ProviderAdapterSteerRunError");
+        // Asked after the turn ended, the agent answers the steer the turn took and refuses a new
+        // message, which the orchestrator then sends as the next turn. Both name the ended turn.
+        yield* steer.steer("only the ACP changes");
+        const late = yield* steer
+          .steer("too late", MessageId.make("message-too-late"))
+          .pipe(Effect.flip);
+        assert.isTrue(steerRefused(late));
+        assert.deepEqual(
+          (yield* pollProtocolRequests(steer.protocolEvents)).flatMap((request) =>
+            request.method === "_lazurio/steer"
+              ? [(request.params as { readonly turnId?: unknown }).turnId]
+              : [],
+          ),
+          [steer.providerTurnId, steer.providerTurnId],
+        );
       }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
@@ -4170,7 +4187,7 @@ describe("AcpAdapterV2", () => {
       yield* steer.finishPrompt;
 
       const failure = yield* Fiber.join(refused);
-      assert.equal(failure._tag, "ProviderAdapterSteerRunError");
+      assert.isTrue(steerRefused(failure));
       const { terminal, answer } = yield* steer.settled;
       assert.equal(terminal, "completed");
       assert.equal(answer, "steered: nothing");
@@ -4187,13 +4204,15 @@ describe("AcpAdapterV2", () => {
         T3_ACP_LAZURIO_ACTIVE_STEER: "1",
         T3_ACP_LAZURIO_STEER_LOSE_FIRST_REPLY: "1",
       });
-      // The effect worker retries a failed steer with the same message, as here.
+      // A lost answer is no refusal: the effect worker retries the same message, here after the
+      // turn ended, and the agent answers the steer the turn took.
       const lost = yield* steer.steer("only the ACP changes").pipe(Effect.flip);
       assert.equal(lost._tag, "ProviderAdapterSteerRunError");
-      yield* steer.steer("only the ACP changes");
+      assert.isFalse(steerRefused(lost));
       yield* steer.finishPrompt;
-
       const { terminal, answer } = yield* steer.settled;
+      yield* steer.steer("only the ACP changes");
+
       assert.equal(terminal, "completed");
       assert.equal(answer, "steered: only the ACP changes");
       const steers = (yield* pollProtocolRequests(steer.protocolEvents)).filter(
@@ -4239,6 +4258,7 @@ describe("AcpAdapterV2", () => {
       });
       assert.isFalse(runtime.providerSession.capabilities.turns.supportsActiveSteering);
       assert.isTrue(runtime.providerSession.capabilities.turns.supportsSteeringByInterruptRestart);
+      assert.isUndefined(runtime.confirmsSteers);
       const providerThread = yield* runtime.ensureThread({
         threadId,
         modelSelection,

@@ -58,10 +58,12 @@ const waitForResumeRelease = process.env.T3_ACP_WAIT_FOR_RESUME_RELEASE === "1";
 const completeFirstPromptOnCancel = process.env.T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
 // Lazurio's `_lazurio/steer`, as Lazurio Hermes answers it: only the turn the prompt's `_meta` named,
 // once per message. The first prompt works until `_test/finish-steered-prompt` and then answers with the
-// steers it took. REFUSE refuses every steer; LOSE_FIRST_REPLY takes the first one and fails its answer.
+// steers it took. REFUSE refuses every steer; LOSE_FIRST_REPLY takes the first one and fails its answer;
+// ENDS_TURN ends that prompt before the first steer is answered.
 const lazurioActiveSteer = process.env.T3_ACP_LAZURIO_ACTIVE_STEER === "1";
 const lazurioSteerRefuses = process.env.T3_ACP_LAZURIO_STEER_REFUSE === "1";
 const lazurioSteerLosesFirstReply = process.env.T3_ACP_LAZURIO_STEER_LOSE_FIRST_REPLY === "1";
+const lazurioSteerEndsTurn = process.env.T3_ACP_LAZURIO_STEER_ENDS_TURN === "1";
 const floodStderr = process.env.T3_ACP_FLOOD_STDERR === "1";
 const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
 const clientFsProbePath = process.env.T3_ACP_CLIENT_FS_PROBE_PATH;
@@ -541,6 +543,7 @@ const program = Effect.gen(function* () {
   const nativeCancelRequested = yield* Deferred.make<void>();
   const nativeCancelRelease = yield* Deferred.make<void>();
   const lazurioSteeredPromptFinish = yield* Deferred.make<void>();
+  const lazurioSteeredPromptDone = yield* Deferred.make<void>();
   const lazurioSteers: Array<string> = [];
   const lazurioSteeredMessages = new Set<string>();
   let lazurioPromptTurnId: unknown;
@@ -1556,7 +1559,9 @@ const program = Effect.gen(function* () {
             },
           },
         });
-        return yield* finishPrompt(requestedSessionId, "end_turn");
+        const finished = yield* finishPrompt(requestedSessionId, "end_turn");
+        yield* Deferred.succeed(lazurioSteeredPromptDone, undefined);
+        return finished;
       }
 
       if (compactionPromptOrdinals.has(promptCount)) {
@@ -2680,15 +2685,27 @@ const program = Effect.gen(function* () {
         return Effect.fail(AcpError.AcpRequestError.invalidParams("turnId, messageId and text"));
       }
       if (lazurioSteeredMessages.has(messageId)) return Effect.succeed({ steered: true });
-      if (lazurioSteerRefuses || !lazurioSteerablePrompt || turnId !== lazurioPromptTurnId) {
-        return Effect.succeed({ steered: false, reason: "not_running" });
+      const takes =
+        !lazurioSteerRefuses && lazurioSteerablePrompt && turnId === lazurioPromptTurnId;
+      if (takes) {
+        lazurioSteeredMessages.add(messageId);
+        lazurioSteers.push(text);
       }
-      lazurioSteeredMessages.add(messageId);
-      lazurioSteers.push(text);
-      if (lazurioSteerLosesFirstReply && lazurioSteers.length === 1) {
-        return Effect.fail(AcpError.AcpRequestError.internalError("The answer was lost"));
-      }
-      return Effect.succeed({ steered: true });
+      const turnEnds =
+        lazurioSteerEndsTurn && lazurioSteerablePrompt
+          ? Deferred.succeed(lazurioSteeredPromptFinish, undefined).pipe(
+              Effect.andThen(Deferred.await(lazurioSteeredPromptDone)),
+            )
+          : Effect.void;
+      return turnEnds.pipe(
+        Effect.andThen(
+          !takes
+            ? Effect.succeed({ steered: false, reason: "not_running" })
+            : lazurioSteerLosesFirstReply && lazurioSteers.length === 1
+              ? Effect.fail(AcpError.AcpRequestError.internalError("The answer was lost"))
+              : Effect.succeed({ steered: true }),
+        ),
+      );
     }
     if (method === "_test/startup-metadata") {
       return Effect.gen(function* () {
