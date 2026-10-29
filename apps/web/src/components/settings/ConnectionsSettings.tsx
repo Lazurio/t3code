@@ -299,7 +299,7 @@ function ConnectionsSettingsContent({
           selfUpdate,
           installation: environment.serverConfig?.environment.capabilities.serverInstallation,
           desktopAppUpdate,
-          targetVersion: mismatch.clientVersion,
+          targetVersion: mismatch.targetVersion,
         },
       ];
     },
@@ -1209,11 +1209,11 @@ function ConnectionsSettingsContent({
                         primaryServerConfig?.environment.capabilities.serverInstallation
                       }
                       desktopAppUpdate={supportsDesktopAppUpdate(primaryServerConfig)}
-                      targetVersion={primaryVersionMismatch.clientVersion}
+                      targetVersion={primaryVersionMismatch.targetVersion}
                       label={
                         primaryServerUpdateState.status === "failed"
                           ? "Retry update"
-                          : `Update to ${primaryVersionMismatch.clientVersion}`
+                          : `Update to ${primaryVersionMismatch.targetVersion}`
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (

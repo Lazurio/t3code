@@ -13,6 +13,7 @@ import {
   isServerUpdateFailureDismissed,
   isVersionMismatchDismissed,
   manualServerUpdateCommand,
+  resolveServerConfigVersionMismatch,
   resolveVersionMismatch,
 } from "./versionSkew";
 
@@ -56,6 +57,7 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch("0.0.33")).toEqual({
       clientVersion: "0.0.34",
       serverVersion: "0.0.33",
+      targetVersion: "0.0.34",
       hint: MISMATCH_HINT,
     });
   });
@@ -80,6 +82,7 @@ describe("versionSkew", () => {
       expect(resolveVersionMismatch(serverVersion)).toEqual({
         clientVersion: "0.0.34-nightly.20260824.1125",
         serverVersion,
+        targetVersion: "0.0.34-nightly.20260824.1125",
         hint: MISMATCH_HINT,
       });
     },
@@ -96,6 +99,7 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch("0.0.34")).toEqual({
       clientVersion: "0.0.35-nightly.20260818.1124",
       serverVersion: "0.0.34",
+      targetVersion: "0.0.35-nightly.20260818.1124",
       hint: MISMATCH_HINT,
     });
   });
@@ -104,6 +108,7 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch("dev")).toEqual({
       clientVersion: "0.0.34",
       serverVersion: "dev",
+      targetVersion: "0.0.34",
       hint: MISMATCH_HINT,
     });
 
@@ -112,10 +117,10 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch("0.0.34")).toMatchObject({ serverVersion: "0.0.34" });
   });
 
-  it("keys dismissals by environment, client version, and server version", () => {
+  it("keys dismissals by environment, target version, and server version", () => {
     const environmentId = EnvironmentId.make("environment-dismissal");
     const key = buildVersionMismatchDismissalKey(environmentId, {
-      clientVersion: APP_VERSION,
+      targetVersion: APP_VERSION,
       serverVersion: "9.9.9",
     });
 
@@ -127,10 +132,78 @@ describe("versionSkew", () => {
     expect(
       isVersionMismatchDismissed(
         buildVersionMismatchDismissalKey(environmentId, {
-          clientVersion: APP_VERSION,
+          targetVersion: APP_VERSION,
           serverVersion: "9.9.10",
         }),
       ),
     ).toBe(false);
+  });
+
+  describe("server-advertised updates", () => {
+    const serverConfig = (
+      serverVersion: string,
+      options: {
+        readonly serverSelfUpdate?: "boot-service" | "desktop-managed";
+        readonly available?: string;
+      },
+    ) => ({
+      environment: {
+        environmentId: EnvironmentId.make("environment-vm"),
+        label: "VM",
+        platform: { os: "linux", arch: "x64" } as const,
+        serverVersion,
+        capabilities: {
+          repositoryIdentity: true,
+          ...(options.serverSelfUpdate ? { serverSelfUpdate: options.serverSelfUpdate } : {}),
+        },
+        ...(options.available ? { availableServerUpdate: { version: options.available } } : {}),
+      },
+    });
+
+    it("offers the advertised release to a browser served by the same server", () => {
+      branding.APP_VERSION = "0.0.42-acme.1";
+      expect(
+        resolveServerConfigVersionMismatch(
+          serverConfig("0.0.42-acme.1", {
+            serverSelfUpdate: "boot-service",
+            available: "0.0.42-acme.2",
+          }),
+        ),
+      ).toMatchObject({ serverVersion: "0.0.42-acme.1", targetVersion: "0.0.42-acme.2" });
+    });
+
+    it("prefers the advertised release over a newer client from another train", () => {
+      branding.APP_VERSION = "0.0.45";
+      expect(
+        resolveServerConfigVersionMismatch(
+          serverConfig("0.0.42-acme.1", {
+            serverSelfUpdate: "boot-service",
+            available: "0.0.43-acme.1",
+          }),
+        )?.targetVersion,
+      ).toBe("0.0.43-acme.1");
+    });
+
+    it("falls back to client skew without an advertised release", () => {
+      branding.APP_VERSION = "0.0.45";
+      expect(
+        resolveServerConfigVersionMismatch(
+          serverConfig("0.0.42", { serverSelfUpdate: "boot-service" }),
+        )?.targetVersion,
+      ).toBe("0.0.45");
+      expect(
+        resolveServerConfigVersionMismatch(
+          serverConfig("0.0.45", { serverSelfUpdate: "boot-service" }),
+        ),
+      ).toBeNull();
+    });
+
+    it("ignores an advertisement from a server the boot service does not manage", () => {
+      expect(
+        resolveServerConfigVersionMismatch(
+          serverConfig("0.0.34", { serverSelfUpdate: "desktop-managed", available: "0.0.40" }),
+        ),
+      ).toBeNull();
+    });
   });
 });

@@ -25,6 +25,7 @@ import {
   PinnedRuntimeInstallError,
   type PinnedRuntimeProgress,
   prunePinnedRuntimes,
+  unpublishedReleaseReason,
 } from "./pinnedRuntime.ts";
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
@@ -214,6 +215,47 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.equal(error.step, "verifying the t3 release archive checksum");
       assert.deepEqual(commands, []);
       assert.deepEqual(yield* fs.readDirectory(path.join(baseDir, "runtime", "versions")), []);
+    }),
+  );
+
+  it.effect("names the release repository when the version was never published there", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-archive-missing-" });
+      const requests: string[] = [];
+      const notFound = HttpClient.make((request) => {
+        requests.push(request.url);
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("Not Found", { status: 404 })),
+        );
+      });
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version,
+        fs,
+        path,
+        platform: "linux",
+        arch: "x64",
+        httpClient: notFound,
+        releaseRepository: "acme/t3code",
+        runner: extractingRunner(fs, path),
+        validate: () => Effect.die("must not validate a missing release"),
+      }).pipe(Effect.flip);
+
+      assert.isTrue(isUnpublishedRelease(error));
+      assert.deepEqual(requests, [
+        `https://github.com/acme/t3code/releases/download/v${version}/SHA256SUMS`,
+      ]);
+      assert.equal(
+        unpublishedReleaseReason(version, undefined, "acme/t3code"),
+        `t3@${version} is not published in acme/t3code releases.`,
+      );
+      // A base URL's query can carry a mirror token, so the reason names only the setting.
+      assert.equal(
+        unpublishedReleaseReason(version, "https://mirror.example/t3?token=secret", "acme/t3code"),
+        `t3@${version} is not published in the release base URL (T3CODE_RELEASE_BASE_URL).`,
+      );
     }),
   );
 

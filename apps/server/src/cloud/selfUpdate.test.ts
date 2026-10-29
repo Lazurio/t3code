@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import type { ManagedPolicyDocument } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -34,6 +35,7 @@ interface HarnessOptions {
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
   readonly desktopAppUpdate?: DesktopAppUpdate.DesktopAppUpdate["Service"];
   readonly policy?: ManagedPolicyDocument;
+  readonly env?: Record<string, string>;
 }
 
 const archiveBytes = new TextEncoder().encode("not really a tarball");
@@ -41,6 +43,9 @@ const releaseHttpClient = (order: string[], urls: string[], beforeDownload?: Eff
   HttpClient.make((request) =>
     Effect.gen(function* () {
       urls.push(request.url);
+      if (!request.url.includes("/v1.1.0/")) {
+        return HttpClientResponse.fromWeb(request, new Response("Not Found", { status: 404 }));
+      }
       if (request.url.endsWith("/SHA256SUMS")) {
         const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", archiveBytes));
         const hex = Array.from(new Uint8Array(digest), (byte) =>
@@ -156,6 +161,12 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
         ManagedPolicy.layerTest(options.policy),
       ),
     ),
+    (make) =>
+      options.env === undefined
+        ? make
+        : make.pipe(
+            Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: options.env }))),
+          ),
   );
   return { selfUpdate, order, urls, baseDir };
 });
@@ -290,6 +301,25 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       expect(result).toEqual({ targetVersion: "1.2.0", method: "desktop-app" });
       expect(stages).toEqual(["downloading", "installing"]);
       expect(order).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses a version the release repository never published", () =>
+    Effect.gen(function* () {
+      const { selfUpdate, order } = yield* makeHarness();
+      const error = yield* selfUpdate.update({ targetVersion: "1.2.0" }).pipe(Effect.flip);
+      expect(error.reason).toMatch(/^t3@1\.2\.0 is not published in \S+/);
+      expect(order).toEqual([]);
+      // The refusal does not leave the update slot taken.
+      expect((yield* selfUpdate.update({ targetVersion: "1.1.0" })).targetVersion).toBe("1.1.0");
+      // A base URL's query can carry a mirror token, so the reason names only the setting.
+      const mirrored = yield* makeHarness({
+        env: { T3CODE_RELEASE_BASE_URL: "https://mirror.example/t3?token=secret" },
+      });
+      expect(
+        (yield* mirrored.selfUpdate.update({ targetVersion: "1.2.0" }).pipe(Effect.flip)).reason,
+      ).toBe("t3@1.2.0 is not published in the release base URL (T3CODE_RELEASE_BASE_URL).");
+      expect(mirrored.urls[0]).toMatch(/^https:\/\/mirror\.example\/t3\//);
     }),
   );
 
