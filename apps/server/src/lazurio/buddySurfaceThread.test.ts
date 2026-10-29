@@ -85,6 +85,12 @@ describe("Buddy's thread", () => {
 
   it.live("is never a thread with Buddy's id in another project or on another instance", () => {
     const { home, layer } = makeHome();
+    // The other thread was made before this T3 Code was Buddy's: Buddy's T3 Code refuses to make
+    // one, so the runtime here runs without the switch and only the resolver gets it.
+    const asBuddy = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
+      );
     return Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       yield* addProject(ProjectId.make("project:other"), home);
@@ -110,7 +116,7 @@ describe("Buddy's thread", () => {
         threadId: BUDDY_THREAD_ID,
       });
       for (const _ask of [1, 2]) {
-        const refused = yield* Effect.exit(resolveBuddyThread());
+        const refused = yield* Effect.exit(asBuddy(resolveBuddyThread()));
         assert.include(refusal(refused), "thread-conflict");
       }
       const foreign = yield* orchestrator.getThreadShell(BUDDY_THREAD_ID);
@@ -123,7 +129,7 @@ describe("Buddy's thread", () => {
         commandId: CommandId.make("test:foreign:unarchive"),
         threadId: BUDDY_THREAD_ID,
       });
-      assert.include(refusal(yield* Effect.exit(resolveBuddyThread())), "thread-conflict");
+      assert.include(refusal(yield* Effect.exit(asBuddy(resolveBuddyThread()))), "thread-conflict");
       const snapshot = yield* orchestrator.getShellSnapshot({
         projectId: ProjectId.make("project:buddy"),
         location: "active",
@@ -132,7 +138,7 @@ describe("Buddy's thread", () => {
     }).pipe(
       Effect.provide(layerBuddyServer),
       Effect.scoped,
-      Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
+      Effect.provideService(HostProcess.Environment, { HOME: home }),
     );
   });
 

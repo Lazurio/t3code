@@ -15,6 +15,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { BuddySurfaceLayout, useBuddySurfaceMode } from "../lazurio/BuddySurface";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
@@ -146,6 +147,8 @@ function RootRouteBranch() {
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
   // A sync IPC read; the setting only changes across a relaunch.
   const [localEnvironmentDisabled] = useState(isLocalEnvironmentDisabled);
+  // Lazurio overlay (plan DEV-6676): Buddy's T3 Code shows Buddy's one conversation.
+  const buddySurface = useBuddySurfaceMode() === true;
   // Once true, stays true: a visit to /welcome means the bootstrap already chose a route.
   const [returningFromWelcome, setReturningFromWelcome] = useState(pathname === "/welcome");
   if (pathname === "/welcome" && !returningFromWelcome) setReturningFromWelcome(true);
@@ -182,7 +185,11 @@ function RootRouteBranch() {
     return <Outlet />;
   }
 
-  const appShell = (
+  const appShell = buddySurface ? (
+    <BuddySurfaceLayout>
+      <Outlet />
+    </BuddySurfaceLayout>
+  ) : (
     <CommandPalette>
       <AppSidebarLayout>
         <Outlet />
@@ -194,7 +201,7 @@ function RootRouteBranch() {
     <>
       <ChatGptWelcomeCoordinator />
       <FirstRunGate
-        enabled={primaryEnvironmentAuthenticated}
+        enabled={primaryEnvironmentAuthenticated && !buddySurface}
         hostedStatic={authGateState.status === "hosted-static"}
       >
         {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
@@ -209,7 +216,8 @@ function RootRouteBranch() {
         <ReopenClosedViewShortcut />
         <ConfirmDialogHost />
         <CustomSnoozeDialogHost />
-        <GuestShareDialogHost />
+        {/* Lazurio overlay: Buddy's conversation belongs to a Personalspace, never shared. */}
+        {buddySurface ? null : <GuestShareDialogHost />}
         <ProjectCloneToastCoordinator />
         <AddProjectToMachineDialogHost />
         {import.meta.env.DEV && primaryEnvironmentAuthenticated ? <DevReplayHost /> : null}

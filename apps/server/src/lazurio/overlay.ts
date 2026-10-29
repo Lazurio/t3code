@@ -6,6 +6,7 @@
 import * as Layer from "effect/Layer";
 
 import * as AgentCliSendState from "./agentCliSendState.ts";
+import * as BuddySurfaceDays from "./buddySurfaceDays.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
@@ -21,4 +22,5 @@ export const layer = Layer.mergeAll(
   ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
   BuddySurfaceThreadRoute.layer,
   AgentCliSendState.layer,
+  BuddySurfaceDays.layer,
 ).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));

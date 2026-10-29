@@ -11,6 +11,7 @@ import {
   CommandId,
   type ComposerContextRecord,
   MessageId,
+  type ModelSelection,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -24,15 +25,17 @@ import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService
 import { lazurioPageContextBlock } from "./buddyPrompt.ts";
 import {
   addProject,
+  BUDDY,
   buddyModel,
   layerBuddyServer,
   receivedPrompts,
 } from "./buddySurface.testkit.ts";
+import { resolveBuddyThread } from "./buddySurfaceThread.ts";
 
-const requestLog = NodePath.join(
-  NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "buddy-prompt-orchestrator-")),
-  "requests.jsonl",
-);
+const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "buddy-prompt-orchestrator-"));
+const buddyLayer = NodePath.join(home, "Lazurio", ".agents", "buddy");
+NodeFS.mkdirSync(buddyLayer, { recursive: true });
+const requestLog = NodePath.join(home, "requests.jsonl");
 const page = {
   v: 1,
   environment: { id: "vm-01.example", kind: "work", name: "Pracovní" },
@@ -48,7 +51,11 @@ const page = {
 const send = Effect.fn("test.buddyPrompt.send")(function* (
   threadId: ThreadId,
   ordinal: number,
-  message: { readonly text: string; readonly records?: ReadonlyArray<ComposerContextRecord> },
+  message: {
+    readonly text: string;
+    readonly records?: ReadonlyArray<ComposerContextRecord>;
+    readonly modelSelection?: ModelSelection;
+  },
 ) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
@@ -75,7 +82,7 @@ const send = Effect.fn("test.buddyPrompt.send")(function* (
       ? {}
       : { context: { version: 1 as const, records: [...message.records] } }),
     attachments: [],
-    modelSelection: buddyModel,
+    modelSelection: message.modelSelection ?? buddyModel,
     dispatchMode: { type: "start_immediately" },
   });
   yield* Effect.raceFirst(
@@ -87,25 +94,9 @@ const send = Effect.fn("test.buddyPrompt.send")(function* (
 describe("Buddy's T3 Code", () => {
   it.live("gives Hermes the person's words and the page as a Czech block, turn after turn", () =>
     Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projectId = ProjectId.make("project:buddy");
-      // Buddy's project is the Buddy layer, a folder without Git.
-      yield* addProject(projectId, NodePath.dirname(requestLog));
-      const threadId = ThreadId.make("thread:buddy-prompt");
-      yield* orchestrator.dispatch({
-        type: "thread.create",
-        createdBy: "user",
-        creationSource: "web",
-        commandId: CommandId.make("command:buddy-prompt:create"),
-        threadId,
-        projectId,
-        title: "Buddy",
-        modelSelection: buddyModel,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-      });
+      // Buddy's project is Buddy's layer, a folder without Git, and the thread is Buddy's own.
+      yield* addProject(ProjectId.make("project:buddy"), buddyLayer);
+      const { threadId } = yield* resolveBuddyThread();
       const record = {
         version: 1,
         kind: "lazurio-page",
@@ -128,9 +119,52 @@ describe("Buddy's T3 Code", () => {
       Effect.scoped,
       Effect.provideService(HostProcess.Environment, {
         ...process.env,
+        HOME: home,
         T3CODE_LAZURIO_BUDDY: "1",
         T3_ACP_REQUEST_LOG_PATH: requestLog,
       }),
     ),
   );
+});
+
+describe("Buddy's T3 Code and Hermes's settings", () => {
+  it.live("sets Hermes no model, mode or other option a message's selection names", () => {
+    const selectionHome = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "buddy-selection-orchestrator-"),
+    );
+    const selectionLayer = NodePath.join(selectionHome, "Lazurio", ".agents", "buddy");
+    NodeFS.mkdirSync(selectionLayer, { recursive: true });
+    const selectionLog = NodePath.join(selectionHome, "requests.jsonl");
+    return Effect.gen(function* () {
+      yield* addProject(ProjectId.make("project:buddy"), selectionLayer);
+      const { threadId } = yield* resolveBuddyThread();
+      // As the web sends it: Hermes's current model and remembered options in place of "default".
+      yield* send(threadId, 1, {
+        text: "Ahoj.",
+        modelSelection: {
+          instanceId: BUDDY,
+          model: "composer-2",
+          options: [
+            { id: "mode", value: "code" },
+            { id: "fast", value: "fast" },
+          ],
+        },
+      });
+      assert.deepStrictEqual(receivedPrompts(selectionLog), [["Ahoj."]]);
+      const methods = NodeFS.readFileSync(selectionLog, "utf8")
+        .split("\n")
+        .flatMap((line) => (line.trim() === "" ? [] : [JSON.parse(line).method]));
+      assert.notInclude(methods, "session/set_config_option");
+      assert.notInclude(methods, "session/set_model");
+    }).pipe(
+      Effect.provide(layerBuddyServer),
+      Effect.scoped,
+      Effect.provideService(HostProcess.Environment, {
+        ...process.env,
+        HOME: selectionHome,
+        T3CODE_LAZURIO_BUDDY: "1",
+        T3_ACP_REQUEST_LOG_PATH: selectionLog,
+      }),
+    );
+  });
 });
