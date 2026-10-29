@@ -1,8 +1,8 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): Buddy's one conversation, one thread on the
  * instance `buddy` in Buddy's layer of the Lazurio Folder. Its id and the command that makes it are
- * fixed, so two first visits make one thread; an archived one comes back instead of being replaced,
- * because a new thread would start Hermes on a new session and fork Buddy's memory.
+ * fixed, so two first visits make one thread; an archived one comes back (a new thread would fork
+ * Hermes's session and Buddy's memory), and one in a lower runtime mode goes back to full access.
  */
 import { CommandId, type ModelSelection, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -119,6 +119,18 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
             `lazurio:buddy-thread:unarchive:${DateTime.formatIso(existing.archivedAt)}`,
           ),
           threadId: BUDDY_THREAD_ID,
+        })
+        .pipe(Effect.mapError(unavailable));
+    if (existing.runtimeMode !== "full-access")
+      yield* orchestrator
+        .dispatch({
+          type: "thread.runtime-mode.set",
+          // One command per state of the thread, so two first visits at once go back once.
+          commandId: CommandId.make(
+            `lazurio:buddy-thread:full-access:${DateTime.formatIso(existing.updatedAt)}`,
+          ),
+          threadId: BUDDY_THREAD_ID,
+          runtimeMode: "full-access",
         })
         .pipe(Effect.mapError(unavailable));
     return { threadId: BUDDY_THREAD_ID, projectId: existing.projectId } satisfies BuddyThread;
