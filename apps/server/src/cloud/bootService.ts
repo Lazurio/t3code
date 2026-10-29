@@ -12,7 +12,7 @@ import * as Path from "effect/Path";
 import { HttpClient } from "effect/http";
 import * as Schema from "effect/Schema";
 
-import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import { CLI_RELEASE_BASE_URL_ENV, CLI_RELEASE_REPOSITORY_ENV } from "@t3tools/shared/cliRelease";
 
 import * as ProcessRunner from "../processRunner.ts";
 import {
@@ -527,6 +527,9 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
   );
+  const releaseRepository = Option.getOrUndefined(
+    yield* Config.String(CLI_RELEASE_REPOSITORY_ENV).pipe(Config.option),
+  );
   const homeDir = yield* Config.String("HOME").pipe(Config.withDefault(""));
   const installerPath = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const runningInsideService =
@@ -729,6 +732,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
       platform,
       arch,
       releaseBaseUrl,
+      releaseRepository,
       validate: (runtime) =>
         runner
           .run({

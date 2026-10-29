@@ -3,10 +3,20 @@ import * as Schema from "effect/Schema";
 
 import { compareSemverVersions } from "./semver.ts";
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
-export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
+// Lazurio overlay (Lazurio/t3code#22): the Lazurio distribution installs and updates from its own
+// releases, also from a shell that lacks the service's T3CODE_RELEASE_REPOSITORY. Upstream's is
+// pingdotgg/t3code.
+const CLI_RELEASE_DEFAULT_REPOSITORY = "Lazurio/t3code";
+export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_DEFAULT_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
+/** The `owner/name` GitHub repository whose releases are installed and offered as updates. */
+export const CLI_RELEASE_REPOSITORY_ENV = "T3CODE_RELEASE_REPOSITORY";
+
+/** The configured release repository, or the Lazurio distribution's own when unset. */
+export function cliReleaseRepository(repository: string | undefined): string {
+  return repository?.trim() || CLI_RELEASE_DEFAULT_REPOSITORY;
+}
 
 // Keep archive keys aligned with the Linux matrix, Windows ARM64 build, and cli_archive rows in release.yml.
 // Node single-executables do not support darwin-x64 and segfault at startup.
@@ -41,13 +51,14 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
   return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
 }
 
-const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
-
 export function cliReleaseDownloadBaseUrl(
   version: string,
-  baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,
+  baseUrl?: string | undefined,
+  repository?: string | undefined,
 ): string {
-  return `${(baseUrl?.trim() || CLI_RELEASE_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v${version}`;
+  const root =
+    baseUrl?.trim() || `https://github.com/${cliReleaseRepository(repository)}/releases/download`;
+  return `${root.replace(/\/+$/, "")}/v${version}`;
 }
 
 export function parseChecksums(text: string): ReadonlyMap<string, string> {
@@ -99,12 +110,17 @@ export function acceptsTrackSwitchRelease(
   );
 }
 
+export const CLI_RELEASE_INDEX_PAGE_SIZE = 100;
+
 /** Page until the channel matches; nightlies can push preview/stable releases past the first page. */
-export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+export function cliReleaseIndexPageUrl(page: number, repository?: string | undefined): string {
+  return `https://api.github.com/repos/${cliReleaseRepository(repository)}/releases?per_page=${CLI_RELEASE_INDEX_PAGE_SIZE}&page=${page}`;
 }
 
-/** Draft assets are not downloadable. */
+/**
+ * Highest semver wins, not publish order: a later patch to an older line must not win.
+ * Drafts are skipped because their assets are not downloadable.
+ */
 export function newestCliReleaseVersion(
   releases: ReadonlyArray<{
     readonly tag_name: string;
@@ -112,13 +128,14 @@ export function newestCliReleaseVersion(
   }>,
   channel: CliReleaseChannel,
 ): string | undefined {
+  let newest: string | undefined;
   for (const release of releases) {
     if (release.draft) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
-    if (version === undefined) continue;
-    if (cliReleaseChannelOf(version) === channel) return version;
+    if (version === undefined || cliReleaseChannelOf(version) !== channel) continue;
+    if (newest === undefined || compareSemverVersions(version, newest) > 0) newest = version;
   }
-  return undefined;
+  return newest;
 }
 
 const NpmReleaseMigrationManifest = Schema.Struct({

@@ -10,14 +10,18 @@
 #   T3CODE_VERSION           exact version to install (overrides T3CODE_CHANNEL)
 #   T3CODE_HOME              T3 home directory (default: ~/.t3)
 #   T3CODE_INSTALL_BIN_DIR   where the `t3` symlink goes (default: ~/.local/bin)
-#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
+#   T3CODE_RELEASE_REPOSITORY  GitHub repository (owner/name) whose releases to
+#                            install (default: Lazurio/t3code, the Lazurio
+#                            distribution's own; upstream's is pingdotgg/t3code)
+#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: the
+#                            repository's GitHub Releases)
 #
 # The archive is unpacked into $T3CODE_HOME/runtime/versions/<version>, the
 # same layout `t3 service install` uses, so the service reuses this download
 # instead of fetching the release again.
 set -eu
 
-repo="pingdotgg/t3code"
+repo="${T3CODE_RELEASE_REPOSITORY:-Lazurio/t3code}"
 base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 t3_home="${T3CODE_HOME:-$HOME/.t3}"
 bin_dir="${T3CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"
@@ -142,25 +146,47 @@ else
   fail "sha256sum or shasum is required"
 fi
 
+# The release train of a version, by the rule the runtime uses: a nightly or
+# preview identifier right after major.minor.patch names its train; every other
+# version, including a fork's own prerelease suffix, is stable.
+train_of() {
+  case "$(printf '%s\n' "$1" | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+-(nightly|preview)\.[0-9]{8}\.[0-9]+$')" in
+    *-nightly.*) printf 'nightly\n' ;;
+    *-preview.*) printf 'preview\n' ;;
+    *) printf 'stable\n' ;;
+  esac
+}
+
+# The first v<semver> tag of train $2 in the release JSON file $1, in listing order.
+first_of_train() {
+  for candidate in $(sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\(-[0-9A-Za-z.-]*\)\{0,1\}\)".*/\1/p' "$1"); do
+    if [ "$(train_of "$candidate")" = "$2" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+}
+
 channel="${T3CODE_CHANNEL:-stable}"
 version="${T3CODE_VERSION:-}"
 if [ -z "$version" ]; then
+  # Tags are v<semver>. Only tags of the requested train are considered, so a
+  # stable install can never pick up a nightly or preview build by accident.
   case "$channel" in
-    stable) tag_pattern='v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)' ;;
-    nightly | preview) tag_pattern="v\([0-9][^\"]*-${channel}\.[0-9]*\.[0-9]*\)" ;;
+    stable | nightly | preview) ;;
     *) fail "T3CODE_CHANNEL must be stable, nightly, or preview" ;;
   esac
   tmp_index="$(mktemp)"
   if [ "$channel" = stable ]; then
-    # release.yml marks only plain stable releases latest. This is a github.com
+    # The release workflow marks only stable releases latest. This is a github.com
     # page, so it is not cut off by a page of newer nightlies or the API quota.
     fetch "https://github.com/${repo}/releases/latest" "$tmp_index" application/json
-    version="$(sed -n "s/.*\"tag_name\": *\"${tag_pattern}\".*/\1/p" "$tmp_index" | head -n 1)"
+    version="$(first_of_train "$tmp_index" "$channel")"
   else
     page=1
     while [ -z "$version" ] && [ "$page" -le 10 ]; do
       fetch "https://api.github.com/repos/${repo}/releases?per_page=100&page=${page}" "$tmp_index"
-      version="$(sed -n "s/.*\"tag_name\": *\"${tag_pattern}\".*/\1/p" "$tmp_index" | head -n 1)"
+      version="$(first_of_train "$tmp_index" "$channel")"
       grep -q '"tag_name"' "$tmp_index" || break
       page=$((page + 1))
     done
@@ -168,8 +194,8 @@ if [ -z "$version" ]; then
   rm -f "$tmp_index"
   [ -n "$version" ] || fail "could not find a ${channel} release; set T3CODE_VERSION"
 fi
-case "$version" in
-  *-preview.*)
+case "$(train_of "$version")" in
+  preview)
     printf '%s\n' \
       "t3 ${version} is a preview build." \
       "  Preview builds are cut by maintainers from unreleased branches to exercise the release" \
