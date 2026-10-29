@@ -168,6 +168,7 @@ import * as CloudCliState from "./cloud/CliState.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as DesktopAppUpdate from "./desktopUpdate/DesktopAppUpdate.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
+import { repointLauncherLink } from "./lazurio/launcherLink.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
@@ -805,6 +806,11 @@ const layerMakeServer = Layer.unwrap(
       Effect.gen(function* () {
         yield* Deferred.succeed(runtimeStateParked, undefined).pipe(Effect.orDie);
         yield* awaitActivation;
+        // Lazurio/t3code#30: activation follows the launcher's commit; the user's `t3` follows it too.
+        yield* repointLauncherLink({
+          managed: (yield* ServiceLauncherClient.ServiceLauncherClient).managed,
+          baseDir: config.baseDir,
+        });
         const server = yield* HttpServer.HttpServer;
         const address = server.address;
         if (typeof address === "string" || !("port" in address)) {
