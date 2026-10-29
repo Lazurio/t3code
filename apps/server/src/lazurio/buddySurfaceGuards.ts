@@ -1,7 +1,7 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): Buddy's T3 Code has no fork, rollback, other
- * thread or deleting Buddy's thread (each forks Hermes's session), no fresh session in Buddy's
- * thread, no guest share or linked Environment (a Personalspace is never shared, 0091) and no
+ * thread, fresh session or deleting Buddy's thread (each loses Hermes's session), no lower runtime
+ * mode, no guest share or linked Environment (a Personalspace is never shared, 0091) and no
  * checkpoints in Buddy's project, for every client and agent; elsewhere upstream's services as is.
  */
 import type { OrchestrationV2ServerCommand, ServerSettings as Settings } from "@t3tools/contracts";
@@ -26,6 +26,8 @@ const oneConversation =
 const neverShared = "Buddy's conversation belongs to its person and is never shared with a guest.";
 const oneSession =
   "Buddy keeps one conversation: its thread never starts a fresh session without what Buddy heard before.";
+const fullAccess =
+  "Buddy always works with full access: Buddy's thread keeps the full-access mode.";
 
 /**
  * Why Buddy's T3 Code refuses `command`, or null when it runs. `makingBuddysThread` holds only
@@ -56,6 +58,10 @@ export function buddyCommandRefusal(
       // would drop everything Buddy heard before it, so Buddy's thread keeps its session.
       return command.threadId === BUDDY_THREAD_ID && command.freshContext === true
         ? oneSession
+        : null;
+    case "thread.runtime-mode.set":
+      return command.threadId === BUDDY_THREAD_ID && command.runtimeMode !== "full-access"
+        ? fullAccess
         : null;
     default:
       return null;

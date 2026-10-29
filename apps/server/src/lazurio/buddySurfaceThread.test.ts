@@ -83,6 +83,48 @@ describe("Buddy's thread", () => {
     );
   });
 
+  it.live("goes back to full access, once, when a client set it lower before the guard", () => {
+    const { home, layer } = makeHome();
+    // A lower mode got in before Buddy's T3 Code refused it: the runtime here runs without the
+    // switch, so its guard lets the change through, and only the resolver gets the switch.
+    const asBuddy = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
+      );
+    return Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* addProject(ProjectId.make("project:buddy"), layer);
+      const thread = yield* asBuddy(resolveBuddyThread());
+      yield* orchestrator.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.make("test:supervised"),
+        threadId: thread.threadId,
+        runtimeMode: "approval-required",
+      });
+      const lowered = yield* orchestrator.getThreadShell(thread.threadId);
+      assert.strictEqual(lowered?.runtimeMode, "approval-required");
+
+      const [first, second] = yield* Effect.all(
+        [asBuddy(resolveBuddyThread()), asBuddy(resolveBuddyThread())],
+        { concurrency: 2 },
+      );
+      assert.deepStrictEqual(first, thread);
+      assert.deepStrictEqual(second, thread);
+      const restored = yield* orchestrator.getThreadShell(thread.threadId);
+      assert.strictEqual(restored?.runtimeMode, "full-access");
+      // Once there, the thread is found as it is.
+      assert.deepStrictEqual(yield* asBuddy(resolveBuddyThread()), thread);
+      assert.deepStrictEqual(
+        (yield* orchestrator.getThreadShell(thread.threadId))?.updatedAt,
+        restored?.updatedAt,
+      );
+    }).pipe(
+      Effect.provide(layerBuddyServer),
+      Effect.scoped,
+      Effect.provideService(HostProcess.Environment, { HOME: home }),
+    );
+  });
+
   it.live("is never a thread with Buddy's id in another project or on another instance", () => {
     const { home, layer } = makeHome();
     // The other thread was made before this T3 Code was Buddy's: Buddy's T3 Code refuses to make

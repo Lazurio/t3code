@@ -191,7 +191,7 @@ function RootRouteBranch() {
       <ConnectOnboardingDialog />
       <SshPasswordPromptDialog />
       <SnapShotCoordinator />
-      <ReopenClosedViewShortcut />
+      {buddySurface ? null : <ReopenClosedViewShortcut />}
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
       {/* Lazurio overlay: Buddy's conversation belongs to a Personalspace, never shared. */}
