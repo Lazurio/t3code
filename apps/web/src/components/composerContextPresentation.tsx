@@ -39,6 +39,7 @@ import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTermin
 import { EnvironmentContextChip } from "./EnvironmentContextChip";
 import { ThreadContextChip } from "./ThreadContextChip";
 import { useLinkedEnvironments } from "~/state/peerLinks";
+import { buddyPageReferenceChip } from "~/lazurio/BuddySurfacePageChip";
 import {
   createContextPresentationRegistry,
   type ContextPresentationCapability,
@@ -492,7 +493,9 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
         ),
     },
   ],
-  fallback: (_kind, _entry, context) => <UnresolvedContextChip label={context.label} />,
+  // Lazurio overlay (plan DEV-6676): the page Buddy was asked from is a context of its own.
+  fallback: (kind, _entry, context) =>
+    buddyPageReferenceChip(kind, context.label) ?? <UnresolvedContextChip label={context.label} />,
 });
 
 export function ComposerContextReferenceChip(props: {
