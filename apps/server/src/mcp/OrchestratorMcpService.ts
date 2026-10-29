@@ -796,8 +796,8 @@ function threadPullRequests(
   }));
 }
 
-function listItemFromShell(
-  scope: McpInvocationScope,
+export function listItemFromShell(
+  scope: Pick<McpInvocationScope, "environmentId" | "client">,
   shell: OrchestrationV2ThreadShell,
   nowMs: number,
 ): OrchestratorMcpThreadListItem {
