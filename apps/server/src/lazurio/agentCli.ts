@@ -24,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
@@ -44,6 +45,8 @@ import {
   isAgentCliFailure,
   withAgentCliConnection,
 } from "./agentCliConnection.ts";
+import { agentCliSendIds, agentCliSendKey } from "./agentCliRequests.ts";
+import { AGENT_CLI_SEND_STATE_ROUTE, SendState } from "./agentCliSendState.ts";
 import {
   makeEventTracker,
   mergeThreadLists,
@@ -60,6 +63,8 @@ const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDefault(false),
 );
 const common = { ...projectLocationFlags, json: jsonFlag };
+/** The flags every agent command takes: the T3 home and `--json`. */
+export const agentCommandFlags = common;
 type CommonFlags = { readonly baseDir: Option.Option<string>; readonly json: boolean };
 
 /**
@@ -101,6 +106,9 @@ const run = <A, E, R>(
   text: (value: A) => string,
   options?: { readonly sessionTtl?: Duration.Duration },
 ) => runChecked(flags, Effect.void, body, text, options);
+
+/** How an agent command outside this file runs: as `run` runs the ones here. */
+export const runAgentCommand = run;
 
 /** Call a tool and decode the part of its answer the command reads. */
 const callAs = <S extends Schema.Top>(
@@ -557,8 +565,8 @@ const threadLaunchCommand = Command.make("launch", {
 
 const SendResult = Schema.Struct({
   threadId: Schema.String,
-  runId: Schema.String,
-  status: Schema.String,
+  runId: Schema.NullOr(Schema.String),
+  status: Schema.optional(Schema.String),
   delivery: Schema.String,
 });
 const decodeSendResult = Schema.decodeUnknownEffect(SendResult);
@@ -608,10 +616,17 @@ const waitForSentRun = Effect.fn("LazurioAgentCli.waitForSentRun")(
         ),
       ),
     );
+    if (result.runId === null) {
+      return yield* agentCliFailure(
+        "request_failed",
+        "T3 Code named no run for this send, so there is nothing to wait for.",
+      );
+    }
     const tools = threadToolsOf(connection);
     const threadId = ThreadId.make(result.threadId);
-    const outcome = yield* waitForRun(tools, threadId, RunId.make(result.runId));
-    const runId = (outcome.type === "ended" ? outcome.runId : null) ?? RunId.make(result.runId);
+    const sentRunId = RunId.make(result.runId);
+    const outcome = yield* waitForRun(tools, threadId, sentRunId);
+    const runId = (outcome.type === "ended" ? outcome.runId : null) ?? sentRunId;
     const status = outcome.type === "ended" ? outcome.status : "waiting";
     const reply =
       status === "completed"
@@ -661,6 +676,87 @@ const sentRunExit = (value: unknown) =>
           ),
   });
 
+const decodeSendState = Schema.decodeUnknownOption(SendState);
+
+/** What T3 recorded of a keyed send; nothing from a T3 without the route, or when unreachable. */
+const sendStateOf = (
+  connection: AgentCliConnection,
+  request: { readonly threadId: string; readonly commandId: string; readonly messageId: string },
+) =>
+  connection.postRoute(AGENT_CLI_SEND_STATE_ROUTE, request).pipe(
+    Effect.map(({ status, body }) =>
+      status === 200 ? Option.getOrUndefined(decodeSendState(body)) : undefined,
+    ),
+    Effect.orElseSucceed(() => undefined),
+  );
+
+const asObject = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+/**
+ * Send once per key: T3 runs the key's command once and replays its receipt for a repeat. A repeat
+ * with another message is refused, and so is a key T3 refused. A repeat whose message T3 delivered
+ * but cannot replay, such as on a thread archived since, answers "delivered" without a run to wait
+ * for.
+ */
+const sendOnce = Effect.fn("LazurioAgentCli.sendOnce")(function* (
+  connection: AgentCliConnection,
+  input: {
+    readonly threadId: string;
+    readonly text: string;
+    readonly send: (clientRequestId: string) => Effect.Effect<unknown, AgentCliFailure>;
+  },
+  key: string,
+) {
+  const sendKey = yield* agentCliSendKey({ threadId: input.threadId, key });
+  const ids = agentCliSendIds(sendKey);
+  const sent = yield* Effect.result(input.send(sendKey));
+  const state = yield* sendStateOf(connection, { threadId: input.threadId, ...ids });
+  const stored = state?.message ?? null;
+  // T3's tool trims the message as it decodes it (OrchestratorMcpPrompt), so the same trim tells
+  // whether this is the stored message.
+  if (stored !== null && stored.text !== input.text.trim())
+    return yield* agentCliFailure(
+      "idempotency_conflict",
+      "This key already sent another message to this thread, so nothing was sent. Send this message with a new key.",
+    );
+  if (Result.isSuccess(sent))
+    return { result: { ...asObject(sent.success), commandId: ids.commandId }, waitable: true };
+  // T3 checks the thread before it replays a receipt, so a repeat can fail although the key's
+  // message was delivered.
+  if (state?.receipt?.status === "accepted" && stored !== null)
+    return {
+      result: {
+        threadId: input.threadId,
+        messageId: ids.messageId,
+        runId: stored.runId,
+        delivery: "delivered",
+        commandId: ids.commandId,
+      },
+      waitable: false,
+    };
+  if (state?.receipt?.status === "rejected")
+    return yield* agentCliFailure(
+      "command_rejected",
+      `T3 Code refused the message for this key${state.receipt.error === null ? "." : `: ${state.receipt.error}`} A key T3 Code refused stays refused.`,
+    );
+  return yield* sent.failure;
+});
+
+const formatSendResult = (result: typeof SendResult.Type) =>
+  result.status === undefined
+    ? `${result.threadId}: ${result.delivery} earlier (run ${result.runId ?? "none"}).`
+    : `${result.threadId}: ${result.delivery} (run ${result.runId}, ${result.status}).`;
+
+/** A send's text: the awaited run when `--wait` waited, otherwise the delivery. */
+const formatSend = (value: unknown) =>
+  Option.match(decodeSentRun(value), {
+    onSome: formatSentRun,
+    onNone: () => textAs(SendResult, formatSendResult)(value),
+  });
+
 const threadSendCommand = Command.make("send", {
   ...common,
   threadId: threadIdArgument,
@@ -678,6 +774,12 @@ const threadSendCommand = Command.make("send", {
     ),
     Flag.withDefault(false),
   ),
+  idempotencyKey: Flag.String("idempotency-key").pipe(
+    Flag.withDescription(
+      "Send once per key, also across commands and restarts: a repeat with the same key sends nothing and prints the first send's result.",
+    ),
+    Flag.optional,
+  ),
 }).pipe(
   Command.withDescription("Send a message to a thread, as its user would."),
   Command.withHandler((flags) =>
@@ -685,28 +787,29 @@ const threadSendCommand = Command.make("send", {
       flags,
       readMessage({ ...flags, required: true }),
       (connection, message) =>
-        connection
-          .callTool(
-            "t3_thread_send",
-            defined({
-              threadId: flags.threadId,
-              message: Option.getOrUndefined(message),
-              mode: flags.mode,
-            }),
-          )
-          .pipe(
-            Effect.filterOrElse(
-              () => !flags.wait,
-              (sent) => waitForSentRun(connection, sent),
-            ),
-          ),
-      flags.wait
-        ? textAs(SentRun, formatSentRun)
-        : textAs(
-            SendResult,
-            (result) =>
-              `${result.threadId}: ${result.delivery} (run ${result.runId}, ${result.status}).`,
-          ),
+        Effect.gen(function* () {
+          const text = Option.getOrElse(message, () => "");
+          const send = (clientRequestId?: string) =>
+            connection.callTool(
+              "t3_thread_send",
+              defined({
+                threadId: flags.threadId,
+                message: text,
+                mode: flags.mode,
+                clientRequestId,
+              }),
+            );
+          const { result, waitable } = Option.isNone(flags.idempotencyKey)
+            ? { result: yield* send(), waitable: true }
+            : yield* sendOnce(
+                connection,
+                { threadId: flags.threadId, text, send },
+                flags.idempotencyKey.value,
+              );
+          // A key's repeat waits on the run of the first send, whose receipt T3 replays.
+          return flags.wait && waitable ? yield* waitForSentRun(connection, result) : result;
+        }),
+      formatSend,
       flags.wait ? { sessionTtl: SEND_WAIT_SESSION_TTL } : undefined,
     ).pipe(Effect.flatMap((value) => (flags.wait ? sentRunExit(value) : Effect.void))),
   ),
