@@ -313,6 +313,8 @@ export class ProviderAdapterSteerRunError extends Schema.TaggedError<ProviderAda
     driver: ProviderDriverKind,
     providerThreadId: ProviderThreadId,
     providerTurnId: ProviderTurnId,
+    /** The agent answered that the turn did not take the message (`confirmsSteers`). */
+    refused: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -609,6 +611,12 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly steerTurn: (
     input: ProviderAdapterV2SteerInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
+  /**
+   * Set only if the agent answers a steer by its turn and message, also after that turn ended, and
+   * never steers an ended turn: a steer of a completed turn is still sent, and only a `refused`
+   * failure makes the message the next turn.
+   */
+  readonly confirmsSteers?: true;
   readonly stopTask?: (input: {
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly taskId: string;

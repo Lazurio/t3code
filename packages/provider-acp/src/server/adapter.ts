@@ -627,6 +627,22 @@ export const AcpProviderCapabilitiesV2 = {
   },
 } satisfies OrchestrationV2ProviderCapabilities;
 
+/**
+ * Lazurio/t3code#138: an agent listing this in its capabilities' `_meta` answers `_lazurio/steer`
+ * with `{ steered }`, taking a message into its running turn instead of a cancel and restart. A steer
+ * names the turn its prompt named in `_meta` and the message, so the agent steers only that turn,
+ * each message once, and answers a repeat as it did, also after the turn ended (`confirmsSteers`).
+ */
+const LAZURIO_ACTIVE_STEER_META = "lazurio.activeSteer";
+const LAZURIO_STEER_METHOD = "_lazurio/steer";
+const LAZURIO_TURN_META = "lazurio.turnId";
+
+function acpAgentSteersActively(started: AcpSessionRuntime.AcpSessionRuntimeStartResult): boolean {
+  return started.initializeResult.agentCapabilities?._meta?.[LAZURIO_ACTIVE_STEER_META] === 1;
+}
+
+const isProviderAdapterSteerRunError = Schema.is(ProviderAdapter.ProviderAdapterSteerRunError);
+
 function negotiatedCapabilities(
   base: OrchestrationV2ProviderCapabilities,
   started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
@@ -657,6 +673,10 @@ function negotiatedCapabilities(
     checkpointing: {
       ...base.checkpointing,
       providerCanReadConversationSnapshot: canLoad,
+    },
+    turns: {
+      ...base.turns,
+      supportsActiveSteering: base.turns.supportsActiveSteering || acpAgentSteersActively(started),
     },
   };
 }
@@ -1665,6 +1685,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             : flavor.extractSubagentUpdate?.(tool);
         let turnAttached = yield* Deferred.make<boolean>();
         const activeSessionId = yield* Ref.make<string | null>(null);
+        const activeSteering = yield* Ref.make(false);
         const contextUsageBySessionId = yield* Ref.make(
           new Map<string, ThreadTokenUsageSnapshot>(),
         );
@@ -6693,6 +6714,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             rememberTerminalEnvironment(candidate.sessionId, yield* readMcpContext(threadId));
             yield* Ref.set(runtimeRestartRequired, false);
             yield* Ref.set(activeSessionId, candidate.sessionId);
+            yield* Ref.set(activeSteering, acpAgentSteersActively(candidate));
             yield* setActiveSessionSetup(candidate);
             yield* Ref.set(activeSelection, null);
             yield* Ref.set(activeInteractionMode, null);
@@ -6749,6 +6771,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               return yield* startAcpRuntime(input.threadId);
             });
         yield* Ref.set(activeSessionId, started.sessionId);
+        yield* Ref.set(activeSteering, acpAgentSteersActively(started));
         yield* setActiveSessionSetup(started);
         rememberTerminalEnvironment(started.sessionId, yield* readMcpContext(input.threadId));
         const capabilities = negotiatedCapabilities(flavor.capabilities, started);
@@ -7772,7 +7795,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               return;
             }
             const promptGeneration = yield* Ref.get(runtimeCallbackGeneration);
-            yield* runtime.prompt({ prompt: promptParts!.prompt }).pipe(
+            const turnMeta = (yield* Ref.get(activeSteering))
+              ? { _meta: { [LAZURIO_TURN_META]: context.providerTurnId } }
+              : {};
+            yield* runtime.prompt({ prompt: promptParts!.prompt, ...turnMeta }).pipe(
               Effect.tap(() =>
                 Ref.update(promptInstructionStates, (current) => {
                   if (promptParts?.instructionState === undefined) return current;
@@ -7909,6 +7935,72 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             ),
         );
 
+        const steerActiveTurn = Effect.fn("AcpAdapterV2.steerTurn")(
+          function* (turnInput: ProviderAdapter.ProviderAdapterV2SteerInput) {
+            const sessionId = yield* Ref.get(activeSessionId);
+            if (sessionId === null) {
+              return yield* Effect.fail(
+                `Provider turn ${turnInput.providerTurnId} has no session to steer.`,
+              );
+            }
+            // The text a prompt of this message would carry, attachments as saved paths.
+            const text = yield* providerMessageTextWithAttachmentPaths({
+              text: turnInput.message.text,
+              attachments: turnInput.message.attachments,
+              resolveAttachmentPath: host.resolveAttachmentPath,
+              resolveExtractedTextPath: host.resolveExtractedTextPath,
+            });
+            // Asked about an ended turn too: the agent answers the steer that turn took, and steers no other.
+            const answer = yield* runtime.request(LAZURIO_STEER_METHOD, {
+              sessionId,
+              turnId: turnInput.providerTurnId,
+              messageId: turnInput.message.messageId,
+              text,
+            });
+            if (
+              typeof answer === "object" &&
+              answer !== null &&
+              "steered" in answer &&
+              answer.steered === true
+            ) {
+              return;
+            }
+            const context = yield* Ref.get(activeTurn);
+            if (context?.providerTurnId === turnInput.providerTurnId) {
+              // Settled first, so the refusal reads as a completed turn and the message becomes the next turn.
+              // A prompt the agent has not started yet stays unsettled: the effect's retries steer it once it runs.
+              const settled = yield* Deferred.await(context.promptWireSettled).pipe(
+                Effect.timeoutOption("10 seconds"),
+              );
+              if (Option.isNone(settled)) {
+                return yield* Effect.fail(
+                  `Provider turn ${turnInput.providerTurnId} has not started on the agent yet.`,
+                );
+              }
+            }
+            return yield* new ProviderAdapter.ProviderAdapterSteerRunError({
+              driver,
+              providerThreadId: turnInput.providerThread.id,
+              providerTurnId: turnInput.providerTurnId,
+              refused: true,
+              cause: `Provider turn ${turnInput.providerTurnId} ended before the message reached it.`,
+            });
+          },
+          (effect, turnInput) =>
+            effect.pipe(
+              Effect.mapError((cause) =>
+                isProviderAdapterSteerRunError(cause)
+                  ? cause
+                  : new ProviderAdapter.ProviderAdapterSteerRunError({
+                      driver,
+                      providerThreadId: turnInput.providerThread.id,
+                      providerTurnId: turnInput.providerTurnId,
+                      cause,
+                    }),
+              ),
+            ),
+        );
+
         const startTurn = Effect.fn("AcpAdapterV2.startTurn.transition")(function* (
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
         ) {
@@ -7974,6 +8066,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           providerSessionId: input.providerSessionId,
           providerSession,
           events: Stream.fromEffectRepeat(Queue.take(events)),
+          ...((yield* Ref.get(activeSteering)) ? { confirmsSteers: true as const } : {}),
           ...(flavor.getModelContextWindow === undefined
             ? {}
             : {
@@ -8163,13 +8256,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   }),
               }
             : {}),
-          steerTurn: (turnInput) =>
-            Effect.fail(
-              new ProviderAdapter.ProviderAdapterSteerRunUnsupportedError({
+          // Untraced: steerActiveTurn carries the span.
+          steerTurn: Effect.fnUntraced(function* (turnInput) {
+            if (!(yield* Ref.get(activeSteering))) {
+              return yield* new ProviderAdapter.ProviderAdapterSteerRunUnsupportedError({
                 driver,
                 providerThreadId: turnInput.providerThread.id,
-              }),
-            ),
+              });
+            }
+            return yield* steerActiveTurn(turnInput);
+          }),
           interruptTurn: Effect.fn("AcpAdapterV2.interruptTurn")(
             function* (turnInput: ProviderAdapter.ProviderAdapterV2InterruptInput) {
               return yield* Effect.uninterruptibleMask((restore) =>
