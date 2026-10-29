@@ -29,6 +29,7 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import { BuddyComposerControls, useBuddySurfaceMode } from "../../lazurio/BuddySurface";
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -137,6 +138,10 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
+  // Lazurio overlay (plan DEV-6676): Buddy's chat offers no model, effort, access or mode, only
+  // Hermes's Normal / Fast switch (BuddySurface.tsx).
+  const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  if (buddySurface) return <BuddyComposerControls {...props} />;
   const accessMatchesDefault = compatibleRuntimeMode === defaultRuntimeMode;
   const {
     accessDisplay,
