@@ -208,7 +208,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
           selfUpdate,
           installation: environment.serverConfig?.environment.capabilities.serverInstallation,
           desktopAppUpdate,
-          targetVersion: mismatch.clientVersion,
+          targetVersion: mismatch.targetVersion,
         },
       ];
     },
@@ -1113,11 +1113,11 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
                         primaryServerConfig?.environment.capabilities.serverInstallation
                       }
                       desktopAppUpdate={supportsDesktopAppUpdate(primaryServerConfig)}
-                      targetVersion={primaryVersionMismatch.clientVersion}
+                      targetVersion={primaryVersionMismatch.targetVersion}
                       label={
                         primaryServerUpdateState.status === "failed"
                           ? "Retry update"
-                          : `Update to ${primaryVersionMismatch.clientVersion}`
+                          : `Update to ${primaryVersionMismatch.targetVersion}`
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (

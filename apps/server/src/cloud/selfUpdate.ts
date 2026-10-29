@@ -23,6 +23,7 @@ import { HttpClient } from "effect/http";
 import {
   CLI_RELEASE_BASE_URL_ENV,
   cliReleaseChannelOf,
+  CLI_RELEASE_REPOSITORY_ENV,
   crossesReleaseTrack,
 } from "@t3tools/shared/cliRelease";
 
@@ -41,6 +42,7 @@ import {
   pinnedRuntimePaths,
   PinnedRuntimePreflightBlockedError,
   prunePinnedRuntimes,
+  unpublishedReleaseReason,
 } from "./pinnedRuntime.ts";
 import { decodeServicePreflightResult } from "./servicePreflight.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
@@ -137,6 +139,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const releaseBaseUrl =
     mirror?.feedUrl ??
     Option.getOrUndefined(yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option));
+  const releaseRepository = Option.getOrUndefined(
+    yield* Config.String(CLI_RELEASE_REPOSITORY_ENV).pipe(Config.option),
+  );
   const inFlight = yield* Ref.make(false);
 
   yield* pruneRuntimesOnStart({ baseDir: serverConfig.baseDir, managed: launcher.managed }).pipe(
@@ -212,6 +217,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         arch,
         releaseBaseUrl,
         requirePublishedRelease: mirror !== undefined,
+        releaseRepository,
         validate: (runtime) =>
           runner
             .run({
@@ -285,9 +291,11 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         Effect.mapError((error) =>
           error._tag === "PinnedRuntimePreflightBlockedError"
             ? failWith(error.reason, error)
-            : mirror !== undefined && isUnpublishedRelease(error)
+            : isUnpublishedRelease(error)
               ? failWith(
-                  `${mirror.organization}'s update mirror has no t3@${targetVersion} for this machine.`,
+                  mirror === undefined
+                    ? unpublishedReleaseReason(targetVersion, releaseBaseUrl, releaseRepository)
+                    : `${mirror.organization}'s update mirror has no t3@${targetVersion} for this machine.`,
                   error,
                 )
               : failWith(`Could not prepare t3@${targetVersion}.`, error),

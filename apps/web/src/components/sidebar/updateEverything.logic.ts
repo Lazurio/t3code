@@ -8,9 +8,10 @@ import {
   type ServerSelfUpdateCapability,
 } from "@t3tools/contracts";
 import { cliReleaseChannelOf, desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
-import { compareSemverVersions } from "@t3tools/shared/semver";
+import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 
 import {
+  advertisedServerUpdateVersion,
   resolveServerSelfUpdateCapability,
   resolveVersionMismatch,
   supportsDesktopAppUpdate,
@@ -29,6 +30,17 @@ export interface UpdateEverythingMachine {
   readonly hostedByThisApp: boolean;
   readonly canMaintain: boolean;
   readonly updateState: ServerUpdateState;
+}
+
+// Lazurio overlay: the update request no longer asks a server to continue its threads; a server
+// prepares the continuation on a graceful stop itself, which releases before 0.0.46 do not.
+const SHUTDOWN_CONTINUATION_SINCE = "0.0.46-0";
+
+function preparesContinuationOnShutdown(serverVersion: string): boolean {
+  return (
+    parseSemver(serverVersion) !== null &&
+    compareSemverVersions(serverVersion, SHUTDOWN_CONTINUATION_SINCE) >= 0
+  );
 }
 
 export interface RestartingMachine {
@@ -54,7 +66,11 @@ export function collectRestartingMachines(
     return [
       {
         environmentId: machine.environmentId,
-        continuesThreads: config.settings.continueThreadsAfterServerUpdate === true,
+        // Lazurio overlay: only a server with the capability continues threads after a restart.
+        continuesThreads:
+          config.environment.capabilities.threadRestartContinuation === true &&
+          preparesContinuationOnShutdown(config.environment.serverVersion) &&
+          config.settings.continueThreadsAfterServerUpdate === true,
       },
     ];
   });
@@ -81,8 +97,12 @@ export function collectServerUpdateTargets(
   for (const machine of machines) {
     const config = machine.serverConfig;
     if (machine.hostedByThisApp) continue;
+    // Lazurio overlay: a server advertises only a strictly newer release from its own channel.
+    const advertised = advertisedServerUpdateVersion(config);
+    const machineTarget = advertised ?? targetVersion;
     if (
       config !== null &&
+      advertised === undefined &&
       resolveVersionMismatch(config.environment.serverVersion, targetVersion) === null
     ) {
       continue;
@@ -115,7 +135,7 @@ export function collectServerUpdateTargets(
     const serverVersion = config.environment.serverVersion;
     if (
       selfUpdate !== "desktop-managed" &&
-      cliReleaseChannelOf(serverVersion) !== cliReleaseChannelOf(targetVersion)
+      cliReleaseChannelOf(serverVersion) !== cliReleaseChannelOf(machineTarget)
     ) {
       skip(`on the ${cliReleaseChannelOf(serverVersion)} channel`);
       continue;
@@ -126,7 +146,7 @@ export function collectServerUpdateTargets(
       selfUpdate,
       installation: config.environment.capabilities.serverInstallation,
       desktopAppUpdate,
-      targetVersion,
+      targetVersion: machineTarget,
     };
     targets.push(target);
   }
@@ -605,6 +625,8 @@ export interface UpdateEverythingRow {
   readonly app: "this-app" | "server" | "desktop-app" | null;
   readonly skipped: string | null;
   readonly providers: ReadonlyArray<string>;
+  /** Lazurio overlay: the server's own target where it is not the dialog's one version. */
+  readonly targetVersion: string | null;
 }
 
 function countLabel(count: number, noun: string): string | null {
@@ -647,6 +669,7 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
       app: null,
       skipped: null,
       providers: [],
+      targetVersion: null,
     };
     rows.set(environmentId, { ...row, ...change });
   };
@@ -656,9 +679,21 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
       update(machine.environmentId, machine.label, { app: "this-app" });
     }
   }
+  // Lazurio overlay: servers can advertise different releases, so one shared version is only the
+  // header's when every server goes to it; otherwise each server's row names its own.
+  const serverTargets = new Set(
+    plan.servers
+      .filter((server) => server.selfUpdate !== "desktop-managed")
+      .map((server) => server.targetVersion),
+  );
+  const version =
+    plan.localVersion ?? (serverTargets.size === 1 ? ([...serverTargets][0] ?? null) : null);
   for (const server of plan.servers) {
+    const app = server.selfUpdate === "desktop-managed" ? "desktop-app" : "server";
     update(server.environmentId, server.serverLabel, {
-      app: server.selfUpdate === "desktop-managed" ? "desktop-app" : "server",
+      app,
+      targetVersion:
+        app === "server" && server.targetVersion !== version ? server.targetVersion : null,
     });
   }
   for (const machine of plan.providerMachines) {
@@ -670,10 +705,7 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
 
   return {
     summary,
-    version:
-      plan.localVersion ??
-      plan.servers.find((server) => server.selfUpdate !== "desktop-managed")?.targetVersion ??
-      null,
+    version,
     providerCount,
     rows: Array.from(rows.values()),
   };
