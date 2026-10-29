@@ -23,6 +23,7 @@ import {
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { LazurioBadge } from "../../lazurio/LazurioBadge";
 import {
   SidebarFooter,
   SidebarMenu,
@@ -51,10 +52,13 @@ const SidebarChromeTitlebar = memo(function SidebarChromeTitlebar({
     stageLabel,
     environmentIdentificationMode,
   );
+  // Lazurio T3 Code (root decision 0200): its label stands beside the wordmark in every mode.
   const pillLabel =
-    environmentIdentificationMode === "pill"
-      ? resolveEnvironmentIdentificationPillLabel(stageLabel)
-      : null;
+    stageLabel === "Lazurio"
+      ? stageLabel
+      : environmentIdentificationMode === "pill"
+        ? resolveEnvironmentIdentificationPillLabel(stageLabel)
+        : null;
 
   return (
     <div
@@ -83,9 +87,13 @@ const SidebarChromeTitlebar = memo(function SidebarChromeTitlebar({
         </div>
         {pillLabel ? (
           <div className="ml-1 flex h-7 items-center">
-            <Badge data-environment-identification="pill" size="sm" variant="secondary">
-              {pillLabel}
-            </Badge>
+            {pillLabel === "Lazurio" ? (
+              <LazurioBadge />
+            ) : (
+              <Badge data-environment-identification="pill" size="sm" variant="secondary">
+                {pillLabel}
+              </Badge>
+            )}
           </div>
         ) : null}
       </div>
