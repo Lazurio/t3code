@@ -1,3 +1,4 @@
+import { everyEnvironmentManaged, offeredInProjectPicker } from "../lazurio/managedFolder";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -514,7 +515,7 @@ function OpenCommandPaletteDialog(props: {
   const projectPickerEntries = buildSidebarProjectPickerEntries({
     groups: pickableProjectGroups(projectGroups),
     preferredProjectRef: contextualProjectRef,
-  });
+  }).filter(offeredInProjectPicker(environments));
   const pickerProjects = projectPickerEntries.map(({ group, targetProject }) => ({
     ...targetProject,
     displayName: group.displayName,
@@ -544,6 +545,7 @@ function OpenCommandPaletteDialog(props: {
   const addProjectEnvironmentOptions = (() => {
     const options = environments
       .filter((environment) => canCreateProjectInEnvironment(environment.connection.phase))
+      .filter((environment) => environment.serverConfig?.lazurioFolder === undefined)
       .map((environment): AddProjectEnvironmentOption => {
         const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
         return {
@@ -1295,8 +1297,9 @@ function OpenCommandPaletteDialog(props: {
       : paletteRouteTarget.draftId
     : null;
   const promptLinkProjectRef = activeThread ?? activeDraftThread;
+  // Lazurio (Lazurio/t3code#77): on a managed Environment a prompt link opens no thread.
   const promptLinkInput =
-    promptLinkTarget === null
+    promptLinkTarget === null || everyEnvironmentManaged(environments)
       ? null
       : {
           target: promptLinkTarget,
@@ -1503,7 +1506,8 @@ function OpenCommandPaletteDialog(props: {
       openAddProjectFlow();
     },
   };
-  actionItems.push(addProjectAction);
+  // Lazurio (LazurioPlatform F51): when every Environment is managed, none takes another project.
+  if (!everyEnvironmentManaged(environments)) actionItems.push(addProjectAction);
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({

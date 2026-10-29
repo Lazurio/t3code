@@ -199,16 +199,25 @@ const descriptorOn = (environment: NodeJS.ProcessEnv) =>
   );
 
 describe("the environment descriptor", () => {
-  it.effect("offers no server browser on a Lazurio Environment, and does elsewhere", () =>
-    Effect.gen(function* () {
-      const lazurio = yield* descriptorOn(lazurioEnvironment);
-      const elsewhere = yield* descriptorOn({});
+  it.effect(
+    "offers no server browser and no triage on a Lazurio Environment, and does elsewhere",
+    () =>
+      Effect.gen(function* () {
+        const lazurio = yield* descriptorOn(lazurioEnvironment);
+        const elsewhere = yield* descriptorOn({});
 
-      assert.notProperty(lazurio.capabilities, "serverBrowser");
-      assert.isTrue(elsewhere.capabilities.serverBrowser);
-      // Nothing else about the Environment changes.
-      const { serverBrowser: _serverBrowser, ...others } = elsewhere.capabilities;
-      assert.deepStrictEqual(lazurio.capabilities, others);
-    }).pipe(Effect.provide(NodeServices.layer)),
+        assert.notProperty(lazurio.capabilities, "serverBrowser");
+        assert.isTrue(elsewhere.capabilities.serverBrowser);
+        // Triage compares against upstream's source (Lazurio/t3code#147).
+        assert.notProperty(lazurio.capabilities, "triage");
+        assert.isTrue(elsewhere.capabilities.triage);
+        // Nothing else about the Environment changes.
+        const {
+          serverBrowser: _serverBrowser,
+          triage: _triage,
+          ...others
+        } = elsewhere.capabilities;
+        assert.deepStrictEqual(lazurio.capabilities, others);
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
