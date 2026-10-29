@@ -1,8 +1,7 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): `GET /api/lazurio/buddy/days?tz=<zone>`
- * lists the local days on which a message reached Buddy, newest first, each with its first message
- * and first line, for the surface's day pane. 404 outside Buddy's T3 Code; no days before Buddy's
- * thread exists.
+ * lists the local days of the person's messages to Buddy that the conversation shows, newest first,
+ * each with its first message and first line, for the day pane. 404 outside Buddy's T3 Code.
  */
 import {
   AuthOrchestrationReadScope,
@@ -13,9 +12,12 @@ import { collectComposerContextReferences } from "@t3tools/shared/composerContex
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import { ActingSenders } from "./actingSenders.ts";
+import { type ActingSendersRecord, personSeesMessage } from "./actingSenderVisibility.ts";
 import { isBuddySurfaceEnvironment } from "./buddySurface.ts";
 import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
@@ -52,10 +54,26 @@ function previewOf(text: string): string {
   return trimmed.length > PREVIEW_MAX ? `${trimmed.slice(0, PREVIEW_MAX - 1)}…` : trimmed;
 }
 
-/** The person's messages grouped by local day in `timeZone`, newest day first. */
+type DayMessage = Pick<
+  OrchestrationV2ConversationMessage,
+  | "id"
+  | "role"
+  | "text"
+  | "createdAt"
+  | "createdBy"
+  | "creationSource"
+  | "senderThreadId"
+  | "scheduledTaskId"
+>;
+
+/**
+ * The messages the conversation shows grouped by local day in `timeZone`, newest day first:
+ * without Delegace's wake (actingSenderVisibility.ts), so a day's first message is one the jump finds.
+ */
 export function buddyDaysOf(
-  messages: ReadonlyArray<Pick<OrchestrationV2ConversationMessage, "id" | "text" | "createdAt">>,
+  messages: ReadonlyArray<DayMessage>,
   timeZone: string,
+  record: ActingSendersRecord<{ readonly kind: string }> | null,
 ): Array<BuddyDay> {
   const format = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -69,6 +87,7 @@ export function buddyDaysOf(
   >();
   for (const message of messages) {
     const at = DateTime.toEpochMillis(message.createdAt);
+    if (!personSeesMessage(message, at, record)) continue;
     const day = format.format(at);
     const current = days.get(day);
     if (current === undefined) days.set(day, { first: message, firstAt: at, count: 1 });
@@ -94,6 +113,7 @@ export const layer = HttpRouter.use((router) =>
   Effect.gen(function* () {
     // A handler sees only the request's context, so it takes the orchestrator from the layer's.
     const orchestrator = yield* OrchestratorV2;
+    const senders = yield* ActingSenders;
     yield* router.add(
       "GET",
       BUDDY_DAYS_ROUTE,
@@ -108,7 +128,18 @@ export const layer = HttpRouter.use((router) =>
         const records = yield* orchestrator
           .getThreadRecords(BUDDY_THREAD_ID, ["messages"], { messageRoles: ["user"] })
           .pipe(Effect.orDie);
-        return HttpServerResponse.jsonUnsafe({ days: buddyDaysOf(records.messages, timeZone) });
+        // As the web without the record: every message shows.
+        const answer = yield* senders.read(BUDDY_THREAD_ID).pipe(Effect.option);
+        const record = Option.match(answer, {
+          onNone: () => null,
+          onSome: ({ at, records }) => ({
+            at,
+            senders: new Map(records.map((step) => [`${step.kind}:${step.id}`, step.sender])),
+          }),
+        });
+        return HttpServerResponse.jsonUnsafe({
+          days: buddyDaysOf(records.messages, timeZone, record),
+        });
       }),
     );
   }),

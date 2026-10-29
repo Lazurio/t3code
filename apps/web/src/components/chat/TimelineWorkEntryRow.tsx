@@ -36,6 +36,7 @@ import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-
 import { Button, InlineButton } from "../ui/button";
 import { useAssetUrls } from "../../assets/assetUrls";
 import { useThreadShell } from "../../state/entities";
+import { LazurioActingSenderMark } from "../../lazurio/LazurioActingSender";
 import {
   threadReadLabelPrefix,
   threadReadTargetId,
@@ -487,6 +488,11 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
           !toolIconAcceptsTint(entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
+          <LazurioActingSenderMark
+            environmentId={ctx.activeThreadEnvironmentId}
+            threadId={threadRef?.threadId}
+            item={workEntry.projectedItem?.item}
+          />
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
           <span
             className={cn(
