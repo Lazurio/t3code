@@ -1,11 +1,16 @@
-import { AuthSessionId, AuthStandardClientScopes } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  AuthSessionId,
+  AuthStandardClientScopes,
+  RuntimeMode,
+} from "@t3tools/contracts";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
+import { Argument, CliError, Command, Flag, GlobalFlag } from "effect/cli";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 
@@ -86,6 +91,38 @@ const tokenOnlyFlag = Flag.Boolean("token-only").pipe(
   Flag.withDescription("Print only the issued bearer token."),
   Flag.withDefault(false),
 );
+
+const runtimeModeCeilingFlag = Flag.Literals("runtime-mode-ceiling", RuntimeMode.literals).pipe(
+  Flag.withDescription(
+    "With --subject mcp-client: the most the threads the MCP client starts or changes may run with. Without it the client is capped at approval-required.",
+  ),
+  Flag.optional,
+);
+
+/**
+ * A ceiling bounds an MCP client that may change threads, which only `/mcp` reads, so it needs
+ * that subject and `orchestration:operate`. Anything else would be issued and silently ignored.
+ */
+const checkRuntimeModeCeiling = (flags: {
+  readonly runtimeModeCeiling: Option.Option<RuntimeMode>;
+  readonly subject: Option.Option<string>;
+  readonly scopes: ReadonlyArray<string>;
+}) =>
+  Option.isNone(flags.runtimeModeCeiling)
+    ? Effect.void
+    : Option.getOrUndefined(flags.subject) !== EnvironmentAuth.MCP_CLIENT_SUBJECT
+      ? Effect.fail(
+          new CliError.UserError({
+            cause: `--runtime-mode-ceiling applies to MCP client sessions; add --subject ${EnvironmentAuth.MCP_CLIENT_SUBJECT}.`,
+          }),
+        )
+      : flags.scopes.includes(AuthOrchestrationOperateScope)
+        ? Effect.void
+        : Effect.fail(
+            new CliError.UserError({
+              cause: `--runtime-mode-ceiling needs the ${AuthOrchestrationOperateScope} scope; without it the MCP client is read-only.`,
+            }),
+          );
 
 const pairingCreateCommand = Command.make("create", {
   ...authLocationFlags,
@@ -172,6 +209,7 @@ const sessionIssueCommand = Command.make("issue", {
   ttl: ttlFlag,
   label: labelFlag,
   subject: subjectFlag,
+  runtimeModeCeiling: runtimeModeCeilingFlag,
   tokenOnly: tokenOnlyFlag,
   json: jsonFlag,
 }).pipe(
@@ -181,11 +219,15 @@ const sessionIssueCommand = Command.make("issue", {
       flags,
       (environmentAuth) =>
         Effect.gen(function* () {
+          yield* checkRuntimeModeCeiling(flags);
           const issued = yield* environmentAuth.issueSession({
             scopes: flags.scopes,
             ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
             ...(Option.isSome(flags.label) ? { label: flags.label.value } : {}),
             ...(Option.isSome(flags.subject) ? { subject: flags.subject.value } : {}),
+            ...(Option.isSome(flags.runtimeModeCeiling)
+              ? { runtimeModeCeiling: flags.runtimeModeCeiling.value }
+              : {}),
           });
           yield* Console.log(
             formatIssuedSession(issued, {
