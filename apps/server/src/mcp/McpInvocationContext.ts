@@ -14,6 +14,8 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import { formatThreadLink, hostedThreadLink } from "@t3tools/shared/threadLinks";
 
+import type { ActingSender } from "../lazurio/actingSender.ts";
+
 const ALL_MCP_CAPABILITIES = [
   "preview",
   "orchestration",
@@ -47,6 +49,8 @@ export interface McpClientCaller {
   readonly narrowedTo?: ClientModes | undefined;
   /** An outside client's thread links go through this hosted app, as Copy thread's do. */
   readonly hostedAppUrl?: string | undefined;
+  /** Lazurio overlay (root decision 0210): who the client's session acts as. */
+  readonly actingSender?: ActingSender;
 }
 
 /**
