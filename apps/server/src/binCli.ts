@@ -30,6 +30,7 @@ import { sshHelperCommand } from "./cli/sshHelper.ts";
 import { serviceCommand } from "./cli/service.ts";
 import { servicePreflightCommand } from "./cli/servicePreflight.ts";
 import { lazurioCommand } from "./lazurio/cli.ts";
+import { agentCliCommands, lazurioThreadCommand } from "./lazurio/agentCli.ts";
 import { themeCommand } from "./cli/theme.ts";
 import { traceCommand } from "./cli/trace.ts";
 import { triageCommand } from "./cli/triage.ts";
@@ -84,7 +85,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       environmentCommand,
       browserCommand,
       projectCommand,
-      threadCommand,
+      lazurioThreadCommand(threadCommand),
       upCommand,
       statusCommand,
       serviceCommand,
@@ -97,6 +98,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       servicePreflightCommand,
       themeCommand,
       lazurioCommand,
+      ...agentCliCommands,
       traceCommand,
       doctorCommand,
       policyCommand,
