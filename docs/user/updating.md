@@ -4,6 +4,14 @@ The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, the update button at the bottom
 of the sidebar and **Settings → Environments** offer to update it.
 
+A server running as a [background service](./background-service.md) also checks
+its own release train every few hours; a preview build never checks. When a
+newer release is out, the update button at the bottom of the sidebar and
+**Settings → Environments** offer it, also in the web app that server hosts, and
+update the server to that release. The official desktop and mobile apps do not
+offer it. Set `T3CODE_UPDATE_CHECK_ENABLED=false` in the service's environment to
+turn the check off.
+
 ## Update everything at once
 
 The update button at the bottom of the sidebar updates every connected machine
@@ -58,6 +66,10 @@ Each machine keeps the new track even if its switch did not finish, but it
 moves to that track only through a switch. **Update track** shows how many
 machines still run the other track. **Review** opens the same dialog with fresh
 checks.
+
+The Lazurio distribution publishes Stable and preview releases, not Nightly. A
+server that installs from its releases cannot switch to Nightly: the switch
+fails for it when it downloads the release, and it keeps the release it runs.
 
 ## Before you update
 
@@ -165,6 +177,8 @@ tools.
 Configure npm on the server's machine. If that registry cannot be reached, the
 release shows as unavailable; T3 Code does not try the public registry instead.
 Machines without npm check the public npm registry directly.
+A Lazurio server installs T3 Code from its own release channel, not from npm;
+npm only checks its providers.
 
 ## Update providers
 

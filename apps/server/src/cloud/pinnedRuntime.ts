@@ -12,12 +12,14 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
+  CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_CHECKSUMS_FILE,
   cliArchiveFileName,
   cliArchivePlatformKey,
   cliArchiveTarCommand,
   cliReleaseAssetUrl,
   type CliArchivePlatformKey,
+  cliReleaseRepository,
   parseChecksums,
 } from "@t3tools/shared/cliRelease";
 
@@ -115,6 +117,7 @@ interface PinnedRuntimeInstallInput {
   /** Reuse a cached runtime only while the release source still lists it, as a policy mirror does. */
   readonly requirePublishedRelease?: boolean;
   readonly onProgress?: (progress: PinnedRuntimeProgress) => void;
+  readonly releaseRepository?: string | undefined;
 }
 
 const fetchReleaseAsset = Effect.fn("cloud.pinned_runtime.fetch_release_asset")(function* (
@@ -185,7 +188,7 @@ const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(fun
   const { fileName, expected } = yield* publishedArchive(input, platformKey);
   const archive = yield* fetchReleaseAsset(
     httpClient,
-    cliReleaseAssetUrl(input.version, fileName, input.releaseBaseUrl),
+    cliReleaseAssetUrl(input.version, fileName, input.releaseBaseUrl, input.releaseRepository),
     "downloading the t3 release archive",
     input.onProgress,
   );
@@ -244,7 +247,12 @@ const publishedArchive = Effect.fn("cloud.pinned_runtime.published_archive")(fun
     new TextDecoder().decode(
       yield* fetchReleaseAsset(
         input.httpClient,
-        cliReleaseAssetUrl(input.version, CLI_RELEASE_CHECKSUMS_FILE, input.releaseBaseUrl),
+        cliReleaseAssetUrl(
+          input.version,
+          CLI_RELEASE_CHECKSUMS_FILE,
+          input.releaseBaseUrl,
+          input.releaseRepository,
+        ),
         "downloading the t3 release checksums",
       ),
     ),
@@ -267,6 +275,18 @@ export const isUnpublishedRelease = (error: unknown): error is PinnedRuntimeInst
     (error.step.startsWith("downloading the t3 release") &&
       HttpClientError.isHttpClientError(error.cause) &&
       error.cause.response?.status === 404));
+
+/** Why an unpublished release failed, naming where it was looked for but never a URL's query. */
+export const unpublishedReleaseReason = (
+  version: string,
+  releaseBaseUrl: string | undefined,
+  releaseRepository: string | undefined,
+): string =>
+  `t3@${version} is not published in ${
+    releaseBaseUrl?.trim()
+      ? `the release base URL (${CLI_RELEASE_BASE_URL_ENV})`
+      : `${cliReleaseRepository(releaseRepository)} releases`
+  }.`;
 
 const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(function* (
   input: PinnedRuntimeInstallInput,
