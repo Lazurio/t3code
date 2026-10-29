@@ -22,10 +22,13 @@ import {
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   BuddyDayLine,
+  buddyRowContent,
+  buddySurfaceRows,
   useBuddyDayJump,
   useBuddyDayLines,
   useBuddySurfaceMode,
 } from "../../lazurio/BuddySurface";
+import { buddyAnnouncementLevel } from "../../lazurio/buddySurfaceTimeline";
 import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
 import { observeResize } from "~/lib/observeResize";
@@ -248,6 +251,8 @@ interface MessagesTimelineProps {
   awaitingUser?: "approval" | "input" | null;
   /** Which request is waiting, so a second one of the same kind is announced too. */
   awaitingRequestId?: string | null;
+  /** Lazurio overlay (plan DEV-6676): work still runs after the turn; Buddy's quiet line says so. */
+  buddyBackgroundWork?: boolean;
   footer?: ReactNode;
 
   listRef: React.RefObject<LegendListRef | null>;
@@ -361,6 +366,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   isCompacting = false,
   awaitingUser = null,
   awaitingRequestId = null,
+  buddyBackgroundWork = false,
   listRef,
   timelineEntries,
   findOpen = false,
@@ -559,9 +565,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
     }
   }
 
-  const preferredToolCallVisibility = useClientSettings((settings) => settings.toolCallVisibility);
-  const screenReaderAnnouncements = useClientSettings(
-    (settings) => settings.screenReaderAnnouncements,
+  const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
+  // Lazurio overlay (plan DEV-6676): Buddy's conversation filters its own rows
+  // (buddySurfaceTimeline.ts), so "zen" would hide Buddy's messages between turns there.
+  const preferredToolCallVisibility = useClientSettings((settings) =>
+    buddySurface ? "showAll" : settings.toolCallVisibility,
+  );
+  // Lazurio overlay (root decision 0210): Buddy's surface never speaks T3's steps.
+  const screenReaderAnnouncements = useClientSettings((settings) =>
+    buddyAnnouncementLevel(buddySurface, settings.screenReaderAnnouncements),
   );
   const toolCallVisibility =
     findActive && preferredToolCallVisibility === "zen" ? "hideAll" : preferredToolCallVisibility;
@@ -680,14 +692,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
     toolCallVisibility,
     revealedMessageId,
   });
-  // Lazurio (root decision 0210): Delegace's wake is not shown, and an agent's message waits until
-  // the server says who sent it.
-  const rows = useLazurioActingSenderRows(
-    useStableRows(rawRows, listIdentityKey),
-    parseScopedThreadKey(listIdentityKey),
+  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows what Buddy writes, with one quiet row
+  // while he works (buddySurfaceTimeline.ts), and its days, and jumps to one.
+  const rows = buddySurfaceRows(
+    // Lazurio (root decision 0210): Delegace's wake is not shown, and an agent's message waits until
+    // the server says who sent it.
+    useLazurioActingSenderRows(
+      useStableRows(rawRows, listIdentityKey),
+      parseScopedThreadKey(listIdentityKey),
+    ),
+    buddySurface,
+    (isWorking || buddyBackgroundWork) && !awaitingUser,
   );
-  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
-  const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
   const buddyDayLines = useBuddyDayLines(rows, buddySurface);
   const matchedApprovalRequestIds = new Set<string>();
   for (const row of pendingApprovalRequestIds.size > 0 ? rows : []) {
@@ -1042,7 +1058,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     runs,
     activeThreadEnvironmentId,
     onRevertToTurnCount,
-    onRunShellCommand,
+    // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal to run a code block in.
+    onRunShellCommand: buddySurface ? undefined : onRunShellCommand,
     findActive,
     onImageExpand,
     onFileOpen,
@@ -1264,7 +1281,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         >
           {buddyDayLines.has(item.id) ? <BuddyDayLine label={buddyDayLines.get(item.id)!} /> : null}
           <AudioPreviewUnmountContext value={onAudioUnmount}>
-            <TimelineRowContent row={item} />
+            {buddyRowContent(item, buddySurface) ?? <TimelineRowContent row={item} />}
           </AudioPreviewUnmountContext>
         </div>
       </div>
