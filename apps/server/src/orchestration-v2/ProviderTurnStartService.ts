@@ -1,5 +1,6 @@
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
+import * as LazurioBuddyPrompt from "../lazurio/buddyPrompt.ts";
 import {
   CommandId,
   latestProviderTurnForAttempt,
@@ -757,7 +758,9 @@ export const layer: Layer.Layer<
       });
       let effectiveHandoffs = handoffs;
       let resumeFellBack = false;
-      const userText = projectComposerContextForProvider({
+      // Lazurio overlay (plan DEV-6676): Buddy's Hermes gets the page context as a Czech block.
+      const userText = yield* LazurioBuddyPrompt.projectComposerContextForProvider({
+        instanceId: run.providerInstanceId,
         text: message.text,
         records: message.context?.records ?? [],
       });

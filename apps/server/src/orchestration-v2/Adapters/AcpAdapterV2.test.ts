@@ -76,6 +76,7 @@ import { makeTurnInput } from "./AcpAdapterV2.testkit.ts";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import {
   AcpProviderCapabilitiesV2,
+  AcpT3Selection,
   acpScopedNativeId,
   acpPostSettleContinuationOfferEvidence,
   acpPostSettleWakeEvidence,
@@ -4007,6 +4008,104 @@ describe("AcpAdapterV2", () => {
         .map((event) => rawProtocolRequestParam(event, "value"));
       assert.deepEqual(sentAgentValues, ["example", ""]);
     }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.effect(
+    "applies no model and only the options its host names when the host sets the model",
+    () =>
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const path = yield* Path.Path;
+        const selfInvocation = yield* resolveSelfInvocation();
+        const mockAgentPath = yield* path.fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const protocolEvents = yield* Queue.bounded<EffectAcpProtocol.AcpProtocolLogEvent>(256);
+        const instanceId = ProviderInstanceId.make("acp-test-host-sets-model");
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          flavor: {
+            driver: ACP_TEST_DRIVER,
+            capabilities: AcpProviderCapabilitiesV2,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner,
+              mockAgentPath,
+              environment: { T3_ACP_EMIT_EMPTY_DEFAULT_AGENT_OPTION: "1" },
+              protocolEvents,
+            }),
+          },
+          selfInvocation,
+        }).pipe(
+          Effect.provideService(AcpT3Selection, (id) =>
+            id === instanceId ? new Set(["agent"]) : null,
+          ),
+        );
+        const threadId = ThreadId.make("thread-acp-host-sets-model");
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        // The agent offers each of these: a model, its mode and the agent option.
+        const opening = {
+          instanceId,
+          model: "composer-2",
+          options: [
+            { id: "mode", value: "code" },
+            { id: "agent", value: "example" },
+          ],
+        } satisfies ModelSelection;
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("provider-session-acp-host-sets-model"),
+          modelSelection: opening,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection: opening,
+          runtimePolicy,
+        });
+        yield* runtime.startTurn(
+          makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            runtimePolicy,
+            modelSelection: {
+              instanceId,
+              model: "gpt-5.3-codex[reasoning=medium,fast=false]",
+              options: [
+                { id: "mode", value: "architect" },
+                { id: "agent", value: ACP_EMPTY_OPTION_VALUE },
+              ],
+            },
+            now: yield* DateTime.now,
+          }),
+        );
+        yield* runtime.events.pipe(
+          Stream.filter((event) => event.type === "turn.terminal"),
+          Stream.runHead,
+        );
+
+        const sent = Array.from(yield* Queue.takeAll(protocolEvents)).filter(
+          (event) => event.direction === "outgoing",
+        );
+        assert.deepEqual(
+          sent
+            .filter((event) => rawProtocolMethod(event) === "session/set_config_option")
+            .map((event) => [
+              rawProtocolRequestParam(event, "configId"),
+              rawProtocolRequestParam(event, "value"),
+            ]),
+          [
+            ["agent", "example"],
+            ["agent", ""],
+          ],
+        );
+        assert.isFalse(sent.some((event) => rawProtocolMethod(event) === "session/set_model"));
+        assert.isTrue(sent.some((event) => rawProtocolMethod(event) === "session/prompt"));
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
   it.live("terminalizes an empty successful foreground Bash tool when the turn completes", () =>
