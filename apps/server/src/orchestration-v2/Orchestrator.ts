@@ -116,6 +116,8 @@ import {
   isActiveRun,
   isNativeMaintenanceCommand,
   resolveMessageDispatchIntent,
+  runAwaitingProviderTurn,
+  waitsOnPendingRequest,
 } from "./CommandPolicy.ts";
 import { CommandReceiptStoreV2, type CommandReceiptV2 } from "./CommandReceiptStore.ts";
 import {
@@ -7269,6 +7271,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const commandNotice = noticeKind === "command" && command.creationSource === "server";
     if (
       !freshContext &&
+      !waitsOnPendingRequest(projection) &&
       (delegatedCompletion !== undefined
         ? delegatedCompletion.taskIds.every(
             (id) =>
@@ -7370,6 +7373,40 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             payload: { ...sourcePlan, status: "completed" },
           });
 
+    // Lazurio: a plain send queued only because the run's provider turn has not started is
+    // deferred as an automatic steer; once that turn runs, the promotion steers it in only
+    // where an auto send would steer it then (Lazurio/t3code#170).
+    const awaitingTurn =
+      command.deliveryIntent === "auto" &&
+      dispatchMode.type === "queue_after_active" &&
+      !freshContext &&
+      goalCommand === null &&
+      queuedRunStop === undefined &&
+      notification === undefined &&
+      delegatedCompletion === undefined &&
+      !isNativeMaintenanceCommand(command)
+        ? runAwaitingProviderTurn(projection)
+        : undefined;
+    let steerWhenReadyIntent: "auto" | undefined;
+    if (awaitingTurn !== undefined) {
+      const steer = { type: "steer_active", targetRunId: awaitingTurn.id } as const;
+      const resolved = resolveMessageDispatchIntent(projection, steer);
+      const capabilities = yield* providerAdapters.get(awaitingTurn.providerInstanceId).pipe(
+        Effect.flatMap((adapter) => adapter.getCapabilities()),
+        Effect.option,
+      );
+      const turns = Option.getOrUndefined(capabilities)?.turns;
+      if (
+        resolved.type === "steer_active" &&
+        turns !== undefined &&
+        (turns.supportsActiveSteering ||
+          (turns.supportsInterrupt && turns.supportsSteeringByInterruptRestart)) &&
+        !(yield* stopReachedRun(command, command.threadId, awaitingTurn.id))
+      ) {
+        dispatchMode = steer;
+        steerWhenReadyIntent = "auto";
+      }
+    }
     let steerWhenReadyRunId: RunId | undefined;
     if (dispatchMode.type === "steer_active") {
       const targetRunId = dispatchMode.targetRunId;
@@ -7648,6 +7685,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         activeAttemptId: attemptId,
         status: "queued",
         ...(steerWhenReadyRunId === undefined ? {} : { steerWhenReadyRunId }),
+        ...(steerWhenReadyRunId === undefined || steerWhenReadyIntent === undefined
+          ? {}
+          : { steerWhenReadyIntent }),
         ...(worktreeMissingRun !== undefined ||
         (heldRunsToRelease.length === 0 &&
           queueIsHeld &&
@@ -11335,6 +11375,51 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const targetMessage = projection.messages.find(
       (message) => message.id === target?.userMessageId,
     );
+    // Lazurio: an automatic steer deferred while the turn started goes in once that turn runs
+    // only where an auto send would steer it; otherwise it waits for a turn of its own.
+    if (
+      queuedRun.steerWhenReadyIntent === "auto" &&
+      target !== undefined &&
+      projection.providerTurns.some(
+        (turn) => turn.runAttemptId === target.activeAttemptId && turn.status === "running",
+      )
+    ) {
+      const mode = resolveMessageDispatchIntent(
+        yield* readCommandProjection(command.threadId),
+        { type: "queue_after_active" },
+        "auto",
+      );
+      if (mode.type !== "steer_active" || mode.targetRunId !== target.id) {
+        const {
+          steerWhenReadyRunId: _deferred,
+          steerWhenReadyIntent: _auto,
+          ...ownTurn
+        } = queuedRun;
+        // A question the turn opened meanwhile puts it first in the queue, as for any promoted
+        // steer below, so it runs right after the answer.
+        const waitsOnAnswer = waitsOnPendingRequest(projection);
+        yield* emitEvent({
+          type: "run.updated",
+          threadId: command.threadId,
+          runId: queuedRun.id,
+          nodeId: queuedRootNode.id,
+          providerInstanceId: queuedRun.providerInstanceId,
+          occurredAt: now,
+          payload: waitsOnAnswer ? { ...ownTurn, queuePosition: 1 } : ownTurn,
+        });
+        if (!waitsOnAnswer) return;
+        return yield* stopRunForQueuedCommand({
+          command,
+          events,
+          effects,
+          projection,
+          queuedRunId: queuedRun.id,
+          targetRunId: undefined,
+          reason: "Queued behind a pending request",
+          now,
+        });
+      }
+    }
     // A compacting turn cannot take steering input, so steering skips the compaction instead.
     if (
       target !== undefined &&
@@ -11405,6 +11490,33 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         now,
       });
     }
+    if (waitsOnPendingRequest(projection)) {
+      // It goes first in the queue instead and runs after the answer, not steered into a later turn.
+      const {
+        steerWhenReadyRunId: _deferred,
+        steerWhenReadyIntent: _auto,
+        ...runsAfterAnswer
+      } = queuedRun;
+      yield* emitEvent({
+        type: "run.updated",
+        threadId: command.threadId,
+        runId: queuedRun.id,
+        nodeId: queuedRootNode.id,
+        providerInstanceId: queuedRun.providerInstanceId,
+        occurredAt: now,
+        payload: { ...runsAfterAnswer, queuePosition: 1 },
+      });
+      return yield* stopRunForQueuedCommand({
+        command,
+        events,
+        effects,
+        projection,
+        queuedRunId: queuedRun.id,
+        targetRunId: undefined,
+        reason: "Queued behind a pending request",
+        now,
+      });
+    }
     if (
       (target?.status === "preparing" ||
         target?.status === "starting" ||
@@ -11427,6 +11539,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           capabilities,
         })
         .pipe(mapDispatchError(command));
+      // Lazurio: a message promoted to a steer is an explicit steer from here on.
+      const { steerWhenReadyIntent: _auto, ...promotedRun } = queuedRun;
       yield* emitEvent({
         type: "run.updated",
         threadId: command.threadId,
@@ -11434,7 +11548,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         nodeId: queuedRootNode.id,
         providerInstanceId: queuedRun.providerInstanceId,
         occurredAt: now,
-        payload: { ...queuedRun, steerWhenReadyRunId: target.id },
+        payload: { ...promotedRun, steerWhenReadyRunId: target.id },
       });
       return;
     }

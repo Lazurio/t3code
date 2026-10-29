@@ -735,6 +735,8 @@ export const OrchestrationV2Run = Schema.Struct({
   queuePosition: Schema.optional(Schema.NullOr(PositiveInt)),
   queueHeld: Schema.optional(Schema.Boolean),
   steerWhenReadyRunId: Schema.optional(RunId),
+  /** Lazurio: the deferred steer came from an auto send and goes in only where one would steer. */
+  steerWhenReadyIntent: Schema.optional(Schema.Literal("auto")),
   requestedAt: Schema.DateTimeUtc,
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),

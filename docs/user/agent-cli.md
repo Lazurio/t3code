@@ -88,11 +88,14 @@ have.
 `--mode queue`, the default, a busy thread gets it as its next turn and nothing
 is interrupted. `--mode auto` starts an idle thread, steers a running turn or
 queues behind it, `--mode steer` goes into the running turn, and
-`--mode restart` stops the turn and starts again with your message. Pass `-` as
+`--mode restart` stops the turn and starts again with your message. While the
+turn waits on the person's answer to a question or an approval, `auto`,
+`steer` and `restart` queue, so the question stays; `t3 thread interrupt` still
+stops the turn. Pass `-` as
 the message, or `--message-file -`, to read it from standard input, and
 `--message-file <path>` to read it from a file.
 
-`--wait` waits for the run your message starts and prints the agent's reply.
+`--wait` waits for the run your message starts or steers and prints the agent's reply.
 When the thread had nothing running as you sent it, it also waits for background
 work the agent waits on, such as a subagent, and prints the reply of the run that
 work wakes.

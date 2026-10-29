@@ -12,6 +12,8 @@ import {
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
+  RunId,
+  RuntimeRequestId,
   ScheduledTaskId,
   ThreadId,
   TurnItemId,
@@ -514,6 +516,8 @@ const nextTurnSelectionHarness = Effect.fn("nextTurnSelectionHarness")(function*
     turn: ProviderAdapter.ProviderAdapterV2SteerInput,
   ) => Effect.Effect<void, ProviderAdapter.ProviderAdapterV2Error> = () => Effect.void,
   extraAdapters: ReadonlyArray<ProviderAdapter.ProviderAdapterV2["Service"]> = [],
+  // Lazurio: what the adapter reports before a session, as ACP does for an agent that steers.
+  adapterSteers = canSteer,
 ) {
   const driver = ProviderDriverKind.make(nativeGoals === undefined ? "codex" : "opencode");
   const cwd = yield* checkpointWorkspace(name);
@@ -535,7 +539,11 @@ const nextTurnSelectionHarness = Effect.fn("nextTurnSelectionHarness")(function*
   const adapter: ProviderAdapter.ProviderAdapterV2["Service"] = {
     instanceId,
     driver,
-    getCapabilities: () => Effect.succeed(capabilities),
+    getCapabilities: () =>
+      Effect.succeed({
+        ...capabilities,
+        turns: { ...capabilities.turns, supportsActiveSteering: adapterSteers },
+      }),
     planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
     openSession: (input) =>
       Effect.gen(function* () {
@@ -1102,6 +1110,255 @@ it.effect.each(
       assert.equal(after.runs.find((candidate) => candidate.id === run.id)?.status, "running");
     }).pipe(Effect.provide(layer));
   }),
+);
+
+// Lazurio/t3code#170: agents and Buddy send plain messages; one sent while the turn starts
+// steers in once it runs where an auto send would steer the running turn, instead of waiting
+// for a turn of its own. An ACP agent reports steering only on its session.
+it.effect.each([
+  { name: "steering", canSteer: true, canRestart: false, adapterSteers: true },
+  { name: "no steering", canSteer: false, canRestart: false, adapterSteers: false },
+  { name: "fresh context", canSteer: true, canRestart: false, adapterSteers: true, fresh: true },
+  { name: "ACP agent that steers", canSteer: true, canRestart: true, adapterSteers: false },
+  { name: "ACP agent that restarts", canSteer: false, canRestart: true, adapterSteers: false },
+  { name: "compaction", canSteer: true, canRestart: false, adapterSteers: true, compact: true },
+] as const)(
+  "a plain send made while the turn starts: $name",
+  ({ name, canSteer, canRestart, adapterSteers, ...test }) =>
+    Effect.gen(function* () {
+      const freshContext = "fresh" in test;
+      const compaction = "compact" in test;
+      const defers = !freshContext && !compaction && (adapterSteers || canRestart);
+      const steers = defers && canSteer;
+      const { started, steered, interrupted, layer, startFirstTurn, events } =
+        yield* nextTurnSelectionHarness(
+          `auto-awaiting-turn-${name.replaceAll(" ", "-")}`,
+          canRestart,
+          canSteer,
+          Effect.void,
+          true,
+          undefined,
+          () => Effect.void,
+          [],
+          adapterSteers,
+        );
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        const threadId = yield* startFirstTurn;
+        const before = yield* orchestrator.getThreadProjection(threadId);
+        const run = before.runs[0]!;
+        const turn = before.providerTurns[0]!;
+        const firstMessage = before.messages.find((message) => message.id === run.userMessageId)!;
+        const now = yield* DateTime.now;
+        yield* (yield* EventSink.EventSinkV2).write({
+          events: [
+            ...(compaction
+              ? [
+                  {
+                    id: EventId.make("setup-compact"),
+                    type: "message.updated" as const,
+                    threadId,
+                    occurredAt: now,
+                    payload: { ...firstMessage, text: "/compact" },
+                  },
+                ]
+              : []),
+            {
+              id: EventId.make("setup-run"),
+              type: "run.updated",
+              threadId,
+              occurredAt: now,
+              payload: { ...run, status: "starting" },
+            },
+            {
+              id: EventId.make("setup-turn"),
+              type: "provider-turn.updated",
+              threadId,
+              occurredAt: now,
+              payload: { ...turn, status: "pending" },
+            },
+          ],
+        });
+        const messageId = MessageId.make("message:auto-while-starting");
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("auto-while-starting"),
+          threadId,
+          messageId,
+          text: "sent while starting",
+          attachments: [],
+          deliveryIntent: "auto",
+          dispatchMode: { type: "queue_after_active" },
+          ...(freshContext ? { freshContext: true } : {}),
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        const queued = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+          (candidate) => candidate.userMessageId === messageId,
+        )!;
+        assert.equal(queued.status, "queued");
+        assert.equal(queued.steerWhenReadyRunId, defers ? run.id : undefined);
+        // A deferred send is promoted to a steer or, where it would not steer, stops deferring.
+        const delivered = yield* orchestrator.streamDomainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "run.updated" &&
+              event.payload.id === queued.id &&
+              (event.payload.status === "cancelled" ||
+                event.payload.steerWhenReadyRunId === undefined),
+          ),
+          Stream.take(1),
+          Stream.runDrain,
+          Effect.forkScoped,
+        );
+        yield* worker.drain();
+        assert.deepEqual(steered, []);
+        yield* (yield* EventSink.EventSinkV2).write({
+          events: [
+            {
+              id: EventId.make("ready-run"),
+              type: "run.updated",
+              threadId,
+              occurredAt: now,
+              payload: run,
+            },
+          ],
+        });
+        yield* Queue.offer(events, { type: "provider_turn.updated", driver, providerTurn: turn });
+        if (defers) yield* Fiber.join(delivered);
+        yield* worker.drain();
+        assert.deepEqual(steered, steers ? ["sent while starting"] : []);
+        assert.deepEqual(interrupted, []);
+        assert.lengthOf(started, 1);
+        const after = yield* orchestrator.getThreadProjection(threadId);
+        const queuedAfter = after.runs.find((candidate) => candidate.id === queued.id);
+        assert.equal(queuedAfter?.status, steers ? "cancelled" : "queued");
+        if (!steers) assert.equal(queuedAfter?.steerWhenReadyRunId, undefined);
+      }).pipe(Effect.provide(layer));
+    }),
+);
+
+// An agent's `auto` is deferred as the web's `steer` is; both go first, ahead of an earlier message.
+it.effect.each([
+  { intent: "steer", createdBy: "user", creationSource: "web" },
+  { intent: "auto", createdBy: "agent", creationSource: "mcp" },
+] as const)(
+  "runs a steer deferred while the turn starts after a question the turn opened, sent as $intent",
+  ({ intent, createdBy, creationSource }) =>
+    Effect.gen(function* () {
+      const { started, steered, layer, startFirstTurn, events } = yield* nextTurnSelectionHarness(
+        `deferred-${intent}-pending-request`,
+      );
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const threadId = yield* startFirstTurn;
+        const before = yield* orchestrator.getThreadProjection(threadId);
+        const run = before.runs[0]!;
+        const turn = before.providerTurns[0]!;
+        const now = yield* DateTime.now;
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("setup-run"),
+              type: "run.updated",
+              threadId,
+              occurredAt: now,
+              payload: { ...run, status: "starting" },
+            },
+            {
+              id: EventId.make("setup-turn"),
+              type: "provider-turn.updated",
+              threadId,
+              occurredAt: now,
+              payload: { ...turn, status: "pending" },
+            },
+          ],
+        });
+        const earlierId = MessageId.make("message:queued-before-question");
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("queued-before-question"),
+          threadId,
+          messageId: earlierId,
+          text: "queued before question",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const messageId = MessageId.make("message:steer-before-question");
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("steer-before-question"),
+          threadId,
+          messageId,
+          text: "steer before question",
+          attachments: [],
+          deliveryIntent: intent,
+          dispatchMode: { type: "queue_after_active" },
+          createdBy,
+          creationSource,
+        });
+        const queued = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+          (candidate) => candidate.userMessageId === messageId,
+        )!;
+        assert.equal(queued.steerWhenReadyRunId, run.id);
+        const requeued = yield* orchestrator.streamDomainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "run.updated" &&
+              event.payload.id === queued.id &&
+              event.payload.status === "queued",
+          ),
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("ready-run"),
+              type: "run.updated",
+              threadId,
+              occurredAt: now,
+              payload: run,
+            },
+            {
+              id: EventId.make("request:question"),
+              type: "runtime-request.updated",
+              threadId,
+              occurredAt: now,
+              payload: {
+                id: RuntimeRequestId.make("request:question"),
+                nodeId: NodeId.make("node:question"),
+                providerTurnId: null,
+                nativeRequestRef: null,
+                kind: "user_input",
+                status: "pending",
+                responseCapability: { type: "message" },
+                createdAt: now,
+                resolvedAt: null,
+              },
+            },
+          ],
+        });
+        yield* Queue.offer(events, { type: "provider_turn.updated", driver, providerTurn: turn });
+        const [event] = yield* Fiber.join(requeued);
+        assert.equal(event?.type === "run.updated" ? event.payload.queuePosition : null, 1);
+        assert.equal(
+          event?.type === "run.updated" ? event.payload.steerWhenReadyRunId : null,
+          undefined,
+        );
+        assert.deepEqual(steered, []);
+        assert.lengthOf(started, 1);
+        const after = yield* orchestrator.getThreadProjection(threadId);
+        const positionOf = (id: MessageId) =>
+          after.runs.find((candidate) => candidate.userMessageId === id)?.queuePosition;
+        assert.deepEqual([positionOf(messageId), positionOf(earlierId)], [1, 2]);
+      }).pipe(Effect.provide(layer));
+    }),
 );
 
 it.effect("force sends multiple queued messages and can force send a requeued message again", () =>
@@ -2757,6 +3014,271 @@ it.effect("queues a restart sent into a provider turn that failed before its run
       );
     }).pipe(Effect.provide(layer));
   }),
+);
+
+it.effect(
+  "queues a steer and puts a promoted message first while the turn waits on the person",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
+          "steering-pending-request",
+        );
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          const sink = yield* EventSink.EventSinkV2;
+          const threadId = yield* startFirstTurn;
+          const first = started[0]!;
+          const send = (id: string, delivery: "queue" | "steer") =>
+            orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(id),
+              threadId,
+              messageId: MessageId.make(`message:${id}`),
+              text: id,
+              attachments: [],
+              modelSelection: runSelection,
+              ...(delivery === "queue"
+                ? { dispatchMode: { type: "queue_after_active" } }
+                : { dispatchMode: { type: "start_immediately" }, deliveryIntent: "steer" }),
+              createdBy: "user",
+              creationSource: "web",
+            });
+          yield* send("queued", "queue");
+          yield* send("promoted", "queue");
+          const promotedRun = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+            (run) => run.userMessageId === MessageId.make("message:promoted"),
+          )!;
+          const now = yield* DateTime.now;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("request:question"),
+                type: "runtime-request.updated",
+                threadId,
+                runId: first.runId,
+                nodeId: first.rootNodeId,
+                occurredAt: now,
+                payload: {
+                  id: RuntimeRequestId.make("request:question"),
+                  nodeId: first.rootNodeId,
+                  providerTurnId: null,
+                  nativeRequestRef: null,
+                  kind: "user_input",
+                  status: "pending",
+                  responseCapability: { type: "message" },
+                  createdAt: now,
+                  resolvedAt: null,
+                },
+              },
+            ],
+          });
+
+          yield* orchestrator.dispatch({
+            type: "queued-message.promote-to-steer",
+            commandId: CommandId.make("promote"),
+            threadId,
+            queuedRunId: promotedRun.id,
+            targetRunId: first.runId,
+          });
+          yield* send("steered", "steer");
+          yield* worker.drain();
+
+          const projection = yield* orchestrator.getThreadProjection(threadId);
+          assert.deepEqual(steered, []);
+          assert.equal(started.length, 1);
+          assert.deepEqual(
+            projection.runs
+              .filter((run) => run.status === "queued")
+              .sort((left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0))
+              .map(
+                (run) =>
+                  projection.messages.find((message) => message.id === run.userMessageId)?.text,
+              ),
+            ["promoted", "queued", "steered"],
+          );
+          assert.deepEqual(
+            projection.runtimeRequests.map((request) => request.status),
+            ["pending"],
+          );
+
+          // A delegated task's completion wake steers on its own path, so it needs the guard too.
+          const wakeId = MessageId.make("message:wake");
+          const taskId = NodeId.make("task:wake");
+          const parentRun = projection.runs.find((run) => run.id === first.runId)!;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("wake:cohort"),
+                type: "run.updated",
+                threadId,
+                runId: first.runId,
+                occurredAt: now,
+                payload: {
+                  ...parentRun,
+                  delegatedCompletion: {
+                    disposition: "open",
+                    nextGeneration: 2,
+                    delivery: { generation: 1, messageId: wakeId, taskIds: [taskId] },
+                  },
+                },
+              },
+              {
+                id: EventId.make("wake:task"),
+                type: "subagent.updated",
+                threadId,
+                runId: first.runId,
+                nodeId: taskId,
+                occurredAt: now,
+                payload: {
+                  id: taskId,
+                  threadId,
+                  runId: first.runId,
+                  parentNodeId: first.rootNodeId,
+                  origin: "app_owned",
+                  createdBy: "agent",
+                  driver,
+                  providerInstanceId: instanceId,
+                  providerThreadId: null,
+                  childThreadId: null,
+                  nativeTaskRef: null,
+                  prompt: "Do background work",
+                  title: "Background test",
+                  model: null,
+                  completionWake: "always",
+                  completionDelivery: { state: "claimed", observedByRunId: null },
+                  status: "completed",
+                  result: "done",
+                  startedAt: now,
+                  completedAt: now,
+                  updatedAt: now,
+                },
+              },
+            ],
+          });
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("wake"),
+            threadId,
+            messageId: wakeId,
+            text: "wake",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: "server",
+            delegatedCompletion: { parentRunId: first.runId, generation: 1, taskIds: [taskId] },
+          });
+          yield* worker.drain();
+
+          const woken = yield* orchestrator.getThreadProjection(threadId);
+          assert.deepEqual(steered, []);
+          assert.equal(woken.runs.find((run) => run.userMessageId === wakeId)?.status, "queued");
+
+          // So does a delegated task's question, which reaches a busy parent as a steer. Upstream
+          // drops the question of a task that has finished or whose child no longer asks it,
+          // so it comes from a running task whose child waits on the person.
+          const questionTaskId = NodeId.make("task:question");
+          const childThreadId = ThreadId.make("thread:steering-pending-request:child");
+          const childNodeId = NodeId.make("node:steering-pending-request:child");
+          const childRequestId = RuntimeRequestId.make("request:child-question");
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("create-child"),
+            threadId: childThreadId,
+            projectId: projection.thread.projectId,
+            title: "Child that asks",
+            modelSelection: runSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: projection.thread.worktreePath,
+            createdBy: "agent",
+            creationSource: "provider",
+          });
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("question:task"),
+                type: "subagent.updated",
+                threadId,
+                runId: first.runId,
+                nodeId: questionTaskId,
+                occurredAt: now,
+                payload: {
+                  id: questionTaskId,
+                  threadId,
+                  runId: first.runId,
+                  parentNodeId: first.rootNodeId,
+                  origin: "app_owned",
+                  createdBy: "agent",
+                  driver,
+                  providerInstanceId: instanceId,
+                  providerThreadId: null,
+                  childThreadId,
+                  nativeTaskRef: null,
+                  prompt: "Ask the person",
+                  title: "Question test",
+                  model: null,
+                  completionWake: "always",
+                  status: "running",
+                  result: null,
+                  startedAt: now,
+                  completedAt: null,
+                  updatedAt: now,
+                },
+              },
+              {
+                id: EventId.make("question:child-request"),
+                type: "runtime-request.updated",
+                threadId: childThreadId,
+                runId: RunId.make("run:steering-pending-request:child"),
+                nodeId: childNodeId,
+                occurredAt: now,
+                payload: {
+                  id: childRequestId,
+                  nodeId: childNodeId,
+                  providerTurnId: null,
+                  nativeRequestRef: null,
+                  kind: "user_input",
+                  status: "pending",
+                  responseCapability: { type: "message" },
+                  createdAt: now,
+                  resolvedAt: null,
+                },
+              },
+            ],
+          });
+          const questionId = MessageId.make(
+            `message:delegated-task-question:${threadId}:${childRequestId}`,
+          );
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("task-question"),
+            threadId,
+            messageId: questionId,
+            text: "task question",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: "server",
+            notification: {
+              source: { kind: "delegated_task", taskIds: [questionTaskId] },
+              outcome: "updated",
+              summary: "Delegated task has a question",
+            },
+          });
+          yield* worker.drain();
+
+          const asked = yield* orchestrator.getThreadProjection(threadId);
+          assert.deepEqual(steered, []);
+          assert.equal(
+            asked.runs.find((run) => run.userMessageId === questionId)?.status,
+            "queued",
+          );
+        }).pipe(Effect.provide(layer));
+      }),
+    ),
 );
 
 it.effect("queues a plain send behind the stopped queue and releases its hold", () =>

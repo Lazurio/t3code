@@ -90,13 +90,25 @@ export function goalCommandStopsActiveRun(
   }
 }
 
+/**
+ * A steer or restart aborts the provider's pending question or approval callback, so the
+ * person never sees it; while one is pending, either waits behind the turn (Lazurio/t3code#139).
+ */
+export function waitsOnPendingRequest(
+  projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
+): boolean {
+  return projection.runtimeRequests.some((request) => request.status === "pending");
+}
+
 export function resolveMessageDispatchIntent(
   projection: OrchestrationV2ThreadProjection,
   requestedMode: MessageDispatchMode,
   deliveryIntent?: "auto" | "steer" | "restart",
 ): MessageDispatchMode {
   const mode = resolveDeliveryIntent(projection, requestedMode, deliveryIntent);
-  if (mode.type !== "steer_active") return mode;
+  if (mode.type !== "steer_active" && mode.type !== "restart_active") return mode;
+  if (waitsOnPendingRequest(projection)) return { type: "queue_after_active" };
+  if (mode.type === "restart_active") return mode;
   // Compaction and sign-out cannot accept steers; queue follow-ups.
   const target = projection.runs.find((run) => run.id === mode.targetRunId);
   const targetMessage = projection.messages.find((message) => message.id === target?.userMessageId);
@@ -114,6 +126,23 @@ export function resolveMessageDispatchIntent(
     turns.supportsQueuedMessages
     ? { type: "queue_after_active" }
     : mode;
+}
+
+/**
+ * The run being set up whose provider turn has not started. Automatic input sent now steers into
+ * it once that turn runs instead of waiting for a turn of its own (Lazurio/t3code#170).
+ */
+export function runAwaitingProviderTurn(
+  projection: Pick<OrchestrationV2ThreadProjection, "runs" | "providerTurns">,
+): OrchestrationV2Run | undefined {
+  const activeRun = projection.runs.findLast(isActiveRun);
+  return activeRun === undefined ||
+    activeRun.status === "waiting" ||
+    projection.providerTurns.some(
+      (turn) => turn.runAttemptId === activeRun.activeAttemptId && turn.status !== "pending",
+    )
+    ? undefined
+    : activeRun;
 }
 
 /** A run that still owns the thread's provider turn. */

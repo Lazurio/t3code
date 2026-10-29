@@ -69,6 +69,12 @@ are saved on the server and can be edited or removed before they send.
 When Enter sends, `Cmd+Enter` on macOS or `Ctrl+Enter` on Windows and Linux uses
 the opposite action: it steers when your default is Queue and queues when your
 default is Steer.
+While the agent waits on your answer to a question or an approval, a steer queues
+instead, and a queued message you send now (**Send now** or the shortcut below) moves
+to the front of the queue, so the question stays until you answer it.
+A message you send while the turn is still starting waits in the queue and steers
+in once the agent starts working, when the agent supports steering. When the send
+uses Queue, it stays in the queue and sends after the turn.
 If your **Send shortcut** requires `Cmd+Enter` or `Ctrl+Enter`, that shortcut uses
 your default follow-up behavior; add **Shift** to use the opposite action. This
 applies only to multiline messages when you choose the multiline send option.
