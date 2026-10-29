@@ -164,7 +164,12 @@ import {
   LazurioRightPanelSurfaces,
   useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
-import { BuddyThreadDetailsPanel, useBuddySurfaceMode } from "../lazurio/BuddySurface";
+import {
+  BuddyThreadDetailsPanel,
+  useBuddyPage,
+  useBuddySurfaceMode,
+} from "../lazurio/BuddySurface";
+import { BuddyPageChip } from "../lazurio/BuddySurfacePageChip";
 import {
   ThreadPreviewMiniPlayer,
   useThreadPreviewCanvasSource,
@@ -563,6 +568,8 @@ export default function ChatView(props: ChatViewProps) {
   // Lazurio overlay (plan DEV-6676): in Buddy's one conversation a follow-up steers by default,
   // and queueing is the explicit alternative.
   const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
+  const buddyPage = useBuddyPage(environmentId);
   const environmentSettings = useEnvironmentSettings(environmentId);
   const settings = buddySurface
     ? { ...environmentSettings, followUpBehavior: "steer" as const }
@@ -2960,6 +2967,7 @@ export default function ChatView(props: ChatViewProps) {
     sideChatDisabledReason,
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
+    buddyPageRecord: buddyPage.record,
   });
 
   const onWorktreeSetupWorkLocally = () => {
@@ -3589,6 +3597,13 @@ export default function ChatView(props: ChatViewProps) {
                                 }
                               />
                             ) : null}
+                            {buddyPage.record === null || queuedRunEdit.isEditing ? null : (
+                              <BuddyPageChip
+                                label={buddyPage.record.label}
+                                removeLabel={buddyPage.removeLabel}
+                                onRemove={buddyPage.remove}
+                              />
+                            )}
                             {!composerMounted ? null : (
                               <ChatComposer
                                 canOperateThread={canOperateThread}
