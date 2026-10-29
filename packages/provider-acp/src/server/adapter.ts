@@ -40,6 +40,7 @@ import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
 import { compactDynamicToolOutput, htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import { FILE_HEADERS_ONLY, formatPatch, structuredPatch } from "diff";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -427,6 +428,26 @@ function acpSupportsImagePrompts(input: {
 }): boolean {
   return input.flavorSupportsImagePrompts === true || input.negotiatedImage === true;
 }
+
+/**
+ * Whether an instance's prompts carry T3's own instructions (interaction mode, tools, runtime and
+ * pull-request notes) beside the user's message. An agent that keeps its own persona and memory
+ * stores every prompt as the user's words, so its host can leave them out. Read when the adapter
+ * is built.
+ */
+export class AcpT3Instructions extends Context.Reference<
+  (instanceId: ProviderInstanceId) => boolean
+>("@t3tools/provider-acp/AcpT3Instructions", { defaultValue: () => () => true }) {}
+
+/**
+ * How much of T3's model selection an instance's sessions take. Null, the default, is all of it: the
+ * model and every option. A host that sets its agent's model and reasoning in the agent's own config
+ * names the options T3 may still apply; T3 then applies no model and only those options, whenever a
+ * session starts, loads or gets a new selection. Read when the adapter is built.
+ */
+export class AcpT3Selection extends Context.Reference<
+  (instanceId: ProviderInstanceId) => ReadonlySet<string> | null
+>("@t3tools/provider-acp/AcpT3Selection", { defaultValue: () => () => null }) {}
 
 export function acpScopedNativeId(instanceId: ProviderInstanceId, nativeId: string): string {
   return `provider-instance:${encodeURIComponent(instanceId)}:${nativeId}`;
@@ -1433,6 +1454,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const sendsT3Instructions = (yield* AcpT3Instructions)(options.instanceId);
+  const t3SelectionOptions = (yield* AcpT3Selection)(options.instanceId);
   const { flavor, selfInvocation: self } = options;
   const readMcpContext = (threadId: ThreadId | null) =>
     threadId === null
@@ -6768,6 +6791,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         ) {
           const model = flavor.resolveModelId?.(modelSelection) ?? modelSelection.model;
           if (
+            // The host sets the agent's model (AcpT3Selection), so T3 checks none.
+            t3SelectionOptions !== null ||
             flavor.applyModelSelection !== undefined ||
             model.length === 0 ||
             model === "default" ||
@@ -6808,7 +6833,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               ? new AcpModelSelectionError({ model: modelSelection.model, cause: error })
               : error;
           let appliedModel: string | undefined;
-          if (flavor.applyModelSelection !== undefined) {
+          if (t3SelectionOptions !== null) {
+            // The host sets the agent's model (AcpT3Selection).
+          } else if (flavor.applyModelSelection !== undefined) {
             appliedModel = yield* flavor
               .applyModelSelection({
                 runtime,
@@ -6864,9 +6891,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               };
             });
           }
-          const optionSelections = (modelSelection.options ?? []).map((selection) =>
-            selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
-          );
+          const optionSelections = (modelSelection.options ?? [])
+            .filter(
+              (selection) => t3SelectionOptions === null || t3SelectionOptions.has(selection.id),
+            )
+            .map((selection) =>
+              selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
+            );
           const configOptions = yield* runtime.getConfigOptions;
           const availableConfigIds = new Set(configOptions.map((option) => option.id));
           const hasNativeConfigWithSyntheticModeId = availableConfigIds.has(
@@ -7348,13 +7379,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             resolveExtractedTextPath: host.resolveExtractedTextPath,
           });
           const isNativeSlashCommand = userText.trimStart().startsWith("/");
-          const text = t3AcpPromptWithInstructions({
-            prompt: messageText,
-            state: instructionState,
-            ...(previousInstructionState === undefined || compactionMarker !== undefined
-              ? {}
-              : { previousState: previousInstructionState }),
-          });
+          const text = sendsT3Instructions
+            ? t3AcpPromptWithInstructions({
+                prompt: messageText,
+                state: instructionState,
+                ...(previousInstructionState === undefined || compactionMarker !== undefined
+                  ? {}
+                  : { previousState: previousInstructionState }),
+              })
+            : messageText;
           if (text.length > 0) {
             prompt.push({ type: "text", text });
           }
@@ -7418,7 +7451,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               detail: "ACP turn requires non-empty text or attachments",
             });
           }
-          if (!isNativeSlashCommand) {
+          if (sendsT3Instructions && !isNativeSlashCommand) {
             prompt.push({
               type: "text",
               text: buildRuntimeInstructions({
