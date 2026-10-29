@@ -1,0 +1,81 @@
+name: Lazurio T3 Code problem
+description: Report a problem with Lazurio T3 Code, the modified distribution of T3 Code in this repository.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is Lazurio T3 Code, a modified distribution of T3 Code for Lazurio
+        Environments. Report problems with it here, not to the T3 Code team. If the problem also
+        happens in upstream T3 Code, report it upstream too.
+
+        Do not report a security problem in a public issue. Report it privately: on this
+        repository's **Security** tab, choose **Report a vulnerability**.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Lazurio T3 Code is affected?
+      options:
+        - Environment browser (right panel, New tab, browser tools)
+        - Lazurio Folder project
+        - Lazurio shell (rail, app switcher)
+        - Name or look on a Lazurio Environment
+        - Prepared prompt from Lazurio
+        - Updates and releases
+        - Hosting (sign-in, pairing, session)
+        - Something else, or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Chat on the Environment
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → General shows it, and so does `t3 --version` on the Environment.
+      placeholder: 0.1.4-lazurio.1
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      placeholder: Chrome on macOS
+
+  - type: dropdown
+    id: upstream
+    attributes:
+      label: Does it also happen in upstream T3 Code?
+      options:
+        - "No"
+        - "Yes"
+        - Not checked
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Logs or screenshots
+      description: The most relevant part only. Remove secrets, tokens and private names first.
