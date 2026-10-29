@@ -1864,6 +1864,111 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  // Lazurio overlay (root decision 0211): in Default mode Codex marks a request_user_input
+  // question as not blocking, and its own TUI answers it empty after two minutes. T3 holds it until
+  // the user picks an answer, which goes back to Codex as the tool's result: the transcript accepts
+  // no other response to the request.
+  it.effect("holds a Default-mode Codex question until the user answers it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const nativeThreadId = "default-question-thread";
+        const nativeTurnId = "default-question-turn";
+        const options = [
+          { label: "Publish", description: "Merge the pull request now." },
+          { label: "Ask a colleague", description: "Request a review and hand it over." },
+        ];
+        const transcript = makeCodexReplayTranscript({
+          scenario: "default-mode-question",
+          entries: [
+            ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Hand it over." }),
+            {
+              type: "emit_inbound",
+              label: "question",
+              frame: {
+                id: 100,
+                method: "item/tool/requestUserInput",
+                params: {
+                  threadId: nativeThreadId,
+                  turnId: nativeTurnId,
+                  itemId: "publish-question",
+                  questions: [
+                    {
+                      id: "publish",
+                      header: "Publish",
+                      question: "Shall I publish these changes in your name?",
+                      isOther: true,
+                      isSecret: false,
+                      options,
+                    },
+                  ],
+                  isBlocking: false,
+                },
+              },
+            },
+            {
+              type: "expect_outbound",
+              label: "answer",
+              frame: {
+                id: 100,
+                result: { answers: { publish: { answers: ["Ask a colleague"] } } },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "complete",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const pending = yield* Queue.unbounded<OrchestrationV2RuntimeRequest>();
+        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
+          event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending"
+            ? Queue.offer(pending, event.runtimeRequest)
+            : Effect.void,
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("default-question-attempt"),
+            text: "Hand it over.",
+          }),
+        );
+        // The transcript completes the turn only after the answer, so nothing ends while it waits.
+        const request = yield* Queue.take(pending);
+        assert.isEmpty(harness.terminalEvents());
+
+        yield* harness.runtime.respondToRuntimeRequest({
+          requestId: request.id,
+          answers: { publish: "Ask a colleague" },
+        });
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
+        const question = harness.events.find(
+          (event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "user_input_request",
+        );
+        assert.deepEqual(
+          question?.type === "turn_item.updated" && question.turnItem.type === "user_input_request"
+            ? question.turnItem.questions[0]?.options
+            : undefined,
+          options,
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
   it.effect("stops asking for commands the user allowed for the session", () =>
     Effect.scoped(
       Effect.gen(function* () {
