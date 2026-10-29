@@ -29,6 +29,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import { resolveMessageDispatchIntent } from "./CommandPolicy.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -595,4 +596,77 @@ it.effect.each([
 
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
+);
+
+it.effect.each([
+  { mode: "auto" as const, pendingRequest: false, dispatchMode: "steer_active" },
+  { mode: "auto" as const, pendingRequest: true, dispatchMode: "queue_after_active" },
+  { mode: "steer" as const, pendingRequest: false, dispatchMode: "steer_active" },
+  { mode: "steer" as const, pendingRequest: true, dispatchMode: "queue_after_active" },
+])(
+  "sendToThread in $mode mode with a pending request: $pendingRequest resolves to $dispatchMode",
+  ({ mode, pendingRequest, dispatchMode }) =>
+    Effect.gen(function* () {
+      const projectId = ProjectId.make("project:thread-management:send-pending");
+      const threadId = ThreadId.make("thread:thread-management:send-pending");
+      const runId = RunId.make("run:thread-management:send-pending");
+      const messageId = MessageId.make("message:thread-management:send-pending");
+      const instanceId = ProviderInstanceId.make("codex_work");
+      const dispatched: Array<unknown> = [];
+      const projection = {
+        thread: {
+          id: threadId,
+          projectId,
+          deletedAt: null,
+          archivedAt: null,
+          modelSelection: { instanceId, model: "test" },
+        },
+        runs: [{ id: runId, ordinal: 1, status: "running", activeAttemptId: "attempt-1" }],
+        providerTurns: [{ runAttemptId: "attempt-1", status: "running" }],
+        runtimeRequests: pendingRequest ? [{ kind: "user_input", status: "pending" }] : [],
+        messages: [{ id: messageId, runId }],
+        turnItems: [{ type: "user_message", messageId, inputIntent: "queued_turn" }],
+      } as unknown as OrchestrationV2ThreadProjection;
+      const layerTest = ThreadManagementService.layer.pipe(
+        Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+        Layer.provide(
+          Layer.mock(Orchestrator.OrchestratorV2)({
+            getThreadRecords: () => Effect.succeed(projection),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                // The orchestrator resolves the mode against the thread it reads.
+                dispatched.push(
+                  command.type === "message.dispatch"
+                    ? resolveMessageDispatchIntent(projection, command.dispatchMode)
+                    : null,
+                );
+                return { sequence: 1, storedEvents: [] } as never;
+              }),
+          }),
+        ),
+        Layer.provide(
+          ServerSettings.layerTest({
+            providerInstances: { [instanceId]: { driver: "codex", enabled: true } },
+          }),
+        ),
+        Layer.provide(layerReceiptsTest),
+      );
+      const service = yield* ThreadManagementService.ThreadManagementService.pipe(
+        Effect.provide(layerTest),
+      );
+
+      yield* service.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:thread-management:send-pending"),
+        threadId,
+        messageId,
+        text: "A message from another thread.",
+        attachments: [],
+        mode,
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+
+      expect(dispatched).toEqual([expect.objectContaining({ type: dispatchMode })]);
+    }),
 );
