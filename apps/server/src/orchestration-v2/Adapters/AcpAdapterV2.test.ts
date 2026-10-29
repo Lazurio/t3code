@@ -308,6 +308,125 @@ const pollProtocolMethods = (events: Queue.Queue<EffectAcpProtocol.AcpProtocolLo
     return methods;
   });
 
+const pollProtocolRequests = (events: Queue.Queue<EffectAcpProtocol.AcpProtocolLogEvent>) =>
+  Effect.gen(function* () {
+    const requests: Array<{ readonly method?: unknown; readonly params?: unknown }> = [];
+    let polled = 0;
+    let event = yield* Queue.poll(events);
+    while (Option.isSome(event) && polled < 256) {
+      polled += 1;
+      const request =
+        event.value.direction === "outgoing" ? rawProtocolRequest(event.value) : undefined;
+      if (request !== undefined) requests.push(request);
+      event = yield* Queue.poll(events);
+    }
+    return requests;
+  });
+
+/** A turn of the mock agent in Lazurio's steer mode, running until `finishPrompt`. */
+const makeLazurioSteerHarness = Effect.fnUntraced(function* (
+  environment: Readonly<Record<string, string>>,
+) {
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const path = yield* Path.Path;
+  const selfInvocation = yield* resolveSelfInvocation();
+  const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+  const native: { current?: AcpSessionRuntime.AcpSessionRuntime["Service"] } = {};
+  const instanceId = ProviderInstanceId.make("acp-lazurio-active-steer");
+  const adapter = yield* makeAcpAdapterV2({
+    instanceId,
+    flavor: {
+      driver: ACP_TEST_DRIVER,
+      capabilities: AcpProviderCapabilitiesV2,
+      makeRuntime: makeMockRuntime({
+        childProcessSpawner,
+        mockAgentPath: yield* path.fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        ),
+        environment,
+        protocolEvents,
+        wrapRuntime: (runtime) => {
+          native.current = runtime;
+          return runtime;
+        },
+      }),
+    },
+    selfInvocation,
+  });
+  const threadId = ThreadId.make("thread-acp-lazurio-active-steer");
+  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    cwd: process.cwd(),
+  });
+  const modelSelection = { instanceId, model: "default" } as const;
+  const runtime = yield* adapter.openSession({
+    threadId,
+    providerSessionId: ProviderSessionId.make("session-acp-lazurio-active-steer"),
+    modelSelection,
+    runtimePolicy,
+  });
+  const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+  const turnInput = makeTurnInput({
+    threadId,
+    providerThread,
+    instanceId,
+    runtimePolicy,
+    now: yield* DateTime.now,
+  });
+  yield* runtime.startTurn(turnInput);
+  const working = Option.getOrThrow(
+    yield* runtime.events.pipe(
+      Stream.filter(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.nativeItemRef?.nativeId === "lazurio-steer-tool",
+      ),
+      Stream.runHead,
+    ),
+  );
+  if (
+    working.type !== "turn_item.updated" ||
+    working.turnItem.providerTurnId === null ||
+    native.current === undefined
+  ) {
+    return yield* Effect.die("Expected the agent at work");
+  }
+  const providerTurnId = working.turnItem.providerTurnId;
+  const agent = native.current;
+  return {
+    runtime,
+    turnInput,
+    providerTurnId,
+    protocolEvents,
+    steer: (text: string) =>
+      runtime.steerTurn({
+        threadId,
+        runId: turnInput.runId,
+        providerThread,
+        providerTurnId,
+        message: { ...turnInput.message, text },
+      }),
+    finishPrompt: agent.request("_test/finish-steered-prompt", {}),
+    settled: Effect.gen(function* () {
+      const events = Array.from(
+        yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        ),
+      );
+      const terminal = events.at(-1);
+      const answer = events
+        .flatMap((event) => (event.type === "turn_item.updated" ? [event.turnItem] : []))
+        .findLast((item) => item.type === "assistant_message");
+      return {
+        terminal: terminal?.type === "turn.terminal" ? terminal.status : undefined,
+        answer: answer?.type === "assistant_message" ? answer.text : undefined,
+      };
+    }),
+  };
+});
+
 const makeInstructionCompactionHarness = Effect.fnUntraced(function* (
   environment: Readonly<Record<string, string>>,
 ) {
@@ -3990,108 +4109,99 @@ describe("AcpAdapterV2", () => {
     "steers the running turn of an agent that answers _lazurio/steer, without cancelling it",
     () =>
       Effect.gen(function* () {
-        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        const path = yield* Path.Path;
-        const selfInvocation = yield* resolveSelfInvocation();
-        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
-        const instanceId = ProviderInstanceId.make("acp-lazurio-active-steer");
-        const adapter = yield* makeAcpAdapterV2({
-          instanceId,
-          flavor: {
-            driver: ACP_TEST_DRIVER,
-            capabilities: AcpProviderCapabilitiesV2,
-            makeRuntime: makeMockRuntime({
-              childProcessSpawner,
-              mockAgentPath: yield* path.fromFileUrl(
-                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
-              ),
-              environment: { T3_ACP_LAZURIO_ACTIVE_STEER: "1" },
-              protocolEvents,
-            }),
-          },
-          selfInvocation,
-        });
-        const threadId = ThreadId.make("thread-acp-lazurio-active-steer");
-        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          cwd: process.cwd(),
-        });
-        const modelSelection = { instanceId, model: "default" } as const;
-        const runtime = yield* adapter.openSession({
-          threadId,
-          providerSessionId: ProviderSessionId.make("session-acp-lazurio-active-steer"),
-          modelSelection,
-          runtimePolicy,
-        });
-        assert.isTrue(runtime.providerSession.capabilities.turns.supportsActiveSteering);
-        const providerThread = yield* runtime.ensureThread({
-          threadId,
-          modelSelection,
-          runtimePolicy,
-        });
-        const turnInput = makeTurnInput({
-          threadId,
-          providerThread,
-          instanceId,
-          runtimePolicy,
-          now: yield* DateTime.now,
-        });
-        yield* runtime.startTurn(turnInput);
-        const working = Option.getOrThrow(
-          yield* runtime.events.pipe(
-            Stream.filter(
-              (event) =>
-                event.type === "turn_item.updated" &&
-                event.turnItem.nativeItemRef?.nativeId === "lazurio-steer-tool",
-            ),
-            Stream.runHead,
-          ),
-        );
-        if (working.type !== "turn_item.updated" || working.turnItem.providerTurnId === null) {
-          return yield* Effect.die("Expected the agent at work");
-        }
-        const providerTurnId = working.turnItem.providerTurnId;
+        const steer = yield* makeLazurioSteerHarness({ T3_ACP_LAZURIO_ACTIVE_STEER: "1" });
+        assert.isTrue(steer.runtime.providerSession.capabilities.turns.supportsActiveSteering);
 
-        yield* runtime.steerTurn({
-          threadId,
-          runId: turnInput.runId,
-          providerThread,
-          providerTurnId,
-          message: { ...turnInput.message, text: "only the ACP changes" },
-        });
+        yield* steer.steer("only the ACP changes");
+        yield* steer.finishPrompt;
 
-        const events = Array.from(
-          yield* runtime.events.pipe(
-            Stream.takeUntil((event) => event.type === "turn.terminal"),
-            Stream.runCollect,
-          ),
+        const { terminal, answer } = yield* steer.settled;
+        assert.equal(terminal, "completed");
+        assert.equal(answer, "steered: only the ACP changes");
+        const requests = yield* pollProtocolRequests(steer.protocolEvents);
+        // The prompt names its turn, and the steer names that turn and its message.
+        const prompt = requests.find((request) => request.method === "session/prompt")?.params as
+          | { readonly sessionId?: unknown; readonly _meta?: unknown }
+          | undefined;
+        assert.deepEqual(prompt?._meta, { "lazurio.turnId": steer.providerTurnId });
+        assert.deepEqual(
+          requests
+            .filter((request) => request.method === "_lazurio/steer")
+            .map((request) => request.params),
+          [
+            {
+              sessionId: prompt?.sessionId,
+              turnId: steer.providerTurnId,
+              messageId: steer.turnInput.message.messageId,
+              text: "only the ACP changes",
+            },
+          ],
         );
-        const terminal = events.at(-1);
-        assert.equal(terminal?.type === "turn.terminal" && terminal.status, "completed");
-        const answer = events
-          .flatMap((event) => (event.type === "turn_item.updated" ? [event.turnItem] : []))
-          .findLast((item) => item.type === "assistant_message");
-        assert.equal(
-          answer?.type === "assistant_message" ? answer.text : undefined,
-          "steered: only the ACP changes",
+        assert.notInclude(
+          requests.map((request) => request.method),
+          "session/cancel",
         );
-        const methods = yield* pollProtocolMethods(protocolEvents);
-        assert.include(methods, "_lazurio/steer");
-        assert.notInclude(methods, "session/cancel");
 
         // After the turn there is nothing to steer: the message is left to the next turn.
-        const late = yield* runtime
-          .steerTurn({
-            threadId,
-            runId: turnInput.runId,
-            providerThread,
-            providerTurnId,
-            message: { ...turnInput.message, text: "too late" },
-          })
-          .pipe(Effect.flip);
+        const late = yield* steer.steer("too late").pipe(Effect.flip);
         assert.equal(late._tag, "ProviderAdapterSteerRunError");
       }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.effect("fails a steer the agent refuses while its turn runs, once the turn completes", () =>
+    Effect.gen(function* () {
+      // An agent whose running prompt is another turn than the steer names (it ended while the steer
+      // was on its way) refuses it: the steer fails only after the prompt settled, as a completed turn,
+      // so the orchestrator sends the message as the next turn instead of losing it.
+      const steer = yield* makeLazurioSteerHarness({
+        T3_ACP_LAZURIO_ACTIVE_STEER: "1",
+        T3_ACP_LAZURIO_STEER_REFUSE: "1",
+      });
+      const refused = yield* steer
+        .steer("only the ACP changes")
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Stream.fromQueue(steer.protocolEvents).pipe(
+        Stream.filter(
+          (event) =>
+            event.direction === "outgoing" && rawProtocolMethod(event) === "_lazurio/steer",
+        ),
+        Stream.runHead,
+      );
+      yield* steer.finishPrompt;
+
+      const failure = yield* Fiber.join(refused);
+      assert.equal(failure._tag, "ProviderAdapterSteerRunError");
+      const { terminal, answer } = yield* steer.settled;
+      assert.equal(terminal, "completed");
+      assert.equal(answer, "steered: nothing");
+      assert.notInclude(
+        (yield* pollProtocolRequests(steer.protocolEvents)).map((request) => request.method),
+        "session/cancel",
+      );
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.effect("steers a message once when its first steer was taken but its answer lost", () =>
+    Effect.gen(function* () {
+      const steer = yield* makeLazurioSteerHarness({
+        T3_ACP_LAZURIO_ACTIVE_STEER: "1",
+        T3_ACP_LAZURIO_STEER_LOSE_FIRST_REPLY: "1",
+      });
+      // The effect worker retries a failed steer with the same message, as here.
+      const lost = yield* steer.steer("only the ACP changes").pipe(Effect.flip);
+      assert.equal(lost._tag, "ProviderAdapterSteerRunError");
+      yield* steer.steer("only the ACP changes");
+      yield* steer.finishPrompt;
+
+      const { terminal, answer } = yield* steer.settled;
+      assert.equal(terminal, "completed");
+      assert.equal(answer, "steered: only the ACP changes");
+      const steers = (yield* pollProtocolRequests(steer.protocolEvents)).filter(
+        (request) => request.method === "_lazurio/steer",
+      );
+      assert.equal(steers.length, 2);
+      assert.deepEqual(steers[0]?.params, steers[1]?.params);
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
   it.effect("keeps steering by restart for an agent that does not answer _lazurio/steer", () =>

@@ -585,10 +585,12 @@ export const AcpProviderCapabilitiesV2 = {
 /**
  * Lazurio (Lazurio/t3code#138): an agent that lists this in its capabilities' `_meta` answers the
  * `_lazurio/steer` request with `{ steered }`, taking a message into its running turn instead of
- * having the turn cancelled and restarted.
+ * having the turn cancelled and restarted. Its prompts name their turn in `_meta`, and a steer names
+ * the turn and the message, so the agent steers only that turn and each message once.
  */
 const LAZURIO_ACTIVE_STEER_META = "lazurio.activeSteer";
 const LAZURIO_STEER_METHOD = "_lazurio/steer";
+const LAZURIO_TURN_META = "lazurio.turnId";
 
 function acpAgentSteersActively(started: AcpSessionRuntime.AcpSessionRuntimeStartResult): boolean {
   return started.initializeResult.agentCapabilities?._meta?.[LAZURIO_ACTIVE_STEER_META] === 1;
@@ -7589,7 +7591,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               return;
             }
             const promptGeneration = yield* Ref.get(runtimeCallbackGeneration);
-            yield* runtime.prompt({ prompt: promptParts!.prompt }).pipe(
+            const turnMeta = (yield* Ref.get(activeSteering))
+              ? { _meta: { [LAZURIO_TURN_META]: context.providerTurnId } }
+              : {};
+            yield* runtime.prompt({ prompt: promptParts!.prompt, ...turnMeta }).pipe(
               Effect.tap(() =>
                 Ref.update(promptInstructionStates, (current) => {
                   if (promptParts?.instructionState === undefined) return current;
@@ -7738,7 +7743,18 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               resolveAttachmentPath: host.resolveAttachmentPath,
               resolveExtractedTextPath: host.resolveExtractedTextPath,
             });
-            const answer = yield* runtime.request(LAZURIO_STEER_METHOD, { sessionId, text });
+            // The turn may have ended while its attachments resolved.
+            if (context.finalized || (yield* Ref.get(activeTurn)) !== context) {
+              return yield* Effect.fail(
+                `Provider turn ${turnInput.providerTurnId} ended before the message reached it.`,
+              );
+            }
+            const answer = yield* runtime.request(LAZURIO_STEER_METHOD, {
+              sessionId,
+              turnId: context.providerTurnId,
+              messageId: turnInput.message.messageId,
+              text,
+            });
             if (
               typeof answer === "object" &&
               answer !== null &&

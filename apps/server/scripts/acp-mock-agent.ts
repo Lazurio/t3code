@@ -56,8 +56,12 @@ const emitForeignSessionUpdates = process.env.T3_ACP_EMIT_FOREIGN_SESSION_UPDATE
 const omitInitializeModelState = process.env.T3_ACP_OMIT_INITIALIZE_MODEL_STATE === "1";
 const waitForResumeRelease = process.env.T3_ACP_WAIT_FOR_RESUME_RELEASE === "1";
 const completeFirstPromptOnCancel = process.env.T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL === "1";
-// Lazurio's `_lazurio/steer`: the first prompt waits for a steer and answers with its text.
+// Lazurio's `_lazurio/steer`, as Lazurio Hermes answers it: only the turn the prompt's `_meta` named,
+// once per message. The first prompt works until `_test/finish-steered-prompt` and then answers with the
+// steers it took. REFUSE refuses every steer; LOSE_FIRST_REPLY takes the first one and fails its answer.
 const lazurioActiveSteer = process.env.T3_ACP_LAZURIO_ACTIVE_STEER === "1";
+const lazurioSteerRefuses = process.env.T3_ACP_LAZURIO_STEER_REFUSE === "1";
+const lazurioSteerLosesFirstReply = process.env.T3_ACP_LAZURIO_STEER_LOSE_FIRST_REPLY === "1";
 const floodStderr = process.env.T3_ACP_FLOOD_STDERR === "1";
 const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
 const clientFsProbePath = process.env.T3_ACP_CLIENT_FS_PROBE_PATH;
@@ -536,7 +540,10 @@ const program = Effect.gen(function* () {
   const resumeRelease = yield* Deferred.make<void>();
   const nativeCancelRequested = yield* Deferred.make<void>();
   const nativeCancelRelease = yield* Deferred.make<void>();
-  const lazurioSteer = yield* Deferred.make<string>();
+  const lazurioSteeredPromptFinish = yield* Deferred.make<void>();
+  const lazurioSteers: Array<string> = [];
+  const lazurioSteeredMessages = new Set<string>();
+  let lazurioPromptTurnId: unknown;
   let lazurioSteerablePrompt = false;
   const publishAntigravityCommands = (targetSessionId: string) =>
     agent.client.sessionUpdate({
@@ -966,6 +973,7 @@ const program = Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       beginAcpMockPrompt(cancelledSessions, requestedSessionId);
       promptCount += 1;
+      lazurioPromptTurnId = request._meta?.["lazurio.turnId"];
       const idleError = process.env.T3_ACP_IDLE_ERROR;
       if (idleError === "grok-background" && promptCount === 1) {
         // The structured completion lands before the prompt settles, so it is buffered.
@@ -1528,7 +1536,7 @@ const program = Effect.gen(function* () {
             status: "in_progress",
           },
         });
-        const steered = yield* Deferred.await(lazurioSteer);
+        yield* Deferred.await(lazurioSteeredPromptFinish);
         lazurioSteerablePrompt = false;
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,
@@ -1542,7 +1550,10 @@ const program = Effect.gen(function* () {
           sessionId: requestedSessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: `steered: ${steered}` },
+            content: {
+              type: "text",
+              text: `steered: ${lazurioSteers.length === 0 ? "nothing" : lazurioSteers.join(" | ")}`,
+            },
           },
         });
         return yield* finishPrompt(requestedSessionId, "end_turn");
@@ -2658,13 +2669,26 @@ const program = Effect.gen(function* () {
     if (method === "_test/finish-cancel") {
       return Deferred.succeed(nativeCancelRelease, undefined).pipe(Effect.as({}));
     }
+    if (method === "_test/finish-steered-prompt") {
+      return Deferred.succeed(lazurioSteeredPromptFinish, undefined).pipe(Effect.as({}));
+    }
     if (method === "_lazurio/steer" && lazurioActiveSteer) {
-      const text =
-        typeof params === "object" && params !== null ? Reflect.get(params, "text") : undefined;
-      if (!lazurioSteerablePrompt || typeof text !== "string") {
+      const field = (name: string) =>
+        typeof params === "object" && params !== null ? Reflect.get(params, name) : undefined;
+      const [turnId, messageId, text] = [field("turnId"), field("messageId"), field("text")];
+      if (typeof turnId !== "string" || typeof messageId !== "string" || typeof text !== "string") {
+        return Effect.fail(AcpError.AcpRequestError.invalidParams("turnId, messageId and text"));
+      }
+      if (lazurioSteeredMessages.has(messageId)) return Effect.succeed({ steered: true });
+      if (lazurioSteerRefuses || !lazurioSteerablePrompt || turnId !== lazurioPromptTurnId) {
         return Effect.succeed({ steered: false, reason: "not_running" });
       }
-      return Deferred.succeed(lazurioSteer, text).pipe(Effect.as({ steered: true }));
+      lazurioSteeredMessages.add(messageId);
+      lazurioSteers.push(text);
+      if (lazurioSteerLosesFirstReply && lazurioSteers.length === 1) {
+        return Effect.fail(AcpError.AcpRequestError.internalError("The answer was lost"));
+      }
+      return Effect.succeed({ steered: true });
     }
     if (method === "_test/startup-metadata") {
       return Effect.gen(function* () {
