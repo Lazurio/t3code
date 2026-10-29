@@ -7,6 +7,8 @@ import * as Layer from "effect/Layer";
 
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
+import * as ProviderRefresh from "./providerRefresh.ts";
+import * as ProviderRefreshRoute from "./providerRefreshRoute.ts";
 import * as ThreadLifecycle from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import * as ThreadTabsRoute from "./threadTabsRoute.ts";
@@ -18,6 +20,7 @@ const environmentBrowser = EnvironmentBrowser.layer.pipe(Layer.provide(threadTab
 export const layer = Layer.mergeAll(
   ThreadTabsRoute.layer.pipe(Layer.provide(environmentBrowser)),
   ModelRecommendationRoute.layer,
+  ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
 ).pipe(Layer.provide(threadTabs));
 
 /** /mcp's preview list and close see the threads' strips (Lazurio/t3code#200). */

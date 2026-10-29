@@ -13,6 +13,7 @@ import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.t
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
+import * as LazurioProviderSignIn from "../lazurio/providerSignIn.ts";
 import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -150,9 +151,9 @@ const layerProviderSessionManagerProvided = LazurioManagedFolder.guardTurns(
   ),
 );
 
-const layerProviderAuthServiceProvided = ProviderAuthService.layer.pipe(
-  Layer.provide(Layer.merge(ProjectionStore.layer, layerProviderSessionManagerProvided)),
-);
+const layerProviderAuthServiceProvided = LazurioProviderSignIn.guard(
+  ProviderAuthService.layer,
+).pipe(Layer.provide(Layer.merge(ProjectionStore.layer, layerProviderSessionManagerProvided)));
 
 const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   Layer.provide(
