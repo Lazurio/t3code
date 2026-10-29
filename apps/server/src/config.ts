@@ -87,6 +87,8 @@ export class ServerConfig extends Context.Service<
     readonly host: string | undefined;
     /** Set when the host was defaulted to a private-network listener for the service. */
     readonly privateNetworkOnly?: boolean | undefined;
+    /** Canonical HTTPS browser origin of a reverse-proxied server (`T3CODE_EXTERNAL_ORIGIN`). */
+    readonly externalOrigin?: URL | undefined;
     readonly cwd: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;
