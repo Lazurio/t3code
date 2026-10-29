@@ -61,6 +61,7 @@ import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ServerConfig from "../config.ts";
+import * as LazurioAgentBrowserSession from "../lazurio/agentBrowserSession.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { makeClaudeEnvironment } from "../provider/Drivers/ClaudeHome.ts";
@@ -2429,6 +2430,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               platform,
               yield* HostProcess.HomeDirectory,
             );
+            // Lazurio overlay (Lazurio/t3code#73): the thread's agent-browser session.
+            LazurioAgentBrowserSession.setTerminalSession(terminalEnv, session.threadId, platform);
             // Append managed install directories so agent commands resolve without shadowing user/system tools.
             if (
               options.managedBinaryCacheDir !== undefined &&
