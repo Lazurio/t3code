@@ -221,6 +221,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { buddySurfaceClientConfig } from "./lazurio/buddySurface.ts";
+import * as LazurioActingSenders from "./lazurio/actingSenders.ts";
 import { managedFolderClientConfig } from "./lazurio/managedFolder.ts";
 import * as LazurioProviderSignIn from "./lazurio/providerSignIn.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -2086,7 +2087,11 @@ export const layerWsRpc = (
                             "creationSource" in command ? command.creationSource : "web",
                         }),
                       )
-                  ).pipe(Effect.provide(intakeContext)),
+                  ).pipe(
+                    Effect.provide(intakeContext),
+                    // Lazurio overlay (root decision 0210): a session acting as Buddy marks them.
+                    LazurioActingSenders.actingAs(currentSession),
+                  ),
                 )
                 .pipe(
                   Effect.tap((result) =>
