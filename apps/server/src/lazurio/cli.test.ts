@@ -6,9 +6,15 @@ import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  AuthRelayWriteScope,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  sessionHasLegacyPermissions,
+} from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
@@ -30,8 +36,9 @@ import * as ProviderRefresh from "./providerRefresh.ts";
 import * as ProviderRefreshRoute from "./providerRefreshRoute.ts";
 
 // `t3 lazurio` is a contract: Machines checks `capabilities`, the Platform's
-// `lazurio chat defaults --apply` reads `model`'s answer and the Launchpad reads `providers`'s.
-// These pin their output byte for byte.
+// `lazurio chat defaults --apply` reads `model`'s answer and the Launchpad reads `providers`'s and
+// `pairing`'s. These pin their output byte for byte, and `pairing`'s as `t3 auth pairing create
+// --json` prints a token of its own.
 
 const run = (args: ReadonlyArray<string>) =>
   Command.runWith(cli, { version: "0.0.0" })(args).pipe(
@@ -162,7 +169,7 @@ describe("t3 lazurio", () => {
     Effect.gen(function* () {
       yield* run(["lazurio", "capabilities"]);
       assert.deepStrictEqual(yield* printed, [
-        '{"version":1,"managedFolder":true,"modelRecommendation":true,"providerRefresh":true}',
+        '{"version":1,"managedFolder":true,"modelRecommendation":true,"providerRefresh":true,"operatorPairing":true}',
       ]);
     }).pipe(Effect.provide(TestConsole.layer)),
   );
@@ -304,6 +311,124 @@ describe("t3 lazurio", () => {
         error.message,
         'The live T3 service refused the provider refresh (409): {"error":"driver-mismatch","mismatches":[{"provider":"claude","instanceId":"claudeAgent","driver":"codex"}]}',
       );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  // The Environment pairs its own browser (the Admin's decision of 2026-10-17): the Launchpad
+  // mints a token with the operator's scopes and reads it as it reads `t3 auth pairing create`'s.
+  // Spelled out, because the Launchpad reads them byte for byte: a scope upstream adds to its
+  // standard ones reaches the operator only through a decision here, and relay:write never does.
+  const operatorScopes = [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read",
+    "access:read",
+    "access:write",
+  ] as const;
+  /** The printed JSON without what is this token's own: its id, credential and expiry. */
+  const withoutToken = (printedJson: string) => {
+    const { id, credential, expiresAt } = JSON.parse(printedJson) as Record<string, string>;
+    return printedJson
+      .replace(String(id), "<id>")
+      .replace(String(credential), "<credential>")
+      .replace(String(expiresAt), "<expiresAt>");
+  };
+
+  it.effect("pairing: a one-time token with the operator's scopes, printed as upstream's", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const startedAt = yield* Clock.currentTimeMillis;
+      yield* run([
+        "lazurio",
+        "pairing",
+        "--base-dir",
+        baseDir,
+        "--ttl",
+        "60s",
+        "--label",
+        "lazurio-chat",
+      ]);
+      // Upstream's command, asked for the same scopes, prints the same JSON for a token of its own.
+      yield* run([
+        "auth",
+        "pairing",
+        "create",
+        "--base-dir",
+        baseDir,
+        "--ttl",
+        "60s",
+        "--label",
+        "lazurio-chat",
+        "--json",
+        ...operatorScopes.flatMap((scope) => ["--scope", scope]),
+      ]);
+      const [lazurio = "", upstream = ""] = yield* printed;
+      assert.strictEqual(withoutToken(lazurio), withoutToken(upstream));
+      const issued = JSON.parse(lazurio) as Record<string, unknown>;
+      assert.deepStrictEqual(Object.keys(issued), [
+        "id",
+        "credential",
+        "label",
+        "scopes",
+        "expiresAt",
+      ]);
+      assert.deepStrictEqual(issued.scopes, operatorScopes);
+      assert.notInclude(issued.scopes as ReadonlyArray<string>, AuthRelayWriteScope);
+      assert.strictEqual(issued.label, "lazurio-chat");
+      // The web client takes no other credential from the Launchpad's answer.
+      assert.match(String(issued.credential), /^[A-Za-z0-9_-]{8,128}$/);
+      assert.strictEqual(Date.parse(String(issued.expiresAt)) - startedAt, 60_000);
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("pairing: prints only the token after the T3 home removes an abandoned upload", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const abandoned = yield* withAbandonedUpload(baseDir);
+      yield* run(["lazurio", "pairing", "--base-dir", baseDir]);
+      assert.isFalse(NodeFS.existsSync(abandoned));
+      const lines = yield* TestConsole.logLines;
+      assert.lengthOf(lines, 1);
+      assert.deepStrictEqual(
+        (JSON.parse(String(lines[0])) as Record<string, unknown>).scopes,
+        operatorScopes,
+      );
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("pairing: the token pairs one browser like any bootstrap credential", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      yield* run(["lazurio", "pairing", "--base-dir", baseDir]);
+      const [printedJson = ""] = yield* printed;
+      const { credential } = JSON.parse(printedJson) as { credential: string };
+      const browser = { deviceType: "desktop" as const, browser: "Chrome" };
+      const [paired, again] = yield* Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const first = yield* auth.createBrowserSession(credential, browser);
+        return [first, yield* Effect.flip(auth.createBrowserSession(credential, browser))] as const;
+      }).pipe(
+        Effect.provide(
+          EnvironmentAuth.layerRuntime.pipe(
+            Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+      );
+      assert.deepStrictEqual(paired.response.permissions, operatorScopes);
+      // Not the legacy scopes of a browser paired on 0.0.45, so the page never asks again.
+      assert.isFalse(sessionHasLegacyPermissions(paired.response));
+      assert.strictEqual(again._tag, "ServerAuthInvalidCredentialError");
     }).pipe(Effect.provide(TestConsole.layer)),
   );
 });
