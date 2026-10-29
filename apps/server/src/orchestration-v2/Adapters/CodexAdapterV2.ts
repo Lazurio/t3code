@@ -122,6 +122,7 @@ import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codex
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as LazurioAgentBrowserSession from "../../lazurio/agentBrowserSession.ts";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -1360,6 +1361,8 @@ function codexThreadRuntimeParams(input: {
               },
             },
           }),
+      // Lazurio overlay (root decision 0191): the thread's agent-browser session.
+      ...LazurioAgentBrowserSession.codexThreadConfig(mcpSession),
     },
   };
 }
