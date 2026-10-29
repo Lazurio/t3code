@@ -9,6 +9,7 @@ import {
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
+  RuntimeRequestId,
   ThreadId,
   TurnItemId,
   type ModelSelection,
@@ -1186,6 +1187,169 @@ it.effect("keeps a queued message queued when promoted into a run that Stop reac
       }).pipe(Effect.provide(layer));
     }),
   ),
+);
+
+it.effect(
+  "queues a steer and puts a promoted message first while the turn waits on the person",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
+          "steering-pending-request",
+        );
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          const sink = yield* EventSink.EventSinkV2;
+          const threadId = yield* startFirstTurn;
+          const first = started[0]!;
+          const send = (id: string, delivery: "queue" | "steer") =>
+            orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(id),
+              threadId,
+              messageId: MessageId.make(`message:${id}`),
+              text: id,
+              attachments: [],
+              modelSelection: runSelection,
+              ...(delivery === "queue"
+                ? { dispatchMode: { type: "queue_after_active" } }
+                : { dispatchMode: { type: "start_immediately" }, deliveryIntent: "steer" }),
+              createdBy: "user",
+              creationSource: "web",
+            });
+          yield* send("queued", "queue");
+          yield* send("promoted", "queue");
+          const promotedRun = (yield* orchestrator.getThreadProjection(threadId)).runs.find(
+            (run) => run.userMessageId === MessageId.make("message:promoted"),
+          )!;
+          const now = yield* DateTime.now;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("request:question"),
+                type: "runtime-request.updated",
+                threadId,
+                runId: first.runId,
+                nodeId: first.rootNodeId,
+                occurredAt: now,
+                payload: {
+                  id: RuntimeRequestId.make("request:question"),
+                  nodeId: first.rootNodeId,
+                  providerTurnId: null,
+                  nativeRequestRef: null,
+                  kind: "user_input",
+                  status: "pending",
+                  responseCapability: { type: "message" },
+                  createdAt: now,
+                  resolvedAt: null,
+                },
+              },
+            ],
+          });
+
+          yield* orchestrator.dispatch({
+            type: "queued-message.promote-to-steer",
+            commandId: CommandId.make("promote"),
+            threadId,
+            queuedRunId: promotedRun.id,
+            targetRunId: first.runId,
+          });
+          yield* send("steered", "steer");
+          yield* worker.drain();
+
+          const projection = yield* orchestrator.getThreadProjection(threadId);
+          assert.deepEqual(steered, []);
+          assert.equal(started.length, 1);
+          assert.deepEqual(
+            projection.runs
+              .filter((run) => run.status === "queued")
+              .sort((left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0))
+              .map(
+                (run) =>
+                  projection.messages.find((message) => message.id === run.userMessageId)?.text,
+              ),
+            ["promoted", "queued", "steered"],
+          );
+          assert.deepEqual(
+            projection.runtimeRequests.map((request) => request.status),
+            ["pending"],
+          );
+
+          // A delegated task's completion wake steers on its own path, so it needs the guard too.
+          const wakeId = MessageId.make("message:wake");
+          const taskId = NodeId.make("task:wake");
+          const parentRun = projection.runs.find((run) => run.id === first.runId)!;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("wake:cohort"),
+                type: "run.updated",
+                threadId,
+                runId: first.runId,
+                occurredAt: now,
+                payload: {
+                  ...parentRun,
+                  delegatedCompletion: {
+                    disposition: "open",
+                    nextGeneration: 2,
+                    delivery: { generation: 1, messageId: wakeId, taskIds: [taskId] },
+                  },
+                },
+              },
+              {
+                id: EventId.make("wake:task"),
+                type: "subagent.updated",
+                threadId,
+                runId: first.runId,
+                nodeId: taskId,
+                occurredAt: now,
+                payload: {
+                  id: taskId,
+                  threadId,
+                  runId: first.runId,
+                  parentNodeId: first.rootNodeId,
+                  origin: "app_owned",
+                  createdBy: "agent",
+                  driver,
+                  providerInstanceId: instanceId,
+                  providerThreadId: null,
+                  childThreadId: null,
+                  nativeTaskRef: null,
+                  prompt: "Do background work",
+                  title: "Background test",
+                  model: null,
+                  completionWake: "always",
+                  completionDelivery: { state: "claimed", observedByRunId: null },
+                  status: "completed",
+                  result: "done",
+                  startedAt: now,
+                  completedAt: now,
+                  updatedAt: now,
+                },
+              },
+            ],
+          });
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("wake"),
+            threadId,
+            messageId: wakeId,
+            text: "wake",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: "server",
+            delegatedCompletion: { parentRunId: first.runId, generation: 1, taskIds: [taskId] },
+          });
+          yield* worker.drain();
+
+          const woken = yield* orchestrator.getThreadProjection(threadId);
+          assert.deepEqual(steered, []);
+          assert.equal(woken.runs.find((run) => run.userMessageId === wakeId)?.status, "queued");
+        }).pipe(Effect.provide(layer));
+      }),
+    ),
 );
 
 it.effect("queues a plain send behind the stopped queue and releases its hold", () =>
