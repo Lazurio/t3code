@@ -14,7 +14,7 @@ import { CliError } from "effect/cli";
 import { HttpClient } from "effect/http";
 import * as Schema from "effect/Schema";
 
-import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import { CLI_RELEASE_BASE_URL_ENV, CLI_RELEASE_REPOSITORY_ENV } from "@t3tools/shared/cliRelease";
 
 import * as ProcessRunner from "../processRunner.ts";
 import { acquireServiceSelectionLock } from "./serviceSelectionLock.ts";
@@ -809,6 +809,9 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
   );
+  const releaseRepository = Option.getOrUndefined(
+    yield* Config.String(CLI_RELEASE_REPOSITORY_ENV).pipe(Config.option),
+  );
   const homeDir = yield* Config.String(platform === "win32" ? "USERPROFILE" : "HOME").pipe(
     Config.withDefault(""),
   );
@@ -1255,6 +1258,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
       platform,
       arch,
       releaseBaseUrl,
+      releaseRepository,
       validate: (runtime) =>
         runner
           .run({

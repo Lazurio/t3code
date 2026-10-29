@@ -71,10 +71,13 @@ export function settleUpdateRunMachine(
 }
 
 function runsVersion(config: ServerConfig | null, targetVersion: string): boolean {
-  return (
-    config !== null &&
-    resolveVersionMismatch(config.environment.serverVersion, targetVersion) === null
-  );
+  if (config === null) return false;
+  // Lazurio overlay: fork releases of one upstream version differ only in the -lazurio.N suffix,
+  // which the version-core comparison ignores.
+  if (/-lazurio\.\d+$/.test(targetVersion.trim())) {
+    return config.environment.serverVersion?.trim() === targetVersion.trim();
+  }
+  return resolveVersionMismatch(config.environment.serverVersion, targetVersion) === null;
 }
 
 export function retryFailedUpdateRunServers(

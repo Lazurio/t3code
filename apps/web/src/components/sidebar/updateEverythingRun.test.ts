@@ -102,16 +102,18 @@ describe("startDesktopUpdateLaunchNotice", () => {
 
 describe("retryFailedUpdateRunServers", () => {
   it("settles a failed server that already restarted on the target and retries only the others", () => {
-    const targetVersion = "9.9.9";
+    // Lazurio overlay: [running, target]; a fork release differs from the next only in -lazurio.N.
     const serverVersions = new Map([
-      [EnvironmentId.make("already-updated"), targetVersion],
-      [EnvironmentId.make("behind"), "9.9.8"],
-    ]);
+      [EnvironmentId.make("already-updated"), ["9.9.9", "9.9.9"]],
+      [EnvironmentId.make("behind"), ["9.9.8", "9.9.9"]],
+      [EnvironmentId.make("fork-updated"), ["9.9.9-lazurio.2", "9.9.9-lazurio.2"]],
+      [EnvironmentId.make("fork-behind"), ["9.9.9-lazurio.1", "9.9.9-lazurio.2"]],
+    ] as const);
     using _config = vi
       .spyOn(serverEnvironment, "configValueAtom")
       .mockImplementation((environmentId) =>
         Atom.make({
-          environment: { serverVersion: serverVersions.get(environmentId!) },
+          environment: { serverVersion: serverVersions.get(environmentId!)?.[0] },
         } as unknown as ServerConfig),
       );
     const rejection = "Remote updates must select a newer server version.";
@@ -123,7 +125,7 @@ describe("retryFailedUpdateRunServers", () => {
         environmentId,
         serverLabel: environmentId,
         selfUpdate: "boot-service" as const,
-        targetVersion,
+        targetVersion: serverVersions.get(environmentId)![1],
       },
       handedOffVersion: null,
       startedAt: 0,
@@ -148,7 +150,10 @@ describe("retryFailedUpdateRunServers", () => {
       run = current;
       return null;
     });
-    expect(update.mock.calls.map(([target]) => target.environmentId)).toEqual(["behind"]);
+    expect(update.mock.calls.map(([target]) => target.environmentId)).toEqual([
+      "behind",
+      "fork-behind",
+    ]);
     expect(
       (run as UpdateEverythingRun | null)?.machines.map(({ environmentId, result, server }) => ({
         environmentId,
@@ -158,6 +163,8 @@ describe("retryFailedUpdateRunServers", () => {
     ).toEqual([
       { environmentId: "already-updated", result: "done", retryable: false },
       { environmentId: "behind", result: null, retryable: true },
+      { environmentId: "fork-updated", result: "done", retryable: false },
+      { environmentId: "fork-behind", result: null, retryable: true },
     ]);
   });
 });
