@@ -6,6 +6,8 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
+import { FetchHttpClient } from "effect/http";
 
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -90,9 +92,12 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       yield* fs.symlink(entry, `${prefix}/bin/t3`);
       const config = yield* makeServerConfig(baseDir);
       yield* fs.makeDirectory(config.stateDir, { recursive: true });
+      const fetched: string[] = [];
       for (const mode of ["web", "desktop"] as const) {
         const descriptor = yield* Effect.gen(function* () {
           const environment = yield* ServerEnvironment.ServerEnvironment;
+          // Lets a forked update check run before the layer closes.
+          yield* TestClock.adjust("1 second");
           return yield* environment.getDescriptor;
         }).pipe(
           Effect.provide(
@@ -105,6 +110,10 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           Effect.provideService(HostProcess.IsExecutable, false),
           Effect.provideService(HostProcess.Platform, "linux"),
           Effect.provideService(HostProcess.Environment, {}),
+          Effect.provideService(FetchHttpClient.Fetch, async (input) => {
+            fetched.push(String(input));
+            return Response.json([]);
+          }),
         );
         expect(descriptor.capabilities.serverInstallation).toEqual(
           mode === "web" ? { kind: "npm-global", prefix } : undefined,
@@ -120,6 +129,8 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           threadAutoSettlementScope: true,
         });
       }
+      // Only a boot-service server checks for updates.
+      expect(fetched).toEqual([]);
     }),
   );
   it.effect.each([

@@ -87,12 +87,21 @@ describe("collectRestartingMachines", () => {
       id: string,
       overrides: Partial<UpdateEverythingMachine> = {},
       enabled = false,
+      capability = true,
+      serverVersion = "0.1.4",
     ) => {
-      const base = machine(id, "0.0.40", "boot-service", overrides);
+      const base = machine(id, serverVersion, "boot-service", overrides);
+      const environment = base.serverConfig!.environment;
       return {
         ...base,
         serverConfig: {
-          environment: base.serverConfig!.environment,
+          environment: {
+            ...environment,
+            capabilities: {
+              ...environment.capabilities,
+              ...(capability ? { threadRestartContinuation: true } : {}),
+            },
+          },
           settings: { continueThreadsAfterServerUpdate: enabled },
         },
       };
@@ -102,21 +111,27 @@ describe("collectRestartingMachines", () => {
       withContinuation("alvin", {}, true),
       withContinuation("opted-out", {}, false),
       machine("old", "0.0.40", "boot-service"),
+      withContinuation("no-capability", {}, true, false),
+      withContinuation("no-shutdown-continuation", {}, true, true, "0.0.45-lazurio.9"),
       withContinuation("providers-only"),
     ];
-    const servers = ["alvin", "opted-out", "old"].map((id) => ({
-      environmentId: EnvironmentId.make(id),
-    }));
+    const servers = ["alvin", "opted-out", "old", "no-capability", "no-shutdown-continuation"].map(
+      (id) => ({
+        environmentId: EnvironmentId.make(id),
+      }),
+    );
 
     expect(collectRestartingMachines(machines, servers, true)).toEqual([
       { environmentId: "this-app", continuesThreads: true },
       { environmentId: "alvin", continuesThreads: true },
       { environmentId: "opted-out", continuesThreads: false },
       { environmentId: "old", continuesThreads: false },
+      { environmentId: "no-capability", continuesThreads: false },
+      { environmentId: "no-shutdown-continuation", continuesThreads: false },
     ]);
     expect(
       collectRestartingMachines(machines, servers, false).map((entry) => entry.environmentId),
-    ).toEqual(["alvin", "opted-out", "old"]);
+    ).toEqual(["alvin", "opted-out", "old", "no-capability", "no-shutdown-continuation"]);
   });
 });
 
@@ -174,6 +189,51 @@ describe("describeUpdateEverything", () => {
       ["bb-1", "server", null, ["Codex", "Claude"]],
       ["alvin", null, "needs a manual update", ["Claude"]],
       ["TheoRoom", null, "not connected", []],
+    ]);
+  });
+
+  it("names each server's own target when the servers go to different releases", () => {
+    const id = EnvironmentId.make;
+    const server = (environmentId: string, targetVersion: string) => ({
+      environmentId: id(environmentId),
+      serverLabel: environmentId,
+      selfUpdate: "boot-service" as const,
+      targetVersion,
+    });
+    const plan = {
+      localVersion: null,
+      localMachines: [],
+      providerMachines: [],
+      skipped: [],
+    };
+
+    const mixed = describeUpdateEverything({
+      ...plan,
+      servers: [server("stable", "0.1.4-lazurio.1"), server("canary", "0.1.4-preview.20261029.1")],
+    });
+    expect(mixed.version).toBeNull();
+    expect(mixed.rows.map(({ label, targetVersion }) => [label, targetVersion])).toEqual([
+      ["stable", "0.1.4-lazurio.1"],
+      ["canary", "0.1.4-preview.20261029.1"],
+    ]);
+
+    const shared = describeUpdateEverything({
+      ...plan,
+      servers: [server("one", "0.1.4-lazurio.1"), server("two", "0.1.4-lazurio.1")],
+    });
+    expect(shared.version).toBe("0.1.4-lazurio.1");
+    expect(shared.rows.map((row) => row.targetVersion)).toEqual([null, null]);
+
+    const local = describeUpdateEverything({
+      ...plan,
+      localVersion: "0.1.4",
+      servers: [server("advertised", "0.1.4-lazurio.1"), server("same", "0.1.4")],
+    });
+    expect(local.version).toBe("0.1.4");
+    expect(local.rows.map(({ label, targetVersion }) => [label, targetVersion])).toEqual([
+      ["This app", null],
+      ["advertised", "0.1.4-lazurio.1"],
+      ["same", null],
     ]);
   });
 });
