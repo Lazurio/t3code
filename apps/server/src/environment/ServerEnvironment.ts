@@ -280,7 +280,6 @@ export const make = Effect.gen(function* () {
       projectCloneTracking: true,
       projectOrganization: true,
       ignoredFileListing: true,
-      triage: true,
       oneTimeSchedules: true,
       freshContext: true,
       scheduledTaskThreadModes: true,
@@ -293,8 +292,9 @@ export const make = Effect.gen(function* () {
         ? { serverSelfUpdateProgress: true }
         : {}),
       ...(desktopAppUpdate ? { desktopAppUpdate: true, desktopAppChannelSwitch: true } : {}),
-      // Lazurio overlay (root decision 0191): a Lazurio Environment's browser is its own.
-      ...((yield* isLazurioEnvironment) ? {} : { serverBrowser: true }),
+      // Lazurio overlay (root decision 0191): a Lazurio Environment's browser is its own, and it
+      // triages nothing against upstream's source (Lazurio/t3code#147).
+      ...((yield* isLazurioEnvironment) ? {} : { serverBrowser: true, triage: true }),
       peerLinks: true,
       mcpModeLimitHeader: true,
       linkFence: true,
