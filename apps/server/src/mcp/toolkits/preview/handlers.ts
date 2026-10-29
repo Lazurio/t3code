@@ -205,10 +205,15 @@ const handlers = {
         ),
       );
       if (target === undefined || opened.tabId === null) return opened;
-      return yield* invokeTargeted<PreviewAutomationStatus>("navigate", {
+      const navigated = yield* invokeTargeted<PreviewAutomationStatus>("navigate", {
         target,
         tabId: opened.tabId,
       });
+      // Lazurio overlay (Lazurio/t3code#88): the Environment browser answers open with the view
+      // of the tab, which going to the target keeps.
+      return "view" in opened && typeof opened.view === "string"
+        ? { ...navigated, view: opened.view }
+        : navigated;
     }),
   ),
   preview_navigate: McpToolAccess.actsAsCaller((input) =>
