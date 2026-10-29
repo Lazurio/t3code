@@ -32,6 +32,7 @@ import * as Schema from "effect/Schema";
 import { HttpServerRequest } from "effect/http";
 
 import { hostedAppUrlConfig } from "../cloud/publicConfig.ts";
+import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
@@ -579,13 +580,17 @@ export const layerMcpClientAuthenticator = Layer.effect(
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
     const environment = yield* ServerEnvironment.ServerEnvironment;
     const environmentId = yield* environment.getEnvironmentId;
-    const hostedAppUrl = yield* hostedAppUrlConfig.pipe(
-      Effect.catch((cause) =>
-        Effect.logWarning("Outside MCP clients get app.t3.codes thread links", { cause }).pipe(
-          Effect.as(DEFAULT_HOSTED_APP_URL),
+    // Lazurio overlay: behind an external origin, people open threads on that origin.
+    const config = yield* Effect.serviceOption(ServerConfig.ServerConfig);
+    const hostedAppUrl =
+      Option.getOrUndefined(config)?.externalOrigin?.origin ??
+      (yield* hostedAppUrlConfig.pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Outside MCP clients get app.t3.codes thread links", { cause }).pipe(
+            Effect.as(DEFAULT_HOSTED_APP_URL),
+          ),
         ),
-      ),
-    );
+      ));
     return McpHttpServer.McpClientAuthenticator.of({
       authenticate: Effect.fn("McpHttpServer.McpClientAuthenticator.authenticate")(
         function (request) {

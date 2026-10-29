@@ -20,9 +20,13 @@ export class EnvironmentAuthPolicy extends Context.Service<
 
 /** The auth policy a server started with `config` runs under. */
 export function resolveServerAuthPolicy(
-  config: Pick<ServerConfig.ServerConfig["Service"], "mode" | "host">,
+  config: Pick<ServerConfig.ServerConfig["Service"], "mode" | "host"> &
+    Partial<Pick<ServerConfig.ServerConfig["Service"], "externalOrigin">>,
 ): ServerAuthPolicy {
-  if (isRemoteReachableHost(config.host)) return "remote-reachable";
+  // A loopback bind behind an external origin is still reached remotely.
+  if (config.externalOrigin !== undefined || isRemoteReachableHost(config.host)) {
+    return "remote-reachable";
+  }
   return config.mode === "desktop" ? "desktop-managed-local" : "loopback-browser";
 }
 
@@ -48,6 +52,7 @@ export const make = Effect.gen(function* () {
       mode: config.mode,
       port: config.port,
       host: config.host,
+      externalOrigin: config.externalOrigin,
       instanceKey: config.stateDir,
       environmentId: yield* serverEnvironment.getEnvironmentId,
       development: config.devUrl !== undefined,
