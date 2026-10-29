@@ -18,6 +18,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as LazurioManagedFolder from "../lazurio/managedFolderGuards.ts";
+import * as LazurioActingSenders from "../lazurio/actingSenders.ts";
 import * as LazurioBuddyGuards from "../lazurio/buddySurfaceGuards.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -214,9 +215,10 @@ const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
   Layer.provide(Layer.merge(layerCheckpointCaptureServiceProvided, ProjectionStore.layer)),
 );
 
-// Lazurio overlay (plan DEV-6676): in Buddy's T3 Code, Buddy keeps one conversation.
-const layerOrchestratorProvided = LazurioBuddyGuards.guardBuddyCommands(
-  LazurioManagedFolder.guardCommands(Orchestrator.layer),
+// Lazurio overlay (plan DEV-6676): in Buddy's T3 Code, Buddy keeps one conversation; the record of
+// who acted (root decision 0210) keeps only what the guards let through.
+const layerOrchestratorProvided = LazurioActingSenders.recordSteps(
+  LazurioBuddyGuards.guardBuddyCommands(LazurioManagedFolder.guardCommands(Orchestrator.layer)),
 ).pipe(
   Layer.provide(
     Layer.mergeAll(

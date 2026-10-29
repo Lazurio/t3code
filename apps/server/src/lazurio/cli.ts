@@ -1,7 +1,7 @@
 /**
  * Lazurio overlay (LazurioPlatform F51, root decision 0201): `t3 lazurio`. Machines checks its
  * `capabilities` (contract version 1); the Platform runs `model`, the Launchpad `providers` and
- * `pairing`, and an agent `buddy thread` (buddySurfaceCli.ts), so the output is a contract that
+ * `pairing`, and Delegace `buddy thread` (buddySurfaceCli.ts), so the output is a contract that
  * cli.test.ts pins.
  */
 import {
@@ -283,6 +283,7 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         threadSendIdempotency: true,
         threadSendOutcome: true,
         buddyThread: true,
+        actingSender: true,
       }),
     ),
   ),
