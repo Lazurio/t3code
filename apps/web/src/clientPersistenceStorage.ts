@@ -1,6 +1,11 @@
-import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import type { ClientSettings } from "@t3tools/contracts";
 
 import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
+import {
+  migrateFollowUpToSteerOnce,
+  StoredClientSettingsSchema,
+  withFollowUpSteerMarker,
+} from "./lazurio/followUpSteerMigration";
 
 const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
 
@@ -13,7 +18,19 @@ export function readBrowserClientSettings(): ClientSettings | null {
     return null;
   }
 
-  return getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema);
+  const stored = getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, StoredClientSettingsSchema);
+  if (stored === null) {
+    return null;
+  }
+  const { settings, migrated } = migrateFollowUpToSteerOnce(stored);
+  if (migrated) {
+    try {
+      writeBrowserClientSettings(settings);
+    } catch {
+      // Unwritten, the migration only runs again on the next read.
+    }
+  }
+  return settings;
 }
 
 export function writeBrowserClientSettings(settings: ClientSettings): void {
@@ -21,5 +38,9 @@ export function writeBrowserClientSettings(settings: ClientSettings): void {
     return;
   }
 
-  setLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, settings, ClientSettingsSchema);
+  setLocalStorageItem(
+    CLIENT_SETTINGS_STORAGE_KEY,
+    withFollowUpSteerMarker(settings),
+    StoredClientSettingsSchema,
+  );
 }
