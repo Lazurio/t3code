@@ -47,6 +47,7 @@ import {
 import { FILE_HEADERS_ONLY, formatPatch, structuredPatch } from "diff";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -635,6 +636,26 @@ function acpSupportsImagePrompts(input: {
 }): boolean {
   return input.flavorSupportsImagePrompts === true || input.negotiatedImage === true;
 }
+
+/**
+ * Whether an instance's prompts carry T3's own instructions (interaction mode, tools, runtime and
+ * pull-request notes) beside the user's message. An agent that keeps its own persona and memory
+ * stores every prompt as the user's words, so its host can leave them out. Read when the adapter
+ * is built.
+ */
+export class AcpT3Instructions extends Context.Reference<
+  (instanceId: ProviderInstanceId) => boolean
+>("@t3tools/provider-acp/AcpT3Instructions", { defaultValue: () => () => true }) {}
+
+/**
+ * How much of T3's model selection an instance's sessions take. Null, the default, is all of it: the
+ * model and every option. A host that sets its agent's model and reasoning in the agent's own config
+ * names the options T3 may still apply; T3 then applies no model and only those options, whenever a
+ * session starts, loads or gets a new selection. Read when the adapter is built.
+ */
+export class AcpT3Selection extends Context.Reference<
+  (instanceId: ProviderInstanceId) => ReadonlySet<string> | null
+>("@t3tools/provider-acp/AcpT3Selection", { defaultValue: () => () => null }) {}
 
 export function acpScopedNativeId(instanceId: ProviderInstanceId, nativeId: string): string {
   return `provider-instance:${encodeURIComponent(instanceId)}:${nativeId}`;
@@ -1828,6 +1849,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const sendsT3Instructions = (yield* AcpT3Instructions)(options.instanceId);
+  const t3SelectionOptions = (yield* AcpT3Selection)(options.instanceId);
   const { flavor, selfInvocation: self } = options;
   const readMcpContext = (threadId: ThreadId | null) =>
     threadId === null
@@ -7603,6 +7626,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         ) {
           const model = flavor.resolveModelId?.(modelSelection) ?? modelSelection.model;
           if (
+            // The host sets the agent's model (AcpT3Selection), so T3 checks none.
+            t3SelectionOptions !== null ||
             flavor.applyModelSelection !== undefined ||
             model.length === 0 ||
             model === "default" ||
@@ -7644,7 +7669,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               ? new AcpModelSelectionError({ model: modelSelection.model, cause: error })
               : error;
           let appliedModel: string | undefined;
-          if (flavor.applyModelSelection !== undefined) {
+          if (t3SelectionOptions !== null) {
+            // The host sets the agent's model (AcpT3Selection).
+          } else if (flavor.applyModelSelection !== undefined) {
             appliedModel = yield* flavor
               .applyModelSelection({
                 runtime,
@@ -7730,6 +7757,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const optionSelections = [...explicitSelections, ...implicitSelections].flatMap(
             (selection) => {
               if (flavor.ownedModelOptionIds?.includes(selection.id) === true) return [];
+              if (t3SelectionOptions !== null && !t3SelectionOptions.has(selection.id)) return [];
               if (!withinCeiling(selection)) return [];
               return [
                 selection.value === ACP_EMPTY_OPTION_VALUE
@@ -8451,13 +8479,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           // while the prompt is prepared still resends the notes in this prompt.
           const previousInstructionState = (yield* Ref.get(promptInstructionStates)).get(sessionId);
           const compactionMarker = (yield* Ref.get(compactionMarkers)).get(sessionId);
-          const text = t3AcpPromptWithInstructions({
-            prompt: messageText,
-            state: instructionState,
-            ...(previousInstructionState === undefined || compactionMarker !== undefined
-              ? {}
-              : { previousState: previousInstructionState }),
-          });
+          const text = sendsT3Instructions
+            ? t3AcpPromptWithInstructions({
+                prompt: messageText,
+                state: instructionState,
+                ...(previousInstructionState === undefined || compactionMarker !== undefined
+                  ? {}
+                  : { previousState: previousInstructionState }),
+              })
+            : messageText;
           const sessionSetup = yield* Ref.get(activeSessionSetup);
           const runtimeInstructions = buildRuntimeInstructions({
             harness: flavor.runtimeHarness ?? driver,
@@ -8468,6 +8498,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           });
           // The agent keeps its own history, so resend only after compaction or when the text changes.
           const sendRuntimeInstructions =
+            sendsT3Instructions &&
             !isNativeSlashCommand &&
             (compactionMarker !== undefined ||
               (yield* Ref.get(promptRuntimeInstructions)).get(sessionId) !== runtimeInstructions);
