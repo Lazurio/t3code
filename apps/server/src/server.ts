@@ -44,6 +44,7 @@ import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as LazurioAgentBrowserSession from "./lazurio/agentBrowserSession.ts";
+import * as LazurioAgentCliRequests from "./lazurio/agentCliRequests.ts";
 import * as LazurioBuddyPrompt from "./lazurio/buddyPrompt.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as SpawnWorker from "./process/SpawnWorker.ts";
@@ -862,7 +863,10 @@ const layerMakeRoutes = Layer.mergeAll(
   // Lazurio overlay (Lazurio/t3code#200): the preview list and close see the threads' strips.
   LazurioOverlay.withEnvironmentBrowserTabs(McpHttpServer.layer).pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
-    Layer.provide(McpOAuth.layerMcpClientAuthenticator),
+    // Lazurio overlay (plan DEV-6676): an agent command's idempotency key holds across commands.
+    Layer.provide(
+      LazurioAgentCliRequests.withAgentCliRequestNamespace(McpOAuth.layerMcpClientAuthenticator),
+    ),
   ),
   // Follows delegated tasks running in linked environments, including after a restart.
   Layer.effectDiscard(

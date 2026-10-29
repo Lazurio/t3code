@@ -5,6 +5,8 @@
 
 import * as Layer from "effect/Layer";
 
+import * as AgentCliSendState from "./agentCliSendState.ts";
+import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
 import * as ProviderRefresh from "./providerRefresh.ts";
@@ -21,6 +23,8 @@ export const layer = Layer.mergeAll(
   ThreadTabsRoute.layer.pipe(Layer.provide(environmentBrowser)),
   ModelRecommendationRoute.layer,
   ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
+  BuddySurfaceThreadRoute.layer,
+  AgentCliSendState.layer,
 ).pipe(Layer.provide(threadTabs));
 
 /** /mcp's preview list and close see the threads' strips (Lazurio/t3code#200). */
