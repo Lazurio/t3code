@@ -937,8 +937,8 @@ function listedThreadStatus(shell: OrchestrationV2ThreadShell) {
   return threadStatus(shell.activityRunStatus, shell.status, shell.pendingBackgroundTasks);
 }
 
-function listItemFromShell(
-  scope: McpInvocationScope,
+export function listItemFromShell(
+  scope: Pick<McpInvocationScope, "environmentId" | "client">,
   shell: OrchestrationV2ThreadShell,
   nowMs: number,
 ): OrchestratorMcpThreadListItem {

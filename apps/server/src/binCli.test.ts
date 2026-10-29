@@ -117,6 +117,7 @@ it.live("keeps migration warnings out of JSON thread output", () =>
       { concurrency: "unbounded" },
     );
     assert.strictEqual(Number(exitCode), 0, stderr);
-    assert.deepStrictEqual(JSON.parse(stdout), []);
+    // Lazurio overlay: `t3 thread list` is the agent CLI's (lazurio/agentCli.ts), with a total.
+    assert.deepStrictEqual(JSON.parse(stdout), { threads: [], total: 0 });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

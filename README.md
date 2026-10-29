@@ -90,6 +90,7 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 - [Permission modes](./docs/user/permission-modes.md)
 - [Source control](./docs/user/source-control.md)
 - [Connect outside agents over MCP](./docs/user/outside-agents.md)
+- [Let an agent on the host work with your threads through the `t3` command](./docs/user/agent-cli.md)
 - [FAQ](./docs/user/faq.md)
 
 [All docs](./docs/README.md) has the full list.
