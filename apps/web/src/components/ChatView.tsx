@@ -163,6 +163,7 @@ import {
   LazurioRightPanelSurfaces,
   useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
+import { BuddyThreadDetailsPanel, useBuddySurfaceMode } from "../lazurio/BuddySurface";
 import {
   ThreadPreviewMiniPlayer,
   useThreadPreviewCanvasSource,
@@ -292,7 +293,6 @@ import {
   WorkspaceTitlebarControls,
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
@@ -570,7 +570,13 @@ export default function ChatView(props: ChatViewProps) {
     }
     return ids;
   })();
-  const settings = useEnvironmentSettings(environmentId);
+  // Lazurio overlay (plan DEV-6676): in Buddy's one conversation a follow-up steers by default,
+  // and queueing is the explicit alternative.
+  const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  const environmentSettings = useEnvironmentSettings(environmentId);
+  const settings = buddySurface
+    ? { ...environmentSettings, followUpBehavior: "steer" as const }
+    : environmentSettings;
   const clientSettingsHydrated = useClientSettingsHydrated();
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
@@ -1337,6 +1343,7 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses.find((status) => status.instanceId === activeRuntime?.providerInstanceId) ??
     activeProviderStatus;
   const supportsConversationRollback =
+    !buddySurface &&
     canOperateThread &&
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
@@ -2781,7 +2788,9 @@ export default function ChatView(props: ChatViewProps) {
   const isSubagentThread =
     activeThread?.lineage.relationshipToParent === "subagent" || delegatedFrom !== null;
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
+  // Lazurio overlay (plan DEV-6676): Buddy's one conversation offers no side chat.
   const sideChatsOffered =
+    !buddySurface &&
     !embedded &&
     canOperateThread &&
     activeThread?.lineage.sideChat !== true &&
@@ -2799,8 +2808,9 @@ export default function ChatView(props: ChatViewProps) {
     runShellCommandStable(command);
   });
   // Main-thread surfaces show this reason; `/side` sent anyway gets it as a toast.
-  const sideChatDisabledReason =
-    activeThread?.lineage.sideChat === true
+  const sideChatDisabledReason = buddySurface
+    ? "Buddy's conversation has no side chats."
+    : activeThread?.lineage.sideChat === true
       ? "Side chats cannot start side chats."
       : isSubagentThread
         ? "Subagent threads cannot start side chats."
@@ -3339,6 +3349,8 @@ export default function ChatView(props: ChatViewProps) {
           <header
             ref={threadPanelPopoverAnchorRef}
             data-chat-header
+            // Lazurio overlay (plan DEV-6676): Buddy's surface draws its own header.
+            hidden={buddySurface}
             className={cn(
               "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
               isElectron
@@ -3859,7 +3871,7 @@ export default function ChatView(props: ChatViewProps) {
                   onConfirm={handleSwitchCheckoutToThreadStable}
                 />
 
-                <ThreadDetailsPanel
+                <BuddyThreadDetailsPanel
                   anchor={threadPanelPopoverAnchorRef}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}

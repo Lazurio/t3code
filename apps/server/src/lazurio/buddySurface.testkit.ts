@@ -137,7 +137,7 @@ export const layerBuddyServer = Layer.mergeAll(
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStore),
-  Layer.provide(layerServerConfig),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(layerServerSettings),
   Layer.provide(layerProviderInstanceRegistry),
   Layer.provide(ResetCreditCoordinator.layer),

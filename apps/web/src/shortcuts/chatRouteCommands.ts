@@ -3,6 +3,7 @@ import type { AnyRouter } from "@tanstack/react-router";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
+import { isBuddySurfaceNow } from "../lazurio/BuddySurface";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { dispatchPreviewAction, type PreviewAction } from "../components/preview/previewActionBus";
@@ -170,7 +171,9 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
       when: () =>
         router.state.matches.some((match) => match.routeId === CHAT_ROUTE_ID) &&
         !router.state.matches.some((match) => isAppModalPage(match.pathname)) &&
-        !isCommandPaletteOpen(),
+        !isCommandPaletteOpen() &&
+        // Lazurio overlay (plan DEV-6676): Buddy's one conversation has no new threads or preview.
+        !isBuddySurfaceNow(),
       context: () => {
         const threadRef = readRouteThreadRef();
         return {
