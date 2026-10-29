@@ -10,6 +10,11 @@ import { retainThreadFindForRoute } from "../components/chat/threadFindStore";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { LazurioPromptDraft } from "~/lazurio/LazurioPromptDraft";
+import {
+  BuddySurfaceIndex,
+  useBuddySurfaceMode,
+  useLeadsToBuddysThread,
+} from "~/lazurio/BuddySurface";
 
 function threadRouteTargetKey(target: ThreadRouteTarget | null) {
   if (!target) return null;
@@ -29,13 +34,21 @@ function ChatRouteLayout() {
     setBackgroundTarget(threadTarget);
   }
   const shownTarget = modalOpen ? backgroundTarget : threadTarget;
+  // Lazurio overlay (plan DEV-6676): Buddy's one conversation has no prompt links.
+  const buddySurface = useBuddySurfaceMode() === true;
+  // Any other thread of Buddy's Environment, a link or a typed address, leads to Buddy's thread.
+  const toBuddysThread = useLeadsToBuddysThread(
+    shownTarget?.kind === "server" && !modalOpen ? shownTarget.threadRef : null,
+  );
   return (
     <>
-      <LazurioPromptDraft />
-      {shownTarget?.kind === "server" && !modalOpen ? (
+      {buddySurface ? null : <LazurioPromptDraft />}
+      {shownTarget?.kind === "server" && !modalOpen && !toBuddysThread ? (
         <ThreadLinkPrompt threadRef={shownTarget.threadRef} />
       ) : null}
-      {shownTarget ? (
+      {toBuddysThread ? (
+        <BuddySurfaceIndex />
+      ) : shownTarget ? (
         <ThreadRouteView target={shownTarget} background={modalOpen} />
       ) : modalOpen ? (
         <SidebarInset className="h-dvh" />

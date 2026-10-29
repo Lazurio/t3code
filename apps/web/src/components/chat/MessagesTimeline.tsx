@@ -20,6 +20,12 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  BuddyDayLine,
+  useBuddyDayJump,
+  useBuddyDayLines,
+  useBuddySurfaceMode,
+} from "../../lazurio/BuddySurface";
 import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
 import { observeResize } from "~/lib/observeResize";
@@ -683,6 +689,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     worktreeSetup,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
+  // Lazurio overlay (plan DEV-6676): Buddy's conversation shows its days and jumps to one.
+  const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
+  const buddyDayLines = useBuddyDayLines(rows, buddySurface);
   const unmatchedPendingApprovals = new Map(pendingApprovalsByRequestId);
   if (unmatchedPendingApprovals.size > 0) {
     for (const row of rows) {
@@ -719,6 +728,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const listOpenedOn = nextOpening.mounted ? nextOpening.identity : null;
   const viewportRef = useRef<TimelineViewport | null>(null);
   const navigateTimeline = () => viewportRef.current?.navigate({ releasesFollow: true });
+  useBuddyDayJump({
+    buddy: buddySurface,
+    rows,
+    listRef,
+    onManualNavigation: navigateTimeline,
+    history: historyControls,
+  });
   const restoreReady = restoringThreadPosition && rows.length > 0;
   // Z: syncs LegendList's scroll position with which thread it shows. The list
   // is not keyed per thread and reports no "new data" event, and the restore
@@ -1043,6 +1059,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    buddySurface,
   };
   const compactionAwaitingRow =
     isCompacting &&
@@ -1224,6 +1241,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           className="chat-content-lane overflow-x-clip"
           data-timeline-root="true"
         >
+          {buddyDayLines.has(item.id) ? <BuddyDayLine label={buddyDayLines.get(item.id)!} /> : null}
           <AudioPreviewUnmountContext value={onAudioUnmount}>
             <TimelineRowContent row={item} />
           </AudioPreviewUnmountContext>
@@ -1231,7 +1249,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
       </div>
     </TimelineRowCtx>
   );
-  const listExtraData = { identity: listIdentityKey, rowCount: rows.length, sharedState };
+  const listExtraData = {
+    identity: listIdentityKey,
+    rowCount: rows.length,
+    sharedState,
+    buddyDays: [...buddyDayLines.keys()].join(),
+  };
   const timelineListFooter = (
     <TimelineListFooter
       composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}
