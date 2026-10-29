@@ -37,6 +37,7 @@ import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as LazurioAgentBrowserSession from "./lazurio/agentBrowserSession.ts";
 import * as LazurioAgentCliRequests from "./lazurio/agentCliRequests.ts";
+import * as LazurioBuddyGuards from "./lazurio/buddySurfaceGuards.ts";
 import * as LazurioBuddyPrompt from "./lazurio/buddyPrompt.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
@@ -247,7 +248,8 @@ const layerProviderEventLoggers = Layer.effect(
 
 const layerPtyAdapter = NodePtyAdapter.layer;
 
-const layerServerSettings = ServerSettings.layer.pipe(
+// Lazurio overlay (plan DEV-6676): no linked Environments in Buddy's T3 Code.
+const layerServerSettings = LazurioBuddyGuards.withoutLinkedEnvironments(ServerSettings.layer).pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
@@ -444,7 +446,10 @@ const layerVcs = Layer.empty.pipe(
   ),
 );
 
-const layerCheckpointStore = CheckpointStore.layer.pipe(Layer.provide(layerVcsDriverRegistry));
+// Lazurio overlay (plan DEV-6676): no checkpoints in Buddy's project in Buddy's T3 Code.
+const layerCheckpointStore = LazurioBuddyGuards.withoutBuddyCheckpoints(CheckpointStore.layer).pipe(
+  Layer.provide(layerVcsDriverRegistry),
+);
 
 const layerPortScanner = PortScanner.layer.pipe(Layer.provide(ProcessRunner.layer));
 
