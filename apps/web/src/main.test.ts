@@ -15,7 +15,8 @@ async function bootThenFailLazyChunk(sessionStorage: Map<string, string>) {
       setItem: (key: string, value: string) => sessionStorage.set(key, value),
       removeItem: (key: string) => sessionStorage.delete(key),
     },
-    location: { reload },
+    // Lazurio overlay: main reads a prompt link off the address at boot (lazurio/promptDraft.ts).
+    location: { reload, href: "http://localhost/" },
   });
   vi.stubGlobal("window", page);
   vi.stubGlobal("document", { getElementById: () => ({}) });

@@ -10,6 +10,10 @@ import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
 import { whenLocaleReady } from "./i18n/runtime";
 import { reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+import { captureLazurioPromptLink } from "./lazurio/promptDraft";
+
+// Lazurio overlay: take a prompt link off the address before the router reads it.
+captureLazurioPromptLink();
 
 const router = startAppServices();
 
