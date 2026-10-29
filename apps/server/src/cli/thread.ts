@@ -413,7 +413,7 @@ const readFullText = Effect.fn("cli.thread.readFullText")(function* (
 });
 
 /** The run's last assistant message, or its last error when it did not complete. */
-const runResultText = Effect.fn("cli.thread.runResultText")(function* (
+export const runResultText = Effect.fn("cli.thread.runResultText")(function* (
   tools: ThreadTools,
   threadId: ThreadId,
   runId: RunId,
