@@ -1127,6 +1127,30 @@ describe("planComposerTurn", () => {
       baseBranchForWorktree: null,
     });
   });
+
+  // Lazurio/t3code#170: the server steers "auto" input into the run once its provider turn runs.
+  it("keeps auto while the run is set up, and queues every other choice", () => {
+    const settingUp = {
+      ...base,
+      sendQueuesBehindSetup: true,
+      isServerThread: true,
+      activeMessageCount: 1,
+      phase: "connecting" as const,
+    };
+    expect(planComposerTurn(settingUp)).toMatchObject({
+      turnDispatchMode: "auto",
+      shouldQueueBehindActiveRun: true,
+    });
+    for (const dispatchMode of ["queue", "steer", "restart"] as const) {
+      expect(planComposerTurn({ ...settingUp, dispatchMode })).toMatchObject({
+        turnDispatchMode: "queue",
+        shouldQueueBehindActiveRun: true,
+      });
+    }
+    expect(
+      planComposerTurn({ ...settingUp, resumeCompactionTokens: 120_000 }).turnDispatchMode,
+    ).toBe("queue");
+  });
 });
 
 describe("restorePlanFollowUpComposer", () => {

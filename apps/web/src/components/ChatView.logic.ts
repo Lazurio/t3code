@@ -1432,8 +1432,11 @@ export function planComposerTurn(input: {
     missingWorktreeBaseBranch: shouldCreateWorktree && !input.activeThreadBranch,
     baseBranchForWorktree: shouldCreateWorktree ? input.activeThreadBranch : null,
     compactBeforeSend,
+    // Lazurio: the server queues "auto" during setup too and steers it in (Lazurio/t3code#170).
     turnDispatchMode:
-      compactBeforeSend || input.sendQueuesBehindSetup ? ("queue" as const) : input.dispatchMode,
+      compactBeforeSend || (input.sendQueuesBehindSetup && input.dispatchMode !== "auto")
+        ? ("queue" as const)
+        : input.dispatchMode,
     shouldQueueBehindActiveRun:
       compactBeforeSend ||
       input.sendQueuesBehindSetup ||
