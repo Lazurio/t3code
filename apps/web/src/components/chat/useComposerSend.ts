@@ -24,6 +24,7 @@ import {
   type ThreadId,
   ProviderInteractionMode,
   RuntimeMode,
+  type UnknownContextRecord,
 } from "@t3tools/contracts";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
@@ -139,6 +140,7 @@ import type { useQueuedRunEdit } from "./useQueuedRunEdit";
 import type { useTimelineFollow } from "./useTimelineFollow";
 import type { useUsageLimitsPanel } from "./useUsageLimitsPanel";
 import type { useWorktreeSetup } from "./useWorktreeSetup";
+import { withPageRecord, withPageReference } from "../../lazurio/buddySurfacePage";
 
 const ENVIRONMENT_UNAVAILABLE_SEND_TOAST_TRAIL_SIZE = 3;
 
@@ -244,6 +246,11 @@ interface ComposerSendInput {
     runtimeMode: RuntimeMode;
     interactionMode: ProviderInteractionMode;
   }) => Promise<AtomCommandResult<void, unknown>>;
+  /**
+   * Lazurio overlay (plan DEV-6676): the page Buddy is asked from, or null. ChatView's one
+   * useBuddyPage keeps it, so removing the chip takes it out of every later send.
+   */
+  readonly buddyPageRecord: UnknownContextRecord | null;
 }
 
 /**
@@ -323,6 +330,7 @@ export function useComposerSend(input: ComposerSendInput) {
     handleInteractionModeChange,
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
+    buddyPageRecord,
   } = input;
   const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
@@ -796,6 +804,10 @@ export function useComposerSend(input: ComposerSendInput) {
       environmentContexts: composerEnvironmentContextsSnapshot,
       messageText: messageTextForSend,
     } = sendSnapshot;
+    // Lazurio overlay (plan DEV-6676): the page joins only the text that is sent, where its record
+    // joins too. A failed send gives the composer back messageTextForSend, the person's own words,
+    // so a retry carries the page the chip shows then, or none once the person removed it.
+    const pageTextForSend = withPageReference(messageTextForSend, buddyPageRecord).trim();
     const {
       missingWorktreeBaseBranch,
       baseBranchForWorktree,
@@ -823,17 +835,21 @@ export function useComposerSend(input: ComposerSendInput) {
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
     const buildOutgoingMessageContext = (attachmentIds: ReadonlyArray<string>) =>
-      buildMessageContext({
-        terminalContexts: composerTerminalContextsSnapshot,
-        reviewComments: composerReviewCommentsSnapshot,
-        previewAnnotations: composerPreviewAnnotationsSnapshot,
-        threadContexts: composerThreadContextsSnapshot,
-        environmentContexts: composerEnvironmentContextsSnapshot,
-        attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
-          attachment,
-          attachmentId: attachmentIds[index] ?? attachment.id,
-        })),
-      });
+      withPageRecord(
+        buildMessageContext({
+          terminalContexts: composerTerminalContextsSnapshot,
+          reviewComments: composerReviewCommentsSnapshot,
+          previewAnnotations: composerPreviewAnnotationsSnapshot,
+          threadContexts: composerThreadContextsSnapshot,
+          environmentContexts: composerEnvironmentContextsSnapshot,
+          attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
+            attachment,
+            attachmentId: attachmentIds[index] ?? attachment.id,
+          })),
+        }),
+        buddyPageRecord,
+        pageTextForSend,
+      );
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
     );
@@ -844,7 +860,7 @@ export function useComposerSend(input: ComposerSendInput) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      text: pageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -869,7 +885,7 @@ export function useComposerSend(input: ComposerSendInput) {
     for (const resolved of resolveMultipleModelTargets({
       selections: multipleModelSelections ?? [],
       providerInstanceEntries,
-      messageText: messageTextForSend,
+      messageText: pageTextForSend,
       planModeEnabled,
       interactionMode: sendInteractionMode,
     })) {
