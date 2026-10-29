@@ -6,11 +6,12 @@
 import * as Layer from "effect/Layer";
 
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
+import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
 import * as ThreadLifecycle from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import * as ThreadTabsRoute from "./threadTabsRoute.ts";
 
-export const layer = ThreadTabsRoute.layer.pipe(
-  Layer.provide(EnvironmentBrowser.layer),
-  Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))),
-);
+export const layer = Layer.mergeAll(
+  ThreadTabsRoute.layer.pipe(Layer.provide(EnvironmentBrowser.layer)),
+  ModelRecommendationRoute.layer,
+).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));
