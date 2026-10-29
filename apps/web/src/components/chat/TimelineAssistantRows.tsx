@@ -185,7 +185,7 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
-      {projectedItem?.item.type === "assistant_message" ? (
+      {projectedItem?.item.type === "assistant_message" && !ctx.buddySurface ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
       {!message.streaming && (
