@@ -65,9 +65,18 @@ const PreviewStatusTool = Tool.make("preview_status", {
 const PreviewOpenTool = browserTool(
   Tool.make("preview_open", {
     description:
-      "Open a preview tab in this thread and show it. `open=false` keeps it in the background. Reuses your current tab unless `tabId` or `reuseExistingTab=false` says otherwise. Parallel subagents in one session must each use `reuseExistingTab=false`, then their own returned `tabId`.",
+      "Open a preview tab in this thread and show it. `open=false` keeps it in the background. Reuses your current tab unless `tabId` or `reuseExistingTab=false` says otherwise. Parallel subagents in one session must each use `reuseExistingTab=false`, then their own returned `tabId`." +
+      // Lazurio overlay (Lazurio/t3code#88): the Environment browser host answers with the view.
+      " When the result has a view, that is the address where a person sees the tab: someone without the inline preview, such as in the desktop or mobile app, opens it in their own browser.",
     parameters: PreviewAutomationOpenInput,
-    success: PreviewAutomationStatus,
+    // Lazurio overlay (plan DEV-6646): the Environment browser host answers with the view of the
+    // tab it opens, and another Lazurio Environment's view with what to do instead
+    // (apps/server/src/lazurio).
+    success: Schema.Struct({
+      ...PreviewAutomationStatus.fields,
+      view: Schema.optional(Schema.String),
+      message: Schema.optional(Schema.String),
+    }),
     failure: PreviewToolFailure,
     dependencies,
   })
