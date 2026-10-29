@@ -104,6 +104,77 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
   ),
 );
 
+// Lazurio overlay (Lazurio/t3code#88): the view the Environment browser answers open with stays
+// in the answer of an open that goes on to a dev server.
+it.effect("preview_open to a dev server keeps the view of the opened tab", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+      const connected = yield* Deferred.make<void>();
+      const tabId = PreviewTabId.make("opened-tab");
+      const view = "https://browser.example.test/t/opened-tab";
+      const status = {
+        available: true,
+        visible: true,
+        tabId,
+        url: "http://localhost:3000/",
+        title: "Dev server",
+        loading: false,
+      };
+      const events = yield* broker.connect({
+        clientId: "client-1",
+        environmentId: scope.environmentId,
+      });
+      yield* Stream.runForEach(events, (event) => {
+        if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        return broker.respond({
+          clientId: "client-1",
+          connectionId: event.connectionId,
+          requestId: event.request.requestId,
+          ok: true,
+          result:
+            event.request.operation === "open"
+              ? {
+                  ...status,
+                  url: "about:blank",
+                  title: null,
+                  view,
+                  dialog: { type: "alert", message: "before", defaultValue: "" },
+                }
+              : status,
+        });
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+      const toolkit = yield* PreviewStandardToolkit.pipe(
+        Effect.provide(McpToolAccess.HandlersLayer.layer(layerStandard)),
+      );
+      const results = yield* toolkit
+        .handle("preview_open", { target: { kind: "environment-port", port: 3000 } })
+        .pipe(Stream.unwrap, Stream.runCollect);
+      expect(results.at(-1)?.result).toEqual({ ...status, view });
+    }).pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment-1"),
+        requestNamespace: "provider-session-1",
+        thread: {
+          threadId: ThreadId.make("thread-1"),
+          providerSessionId: "provider-session-1",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["preview"] as const),
+        issuedAt: 1,
+      }),
+      Effect.provide(
+        Layer.mergeAll(PreviewAutomationBroker.layer, liveThreadsLayer).pipe(
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    ),
+  ),
+);
+
 describe("claimPreviewRecording", () => {
   it.effect("overlapping and repeated claims return the same retained recording", () =>
     Effect.gen(function* () {
