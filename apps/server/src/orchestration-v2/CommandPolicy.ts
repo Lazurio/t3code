@@ -89,6 +89,16 @@ export function goalCommandStopsActiveRun(
   }
 }
 
+/**
+ * A steer aborts the provider's pending question or approval callback, so the person
+ * never sees it; while one is pending, any steer waits behind the turn (Lazurio/t3code#139).
+ */
+export function waitsOnPendingRequest(
+  projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
+): boolean {
+  return projection.runtimeRequests.some((request) => request.status === "pending");
+}
+
 export function resolveMessageDispatchIntent(
   projection: OrchestrationV2ThreadProjection,
   requestedMode: MessageDispatchMode,
@@ -96,6 +106,7 @@ export function resolveMessageDispatchIntent(
 ): MessageDispatchMode {
   const mode = resolveDeliveryIntent(projection, requestedMode, deliveryIntent);
   if (mode.type !== "steer_active") return mode;
+  if (waitsOnPendingRequest(projection)) return { type: "queue_after_active" };
   // Compaction and sign-out cannot accept steers; queue follow-ups.
   const target = projection.runs.find((run) => run.id === mode.targetRunId);
   const targetMessage = projection.messages.find((message) => message.id === target?.userMessageId);
@@ -113,6 +124,34 @@ export function resolveMessageDispatchIntent(
     turns.supportsQueuedMessages
     ? { type: "queue_after_active" }
     : mode;
+}
+
+/**
+ * The active run whose provider turn has not started yet. Automatic input queued now
+ * steers into it once that turn runs, instead of waiting for a turn of its own (Lazurio/t3code#170).
+ */
+export function runAwaitingProviderTurn(
+  projection: Pick<OrchestrationV2ThreadProjection, "runs" | "providerTurns">,
+): OrchestrationV2Run | undefined {
+  const activeRun = projection.runs.findLast(isActiveRun);
+  return activeRun === undefined ||
+    projection.providerTurns.some((turn) => turn.runAttemptId === activeRun.activeAttemptId)
+    ? undefined
+    : activeRun;
+}
+
+/**
+ * Whether a running update is its provider turn's first. ACP sends running once per turn, and a
+ * follow-up committed meanwhile is visible only under the thread lock (Lazurio/t3code#170).
+ */
+export function makeFirstRunningUpdate(limit = 1024): (providerTurnId: string) => boolean {
+  const seen = new Set<string>();
+  return (providerTurnId) => {
+    if (seen.has(providerTurnId)) return false;
+    seen.add(providerTurnId);
+    if (seen.size > limit) seen.delete(seen.values().next().value!);
+    return true;
+  };
 }
 
 /** A run that still owns the thread's provider turn. */

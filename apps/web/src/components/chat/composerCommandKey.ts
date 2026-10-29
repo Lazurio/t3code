@@ -265,6 +265,7 @@ export function composerCommandKeyHandler(input: {
         undefined,
         resolveComposerDispatchMode({
           running: phase === "running",
+          turnStarting: phase === "connecting",
           alternateModifier: submissionIntent === "alternate",
           activeTurnDefault: followUpBehavior,
           canSteer: !isCompacting,

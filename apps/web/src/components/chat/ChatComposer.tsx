@@ -2142,6 +2142,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           dispatchMode ??
             resolveComposerDispatchMode({
               running: phase === "running",
+              turnStarting: phase === "connecting",
               alternateModifier: false,
               activeTurnDefault: followUpBehavior,
               canSteer: !isCompacting,
@@ -2184,6 +2185,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         undefined,
         resolveComposerDispatchMode({
           running: phase === "running",
+          turnStarting: phase === "connecting",
           alternateModifier: intent === "alternate",
           canSteer: !isCompacting,
           activeTurnDefault: followUpBehavior,
@@ -2198,6 +2200,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       event,
       resolveComposerDispatchMode({
         running: phase === "running",
+        turnStarting: phase === "connecting",
         alternateModifier: event.metaKey || event.ctrlKey,
         activeTurnDefault: followUpBehavior,
         canSteer: !isCompacting,
@@ -2210,6 +2213,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       undefined,
       resolveComposerDispatchMode({
         running: phase === "running",
+        turnStarting: phase === "connecting",
         alternateModifier: false,
         activeTurnDefault: followUpBehavior,
         canSteer: !isCompacting,

@@ -60,6 +60,7 @@ function dispatchProjection(
       sessionCapabilities === undefined
         ? []
         : [{ runAttemptId: activeAttemptId, status: "running" }],
+    runtimeRequests: [],
   } as unknown as OrchestrationV2ThreadProjection;
 }
 
@@ -164,6 +165,35 @@ it.each([
   );
 });
 
+// Lazurio/t3code#170: the run a follow-up queued before its provider turn steers into.
+it("names the active run whose provider turn has not started", () => {
+  const projection = dispatchProjection(baseCapabilities);
+  const awaiting = (
+    status: string,
+    providerTurns: ReadonlyArray<{ runAttemptId: RunAttemptId; status: string }>,
+  ) =>
+    CommandPolicy.runAwaitingProviderTurn({
+      runs: projection.runs.map((run) => ({ ...run, status })),
+      providerTurns,
+    } as unknown as OrchestrationV2ThreadProjection)?.id;
+  const previous = RunAttemptId.make("previous-attempt");
+  assert.equal(awaiting("preparing", []), activeRunId);
+  assert.equal(awaiting("starting", []), activeRunId);
+  assert.equal(awaiting("running", [{ runAttemptId: previous, status: "running" }]), activeRunId);
+  assert.isUndefined(awaiting("running", [{ runAttemptId: activeAttemptId, status: "running" }]));
+  assert.isUndefined(awaiting("running", [{ runAttemptId: activeAttemptId, status: "completed" }]));
+  assert.isUndefined(awaiting("queued", []));
+  assert.isUndefined(awaiting("completed", []));
+});
+
+it("takes the first running update of each provider turn, also when ticks repeat", () => {
+  const firstRunning = CommandPolicy.makeFirstRunningUpdate(2);
+  assert.deepEqual(
+    ["a", "a", "b", "a", "c", "a"].map((turnId) => firstRunning(turnId)),
+    [true, false, true, false, true, true],
+  );
+});
+
 // regression: #26695 an interrupt-restart steer cancels Copilot's background agents
 it("queues a steer for a provider that cannot steer either way", () => {
   const projection = dispatchProjection(
@@ -243,6 +273,53 @@ it.each(["/compact", " /LOGOUT "])("queues a steer sent while %s runs", (text) =
     { type: "restart_active", targetRunId: activeRunId },
   );
 });
+
+// Claude's MCP elicitation (pingdotgg/t3code#21903) waits as a pending mcp-elicitation request.
+it.each(["user_input", "command", "mcp-elicitation"] as const)(
+  "queues every steer while the active turn waits on a pending %s request",
+  (kind) => {
+    const projection = dispatchProjection(baseCapabilities);
+    const waiting = {
+      ...projection,
+      runtimeRequests: [{ kind, status: "pending" }],
+    } as unknown as OrchestrationV2ThreadProjection;
+    for (const deliveryIntent of ["auto", "steer"] as const) {
+      assert.deepEqual(
+        CommandPolicy.resolveMessageDispatchIntent(
+          waiting,
+          { type: "start_immediately" },
+          deliveryIntent,
+        ),
+        { type: "queue_after_active" },
+      );
+    }
+    assert.deepEqual(
+      CommandPolicy.resolveMessageDispatchIntent(waiting, {
+        type: "steer_active",
+        targetRunId: activeRunId,
+      }),
+      { type: "queue_after_active" },
+    );
+    assert.deepEqual(
+      CommandPolicy.resolveMessageDispatchIntent(waiting, { type: "start_immediately" }, "restart"),
+      { type: "restart_active", targetRunId: activeRunId },
+    );
+    const answered = {
+      ...projection,
+      runtimeRequests: [{ kind, status: "resolved" }],
+    } as unknown as OrchestrationV2ThreadProjection;
+    for (const deliveryIntent of ["auto", "steer"] as const) {
+      assert.deepEqual(
+        CommandPolicy.resolveMessageDispatchIntent(
+          answered,
+          { type: "start_immediately" },
+          deliveryIntent,
+        ),
+        { type: "steer_active", targetRunId: activeRunId },
+      );
+    }
+  },
+);
 
 const layer = it.layer(CommandPolicy.layer);
 
