@@ -58,6 +58,7 @@ import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
 import { MultipleAccountsNote } from "./MultipleAccountsNote";
 import { ProviderEnvironmentSection } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
+import { LazurioSignInChoice } from "../../lazurio/LazurioSignIn";
 
 /** Limit the slug to 48 chars so the composed ProviderInstanceId fits its 64-char cap. */
 function slugifyLabel(value: string): string {
@@ -739,12 +740,16 @@ export function AddProviderInstanceDialog({
                   <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
                     Configure manually
                   </Button>
-                  {driverLocks?.configKeys.has("setupMode") ? null : (
-                    <ChatGptConnectionButton
-                      size="sm"
-                      onClick={() => setAddingChatGptAccount(true)}
-                    />
-                  )}
+                  {/* Lazurio: Codex signs in on Getting started (root decision 0201); the lock
+                      rules out only T3's managed runtime, so the link stays under it. */}
+                  <LazurioSignInChoice environmentId={environmentId}>
+                    {driverLocks?.configKeys.has("setupMode") ? null : (
+                      <ChatGptConnectionButton
+                        size="sm"
+                        onClick={() => setAddingChatGptAccount(true)}
+                      />
+                    )}
+                  </LazurioSignInChoice>
                 </>
               ) : wizardStep < (isAcpRegistry ? 1 : 2) ? (
                 <Button

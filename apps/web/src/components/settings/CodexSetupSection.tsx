@@ -53,6 +53,12 @@ import {
   settleHandoffAuthorizationPage,
   settleProviderInstall,
 } from "./CodexSetupSection.logic";
+import {
+  LazurioSignInDialog,
+  LazurioSignInRow,
+  useLazurioSignIn,
+} from "../../lazurio/LazurioSignIn";
+import { runsChatGptHandoff } from "../../lazurio/providerSignIn";
 
 const noop = () => undefined;
 
@@ -77,7 +83,9 @@ function readSignInRouting(environmentId: EnvironmentId) {
     appAtomRegistry.get(environmentPresentations.presentationAtom(primaryEnvironmentId))?.connection
       .phase === "connected" &&
     isLoopbackUrl(readPreparedConnection(primaryEnvironmentId)?.httpBaseUrl ?? null) &&
-    (window.desktopBridge !== undefined || isLoopbackHost(window.location.hostname))
+    (window.desktopBridge !== undefined || isLoopbackHost(window.location.hostname)) &&
+    // Lazurio overlay (Lazurio/t3code#145): a Lazurio Environment runs no handoff.
+    runsChatGptHandoff(appAtomRegistry.get(serverEnvironment.configValueAtom(primaryEnvironmentId)))
       ? primaryEnvironmentId
       : null;
   return {
@@ -110,6 +118,20 @@ export function CodexSetupSection(props: CodexSetupSectionProps) {
     ProviderDriverKind.make("codex"),
   );
   const chatGptDenial = codexLocks?.configKeys.has("setupMode") ? codexLocks.reason : undefined;
+  // Lazurio (root decision 0201): a Lazurio Environment signs Codex in on its Getting started page.
+  const lazurioSignIn = useLazurioSignIn(props.environmentId);
+  // A managed account already signed in keeps its Disconnect there, never its sign-in.
+  if (lazurioSignIn)
+    return (
+      <LazurioSignInRow
+        environmentId={props.environmentId}
+        instanceId={props.instanceId}
+        mode={props.mode}
+        provider={props.provider}
+        readOnly={props.readOnly}
+        enabled={props.enabled}
+      />
+    );
   const existingState = getOnboardingProviderState(props.provider);
   const existingReady = props.enabled && existingState === "ready";
   const existingAuthenticated = props.provider?.auth.status === "authenticated";
@@ -222,6 +244,9 @@ export function AddManagedCodexAccountDialog({
     | undefined;
 }) {
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
+  // Lazurio (root decision 0201): no ChatGPT account that only T3 sees on a Lazurio Environment.
+  const lazurioSignIn = useLazurioSignIn(environmentId);
+  if (lazurioSignIn) return <LazurioSignInDialog environmentId={environmentId} onClose={onClose} />;
   return (
     <AddCodexAccountDialog
       environmentId={environmentId}
