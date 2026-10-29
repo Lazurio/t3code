@@ -125,6 +125,7 @@ export function formatIssuedSession(
         subject: session.subject,
         client: session.client,
         expiresAt: toIsoString(session.expiresAt),
+        ...(session.runtimeModeCeiling ? { runtimeModeCeiling: session.runtimeModeCeiling } : {}),
       },
       null,
       2,
@@ -137,6 +138,9 @@ export function formatIssuedSession(
       `Scopes: ${session.scopes.join(" ")}`,
       `Token: ${session.token}`,
       `Subject: ${session.subject}`,
+      ...(session.runtimeModeCeiling
+        ? [`Runtime-mode ceiling: ${session.runtimeModeCeiling}`]
+        : []),
       `Client: ${formatClientMetadata(session.client)}`,
       `Expires at: ${toIsoString(session.expiresAt)}`,
     ].join(newline) + newline
