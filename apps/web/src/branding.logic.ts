@@ -1,4 +1,6 @@
-const NIGHTLY_SERVER_VERSION_PATTERN = /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/;
+// Lazurio T3 Code (root decision 0200): its previews (X.Y.Z-preview.YYYYMMDD.N) are canaries of
+// the next stable release, not nightlies, so they keep the build's own stage label.
+const NIGHTLY_SERVER_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
 
 export function formatAppDisplayName(input: {
   readonly baseName: string;
