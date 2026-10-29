@@ -1,7 +1,8 @@
 /**
- * Lazurio overlay (LazurioPlatform F51): `t3 lazurio`. Machines checks `t3 lazurio capabilities`
- * (contract version 1) and the Platform's `lazurio chat defaults --apply` runs `t3 lazurio model`,
- * so the commands' output is a contract: cli.test.ts pins it byte for byte.
+ * Lazurio overlay (LazurioPlatform F51, root decision 0201): `t3 lazurio`. Machines checks
+ * `t3 lazurio capabilities` (contract version 1), the Platform's `lazurio chat defaults --apply`
+ * runs `t3 lazurio model` and the Launchpad runs `t3 lazurio providers` after Codex or Claude signed
+ * in through its CLI, so the commands' output is a contract: cli.test.ts pins it byte for byte.
  */
 import {
   type AuthEnvironmentScope,
@@ -32,10 +33,18 @@ import {
   ModelRecommendationRequest,
   readModelRecommendationRecord,
 } from "./modelRecommendation.ts";
+import {
+  PROVIDER_REFRESH_ROUTE,
+  PROVIDER_REFRESH_SCOPES,
+  ProviderRefreshRequest,
+} from "./providerRefresh.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeModelRecommendationRequest = Schema.decodeEffect(
   Schema.fromJsonString(ModelRecommendationRequest),
+);
+const decodeProviderRefreshRequest = Schema.decodeEffect(
+  Schema.fromJsonString(ProviderRefreshRequest),
 );
 // The offline read takes from `settings.json` only the projects' overrides, and of the Folder
 // project's only its model, so the rest of the file, which only the server reads, never fails it.
@@ -174,6 +183,31 @@ const modelCommand = Command.make("model", {
     }),
   ),
 );
+const providersCommand = Command.make("providers", {
+  ...projectLocationFlags,
+  request: Argument.String("request-json"),
+}).pipe(
+  Command.withDescription(
+    'After Codex or Claude signed in through its CLI, turn it on and read its sign-in again through the running service, e.g. {"providers":["codex"],"enable":true}.',
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const request = yield* decodeProviderRefreshRequest(flags.request);
+      yield* postToRunningService(flags, {
+        route: PROVIDER_REFRESH_ROUTE,
+        scopes: PROVIDER_REFRESH_SCOPES,
+        body: request,
+        label: "lazurio provider refresh",
+        // Reading a provider's sign-in starts its CLI; Codex's check alone may take ten seconds.
+        timeout: "60 seconds",
+        notRunning: "The T3 service must be running. Nothing was changed.",
+        // The service says why, e.g. which instance holds a default instance's ID.
+        refused: (status, body) =>
+          `The live T3 service refused the provider refresh (${status}): ${body}`,
+      });
+    }),
+  ),
+);
 const capabilitiesCommand = Command.make("capabilities").pipe(
   Command.withDescription(
     "Report the versioned Lazurio hosting contract without reading or changing user state.",
@@ -184,11 +218,12 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         version: 1,
         managedFolder: true,
         modelRecommendation: true,
+        providerRefresh: true,
       }),
     ),
   ),
 );
 
 export const lazurioCommand = Command.make("lazurio").pipe(
-  Command.withSubcommands([modelCommand, capabilitiesCommand]),
+  Command.withSubcommands([modelCommand, providersCommand, capabilitiesCommand]),
 );

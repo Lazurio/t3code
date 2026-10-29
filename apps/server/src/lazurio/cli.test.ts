@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -25,9 +26,12 @@ import {
 } from "../serverRuntimeState.ts";
 import * as Settings from "../serverSettings.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
+import * as ProviderRefresh from "./providerRefresh.ts";
+import * as ProviderRefreshRoute from "./providerRefreshRoute.ts";
 
-// `t3 lazurio` is a contract: Machines checks `capabilities` and the Platform's
-// `lazurio chat defaults --apply` reads `model`'s answer. These pin their output byte for byte.
+// `t3 lazurio` is a contract: Machines checks `capabilities`, the Platform's
+// `lazurio chat defaults --apply` reads `model`'s answer and the Launchpad reads `providers`'s.
+// These pin their output byte for byte.
 
 const run = (args: ReadonlyArray<string>) =>
   Command.runWith(cli, { version: "0.0.0" })(args).pipe(
@@ -69,8 +73,53 @@ const withAbandonedUpload = (baseDir: string) =>
     return abandoned;
   });
 
-/** The overlay's route on 127.0.0.1 over `baseDir`'s auth and settings, as the running service has it. */
-const withLiveService = <A, E, R>(baseDir: string, body: Effect.Effect<A, E, R>) =>
+/** The provider refresh as the Launchpad asks for it, and the running service's answer. */
+const providersRequest = '{"providers":["codex"],"enable":true}';
+const providersAnswer = {
+  version: 1 as const,
+  providers: [
+    {
+      provider: "codex" as const,
+      instanceId: ProviderInstanceId.make("codex"),
+      enabled: true,
+      status: "ready" as const,
+      auth: "authenticated" as const,
+    },
+  ],
+};
+const providerRefreshRoute = ProviderRefreshRoute.layer.pipe(
+  Layer.provide(
+    Layer.succeed(ProviderRefresh.ProviderRefresh, {
+      // Claude alone stands for a request the service refuses: its ID holds another driver.
+      refresh: (request) =>
+        request.providers.includes("claude")
+          ? Effect.fail(
+              new ProviderRefresh.ProviderRefreshDriverMismatchError({
+                mismatches: [
+                  {
+                    provider: "claude",
+                    instanceId: ProviderInstanceId.make("claudeAgent"),
+                    driver: ProviderDriverKind.make("codex"),
+                  },
+                ],
+              }),
+            )
+          : Effect.succeed(providersAnswer),
+    }),
+  ),
+);
+
+/**
+ * The overlay's routes on 127.0.0.1 over `baseDir`'s auth and settings, as the running service
+ * has them: the model route, or `routes` in its place.
+ */
+const withLiveService = <A, E, R>(
+  baseDir: string,
+  body: Effect.Effect<A, E, R>,
+  routes:
+    | typeof ModelRecommendationRoute.layer
+    | typeof providerRefreshRoute = ModelRecommendationRoute.layer,
+) =>
   Effect.gen(function* () {
     const configLayer = Layer.effect(
       ServerConfig.ServerConfig,
@@ -80,7 +129,7 @@ const withLiveService = <A, E, R>(baseDir: string, body: Effect.Effect<A, E, R>)
         lazurioFolder: folder,
       })),
     ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)));
-    const serviceLayer = HttpRouter.serve(ModelRecommendationRoute.layer, {
+    const serviceLayer = HttpRouter.serve(routes, {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
@@ -113,7 +162,7 @@ describe("t3 lazurio", () => {
     Effect.gen(function* () {
       yield* run(["lazurio", "capabilities"]);
       assert.deepStrictEqual(yield* printed, [
-        '{"version":1,"managedFolder":true,"modelRecommendation":true}',
+        '{"version":1,"managedFolder":true,"modelRecommendation":true,"providerRefresh":true}',
       ]);
     }).pipe(Effect.provide(TestConsole.layer)),
   );
@@ -188,13 +237,73 @@ describe("t3 lazurio", () => {
     }).pipe(Effect.provide(TestConsole.layer)),
   );
 
-  it.effect("model <request>: prints nothing after the T3 home removes an upload", () =>
+  it.effect("model and providers <request>: print nothing when an upload is removed", () =>
+    Effect.gen(function* () {
+      for (const [command, body] of [
+        ["model", request],
+        ["providers", providersRequest],
+      ] as const) {
+        const baseDir = makeBaseDir();
+        const abandoned = yield* withAbandonedUpload(baseDir);
+        yield* run(["lazurio", command, "--base-dir", baseDir, body]).pipe(Effect.flip);
+        assert.isFalse(NodeFS.existsSync(abandoned));
+      }
+      assert.deepStrictEqual(yield* TestConsole.logLines, []);
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("providers <request>: only through the running service, never offline", () =>
     Effect.gen(function* () {
       const baseDir = makeBaseDir();
-      const abandoned = yield* withAbandonedUpload(baseDir);
-      yield* run(["lazurio", "model", "--base-dir", baseDir, request]).pipe(Effect.flip);
-      assert.isFalse(NodeFS.existsSync(abandoned));
-      assert.deepStrictEqual(yield* TestConsole.logLines, []);
+      const error = yield* run([
+        "lazurio",
+        "providers",
+        "--base-dir",
+        baseDir,
+        providersRequest,
+      ]).pipe(Effect.flip);
+      assert.strictEqual(error.message, "The T3 service must be running. Nothing was changed.");
+      assert.isFalse(NodeFS.existsSync(NodePath.join(baseDir, "userdata", "settings.json")));
+      assert.deepStrictEqual(yield* printed, []);
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("providers <request>: prints the running service's answer as it is", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const output = yield* withLiveService(
+        baseDir,
+        Effect.gen(function* () {
+          const before = (yield* printed).length;
+          yield* run(["lazurio", "providers", "--base-dir", baseDir, providersRequest]);
+          return (yield* printed).slice(before);
+        }),
+        providerRefreshRoute,
+      );
+      assert.deepStrictEqual(output, [
+        '{"version":1,"providers":[{"provider":"codex","instanceId":"codex","enabled":true,"status":"ready","auth":"authenticated"}]}',
+      ]);
+    }).pipe(Effect.provide(TestConsole.layer)),
+  );
+
+  it.effect("providers <request>: a refusal says why, as the running service answered", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      const error = yield* withLiveService(
+        baseDir,
+        run([
+          "lazurio",
+          "providers",
+          "--base-dir",
+          baseDir,
+          '{"providers":["claude"],"enable":true}',
+        ]).pipe(Effect.flip),
+        providerRefreshRoute,
+      );
+      assert.strictEqual(
+        error.message,
+        'The live T3 service refused the provider refresh (409): {"error":"driver-mismatch","mismatches":[{"provider":"claude","instanceId":"claudeAgent","driver":"codex"}]}',
+      );
     }).pipe(Effect.provide(TestConsole.layer)),
   );
 });
