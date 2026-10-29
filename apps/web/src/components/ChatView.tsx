@@ -160,6 +160,10 @@ import {
 import { isPreviewSupportedInRuntime, useThreadPreviewState } from "../previewStateStore";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import {
+  LazurioRightPanelSurfaces,
+  useLazurioThreadTabs,
+} from "../lazurio/LazurioEnvironmentBrowser";
+import {
   ThreadPreviewMiniPlayer,
   useThreadPreviewCanvasSource,
 } from "./preview/ThreadPreviewMiniPlayer";
@@ -1058,6 +1062,12 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
+  // Lazurio overlay: the thread's Environment browser tabs in the panel (apps/web/src/lazurio).
+  // A side chat has no panel of its own (upstream's `embedded`); its parent's strip serves it.
+  useLazurioThreadTabs(embedded ? null : activeThreadRef, {
+    inlinePanel: !shouldUsePlanSidebarSheet,
+    draft: !isServerThread,
+  });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const rightPanelPresenceValue = {
@@ -3187,7 +3197,7 @@ export default function ChatView(props: ChatViewProps) {
     return embedded ? null : <NoActiveThreadState />;
   }
 
-  const rightPanelContent = activeThreadRef ? (
+  const rightPanelActiveContent = activeThreadRef ? (
     <RightPanelSurfaceContent
       surface={renderedRightPanelSurface}
       activeSurfaceId={activeRightPanelSurface?.id ?? null}
@@ -3237,6 +3247,17 @@ export default function ChatView(props: ChatViewProps) {
         onPendingChange: handleFilePendingChangeStable,
       }}
     />
+  ) : null;
+  // Lazurio overlay: every Environment browser tab of the thread keeps its frame beside the
+  // surface in view (apps/web/src/lazurio).
+  const rightPanelContent = activeThreadRef ? (
+    <LazurioRightPanelSurfaces
+      threadRef={activeThreadRef}
+      surfaces={renderedRightPanelSurfaces}
+      activeSurfaceId={renderedRightPanelSurface?.id ?? null}
+    >
+      {rightPanelActiveContent}
+    </LazurioRightPanelSurfaces>
   ) : null;
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
