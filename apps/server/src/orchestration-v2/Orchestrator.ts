@@ -109,7 +109,10 @@ import {
   goalCommandStopsActiveRun,
   isActiveRun,
   isNativeMaintenanceCommand,
+  makeFirstRunningUpdate,
   resolveMessageDispatchIntent,
+  runAwaitingProviderTurn,
+  waitsOnPendingRequest,
 } from "./CommandPolicy.ts";
 import { CommandReceiptStoreV2, type CommandReceiptV2 } from "./CommandReceiptStore.ts";
 import {
@@ -6070,6 +6073,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const commandNotice = noticeKind === "command" && command.creationSource === "server";
     if (
       !freshContext &&
+      !waitsOnPendingRequest(projection) &&
       (delegatedCompletion !== undefined
         ? delegatedCompletion.taskIds.every(
             (id) =>
@@ -6349,6 +6353,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.createdBy === "agent" &&
         command.creationSource === "provider" &&
         !(yield* stopReachedRun(command, command.threadId, activeRun.id));
+      // Lazurio: a fresh session never steers, so it waits as queued.
+      const steersRunId =
+        command.deliveryIntent === "auto" &&
+        dispatchMode.type === "queue_after_active" &&
+        !freshContext &&
+        goalCommand === null &&
+        !isNativeMaintenanceCommand(command) &&
+        command.notification === undefined &&
+        command.delegatedCompletion === undefined
+          ? runAwaitingProviderTurn(projection)?.id
+          : undefined;
       const run: OrchestrationV2Run = {
         id: runId,
         threadId: command.threadId,
@@ -6387,6 +6402,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           : { usageLimitContinuationOfRunId: command.usageLimitContinuationOfRunId }),
         ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
         ...(freshContext ? { freshContext: true } : {}),
+        ...(steersRunId === undefined ? {} : { steersRunId }),
       };
       const attempt: OrchestrationV2RunAttempt = {
         id: attemptId,
@@ -9984,6 +10000,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         queuedRunId: queuedRun.id,
         targetRunId: stops ? target.id : undefined,
         reason: "Stopped to apply /goal",
+        now,
+      });
+    }
+    if (waitsOnPendingRequest(projection)) {
+      // It goes first in the queue instead and runs after the answer.
+      yield* emitEvent({
+        type: "run.updated",
+        threadId: command.threadId,
+        runId: queuedRun.id,
+        nodeId: queuedRootNode.id,
+        providerInstanceId: queuedRun.providerInstanceId,
+        occurredAt: now,
+        payload: { ...queuedRun, queuePosition: 1 },
+      });
+      return yield* stopRunForQueuedCommand({
+        command,
+        events,
+        effects,
+        projection,
+        queuedRunId: queuedRun.id,
+        targetRunId: undefined,
+        reason: "Queued behind a pending request",
         now,
       });
     }
@@ -14239,6 +14277,107 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             stored.event.payload.status === "rolled_back"),
       ),
       Stream.runForEach(handleRunUpdate),
+      Effect.forkScoped,
+    );
+
+  // Lazurio: input sent before a provider turn started steers in once it runs (Lazurio/t3code#170).
+  const firstRunningUpdate = makeFirstRunningUpdate();
+  const steerAwaitingTurnCommandId = (runId: RunId) =>
+    CommandId.make(`command:steer-awaiting-turn:${runId}`);
+  const steerInputAwaitingTurn = Effect.fn("Orchestrator.steerInputAwaitingTurn")(
+    function* (stored: OrchestrationV2StoredEvent) {
+      if (stored.event.type !== "provider-turn.updated") return;
+      const threadId = stored.event.threadId;
+      const runAttemptId = stored.event.payload.runAttemptId;
+      // Each follow-up gets one promotion; a refused one stays queued and is not retried.
+      const awaitingPromotion = (runs: ReadonlyArray<OrchestrationV2Run>) =>
+        Effect.filter(
+          runs.filter((run) => run.steersRunId !== undefined && run.queueHeld !== true),
+          (run) =>
+            commandReceipts
+              .getByCommandId(steerAwaitingTurnCommandId(run.id))
+              .pipe(Effect.map(Option.isNone)),
+        );
+      const followUpWaits = projectionStore
+        .getThreadRecords(threadId, ["runs"], { runStatuses: ["queued"] })
+        .pipe(
+          Effect.flatMap((queued) => awaitingPromotion(queued.runs)),
+          Effect.map((runs) => runs.length > 0),
+        );
+      // Later running updates repeat on every usage tick; lock only when a follow-up waits.
+      if (!firstRunningUpdate(stored.event.payload.id) && !(yield* followUpWaits)) return;
+      yield* threadDispatch.withLock(
+        threadId,
+        Effect.gen(function* () {
+          if (!(yield* followUpWaits)) return;
+          const projection = yield* readCommandProjection(threadId);
+          const target = projection.runs.find(
+            (run) => isActiveRun(run) && run.activeAttemptId === runAttemptId,
+          );
+          if (target === undefined) return;
+          const commands = (yield* awaitingPromotion(
+            projection.runs.filter(
+              (run) => run.status === "queued" && run.steersRunId === target.id,
+            ),
+          ))
+            .toSorted((left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0))
+            .map(
+              (run) =>
+                ({
+                  type: "queued-message.promote-to-steer",
+                  commandId: steerAwaitingTurnCommandId(run.id),
+                  threadId,
+                  queuedRunId: run.id,
+                  targetRunId: target.id,
+                }) as const,
+            );
+          if (commands.length === 0) return;
+          // Upstream's automatic delivery decides as if the input arrived now.
+          const mode = resolveMessageDispatchIntent(
+            projection,
+            { type: "queue_after_active" },
+            "auto",
+          );
+          if (mode.type !== "steer_active" || mode.targetRunId !== target.id) return;
+          if (yield* stopReachedRun(commands[0]!, threadId, target.id)) return;
+          for (const command of commands) {
+            // A refused promotion keeps its message queued and must not hold back the next one.
+            yield* dispatchWithReceiptEffect(command).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning(
+                  "A follow-up sent before its provider turn started stays queued",
+                  {
+                    threadId,
+                    queuedRunId: command.queuedRunId,
+                    cause,
+                  },
+                ),
+              ),
+            );
+          }
+        }),
+      );
+    },
+    (effect, stored) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Failed to steer input sent before its provider turn started", {
+            threadId: stored.event.threadId,
+            sequence: stored.sequence,
+            cause,
+          }),
+        ),
+      ),
+  );
+  yield* eventSink
+    .stream({ afterSequence: terminalEventsAfterSequence, eventType: "provider-turn.updated" })
+    .pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "provider-turn.updated" &&
+          stored.event.payload.status === "running",
+      ),
+      Stream.runForEach(steerInputAwaitingTurn),
       Effect.forkScoped,
     );
 
