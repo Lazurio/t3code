@@ -121,6 +121,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as LazurioAgentBrowserSession from "../../lazurio/agentBrowserSession.ts";
+import * as LazurioQuestionTool from "../../lazurio/questionTool.ts";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -1501,9 +1502,13 @@ export const layerAppServerClientFactory: Layer.Layer<
         };
         const command = yield* makeCodexAppServerSpawnCommand({
           command: input.settings.binaryPath || "codex",
-          args: codexAppServerArgs(
-            resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
-          ),
+          args: [
+            // Lazurio overlay (root decision 0211): request_user_input in Default mode too.
+            ...LazurioQuestionTool.CODEX_APP_SERVER_ARGS,
+            ...codexAppServerArgs(
+              resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+            ),
+          ],
           env: environment,
           threadId: input.threadId,
         }).pipe(Effect.provideService(AgentScope, agentScope));
