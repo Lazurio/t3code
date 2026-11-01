@@ -39,17 +39,27 @@ const environmentBrowserOverlay = [
   "apps/web/src/lazurio/threadTabs.ts",
   "apps/web/src/rightPanelStore.ts",
 ];
-const [release, archives, ci, dockerfile, dockerignore, docs, updateSource, issueTemplate] =
-  await Promise.all([
-    read(".github/workflows/lazurio-release.yml"),
-    read(".github/workflows/lazurio-cli-archives.yml"),
-    read(".github/workflows/lazurio-fork-ci.yml"),
-    read("Dockerfile.lazurio"),
-    read(".dockerignore"),
-    read("docs/operations/lazurio-fork-release.md"),
-    read("apps/server/src/cli/update.ts"),
-    read(".github/ISSUE_TEMPLATE/1-lazurio-t3-code.yml"),
-  ]);
+const [
+  release,
+  versionCheck,
+  archives,
+  ci,
+  dockerfile,
+  dockerignore,
+  docs,
+  updateSource,
+  issueTemplate,
+] = await Promise.all([
+  read(".github/workflows/lazurio-release.yml"),
+  read("scripts/lazurio-release-version.mjs"),
+  read(".github/workflows/lazurio-cli-archives.yml"),
+  read(".github/workflows/lazurio-fork-ci.yml"),
+  read("Dockerfile.lazurio"),
+  read(".dockerignore"),
+  read("docs/operations/lazurio-fork-release.md"),
+  read("apps/server/src/cli/update.ts"),
+  read(".github/ISSUE_TEMPLATE/1-lazurio-t3-code.yml"),
+]);
 
 // The guard in lazurio-fork-ci.yml: under apps/, packages/ and scripts/ the overlay changes only the
 // files on its allowlist and its own folders, apps/*/src/lazurio/, which pass whole.
@@ -88,8 +98,8 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
     );
   // Servers take the newest release on their own channel, so a release must be
   // the highest version on its channel; channels are compared as upstream derives them.
-  NodeAssert.match(release, /cliReleaseChannelOf\(published\) !== channel\) continue;/);
-  NodeAssert.match(release, /compareExactServiceVersions\(version, published\) <= 0/);
+  NodeAssert.match(versionCheck, /cliReleaseChannelOf\(published\) !== channel\) continue;/);
+  NodeAssert.match(versionCheck, /compareExactServiceVersions\(version, published\) <= 0/);
   NodeAssert.match(release, /already exists and will not be overwritten/);
   // After approval: live main must still be the source, and only the release
   // App, whose key is an environment secret, creates the tag.
@@ -116,6 +126,59 @@ NodeTest.test("release is manual, gated, and never overwrites", () => {
   NodeAssert.match(release, /grep -Fx 'T3CODE_CLIENT_SESSION_TTL=365d'/);
   NodeAssert.match(release, /base_path: "\/"/);
   NodeAssert.doesNotMatch(release, /:\s*latest\b/);
+});
+
+// The version check imports upstream code, so the release installs its locked dependencies first.
+// Fork CI runs the same install and the check on every PR before its own full install, so an import
+// the release's install does not cover fails a PR instead of a dispatched release.
+NodeTest.test("fork CI runs the release's version check as the release runs it", () => {
+  // Whole steps, so a condition or continue-on-error cannot slip in.
+  const install =
+    "      - name: Install the version check's locked dependencies\n" +
+    "        run: pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/shared\n";
+  const step = (workflow, name) => {
+    const start = workflow.indexOf(`      - name: ${name}\n`);
+    NodeAssert.notEqual(start, -1, name);
+    // A step ends where the next step or its comment starts.
+    const end = /\n {6}[-#]/.exec(workflow.slice(start + 1));
+    return workflow.slice(start, end ? start + 1 + end.index + 1 : undefined).replace(/\n+$/, "\n");
+  };
+  const verify = release.slice(
+    release.indexOf("\n  verify:\n"),
+    release.indexOf("\n  archives:\n"),
+  );
+  NodeAssert.equal(step(verify, "Install the version check's locked dependencies"), install);
+  NodeAssert.match(
+    step(verify, "Refuse an existing or non-increasing version"),
+    /\n {10}node scripts\/lazurio-release-version\.mjs "\$RUNNER_TEMP\/releases\.json"\n/,
+  );
+  NodeAssert.doesNotMatch(verify, /node --input-type|cache:|continue-on-error|^ {8}if:/m);
+  NodeAssert.ok(
+    verify.indexOf("Install the version check's") <
+      verify.indexOf("Refuse an existing or non-increasing version"),
+  );
+  NodeAssert.equal(step(ci, "Install the version check's locked dependencies"), install);
+  NodeAssert.equal(
+    step(ci, "Run the release version check as the release runs it"),
+    "      - name: Run the release version check as the release runs it\n" +
+      "        run: node --test scripts/lazurio-release-version.test.mjs\n",
+  );
+  const order = [
+    "      - name: Install pnpm\n",
+    "      - name: Install the version check's locked dependencies\n",
+    "      - name: Run the release version check as the release runs it\n",
+    "      - name: Install locked dependencies\n",
+  ].map((name) => ci.indexOf(name));
+  NodeAssert.ok(order.every((at, index) => at !== -1 && (index === 0 || at > order[index - 1])));
+  // Both runs use the same pnpm and Node.
+  for (const pin of [
+    "uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10",
+    "version: 12.14.0",
+    "node-version: 26.12.1",
+  ]) {
+    NodeAssert.ok(verify.includes(pin), pin);
+    NodeAssert.ok(ci.includes(pin), pin);
+  }
 });
 
 // Only the two upstream channel shapes are releasable: stable X.Y.Z-lazurio.N and

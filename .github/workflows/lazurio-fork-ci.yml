@@ -158,10 +158,13 @@ jobs:
             scripts/install.ps1
             scripts/install.sh
             scripts/install.test.ts
-            # The Lazurio distribution: its contract test. Its other files sit outside
+            # The Lazurio distribution: its contract test and the release's version check
+            # with its test. Its other files sit outside
             # these folders (Dockerfile.lazurio, the lazurio-* workflows, the runbook and
             # the rebuild's skill).
             scripts/lazurio-release-contract.test.mjs
+            scripts/lazurio-release-version.mjs
+            scripts/lazurio-release-version.test.mjs
             # Prepared prompt from the Lazurio shell by link (Lazurio/t3code#35): the link is
             # taken off the address at boot (main.tsx, above), kept for the tab without the
             # text across upstream's reload after pairing, and the chat layout opens it as an
@@ -407,6 +410,15 @@ jobs:
         with:
           node-version: 26.12.1
           cache: pnpm
+
+      # lazurio-release.yml's version check, run as its verify job runs it: after only the
+      # same filtered install, before this job's full install. An import that install does
+      # not cover fails here instead of in a dispatched release.
+      - name: Install the version check's locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/shared
+
+      - name: Run the release version check as the release runs it
+        run: node --test scripts/lazurio-release-version.test.mjs
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile

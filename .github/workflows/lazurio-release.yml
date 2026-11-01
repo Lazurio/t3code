@@ -84,10 +84,24 @@ jobs:
           test "$(sed -n 's/^  UPSTREAM_TAG: //p' .github/workflows/lazurio-fork-ci.yml)" = "$UPSTREAM_TAG"
           test "$(sed -n 's/^  UPSTREAM_SHA: //p' .github/workflows/lazurio-fork-ci.yml)" = "$UPSTREAM_SHA"
 
+      # The same pnpm and Node as lazurio-fork-ci.yml, without its dependency cache, so a release
+      # never restores state another run wrote.
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 12.14.0
+          run_install: false
+
       - name: Install Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 26.12.1
+
+      # The version check imports upstream's cliRelease.ts, which needs effect since
+      # v0.1.6. Only that package's locked dependencies, without install scripts.
+      # lazurio-fork-ci.yml runs this install and the check the same way on every PR.
+      - name: Install the version check's locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @t3tools/shared
 
       # Servers take the newest non-draft release on their own channel as the
       # one to update to, so a release must be the highest version on its
@@ -105,30 +119,7 @@ jobs:
             exit 1
           fi
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
-          node --input-type=module - "$RUNNER_TEMP/releases.json" <<'JS'
-          import * as NodeFS from "node:fs";
-          import { compareExactServiceVersions } from "./apps/server/src/cloud/serviceProtocol.ts";
-          import { cliReleaseChannelOf } from "./packages/shared/src/cliRelease.ts";
-
-          const version = process.env.VERSION;
-          const channel = cliReleaseChannelOf(version);
-          if (channel !== process.env.CHANNEL) {
-            throw new Error(`${version} is on the ${channel} channel, not ${process.env.CHANNEL}.`);
-          }
-          const releases = JSON.parse(NodeFS.readFileSync(process.argv[2], "utf8")).flat();
-          if (releases.some((release) => release.tag_name === `v${version}`)) {
-            throw new Error(`A GitHub Release for v${version} already exists.`);
-          }
-          for (const release of releases) {
-            if (release.draft) continue;
-            const published = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
-            if (published === undefined || cliReleaseChannelOf(published) !== channel) continue;
-            if (compareExactServiceVersions(version, published) <= 0) {
-              throw new Error(`${version} is not newer than the published ${published} on ${channel}.`);
-            }
-          }
-          console.log(`${version} is the highest version on the ${channel} channel.`);
-          JS
+          node scripts/lazurio-release-version.mjs "$RUNNER_TEMP/releases.json"
 
   archives:
     name: CLI archives
