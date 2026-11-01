@@ -388,6 +388,10 @@ jobs:
             packages/effect-acp/src/client.ts
             packages/provider-core/src/server/ProviderAdapter.ts
             apps/server/src/orchestration-v2/ProviderTurnControlService.ts
+            # Native pairing reaches the socket with only requests a Lazurio workspace gateway
+            # admits, a copy of APPLICATION_PUBLIC_PATHS in HumanAndMachine-ai/Machines (row 34,
+            # root decision 0157).
+            packages/client-runtime/src/lazurio/workspaceGateway.test.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
