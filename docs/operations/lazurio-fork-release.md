@@ -1,8 +1,9 @@
 # Lazurio T3 Code: vydávání
 
-Runbook pro vlastníka vydávání T3 Code v Lazuriu (Steward). Vydání připravíte,
-otestujete a spustíte sami; Organization Admin ho jen schválí v GitHub
-environmentu.
+Runbook vydávání T3 Code v Lazuriu. Vydání spustí jeden ze dvou účtů a schválí
+ho druhý: Matějův `immakermatty` (Organization Admin nebo Task Agent v jeho
+Prostředí) a Pablův `agentrozjedemeai` (Steward); agenti smějí oba kroky
+(rozhodnutí 0218, druhý dodatek z 2026-11-01, viz [Schválení](#schválení)).
 
 `Lazurio/t3code` je distribuce **Lazurio T3 Code** (rozhodnutí 0200), upravená
 distribuce T3 Code pro Environmenty Lazuria: server a web klient přesného
@@ -1229,8 +1230,8 @@ tagu jako jeden commit na řádek tabulky [Overlay](#overlay) a hotový
 candidate nahradí `main` výměnou.
 
 Postup vede vlastník vydávání (Steward). Organization Admin schvaluje
-rozhodnutí, která mění chování nebo kontrakt s Lazuriem, vyměňuje `main`
-a schvaluje vydání. Přestavbu může za Stewarda udělat Task Agent podle
+rozhodnutí, která mění chování nebo kontrakt s Lazuriem, a vyměňuje `main`.
+Vydání spouští a schvaluje dvojice účtů podle [Schválení](#schválení). Přestavbu může za Stewarda udělat Task Agent podle
 [zadání](#zadání-pro-task-agenta) níž: bez mandátu etapy 2–5, s mandátem celou
 včetně výměny `main`, vydání a jeho schválení, vždy jen na přesná SHA a verzi,
 které sám ověřil. Stav a rozhodnutí přestavby drží jedno
@@ -1921,9 +1922,9 @@ přechod tlačítkem Update na něm ověříte v etapě 8.
    spárování prohlížeče tam, kde ho Environment neobstará sám (viz brána
    Párování a rozsahy sezení), aktualizace a nové spárování desktop a mobilní
    aplikace, cokoli z tabulky rozhodnutí.
-3. **Stable `X.Y.Z-lazurio.1`** ze stejného commitu jako canary preview, po
-   výslovném souhlasu Admina (nebo s mandátem ze
-   [zadání](#zadání-pro-task-agenta)). Canary Environment pak vraťte z preview
+3. **Stable `X.Y.Z-lazurio.1`** ze stejného commitu jako canary preview, když
+   prošla testovací procedura: spustí ho jeden účet a schválí druhý podle
+   [Schválení](#schválení). Canary Environment pak vraťte z preview
    (Testování před vydáním, krok 4).
 4. **Co dostanou Environmenty.** Environmenty pod launcherem ukážou tlačítko
    Update po příští kontrole kanálu (při startu a každých 6 hodin). Na
@@ -2075,8 +2076,9 @@ Udělej přestavbu end to end:
 
 Mandát (ponech jen, co platí):
 - Etapy 6–8 smíš udělat sám. Výměnu main děláš jen přesně podle runbooku na ověřená SHA.
-- Schválení vydání v environmentu lazurio-t3code-release smíš udělat mým účtem, vždy jen na
-  přesné SHA a verzi, které jsi sám ověřil. Dispatch vydání dělá jiný účet (prevent_self_review).
+- Vydání smíš spustit, nebo schválit v environmentu lazurio-t3code-release, mým účtem, vždy jen
+  na přesné SHA a verzi, které jsi sám ověřil. Druhý krok dělá druhý účet (Pablo,
+  prevent_self_review); viz Schválení.
 - Rozhodnutí, která by schvaloval Admin, ber jako schválená tímto zadáním a zapiš je do issue
   se zdůvodněním a zdrojem.
 - Na Ring 0 smíš instalovat preview a stable bez souhlasu lidí, kteří ho používají. Než tam
@@ -2275,7 +2277,8 @@ stavem tabulky rozhodnutí a bran.
    v bublině ho následuje.
 
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
-   zeleném canary a výslovném souhlasu Admina. Canary Environmenty vraťte
+   zeleném canary; spustí ho jeden účet a schválí druhý podle
+   [Schválení](#schválení). Canary Environmenty vraťte
    z preview (se stejnou proměnnou, kde ji potřebuje, viz krok 3):
    `t3 update --channel stable --allow-downgrade` (bez `--allow-downgrade` je
    to odmítnuté, SemVer řadí `-lazurio.N` pod `-preview.…`). Environmenty na
@@ -2371,16 +2374,48 @@ rulesetu nepřidávejte jiného aktéra.
 
 ## Schválení
 
-Když jsou první dva kroky zelené, požádejte Admina o schválení a pošlete mu
-odkaz na běh. Admin ho schválí v GitHubu (běh → Review deployments →
-`lazurio-t3code-release` → Approve). Jediný povinný schvalovatel environmentu je
-Organization Admin, takže bez jeho schválení vydání nevyjde. Environment má
-`prevent_self_review`: vydání proto spouštíte vy, ne Admin, protože vlastní běh
-by schválit nemohl. Totéž platí pro Task Agenta, který podle mandátu ze
-[zadání](#zadání-pro-task-agenta) schvaluje účtem Admina: vydání pak spustí jiný
-účet (Steward) a agent ho schválí, vždy jen na přesném SHA a verzi, které sám
-ověřil. Pokud si vydání rozmyslíte, Admin ho odmítne (Reject) a nic se
-nepublikuje.
+Vydání spustí jeden ze dvou účtů a schválí druhý (rozhodnutí 0218, druhý
+dodatek z 2026-11-01): Matějův `immakermatty`, kterým jedná on nebo Task Agent
+v jeho Prostředí, a Pablův `agentrozjedemeai`. Oba jsou povinnými schvalovateli
+`lazurio-t3code-release` a environment má `prevent_self_review`, takže kdo běh
+spustil, ten ho neschválí. Agent smí vydání spustit i schválit bez dalšího
+pokynu člověka, když prošla testovací procedura: zelená Fork CI na přesném
+commitu a u stable preview ze stejného commitu na Ring 0 (Testování před
+vydáním, [Náhled na canary](#7-náhled-na-canary)).
+
+- Výchozí směr je, že Task Agent spustí vydání Matějovým účtem a Pablo ho
+  schválí. Čekající běh mu přinese jeho GitHub příjem v Lazurio MausBotu, ale
+  až s vydáním, které nese Lazurio/OpenMausBot#89 (v `0.1.130-lazurio.3` ještě
+  není), a s `Lazurio/t3code` v `OMB_GITHUB_INTAKE_DEPLOYMENTS` jeho Prostředí.
+  Do té doby vydání spouští Pablo a schvaluje ho Matějův účet, jako dosud.
+- Spustí-li vydání Pablo, schválí ho Matějův účet: Matěj, nebo jeho agent.
+  Matějův účet zatím nemá vlastní GitHub příjem, takže schválení samo nepřijde
+  (přechodná výjimka druhého dodatku 0218 z 2026-11-01): spuštěný běh hlídá
+  a schválí vlákno, které vydání vlastní, tedy Task Agent, jehož mergnutá
+  změna se vydává, a bez takového vlákna Matěj. Pablo spouští jen vydání,
+  jehož vlastník je jmenovaný v pull requestu.
+- Vydání z pull requestu, který napsal Pablo, schvaluje Matějův účet, protože
+  vlastní práci persona sama neschvaluje (0169 bod 5, 0218 druhý dodatek
+  z 2026-11-01). Spustí ho proto Pablův účet: `prevent_self_review` hlídá jen
+  to, že běh neschválí účet, který ho spustil, a o autorovi pull requestu nic
+  neví.
+
+Když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
+kontroly a kroky běhu, že vychází jen to, co má, a u stable preview na Ring 0,
+a běh schválí v GitHubu (běh →
+Review deployments → `lazurio-t3code-release` → Approve), nebo z příkazové
+řádky:
+
+```bash
+RUN=<číslo běhu>
+ENV_ID="$(gh api repos/Lazurio/t3code/environments/lazurio-t3code-release --jq .id)"
+gh api -X POST "repos/Lazurio/t3code/actions/runs/$RUN/pending_deployments" \
+  -F "environment_ids[]=$ENV_ID" -f state=approved \
+  -f comment="Schváleno: <verze> na <SHA>, ověřené kontroly a canary."
+```
+
+Jinak ho odmítne s důvodem (`-f state=rejected` a důvod v `comment`, nebo
+Reject v GitHubu) a nic se nepublikuje.
 
 ## Ověření publikovaného vydání
 
@@ -2537,12 +2572,14 @@ Aktivní zůstávají jen workflow Lazuria:
 - `lazurio-fork-ci.yml`: read-only CI, povinný check
   `Server and web compatibility`;
 - `lazurio-cli-archives.yml`: build archivů, volaný z CI a z vydání;
-- `lazurio-release.yml`: vydání, spouštěné ručně a schvalované Adminem;
+- `lazurio-release.yml`: vydání, spouštěné ručně jedním ze dvou účtů a schvalované
+  druhým (viz [Schválení](#schválení));
 - `lazurio-upstream-watch.yml`: denní porovnání s upstreamem (etapa
   [Sledování](#1-sledování)). Čte jen veřejná vydání upstreamu a soubory
   `main` a zapisuje jen issues tohoto repozitáře, tokenem `GITHUB_TOKEN`
   s oprávněním `issues: write`. Nic nepřestavuje, netaguje ani nevydává:
-  přestavbu, výměnu `main` a vydání dělají lidé.
+  přestavbu a výměnu `main` dělají lidé nebo jejich agenti podle runbooku a vydání
+  spouští a schvaluje dvojice účtů podle [Schválení](#schválení).
 
 ## Historie
 
