@@ -44,8 +44,10 @@ Rozhodnutí, která by schvaloval Admin, smíš brát jako schválená jen tehdy
    zmenšit, odebrat, nabídnout upstreamu) a brány. Kde upstream umí totéž stejně dobře, řádek odeber.
 5. **Zachycení starého `main`.** Když se `main` od posledního stable liší mimo `docs/`, vydej
    nejdřív stable na staré bázi: preview na Ring 0 (záloha databáze, `t3 update` s potvrzením),
-   kontrola v prohlížeči, pak stable ze špičky `main`. Dispatch dělá jiný účet než schvalovatel
-   (environment má `prevent_self_review`); ověř publikované vydání podle runbooku.
+   kontrola v prohlížeči, pak stable ze špičky `main`. Vydání spustíš podle runbooku (oddíl
+   Schválení: komentář `Release dispatch request:`, pak dispatch účtem Organization Admina)
+   a schválí ho persona (environment má `prevent_self_review`); ověř publikované vydání podle
+   runbooku.
 6. **Candidate** (etapa 3). Řádky, které jdou přenést s malou úpravou, přehraj sám rovnou do větve
    `lazurio/rebuild-vX.Y.Z` po souborech (runbook, etapa 3). Těžké řádky dej implementačním
    skupinám ve vlastních worktree z přesného tagu, každá commit na řádek; společné zadání jako

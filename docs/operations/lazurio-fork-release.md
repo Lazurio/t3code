@@ -1,9 +1,9 @@
 # Lazurio T3 Code: vydávání
 
-Runbook vydávání T3 Code v Lazuriu. Vydání spustí jeden ze dvou účtů a schválí
-ho druhý: Matějův `immakermatty` (Organization Admin nebo Task Agent v jeho
-Prostředí) a Pablův `agentrozjedemeai` (Steward); agenti smějí oba kroky
-(rozhodnutí 0218, druhý dodatek z 2026-11-01, viz [Schválení](#schválení)).
+Runbook vydávání T3 Code v Lazuriu. Vydání spouští bot, který vydání vlastní,
+účtem Organization Admina `immakermatty`, a schvaluje ho persona
+`agentrozjedemeai` po ověření zalogovaných vstupů (rozhodnutí Organization
+Admina z 2026-11-03 k 0218, viz [Schválení](#schválení)).
 
 `Lazurio/t3code` je distribuce **Lazurio T3 Code** (rozhodnutí 0200), upravená
 distribuce T3 Code pro Environmenty Lazuria: server a web klient přesného
@@ -1923,7 +1923,7 @@ přechod tlačítkem Update na něm ověříte v etapě 8.
    Párování a rozsahy sezení), aktualizace a nové spárování desktop a mobilní
    aplikace, cokoli z tabulky rozhodnutí.
 3. **Stable `X.Y.Z-lazurio.1`** ze stejného commitu jako canary preview, když
-   prošla testovací procedura: spustí ho jeden účet a schválí druhý podle
+   prošla testovací procedura: spustí ho bot vlastníka vydání a schválí persona podle
    [Schválení](#schválení). Canary Environment pak vraťte z preview
    (Testování před vydáním, krok 4).
 4. **Co dostanou Environmenty.** Environmenty pod launcherem ukážou tlačítko
@@ -2076,9 +2076,9 @@ Udělej přestavbu end to end:
 
 Mandát (ponech jen, co platí):
 - Etapy 6–8 smíš udělat sám. Výměnu main děláš jen přesně podle runbooku na ověřená SHA.
-- Vydání smíš spustit, nebo schválit v environmentu lazurio-t3code-release, mým účtem, vždy jen
-  na přesné SHA a verzi, které jsi sám ověřil. Druhý krok dělá druhý účet (Pablo,
-  prevent_self_review); viz Schválení.
+- Vydání smíš spustit mým účtem podle Schválení (komentář `Release dispatch request:`, pak
+  dispatch), vždy jen na přesné SHA a verzi, které jsi sám ověřil. Schvaluje ho persona
+  (prevent_self_review); mým účtem schvaluješ jen při přechodu podle Schválení.
 - Rozhodnutí, která by schvaloval Admin, ber jako schválená tímto zadáním a zapiš je do issue
   se zdůvodněním a zdrojem.
 - Na Ring 0 smíš instalovat preview a stable bez souhlasu lidí, kteří ho používají. Než tam
@@ -2277,7 +2277,7 @@ stavem tabulky rozhodnutí a bran.
    v bublině ho následuje.
 
 4. **Stable a tlačítko Update.** Stable vydejte ze stejného commitu až po
-   zeleném canary; spustí ho jeden účet a schválí druhý podle
+   zeleném canary; spustí ho bot vlastníka vydání a schválí persona podle
    [Schválení](#schválení). Canary Environmenty vraťte
    z preview (se stejnou proměnnou, kde ji potřebuje, viz krok 3):
    `t3 update --channel stable --allow-downgrade` (bez `--allow-downgrade` je
@@ -2374,33 +2374,54 @@ rulesetu nepřidávejte jiného aktéra.
 
 ## Schválení
 
-Vydání spustí jeden ze dvou účtů a schválí druhý (rozhodnutí 0218, druhý
-dodatek z 2026-11-01): Matějův `immakermatty`, kterým jedná on nebo Task Agent
-v jeho Prostředí, a Pablův `agentrozjedemeai`. Oba jsou povinnými schvalovateli
-`lazurio-t3code-release` a environment má `prevent_self_review`, takže kdo běh
-spustil, ten ho neschválí. Agent smí vydání spustit i schválit bez dalšího
-pokynu člověka, když prošla testovací procedura: zelená Fork CI na přesném
-commitu a u stable preview ze stejného commitu na Ring 0 (Testování před
-vydáním, [Náhled na canary](#7-náhled-na-canary)).
+Vydání spouští bot, který vydání vlastní (bot T3 Release v Prostředí
+Organization Admina), účtem Organization Admina `immakermatty`, a schvaluje ho
+persona `agentrozjedemeai` v environmentu `lazurio-t3code-release`, až její
+GitHub příjem ověří zalogované vstupy (rozhodnutí Organization Admina
+z 2026-11-03, které upřesňuje 0218, druhý dodatek z 2026-11-01). Oba účty jsou
+povinnými schvalovateli a environment má `prevent_self_review`: účet, který
+běh spustil, ho neschválí, takže běh spuštěný `immakermatty` schválí jen
+persona. Bot smí vydání spustit bez dalšího pokynu člověka, když prošla
+testovací procedura: zelená Fork CI na přesném commitu a u stable preview ze
+stejného commitu na Ring 0 (Testování před vydáním,
+[Náhled na canary](#7-náhled-na-canary)).
 
-- Výchozí směr je, že Task Agent spustí vydání Matějovým účtem a Pablo ho
-  schválí. Čekající běh mu přinese jeho GitHub příjem v Lazurio MausBotu, ale
-  až s vydáním, které nese Lazurio/OpenMausBot#89 (v `0.1.130-lazurio.3` ještě
-  není), a s `Lazurio/t3code` v `OMB_GITHUB_INTAKE_DEPLOYMENTS` jeho Prostředí.
-  Do té doby vydání spouští Pablo a schvaluje ho Matějův účet, jako dosud.
-- Spustí-li vydání Pablo, schválí ho Matějův účet: Matěj, nebo jeho agent.
-  Matějův účet zatím nemá vlastní GitHub příjem, takže schválení samo nepřijde
-  (přechodná výjimka druhého dodatku 0218 z 2026-11-01): spuštěný běh hlídá
-  a schválí vlákno, které vydání vlastní, tedy Task Agent, jehož mergnutá
-  změna se vydává, a bez takového vlákna Matěj. Pablo spouští jen vydání,
-  jehož vlastník je jmenovaný v pull requestu.
-- Vydání z pull requestu, který napsal Pablo, schvaluje Matějův účet, protože
-  vlastní práci persona sama neschvaluje (0169 bod 5, 0218 druhý dodatek
-  z 2026-11-01). Spustí ho proto Pablův účet: `prevent_self_review` hlídá jen
-  to, že běh neschválí účet, který ho spustil, a o autorovi pull requestu nic
-  neví.
+1. **Žádost.** Do issue přestavby (nebo issue vydání) napiš komentář, který
+   začíná `Release dispatch request:` a obsahuje přesně ten příkaz, který
+   vzápětí spustíš:
 
-Když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
+   ```bash
+   gh workflow run lazurio-release.yml --repo Lazurio/t3code --ref main \
+     -f version=<verze> -f source_sha=<SHA špičky main> \
+     -f upstream_tag=<vX.Y.Z> -f upstream_sha=<SHA tagu upstreamu>
+   ```
+
+2. **Dispatch.** Hned potom ten příkaz beze změny spusť stejným účtem.
+3. **Schválení persony.** Čekající běh přinese personě její GitHub příjem
+   v Lazurio MausBotu (`OMB_GITHUB_INTAKE_DEPLOYMENTS` s `Lazurio/t3code`,
+   Lazurio/OpenMausBot#93). Persona ho schválí, jen když workflow je
+   `lazurio-release.yml`, běh spustil `immakermatty`, `head_sha` je špička
+   `main`, všechny dokončené úlohy jsou zelené a vstupy zalogované úlohou
+   „Verify source and version“ se rovnají žádosti. Rozdíl ve vstupech, jiný
+   commit než špička nebo selhaná úloha znamenají odmítnutí s důvodem; neznámé
+   workflow, jiný spouštějící účet nebo chybějící žádost nechají běh čekat
+   s komentářem v issue. Komentář každého rozhodnutí začíná
+   `Run <id> attempt <n>:`. Persona nic nespouští ani znovu nespouští.
+4. **Výsledek.** Bot běh hlídá. Odmítnutý běh se neopakuje: oprav příčinu
+   a spusť nové vydání s novou žádostí. Ztracený runner (třeba macOS) smí bot
+   spustit znovu (Re-run); každý pokus persona posoudí znovu proti téže
+   žádosti.
+
+- **Přechod.** Dokud Prostředí persony nemá vydání Lazurio MausBotu
+  s Lazurio/OpenMausBot#93 a `Lazurio/t3code` v
+  `OMB_GITHUB_INTAKE_DEPLOYMENTS`, platí dosavadní cesta: vydání spouští
+  účet persony a schvaluje ho účet `immakermatty` (vlákno, které vydání
+  vlastní, nebo Organization Admin).
+- **Vydání z pull requestu, který napsala persona**, persona neschválí
+  (vlastní práci neschvaluje, 0169 bod 5) a nechá běh čekat. Rozhodne
+  Organization Admin.
+
+Ručně (při přechodu nebo výjimce), když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
 kontroly a kroky běhu, že vychází jen to, co má, a u stable preview na Ring 0,
 a běh schválí v GitHubu (běh →
 Review deployments → `lazurio-t3code-release` → Approve), nebo z příkazové
@@ -2572,8 +2593,8 @@ Aktivní zůstávají jen workflow Lazuria:
 - `lazurio-fork-ci.yml`: read-only CI, povinný check
   `Server and web compatibility`;
 - `lazurio-cli-archives.yml`: build archivů, volaný z CI a z vydání;
-- `lazurio-release.yml`: vydání, spouštěné ručně jedním ze dvou účtů a schvalované
-  druhým (viz [Schválení](#schválení));
+- `lazurio-release.yml`: vydání, spouštěné ručně botem vlastníka vydání
+  a schvalované personou (viz [Schválení](#schválení));
 - `lazurio-upstream-watch.yml`: denní porovnání s upstreamem (etapa
   [Sledování](#1-sledování)). Čte jen veřejná vydání upstreamu a soubory
   `main` a zapisuje jen issues tohoto repozitáře, tokenem `GITHUB_TOKEN`
