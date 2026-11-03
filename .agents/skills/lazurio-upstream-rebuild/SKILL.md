@@ -18,8 +18,9 @@ Na začátku si od Operátora ujasni rozsah (bez něj platí jen etapy 2–5, vi
 „Zadání pro Task Agenta“):
 
 - etapy, které smíš udělat sám (typicky 2–9 bez vln mimo Ring 0);
-- že schválení vydání v `lazurio-t3code-release` děláš jeho účtem, vždy jen na přesném SHA
-  a verzi, které jsi sám ověřil;
+- že vydání spouštíš jeho účtem podle runbooku (oddíl Schválení), vždy jen na přesném SHA
+  a verzi, které jsi sám ověřil, a schvaluje ho persona; jeho účtem schvaluješ jen při
+  přechodu, a jen běh, který spustil jiný účet;
 - co chce u řádků overlaye určitě zachovat a co posoudíš sám;
 - komu patří Ring 0 a kdo tam ještě pracuje (domluv se s těmi vlákny dřív, než něco nasadíš).
 

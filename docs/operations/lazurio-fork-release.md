@@ -2386,28 +2386,36 @@ testovací procedura: zelená Fork CI na přesném commitu a u stable preview ze
 stejného commitu na Ring 0 (Testování před vydáním,
 [Náhled na canary](#7-náhled-na-canary)).
 
-1. **Žádost.** Do issue přestavby (nebo issue vydání) napiš komentář, který
-   začíná `Release dispatch request:` a obsahuje přesně ten příkaz, který
-   vzápětí spustíš:
+1. **Vlastní práce persony.** Když mezi předchozím release tagem
+   a `source_sha` přibyl kterýkoli pull request, jehož autorem je
+   `agentrozjedemeai`, vydání nespouštěj: persona vlastní práci neschvaluje
+   (0169 bod 5) a `immakermatty` běh, který spustil, neschválí. Zastav se
+   a zeptej se Organization Admina; o takovém vydání rozhodne on.
+2. **Žádost.** Do issue tohoto repozitáře, ke kterému vydání patří (issue
+   přestavby nebo vydání), napiš účtem `immakermatty` komentář, který začíná
+   `Release dispatch request:` a obsahuje přesně ten příkaz, který vzápětí
+   spustíš, s doslovnými hodnotami, ne proměnnými shellu:
 
-   ```bash
-   gh workflow run lazurio-release.yml --repo Lazurio/t3code --ref main \
-     -f version=<verze> -f source_sha=<SHA špičky main> \
-     -f upstream_tag=<vX.Y.Z> -f upstream_sha=<SHA tagu upstreamu>
+   ```text
+   Release dispatch request:
+   gh workflow run lazurio-release.yml --repo Lazurio/t3code --ref main -f version=0.1.6-lazurio.2 -f source_sha=<40 znaků špičky main> -f upstream_tag=v0.1.6 -f upstream_sha=<40 znaků commitu tagu upstreamu>
    ```
 
-2. **Dispatch.** Hned potom ten příkaz beze změny spusť stejným účtem.
-3. **Schválení persony.** Čekající běh přinese personě její GitHub příjem
+3. **Dispatch.** Až je komentář venku, ten příkaz beze změny spusť stejným
+   účtem.
+4. **Schválení persony.** Čekající běh přinese personě její GitHub příjem
    v Lazurio MausBotu (`OMB_GITHUB_INTAKE_DEPLOYMENTS` s `Lazurio/t3code`,
    Lazurio/OpenMausBot#93). Persona ho schválí, jen když workflow je
    `lazurio-release.yml`, běh spustil `immakermatty`, `head_sha` je špička
    `main`, všechny dokončené úlohy jsou zelené a vstupy zalogované úlohou
-   „Verify source and version“ se rovnají žádosti. Rozdíl ve vstupech, jiný
+   „Verify source and version“ se do jednoho rovnají žádosti: nejnovějšímu
+   komentáři `Release dispatch request:` od `immakermatty` v issue tohoto
+   repozitáře, napsanému před spuštěním běhu. Rozdíl ve vstupech, jiný
    commit než špička nebo selhaná úloha znamenají odmítnutí s důvodem; neznámé
    workflow, jiný spouštějící účet nebo chybějící žádost nechají běh čekat
    s komentářem v issue. Komentář každého rozhodnutí začíná
    `Run <id> attempt <n>:`. Persona nic nespouští ani znovu nespouští.
-4. **Výsledek.** Bot běh hlídá. Odmítnutý běh se neopakuje: oprav příčinu
+5. **Výsledek.** Bot běh hlídá. Odmítnutý běh se neopakuje: oprav příčinu
    a spusť nové vydání s novou žádostí. Ztracený runner (třeba macOS) smí bot
    spustit znovu (Re-run); každý pokus persona posoudí znovu proti téže
    žádosti.
@@ -2417,11 +2425,12 @@ stejného commitu na Ring 0 (Testování před vydáním,
   `OMB_GITHUB_INTAKE_DEPLOYMENTS`, platí dosavadní cesta: vydání spouští
   účet persony a schvaluje ho účet `immakermatty` (vlákno, které vydání
   vlastní, nebo Organization Admin).
-- **Vydání z pull requestu, který napsala persona**, persona neschválí
-  (vlastní práci neschvaluje, 0169 bod 5) a nechá běh čekat. Rozhodne
-  Organization Admin.
+- **Vlastní práce persony.** Když vydání mezi předchozím release tagem
+  a vydávaným commitem obsahuje kterýkoli pull request persony, persona běh
+  neschválí a nechá ho čekat s komentářem; bot takové vydání podle kroku 1
+  vůbec nespustí. Rozhodne Organization Admin.
 
-Ručně (při přechodu nebo výjimce), když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
+Ručně (při přechodu), když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
 kontroly a kroky běhu, že vychází jen to, co má, a u stable preview na Ring 0,
 a běh schválí v GitHubu (běh →
 Review deployments → `lazurio-t3code-release` → Approve), nebo z příkazové
@@ -2435,8 +2444,10 @@ gh api -X POST "repos/Lazurio/t3code/actions/runs/$RUN/pending_deployments" \
   -f comment="Schváleno: <verze> na <SHA>, ověřené kontroly a canary."
 ```
 
-Jinak ho odmítne s důvodem (`-f state=rejected` a důvod v `comment`, nebo
-Reject v GitHubu) a nic se nepublikuje.
+Když některá kontrola selže, běh odmítne s důvodem (`-f state=rejected`
+a důvod v `comment`, nebo Reject v GitHubu) a nic se nepublikuje. Když chybí
+něco, bez čeho nejde rozhodnout (žádost, zalogované vstupy, běh, který nejde
+přiřadit), nechá ho čekat a napíše to do issue vydání, stejně jako persona.
 
 ## Ověření publikovaného vydání
 
