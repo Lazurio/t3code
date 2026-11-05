@@ -20,6 +20,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -841,51 +842,6 @@ it.effect("refuses to drive another Environment's tab, and preview_open comes ba
   ),
 );
 
-// A fragment never reaches the gateway, and a query, another path or a port is still that
-// Environment's browser: preview_open and preview_navigate fail closed for any of them, before
-// this browser or its lazurio command is asked (only the exact view of one tab is answered).
-it.effect("fails closed for any other address in another Environment's browser", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const host = yield* startHost({ link: declared });
-      yield* host.registered;
-      for (const address of [
-        `${foreignView}#view`,
-        `${foreignView}?source=agent`,
-        "https://browser.vm-02.acme.lazurio.io/",
-        `https://browser.vm-02.acme.lazurio.io:8443/t/${foreignId}`,
-        `https://BROWSER.vm-02.acme.lazurio.io/t/${foreignId}/live`,
-        // F50 takes the view only as written, not as `new URL` normalizes it.
-        `https://BROWSER.vm-02.acme.lazurio.io/t/${foreignId}`,
-        `https://browser.vm-02.acme.lazurio.io:443/t/${foreignId}`,
-        `https://browser.vm-02.acme.lazurio.io/x/../t/${foreignId}`,
-        // The DNS root's trailing dot names the same host (LazurioPlatform F50 point 2).
-        `https://browser.vm-02.acme.lazurio.io./t/${foreignId}`,
-        `https://browser.vm-02.acme.lazurio.io../t/${foreignId}`,
-      ]) {
-        for (const operation of ["open", "navigate"] as const) {
-          const error = yield* invoke<void>(host.broker, operation, { url: address }).pipe(
-            Effect.flip,
-          );
-          expect([operation, address, error]).toEqual([
-            operation,
-            address,
-            expect.any(PreviewAutomationExecutionError),
-          ]);
-          expect(error.message).toContain(
-            "in another Environment's browser (browser.vm-02.acme.lazurio.io), which this Environment's browser does not load",
-          );
-        }
-        expect((yield* Effect.flip(host.pages.open(threadId, address))).reason).toBe(
-          "invalid-request",
-        );
-      }
-      expect(host.browser.connections).toHaveLength(0);
-      expect(host.runs).toEqual([{ command: lazurio, args: ["browser", "link", "--json"] }]);
-    }),
-  ),
-);
-
 /** An Environment that declares its own view on a Lazurio origin. */
 const declaredOnLazurio: CliAnswer = {
   code: 0,
@@ -920,34 +876,7 @@ it.effect(
         expect(host.browser.opened).toEqual([]);
         expect(host.held).toEqual([{ threadId: otherThreadId, tabId: personTab }]);
 
-        // Any other address on the own view host is refused, the trailing dot's form included.
-        for (const address of [
-          `https://browser.vm-01.acme.lazurio.io./t/${personTab}`,
-          `${ownView}?source=agent`,
-          `https://BROWSER.vm-01.acme.lazurio.io/t/${personTab}`,
-          `https://browser.vm-01.acme.lazurio.io:443/t/${personTab}`,
-          `https://browser.vm-01.acme.lazurio.io/x/../t/${personTab}`,
-          "https://browser.vm-01.acme.lazurio.io./",
-          "https://browser.vm-01.acme.lazurio.io/?",
-          "https://browser.vm-01.acme.lazurio.io:443/",
-          "https://BROWSER.vm-01.acme.lazurio.io/",
-        ]) {
-          for (const operation of ["open", "navigate"] as const) {
-            const error = yield* invoke<void>(host.broker, operation, { url: address }).pipe(
-              Effect.flip,
-            );
-            expect([operation, address, error.message]).toEqual([
-              operation,
-              address,
-              expect.stringContaining(
-                "is this Environment's own browser view (browser.vm-01.acme.lazurio.io), which this browser does not load inside itself",
-              ),
-            ]);
-          }
-          expect((yield* Effect.flip(host.pages.open(threadId, address))).reason).toBe(
-            "invalid-request",
-          );
-        }
+        // Navigating there is refused, as for every address on a view host (the F50 table below).
         const navigation = yield* invoke<void>(host.broker, "navigate", { url: ownView }).pipe(
           Effect.flip,
         );
@@ -1032,6 +961,251 @@ it.effect("takes a view's tab id in either case and hands on its upper-case form
       );
       expect(driven.message).toContain("is in the browser of another Environment");
       expect(host.browser.opened).toEqual([]);
+    }),
+  ),
+);
+
+// LazurioPlatform F50 point 2 (`viewAddressOf`, `isViewHost`), case by case: a view address is
+// taken only as written, its own bare origin a new tab, `/t/<id>` its tab or another Environment's.
+// Any other address on a view host is refused, as written or as `normalizePreviewUrl` makes it,
+// before this browser loads it; an address on any other host loads.
+const ownHost = "browser.vm-01.acme.lazurio.io";
+const foreignHost = "browser.vm-02.acme.lazurio.io";
+type Takes =
+  | "new tab"
+  | "own tab"
+  | { readonly foreign: string }
+  | { readonly refused: string }
+  /** `normalizePreviewUrl` reads no URL in it, so nothing is opened or loaded. */
+  | "invalid"
+  /** What this browser loads. */
+  | { readonly loads: string };
+
+/** Each address on the view host `host` that F50 point 2 does not take, around the tab `id`. */
+const offContract = (host: string, id: string): ReadonlyArray<string> => [
+  // The host as written: its trailing dot, upper case, or a scheme in upper case.
+  `https://${host}./t/${id}`,
+  `https://${host}../t/${id}`,
+  `https://${host}%2e/t/${id}`,
+  `https://${host}\u3002/t/${id}`,
+  `https://${host.toUpperCase()}/t/${id}`,
+  `https://${host.replace("browser", "BROWSER")}/t/${id}`,
+  `HTTPS://${host}/t/${id}`,
+  // A port, even the default one, or another scheme.
+  `https://${host}:443/t/${id}`,
+  `https://${host}:8443/t/${id}`,
+  `https://${host}:/t/${id}`,
+  `http://${host}/t/${id}`,
+  // What only `new URL` or `normalizePreviewUrl` makes a view address of.
+  `https:/${host}/t/${id}`,
+  `//${host}/t/${id}`,
+  `${host}/t/${id}`,
+  ` https://${host}/t/${id} `,
+  `https://${host}/t/${id}\n`,
+  `https://${host}\\t\\${id}`,
+  `https:\\\\${host}\\t\\${id}`,
+  `ht\ttps://${host}/t/${id}`,
+  `\u00a0https://${host}/t/${id}`,
+  // Another path.
+  `https://${host}/x/../t/${id}`,
+  `https://${host}/t/./${id}`,
+  `https://${host}//t/${id}`,
+  `https://${host}/t/${id}/`,
+  `https://${host}/t/${id}/live`,
+  `https://${host}/t/`,
+  `https://${host}/t`,
+  `https://${host}/x`,
+  `https://${host}/T/${id}`,
+  `https://${host}/%74/${id}`,
+  // A query, a fragment or credentials, even empty ones.
+  `https://${host}/t/${id}?source=agent`,
+  `https://${host}/t/${id}?`,
+  `https://${host}/t/${id}#view`,
+  `https://${host}/t/${id}#`,
+  `https://user@${host}/t/${id}`,
+  `https://user:pw@${host}/t/${id}`,
+  `https://@${host}/t/${id}`,
+  // No target id: 31 or 33 digits, not hexadecimal, or percent-encoded.
+  `https://${host}/t/${id.slice(1)}`,
+  `https://${host}/t/${id}0`,
+  `https://${host}/t/${"G".repeat(32)}`,
+  `https://${host}/t/%41${id.slice(1)}`,
+  // The bare origin in any form but the two.
+  `https://${host}/?`,
+  `https://${host}/?source=agent`,
+  `https://${host}#`,
+  `https://${host}/#`,
+  `https://${host}:443`,
+  `https://${host}:443/`,
+  `https://${host}:/`,
+  `https://:@${host}/`,
+  `\ufeffhttps://${host}/`,
+  `https://${host}./`,
+  `https://${host}/./`,
+  `https://${host}//`,
+  `https://${host.toUpperCase()}/`,
+  `https://${host.replace("browser", "BROWSER")}/`,
+  ` https://${host}/`,
+  host,
+];
+const mixedCase = (id: string) =>
+  [...id].map((digit, index) => (index % 2 === 0 ? digit.toLowerCase() : digit)).join("");
+const personalHost = "browser.example-person.lazurio.io";
+const personalView = `https://${personalHost}/t/${foreignId}`;
+const longLabel = "a".repeat(63);
+const contractCases: ReadonlyArray<{ readonly address: string; readonly takes: Takes }> = [
+  { address: `https://${ownHost}`, takes: "new tab" },
+  { address: `https://${ownHost}/`, takes: "new tab" },
+  { address: `https://${ownHost}/t/${personTab}`, takes: "own tab" },
+  { address: `https://${ownHost}/t/${personTab.toLowerCase()}`, takes: "own tab" },
+  { address: `https://${ownHost}/t/${mixedCase(personTab)}`, takes: "own tab" },
+  { address: foreignView, takes: { foreign: foreignView } },
+  {
+    address: `https://${foreignHost}/t/${foreignId.toLowerCase()}`,
+    takes: { foreign: foreignView },
+  },
+  { address: `https://${foreignHost}/t/${mixedCase(foreignId)}`, takes: { foreign: foreignView } },
+  { address: personalView, takes: { foreign: personalView } },
+  {
+    address: `https://browser.${longLabel}.a-1.lazurio.io/t/${foreignId}`,
+    takes: { foreign: `https://browser.${longLabel}.a-1.lazurio.io/t/${foreignId}` },
+  },
+  ...offContract(ownHost, personTab).map((address) => ({ address, takes: { refused: ownHost } })),
+  ...offContract(foreignHost, foreignId).map((address) => ({
+    address,
+    takes: { refused: foreignHost },
+  })),
+  ...offContract(personalHost, foreignId).map((address) => ({
+    address,
+    takes: { refused: personalHost },
+  })),
+  // Another Environment's bare origin is a new tab of its browser, which this host does not open.
+  { address: `https://${foreignHost}`, takes: { refused: foreignHost } },
+  { address: `https://${foreignHost}/`, takes: { refused: foreignHost } },
+  // A base that is no Environment id: three labels, none, or a label that is no DNS label.
+  ...[
+    "browser.a.vm-02.acme.lazurio.io",
+    "browser.lazurio.io",
+    "browser.-vm-02.acme.lazurio.io",
+    "browser.vm-02-.acme.lazurio.io",
+    `browser.${"a".repeat(64)}.acme.lazurio.io`,
+    "browser.vm_02.acme.lazurio.io",
+  ].map((host) => ({ address: `https://${host}/t/${foreignId}`, takes: { refused: host } })),
+  // A label is written as the host is: an internationalized name only in its ASCII form.
+  {
+    address: `https://browser.vm-02.xn--cme-dla.lazurio.io/t/${foreignId}`,
+    takes: { foreign: `https://browser.vm-02.xn--cme-dla.lazurio.io/t/${foreignId}` },
+  },
+  {
+    address: `https://browser.vm-02.ácme.lazurio.io/t/${foreignId}`,
+    takes: { refused: "browser.vm-02.xn--cme-dla.lazurio.io" },
+  },
+  { address: `https:${ownHost}/t/${personTab}`, takes: "invalid" },
+  ...[`wss://${ownHost}/t/${personTab}`, `view-source:https://${ownHost}/t/${personTab}`].map(
+    (address) => ({ address, takes: "invalid" as const }),
+  ),
+  // Any other host loads, a Lazurio app or a look-alike of a view host.
+  ...[
+    "https://xbrowser.vm-01.acme.lazurio.io/",
+    `https://t3code.vm-01.acme.lazurio.io/t/${personTab}`,
+    `https://browser.vm-01.acme.lazurio.io.example.test/t/${personTab}`,
+    "https://browser.example.test/",
+    `https://${ownHost}@example.test/`,
+  ].map((address) => ({ address, takes: { loads: address } })),
+  { address: "example.test/t/x", takes: { loads: "https://example.test/t/x" } },
+];
+
+it.effect.each(contractCases)("takes $address as F50 point 2 does", ({ address, takes }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({
+        link: declaredOnLazurio,
+        window: () => {
+          host.browser.addPage(threadWindow, null);
+          return windowAnswer(threadWindow, true);
+        },
+      });
+      host.browser.addPage(personTab, "https://person.example.test/");
+      yield* host.registered;
+      // Navigating is asked first, of a thread without a tab, which still gets the advice.
+      const navigated = yield* invoke<unknown>(host.broker, "navigate", { url: address }).pipe(
+        Effect.result,
+      );
+      const navigatedTo = yield* invoke<unknown>(host.broker, "navigate", {
+        target: { kind: "url", url: address },
+      }).pipe(Effect.result);
+      const opened = yield* invoke<{ readonly tabId: string; readonly view?: string }>(
+        host.broker,
+        "open",
+        { url: address },
+      ).pipe(Effect.result);
+      const paged = yield* host.pages.open(otherThreadId, address).pipe(Effect.result);
+      const windowRuns = host.runs.filter((run) => run.args[1] === "window");
+
+      const refusedOn = (viewHost: string) =>
+        viewHost === ownHost
+          ? `is this Environment's own browser view (${viewHost}), which this browser does not load inside itself`
+          : `in another Environment's browser (${viewHost}), which this Environment's browser does not load`;
+      const refusal = (on: string) =>
+        Result.fail(expect.objectContaining({ message: expect.stringContaining(refusedOn(on)) }));
+      // By `url` and by `target.url` alike.
+      const expectNavigated = (expected: unknown) =>
+        expect([navigated, navigatedTo]).toEqual([expected, expected]);
+      const nothingTouched = () => {
+        expect(host.browser.connections).toHaveLength(0);
+        expect(windowRuns).toEqual([]);
+        expect(paged).toEqual(Result.fail(expect.objectContaining({ reason: "invalid-request" })));
+      };
+      if (takes === "new tab") {
+        const tabId = Result.getOrThrow(opened).tabId;
+        expect(tabId).not.toBe(personTab);
+        expect(Result.getOrThrow(opened).view).toBe(`https://${ownHost}/t/${tabId}`);
+        expect(Result.getOrThrow(paged)).not.toBe(tabId);
+        expect(host.browser.opened).toEqual([undefined, undefined]);
+        expectNavigated(refusal(ownHost));
+        expect(windowRuns).toEqual([]);
+      } else if (takes === "own tab") {
+        expect(Result.getOrThrow(opened)).toMatchObject({
+          tabId: personTab,
+          view: `https://${ownHost}/t/${personTab}`,
+        });
+        expect(paged).toEqual(Result.succeed(personTab));
+        expect(host.browser.opened).toEqual([]);
+        expectNavigated(refusal(ownHost));
+        expect(windowRuns).toEqual([]);
+      } else if (takes === "invalid") {
+        expect(opened).toEqual(Result.fail(expect.any(PreviewAutomationExecutionError)));
+        expectNavigated(Result.fail(expect.any(PreviewAutomationExecutionError)));
+        nothingTouched();
+      } else if ("foreign" in takes) {
+        expect(Result.getOrThrow(opened)).toMatchObject({
+          tabId: takes.foreign.slice(-32),
+          view: takes.foreign,
+        });
+        expect(host.foreignShown).toEqual([
+          { threadId, tabId: takes.foreign.slice(-32), view: takes.foreign, reveal: true },
+        ]);
+        expectNavigated(refusal(new URL(takes.foreign).hostname));
+        nothingTouched();
+      } else if ("refused" in takes) {
+        expect(opened).toEqual(refusal(takes.refused));
+        expectNavigated(refusal(takes.refused));
+        expect(host.foreignShown).toEqual([]);
+        nothingTouched();
+      } else {
+        expectNavigated(Result.fail(expect.any(PreviewAutomationTabNotFoundError)));
+        expect(Result.getOrThrow(opened).tabId).toBe(threadWindow);
+        expect(windowRuns.map((run) => run.args.slice(4, 6))).toEqual([["--url", takes.loads]]);
+        yield* invoke(host.broker, "navigate", { url: address });
+        expect(host.browser.pages.get(threadWindow)?.log).toEqual([
+          "settle",
+          `navigate ${takes.loads}`,
+        ]);
+        expect(paged).toEqual(Result.succeed(expect.any(String)));
+        expect(host.browser.opened).toEqual([takes.loads]);
+      }
+      // The person's tab is never loaded or driven.
+      expect(host.browser.pages.get(personTab)?.log).toEqual([]);
     }),
   ),
 );

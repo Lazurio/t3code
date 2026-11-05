@@ -19,9 +19,10 @@ export interface EnvironmentBrowserTab {
 const TAB_VIEW_PATH = /^\/t\/([0-9A-Fa-f]{32})$/;
 
 /**
- * Null unless exactly `https://<host>/t/<32 hex digits>`, with no credentials, query or fragment,
- * so a kept address names one remote tab and carries nothing else. With `pageOrigin`, the page's
- * own origin is refused too: the view is never framed on the page's origin.
+ * Null unless exactly `https://<host>/t/<32 hex digits>` as written (LazurioPlatform F50 point 2),
+ * with no credentials, query or fragment, so a kept address names one remote tab and carries
+ * nothing else. With `pageOrigin`, the page's own origin is refused too: the view is never framed
+ * on the page's origin.
  */
 export function environmentBrowserTab(
   view: unknown,
@@ -34,7 +35,13 @@ export function environmentBrowserTab(
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || url.href !== `${url.origin}${url.pathname}`) return null;
+  if (
+    view !== url.href ||
+    url.protocol !== "https:" ||
+    url.href !== `${url.origin}${url.pathname}`
+  ) {
+    return null;
+  }
   if (url.origin === pageOrigin) return null;
   const target = TAB_VIEW_PATH.exec(url.pathname)?.[1];
   return target === undefined ? null : { id: `environment-browser:${target}`, view: url.href };

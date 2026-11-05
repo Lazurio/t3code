@@ -205,7 +205,9 @@ export function useLazurioThreadTabs(
       if (!isPlainPrimaryClick(event) || !(event.target instanceof Element)) return;
       const link = event.target.closest("a[href]");
       if (!(link instanceof HTMLAnchorElement) || link.closest(CHAT_ROW) === null) return;
-      if (!openLinkInPanel(threadRef, link.href)) return;
+      // As written: `href` is the address the browser made of it (F50 point 2).
+      const written = link.getAttribute("href");
+      if (written === null || !openLinkInPanel(threadRef, written)) return;
       // The panel took this click: no new browser tab, and no link handling of the chat's own.
       event.preventDefault();
       event.stopPropagation();

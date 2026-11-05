@@ -672,6 +672,8 @@ describe("the chat's hook", () => {
         <a href={viewOf(7)}>The agent's tab</a>
         <a href={foreignView}>The agent's tab on another Environment</a>
         <a href="https://example.com/">Elsewhere</a>
+        <a href={viewOf(7).replace("https://browser", "https://BROWSER")}>Not exactly the tab</a>
+        <a href={foreignView.replace(".io/", ".io:443/")}>Not exactly the other tab</a>
       </div>
     );
   }
@@ -857,7 +859,9 @@ describe("the chat's hook", () => {
     using page = setup();
     await using screen = await renderUi(chatOn(threadA));
     await page.stream().emit("snapshot", snapshot([]));
-    const [agentTab, foreignLink, outside] = [...screen.container.querySelectorAll("a")];
+    const [agentTab, foreignLink, outside, inexact, inexactForeign] = [
+      ...screen.container.querySelectorAll("a"),
+    ];
     // What the browser would follow: every click the panel leaves alone, never followed here.
     let followed: string | null = null;
     const follow = (event: MouseEvent) => {
@@ -882,6 +886,10 @@ describe("the chat's hook", () => {
       expect(await click(agentTab, gesture)).toBe(viewOf(7));
     }
     expect(await click(outside)).toBe("https://example.com/");
+    // A tab only as written (LazurioPlatform F50 point 2), not as the browser reads the link.
+    expect(await click(inexact)).toBe(viewOf(7));
+    expect(await click(inexactForeign)).toBe(foreignView);
+    expect(panel().surfaces).toEqual([]);
     expect(await click(agentTab)).toBeNull();
     expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(7).id, surfaces: [tab(7)] });
     await settled();
