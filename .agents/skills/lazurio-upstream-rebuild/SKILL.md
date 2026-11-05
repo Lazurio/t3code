@@ -62,7 +62,8 @@ Rozhodnutí, která by schvaloval Admin, smíš brát jako schválená jen tehdy
    převezmi hlášení skupin; k nim `vp run knip:check`; ve worktree vnořeném v jiném repozitáři ověř formát a lint podle
    runbooku, etapa 3), a teprve pak push a draft PR (etapa 4). Když `pull_request` CI na
    draft PR neběží, spusť `Lazurio Fork CI` ručně na větvi.
-8. **Review** od Stewarda (nebo review agenta jeho Organizace) na přesném headu. Skutečné vady oprav hned;
+8. **Review** od Stewarda (nebo review agenta jeho Organizace) na přesném headu, v rozsahu overlaye
+   (runbook, etapa 4); žádost o review ten rozsah uvádí. Skutečné vady oprav hned;
    drobnosti a rozšiřování scope odmítni věcnou námitkou v PR (root `AGENTS.md`, rozhodnutí 0163).
 9. **Brány kompatibility** (etapa 5): každou zapiš do issue i s tím, jak je ověřená.
 10. **Výměna `main`** (etapa 6) přesně podle runbooku: přesné SHA, `--force-with-lease`, nikdy
