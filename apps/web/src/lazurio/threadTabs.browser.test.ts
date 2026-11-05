@@ -40,9 +40,9 @@ const viewOrigin = "https://browser.vm-01.example.lazurio.io";
 const id = (n: number) => n.toString(16).toUpperCase().padStart(32, "0");
 const tab = (n: number) => ({ id: tabSurfaceId(id(n)), kind: "environment-browser" }) as const;
 const foreign = {
-  id: `environment-browser:${"ab".repeat(16)}`,
+  id: `environment-browser:${"AB".repeat(16)}`,
   kind: "environment-browser",
-  view: `https://browser.vm-02.acme.lazurio.io/t/${"ab".repeat(16)}`,
+  view: `https://browser.vm-02.acme.lazurio.io/t/${"AB".repeat(16)}`,
 } as const;
 const files = { id: "files", kind: "files" } as const;
 const threadA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
@@ -128,7 +128,7 @@ describe("the strip from the server's list", () => {
     using _server = setup();
     setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
     receiveSnapshot(threadA, snapshot([]));
-    receiveForeign(threadA, { tabId: "ab".repeat(16), view: foreign.view });
+    receiveForeign(threadA, { tabId: "AB".repeat(16), view: foreign.view });
     expect(panel()).toEqual({ isOpen: true, activeSurfaceId: foreign.id, surfaces: [foreign] });
   });
 
@@ -176,10 +176,10 @@ describe("reveals", () => {
       surfaces: [tab(1), files],
     });
     // Another Environment's tab the server reveals again, while the strip still has it.
-    receiveForeign(threadA, { tabId: "ab".repeat(16), view: foreign.view });
+    receiveForeign(threadA, { tabId: "AB".repeat(16), view: foreign.view });
     expect(panel().activeSurfaceId).toBe(tab(1).id);
     receiveForeign(threadA, {
-      tabId: "ab".repeat(16),
+      tabId: "AB".repeat(16),
       view: foreign.view,
       revealRequest: { id: "e:1" },
     });

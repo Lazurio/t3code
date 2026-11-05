@@ -8,6 +8,7 @@ import {
   readEnvironmentBrowserMessage,
   viewEnvironmentId,
 } from "./environmentBrowser";
+import { contractCases, foreignId, foreignView, ownHost, personTab } from "./viewAddressCases";
 
 const origin = "https://t3code.vm-01.example.lazurio.io";
 const viewOrigin = "https://browser.vm-01.example.lazurio.io";
@@ -18,10 +19,10 @@ const targetId = "0123456789abcdef".repeat(2);
 const tabView = `${viewOrigin}/t/${targetId}`;
 
 describe("a tab of the panel", () => {
-  it("is the view of exactly one remote tab, named by its target id", () => {
+  it("is the view of exactly one remote tab, named by its target id in upper case", () => {
     expect(environmentBrowserTab(tabView)).toEqual({
-      id: `environment-browser:${targetId}`,
-      view: tabView,
+      id: `environment-browser:${targetId.toUpperCase()}`,
+      view: `${viewOrigin}/t/${targetId.toUpperCase()}`,
     });
     expect(environmentBrowserTab(view, origin)).toEqual({
       id: "environment-browser:8A3F0C2D4E5B6A7980C1D2E3F4A5B6C7",
@@ -71,8 +72,8 @@ describe("a tab of the panel", () => {
 describe("a link in the chat", () => {
   it("opens in the panel when it is one remote tab of the view the Environment named", () => {
     expect(environmentBrowserLink(tabView, origin, viewOrigin)).toEqual({
-      id: `environment-browser:${targetId}`,
-      view: tabView,
+      id: `environment-browser:${targetId.toUpperCase()}`,
+      view: `${viewOrigin}/t/${targetId.toUpperCase()}`,
     });
   });
 
@@ -119,8 +120,7 @@ describe("a link in the chat", () => {
 
 describe("another Lazurio Environment's tab", () => {
   // This page is the T3 of `vm-01.example.lazurio.io`; its own view is `browser.` beside it.
-  const foreignId = "fedcba9876543210".repeat(2);
-  const organization = `https://browser.vm-02.acme.lazurio.io/t/${foreignId}`;
+  const organization = foreignView;
   const personal = `https://browser.example-person.lazurio.io/t/${foreignId}`;
   const tabOf = (address: string, named: string | null = viewOrigin) =>
     foreignEnvironmentBrowserTab(address, origin, named);
@@ -197,6 +197,30 @@ describe("another Lazurio Environment's tab", () => {
   });
 });
 
+// LazurioPlatform F50 point 2's table, which the server's host runs through its tools: the panel
+// opens this Environment's tab or another's only for a view address as written, and keeps the
+// tab's id in upper case, as the server announces it. Any other address is left to the browser.
+describe("F50 point 2's view addresses", () => {
+  const page = "https://t3code.vm-01.acme.lazurio.io";
+  const named = `https://${ownHost}`;
+  it.each(contractCases)("takes $address as F50 point 2 does", ({ address, takes }) => {
+    const own =
+      takes === "own tab"
+        ? { id: `environment-browser:${personTab}`, view: `${named}/t/${personTab}` }
+        : null;
+    const foreign =
+      typeof takes === "object" && "foreign" in takes
+        ? {
+            id: `environment-browser:${takes.foreign.slice(-32)}`,
+            view: takes.foreign,
+            environment: expect.objectContaining({ view: takes.foreign }),
+          }
+        : null;
+    expect(environmentBrowserLink(address, page, named)).toEqual(own);
+    expect(foreignEnvironmentBrowserTab(address, page, named)).toEqual(foreign);
+  });
+});
+
 describe("a message of the framed view", () => {
   const frame = {};
   const newTab = { type: "lazurio-browser:new-tab", view: tabView, url: "https://example.com/" };
@@ -234,7 +258,10 @@ describe("a message of the framed view", () => {
   it("opens a page's new tab on the view's own origin", () => {
     expect(readEnvironmentBrowserMessage(message(newTab), frame, view)).toEqual({
       type: "new-tab",
-      tab: { id: `environment-browser:${targetId}`, view: tabView },
+      tab: {
+        id: `environment-browser:${targetId.toUpperCase()}`,
+        view: `${viewOrigin}/t/${targetId.toUpperCase()}`,
+      },
     });
     // A tab that a page opened tells of its own new tabs as well.
     expect(readEnvironmentBrowserMessage(message(newTab), frame, tabView)).toMatchObject({

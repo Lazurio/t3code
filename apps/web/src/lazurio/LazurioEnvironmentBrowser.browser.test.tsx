@@ -64,7 +64,7 @@ const files = { id: "files", kind: "files" } as const;
 const threadA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const threadB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
 // Another Environment's people's view of one of its tabs, where an agent works over SSH.
-const foreignId = "fedcba9876543210".repeat(2);
+const foreignId = "FEDCBA9876543210".repeat(2);
 const foreignOrigin = "https://browser.vm-02.acme.lazurio.io";
 const foreignView = `${foreignOrigin}/t/${foreignId}`;
 const foreignTab = {
@@ -785,7 +785,7 @@ describe("the chat's hook", () => {
     using page = setup();
     await using _screen = await renderUi(chatOn(threadA));
     await page.stream().emit("snapshot", snapshot([]));
-    await page.stream().emit("foreign", { tabId: foreignId.toUpperCase(), view: foreignView });
+    await page.stream().emit("foreign", { tabId: foreignId, view: foreignView });
     expect(panel()).toMatchObject({ isOpen: false, surfaces: [foreignTab] });
     await page
       .stream()

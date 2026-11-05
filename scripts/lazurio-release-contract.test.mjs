@@ -2150,6 +2150,11 @@ NodeTest.test("the server and the web read a Lazurio browser view's address alik
     import("../apps/web/src/lazurio/browserView.ts"),
   ]);
   NodeAssert.equal(web.lazurioBrowserView.toString(), server.lazurioBrowserView.toString());
+  // Both run F50 point 2's one table of view addresses: the server's host and the web's panel.
+  NodeAssert.equal(
+    await read("apps/web/src/lazurio/viewAddressCases.ts"),
+    await read("apps/server/src/lazurio/viewAddressCases.ts"),
+  );
   const targetId = "0123456789abcdef".repeat(2);
   NodeAssert.deepEqual(
     server.lazurioBrowserView(`https://browser.vm-01.acme.lazurio.io/t/${targetId}`),
