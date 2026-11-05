@@ -703,6 +703,11 @@
         --lazurio-overlay-ink: var(--contrast-popover-foreground);
         --lazurio-focus: var(--ring);
       }
+      /* The column head keeps the inset the Launchpad's column gives it (10 px each side), so the
+         picker and the switch stand where they do in Apps and in the prototype. */
+      #root lazurio-column-head {
+        margin-inline: 10px;
+      }
       /* T3 grains its chrome surfaces (surface-grain); without it the rail reads a shade apart. */
       lazurio-rail:defined {
         background-image: var(--surface-grain);
