@@ -48,6 +48,14 @@ describe("a tab of the panel", () => {
       tabView.replace("https://", "https://person:secret@"),
       `/t/${targetId}`,
       `javascript:alert(1)//t/${targetId}`,
+      // F50 point 2 takes the address as written, not as the browser reads it.
+      tabView.replace("https://browser", "https://BROWSER"),
+      tabView.replace("https:", "HTTPS:"),
+      tabView.replace(".io/", ".io:443/"),
+      tabView.replace("/t/", "/x/../t/"),
+      tabView.replace("https://", "https:/"),
+      tabView.replace("https://", "https:\\\\"),
+      ` ${tabView}`,
       "not an address",
     ]) {
       expect([address, environmentBrowserTab(address)]).toEqual([address, null]);
@@ -137,10 +145,6 @@ describe("another Lazurio Environment's tab", () => {
     });
     // Another Machine of the same Organization is another Environment as well.
     expect(tabOf(`https://browser.vm-03.example.lazurio.io/t/${foreignId}`)).not.toBeNull();
-    // Upper-case hosts are the same hosts.
-    expect(tabOf(organization.replace("browser.vm-02.acme", "BROWSER.VM-02.Acme"))?.view).toBe(
-      organization,
-    );
   });
 
   it("is never this Environment's own view, named or not", () => {
@@ -160,6 +164,8 @@ describe("another Lazurio Environment's tab", () => {
       `https://browser.vm-02.acme.lazurio.io.example.com/t/${foreignId}`,
       organization.replace("https:", "http:"),
       organization.replace(".io/", ".io:8443/"),
+      organization.replace(".io/", ".io:443/"),
+      organization.replace("browser.vm-02.acme", "BROWSER.VM-02.Acme"),
       `${organization}?session=t3-other`,
       `${organization}?`,
       `${organization}#x`,
@@ -185,7 +191,9 @@ describe("another Lazurio Environment's tab", () => {
     expect(idOf(organization)).toBe("vm-02.acme");
     expect(idOf(personal)).toBe("example-person");
     // The shell decides what an id names; the fork reads no Organization or Machine out of it.
-    expect(idOf(`https://browser.a.b.c.lazurio.io/t/${foreignId}`)).toBe("a.b.c");
+    expect(idOf(`https://browser.a-1.b.lazurio.io/t/${foreignId}`)).toBe("a-1.b");
+    // F50 knows no Environment of a base of three labels (`environmentIdOf`): no tab of one.
+    expect(tabOf(`https://browser.a.b.c.lazurio.io/t/${foreignId}`)).toBeNull();
   });
 });
 

@@ -2166,6 +2166,9 @@ NodeTest.test("the server and the web read a Lazurio browser view's address alik
     `https://browser.example-person.lazurio.io/t/${targetId}`,
     `https://browser.example-person.lazurio.io/t/${targetId}?`,
     `https://browser.example-person.lazurio.io:8443/t/${targetId}`,
+    // F50 takes a base of one or two DNS labels only.
+    `https://browser.a.vm-01.acme.lazurio.io/t/${targetId}`,
+    `https://browser.-vm-01.acme.lazurio.io/t/${targetId}`,
     `https://t3code.example-person.lazurio.io/t/${targetId}`,
     "not an address",
   ]) {

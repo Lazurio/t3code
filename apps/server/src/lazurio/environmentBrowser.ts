@@ -292,12 +292,20 @@ export const make = Effect.gen(function* () {
       foreignTabs.delete(oldest);
     }
   };
-  /** Why this browser does not load `url`, on a view host, or undefined for any other address. */
-  const viewRefusal = (url: string) => {
-    const host = viewHostOf(url);
-    if (host === undefined) return undefined;
-    const own = ownViewOrigin === undefined ? undefined : bareHost(new URL(ownViewOrigin).hostname);
-    return host === own ? ownNavigation(url, host) : foreignNavigation(url, host);
+  /**
+   * Why this browser does not load an address, on a view host, or undefined for any other address.
+   * The address is read as the agent wrote it and as `normalizePreviewUrl` made it, so that neither
+   * form reaches a view host (F50 point 2 reads the address as written).
+   */
+  const viewRefusal = (written: string | undefined, url: string) => {
+    for (const address of written === undefined ? [url] : [written, url]) {
+      const host = viewHostOf(address);
+      if (host === undefined) continue;
+      const own =
+        ownViewOrigin === undefined ? undefined : bareHost(new URL(ownViewOrigin).hostname);
+      return host === own ? ownNavigation(address, host) : foreignNavigation(address, host);
+    }
+    return undefined;
   };
   /**
    * Whether `address` is the bare origin of this Environment's own view, with or without its `/`,
@@ -580,7 +588,7 @@ export const make = Effect.gen(function* () {
       return viewed;
     }
     const fresh = ownNewTab(address);
-    if (!fresh && viewRefusal(url) !== undefined) return yield* refusal("invalid-request");
+    if (!fresh && viewRefusal(address, url) !== undefined) return yield* refusal("invalid-request");
     const targetId = yield* newWindow(fresh ? undefined : url).pipe(
       Effect.mapError(() => refusal("unavailable")),
     );
@@ -611,7 +619,7 @@ export const make = Effect.gen(function* () {
     const fresh = input.url !== undefined && ownNewTab(input.url);
     const viewed = input.url === undefined ? undefined : ownTab(input.url);
     const refused =
-      url === undefined || viewed !== undefined || fresh ? undefined : viewRefusal(url);
+      url === undefined || viewed !== undefined || fresh ? undefined : viewRefusal(input.url, url);
     if (refused !== undefined) return yield* Effect.fail(refused);
     const load = viewed === undefined && !fresh ? url : undefined;
     // A named tab is handed over. Otherwise the current tab is reused while it is open, and a
@@ -709,7 +717,8 @@ export const make = Effect.gen(function* () {
         });
         // A view host in this browser would sign it in to that gateway; said first, so that a
         // thread without a tab gets the same advice.
-        const refused = viewRefusal(url);
+        const written = input.url ?? (input.target?.kind === "url" ? input.target.url : undefined);
+        const refused = viewRefusal(written, url);
         if (refused !== undefined) return yield* Effect.fail(refused);
         const targetId = requestTab(request);
         if (targetId === undefined) return yield* Effect.fail(noTab());

@@ -1,12 +1,12 @@
 /**
- * Lazurio overlay: a Remote Environment's people's view is at `https://browser.<labels>.lazurio.io`,
+ * Lazurio overlay: a Remote Environment's people's view is at `https://browser.<base>.lazurio.io`,
  * where `/t/<DevTools target id>` shows one remote tab. `apps/web/src/lazurio/browserView.ts` holds
  * a copy of `lazurioBrowserView`; the release contract test keeps the two equal.
  */
 
 /** One remote tab of a Lazurio Environment browser, read from the address of its view. */
 export interface LazurioBrowserView {
-  /** The view, `https://browser.<labels>.lazurio.io/t/<target id>`. */
+  /** The view, `https://browser.<base>.lazurio.io/t/<target id>`. */
   readonly view: string;
   readonly origin: string;
   /** The remote tab's DevTools target id: 32 hexadecimal digits. */
@@ -21,7 +21,8 @@ export interface LazurioBrowserView {
 
 /**
  * The remote tab whose view is at `address`, or null unless it is exactly
- * `https://browser.<one or more labels>.lazurio.io/t/<32 hex digits>`: no port, credentials, query
+ * `https://browser.<base>.lazurio.io/t/<32 hex digits>`, `<base>` an Environment id of one or two
+ * DNS labels (LazurioPlatform F50, `environmentIdOf` and `dnsLabel`): no port, credentials, query
  * or fragment, not even an empty one.
  */
 export function lazurioBrowserView(address: string): LazurioBrowserView | null {
@@ -34,17 +35,20 @@ export function lazurioBrowserView(address: string): LazurioBrowserView | null {
   if (url.protocol !== "https:" || url.port !== "" || url.href !== `${url.origin}${url.pathname}`) {
     return null;
   }
-  const labels = /^browser\.((?:[a-z0-9-]+\.)+)lazurio\.io$/.exec(url.hostname)?.[1]?.split(".");
+  // A label starts and ends with a letter or digit and has at most 63 characters.
+  const base =
+    /^browser\.([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))?\.lazurio\.io$/.exec(
+      url.hostname,
+    );
   const targetId = /^\/t\/([0-9A-Fa-f]{32})$/.exec(url.pathname)?.[1];
-  if (labels === undefined || targetId === undefined) return null;
-  // The captured labels end in a dot, so the last item is empty.
-  labels.pop();
+  if (base === null || targetId === undefined) return null;
+  const [, environment, owner] = base;
   return {
     view: url.href,
     origin: url.origin,
     targetId,
-    owner: labels.at(-1)!,
-    environment: labels[0]!,
-    personal: labels.length === 1,
+    owner: owner ?? environment!,
+    environment: environment!,
+    personal: owner === undefined,
   };
 }
