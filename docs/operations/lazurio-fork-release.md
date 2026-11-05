@@ -1626,13 +1626,14 @@ Review na přesném headu dělá Steward, nebo review agent jeho Organizace. PR
 přepněte na Ready, až je CI na přesném headu zelené, review na něm nemá
 otevřená vlákna a issue má vyplněnou etapu 5.
 
-Review přestavby posuzuje overlay, ne upstream. Předmětem jsou jen soubory
-z `git diff --stat "$NEW_SHA" HEAD` a změny řádků z `git range-diff` výše.
-Každý jiný soubor je bajtově upstream `$NEW_TAG`, takže ho reviewer nečte
-a verdikt na něm nestojí. Změny upstreamu mezi bázemi čte jen tam, kde se jich
-overlay dotýká: švy kontraktního testu a soubory bran etapy 5. Velký overlay
-si rozdělí po skupinách řádků a na přesný head podá jeden verdikt. Žádost
-o review tento rozsah uvádí.
+Review přestavby posuzuje overlay a jeho styk s upstreamem, ne celý upstream.
+Předmětem jsou soubory z `git diff --stat "$NEW_SHA" HEAD`, změny řádků
+z `git range-diff` výše, švy kontraktního testu a brány etapy 5: u každé brány
+rozdíl mezi bázemi v souborech, které brána uvádí (včetně migrací databáze),
+a její záznam v issue. Vada v nich verdikt blokuje, i když soubor overlay
+nemění. Ostatní soubory jsou bajtově upstream `$NEW_TAG` a reviewer je
+jednotlivě nečte. Velký overlay si rozdělí po skupinách řádků a na přesný
+head podá jeden verdikt. Žádost o review tento rozsah uvádí.
 
 ### 5. Kompatibilita s Lazuriem
 
