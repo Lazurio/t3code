@@ -1642,6 +1642,105 @@ NodeTest.test("the design system's light look maps the shell's tokens onto T3's 
   NodeAssert.match(styles, /\nhtml\[data-theme-id\] \[data-app-sidebar\] \{\n/);
 });
 
+// EXPERIMENT, not for release: skin.css dresses T3's own hooks (never Tailwind utilities) behind
+// theme.css's gate, in the design system's tokens. A token the shell does not promise carries a
+// fallback; their list is what the shell would have to promise.
+NodeTest.test(
+  "the experiment's skin dresses T3's own hooks in the design system's tokens",
+  async () => {
+    const [main, skin, button] = await Promise.all(
+      [
+        "apps/web/src/main.tsx",
+        "apps/web/src/lazurio/skin.css",
+        "apps/web/src/components/ui/button.tsx",
+      ].map(read),
+    );
+    NodeAssert.match(
+      main,
+      /\nimport "\.\/lazurio\/theme\.css";\nimport "\.\/lazurio\/skin\.css";\n/,
+    );
+    NodeAssert.equal(main.match(/skin\.css/g)?.length, 1);
+    // The seam: a Button names its size and variant, which a trigger rendering it does not take over.
+    NodeAssert.match(
+      button,
+      /\n {4}"data-size": size \?\? "default",\n {4}"data-variant": variant \?\? "default",\n/,
+    );
+    const gate =
+      ':root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])';
+    // A selector list's items at depth 0: commas inside :is() and :not() stay.
+    const items = (selector) => {
+      const parts = [];
+      let depth = 0;
+      let start = 0;
+      for (let index = 0; index < selector.length; index += 1) {
+        if (selector[index] === "(") depth += 1;
+        else if (selector[index] === ")") depth -= 1;
+        else if (selector[index] === "," && depth === 0) {
+          parts.push(selector.slice(start, index).trim());
+          start = index + 1;
+        }
+      }
+      return [...parts, selector.slice(start).trim()];
+    };
+    // T3's own raw tokens the skin sets, and the ones it reads.
+    const sets = new Set(["--radius", "--control-radius", "--chat-composer-outline"]);
+    const reads = new Set(["--control-radius", "--sidebar-row-selected"]);
+    const promised = new Set(["--lz-font-sans", "--lz-line", "--lz-radius-sm"]);
+    const fallbacks = new Map();
+    const rules = topLevelRules(skin);
+    NodeAssert.ok(rules.length > 0);
+    for (const rule of rules) {
+      for (const item of items(rule.selector)) {
+        NodeAssert.ok(item.startsWith(gate), item);
+        const hook = item.slice(gate.length);
+        // Hooks only: data and ARIA attributes, roles, elements and T3's prose class; no utilities.
+        NodeAssert.doesNotMatch(hook.replaceAll(".chat-markdown", ""), /\.[a-z]|#/i, item);
+        NodeAssert.doesNotMatch(hook, /\[class/, item);
+      }
+      for (const [name, value] of rule.declarations) {
+        if (name.startsWith("--"))
+          NodeAssert.ok(sets.has(name), `${name} is not T3's token to set`);
+        if (value === "none" || value === "inherit") continue;
+        const own = /^var\((--[a-z0-9-]+)\)$/.exec(value)?.[1];
+        if (own !== undefined && !own.startsWith("--lz-")) {
+          NodeAssert.ok(reads.has(own), `${name}: ${value}`);
+          continue;
+        }
+        const token = /^var\((--lz-[a-z0-9-]+)(?:, (.+))?\)$/.exec(value);
+        NodeAssert.ok(token, `${name}: ${value}`);
+        const [, lz, fallback] = token;
+        if (fallback === undefined) {
+          NodeAssert.ok(promised.has(lz), `${lz} is not promised: give it a fallback`);
+          continue;
+        }
+        NodeAssert.ok(!promised.has(lz), `${lz} is promised: no fallback`);
+        NodeAssert.match(
+          fallback,
+          /^(-?[0-9.]+(px|em)?|none|var\(--lz-[a-z0-9-]+\))$/,
+          `${name}: ${value}`,
+        );
+        NodeAssert.ok((fallbacks.get(lz) ?? fallback) === fallback, `${lz}: one fallback`);
+        fallbacks.set(lz, fallback);
+      }
+    }
+    // What the shell would have to promise for the skin to drop its fallbacks.
+    NodeAssert.deepEqual([...fallbacks.keys()].toSorted(), [
+      "--lz-font-heading",
+      "--lz-radius-md",
+      "--lz-radius-pill",
+      "--lz-shadow-float",
+      "--lz-track-body",
+      "--lz-track-title",
+      "--lz-weight-akce",
+      "--lz-weight-title",
+    ]);
+    NodeAssert.doesNotMatch(
+      skin.replace(/\/\*[^]*?\*\//g, ""),
+      /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(|!important/i,
+    );
+  },
+);
+
 // The Environment's theme is right from the first paint (root decision 0208, LazurioPlatform F36's
 // addendum of 2026-10-18): `/.lazurio/shell.js` declares the tokens and the theme its origin
 // remembers as it evaluates, so it runs before T3's own module. Both are module scripts, which run

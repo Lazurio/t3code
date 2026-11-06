@@ -86,6 +86,9 @@ function Button({ className, variant, size, render, ...props }: ButtonProps) {
   const defaultProps = {
     className: cn(buttonVariants({ className, size, variant })),
     "data-slot": "button",
+    // Lazurio overlay: the skin (lazurio/skin.css) tells a pill from an icon square by these.
+    "data-size": size ?? "default",
+    "data-variant": variant ?? "default",
     type: typeValue,
   };
 

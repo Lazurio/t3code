@@ -1,0 +1,162 @@
+/*
+ * Lazurio T3 Code, EXPERIMENT: the design system's shapes, type and depth on T3's standard look
+ * (root decisions 0187 and 0200). theme.css maps the colours; this file dresses T3's own components
+ * in the design system's "clean look" (HumanAndMachine-ai/design-system-lazurio, 2026-10-21):
+ * pills for what you press or fill, 10 px cards, square icon buttons, Inter Tight 600 headings,
+ * hairlines, and one floating shadow only for layers above the page. Behaviour, order, text and
+ * sizes stay T3's.
+ *
+ * Same gate as theme.css: the shell's mark, no picked T3 theme. Without the shell nothing here
+ * matches and T3 looks as upstream; a picked theme keeps T3's shapes too.
+ *
+ * Selectors reach only hooks T3 renders itself (data-slot, data-*, ARIA roles, its .chat-markdown
+ * prose), never Tailwind utilities. Values are the design system's --lz-* tokens. Tokens the shell
+ * does not promise yet carry a fallback here; scripts/lazurio-release-contract.test.mjs lists them.
+ */
+
+/* T3's radius scale follows one token: sm 6 and lg 10 px are the design system's sm and md. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark]) {
+  --radius: var(--lz-radius-md, 10px);
+}
+
+/* Inter keeps its own optical spacing at text sizes. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  body {
+  letter-spacing: var(--lz-track-body, -0.011em);
+}
+
+/* What you press is a pill; an icon button stays a small square so it never reads as a status.
+   A Button's data-slot gives way to the trigger that renders it (tooltip, menu), so its size and
+   variant (components/ui/button.tsx, the overlay's seam) are the hook. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(button, a, [role="button"])[data-size][data-variant] {
+  --control-radius: var(--lz-radius-pill, 999px);
+  border-radius: var(--control-radius);
+}
+
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(button, a, [role="button"])[data-size][data-variant]:is(
+    [data-size^="icon"],
+    [data-size="micro"]
+  ) {
+  --control-radius: var(--lz-radius-sm);
+}
+
+/* An action carries weight 600; quiet toolbar buttons keep T3's. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(button, a, [role="button"])[data-size][data-variant]:is(
+    [data-variant="default"],
+    [data-variant="outline"],
+    [data-variant="secondary"],
+    [data-variant="destructive"],
+    [data-variant="destructive-outline"]
+  ) {
+  font-weight: var(--lz-weight-akce, 600);
+}
+
+/* What you fill on one line is a pill too: fields, selects, field groups, badges and segments. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(
+    [data-slot="input-control"],
+    [data-slot="select-trigger"],
+    [data-slot="input-group"],
+    [data-slot="number-field-group"],
+    [data-slot="badge"],
+    [data-slot="toggle-group"]
+  ) {
+  --control-radius: var(--lz-radius-pill, 999px);
+  border-radius: var(--lz-radius-pill, 999px);
+}
+
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is([data-slot="input-control"], [data-slot="select-trigger"])::before {
+  border-radius: inherit;
+}
+
+/* A multi-line field, the composer and every free-standing card or window are 10 px. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(
+    [data-slot="composer-shell"],
+    [data-slot="composer-host"],
+    [data-chat-composer-main-surface],
+    [data-chat-composer-surface],
+    [data-slot="dialog-popup"],
+    [data-slot="alert-dialog-popup"],
+    [data-slot="command-dialog-popup"]
+  ),
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  [data-slot="composer-shell"]::before {
+  border-radius: var(--lz-radius-md, 10px);
+}
+
+/* Hairlines: the composer's outline is the design system's line, and nothing in the page's flow
+   casts a shadow. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  [data-slot="composer-shell"] {
+  --chat-composer-outline: var(--lz-line);
+}
+
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(
+    [data-slot="composer-host"],
+    [data-slot="input-control"],
+    [data-slot="select-trigger"],
+    [data-slot="input-group"],
+    :is(button, a, [role="button"])[data-size][data-variant]
+  ) {
+  box-shadow: none;
+}
+
+/* The one shadow belongs to layers floating above the page, always with a hairline. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(
+    [data-slot="menu-popup"],
+    [data-slot="popover-popup"],
+    [data-slot="select-popup"],
+    [data-slot="combobox-popup"],
+    [data-slot="autocomplete-popup"],
+    [data-slot="tooltip-popup"],
+    [data-slot="preview-card-popup"],
+    [data-slot="dialog-popup"],
+    [data-slot="alert-dialog-popup"],
+    [data-slot="command-dialog-popup"],
+    [data-slot="toast-popup"]
+  ) {
+  border-color: var(--lz-line);
+  box-shadow: var(--lz-shadow-float, none);
+}
+
+/* Headings: Inter Tight 600 with the design system's relaxed tracking. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  :is(
+    .chat-markdown :is(h1, h2, h3),
+    [data-slot="dialog-title"],
+    [data-slot="alert-dialog-title"],
+    [data-slot="sheet-title"],
+    [data-slot="empty-title"],
+    [data-slot="popover-title"]
+  ) {
+  font-family: var(--lz-font-heading, var(--lz-font-sans));
+  font-weight: var(--lz-weight-title, 600);
+  letter-spacing: var(--lz-track-title, -0.015em);
+}
+
+/* The thread you are in is a quiet surface one step darker, not a raised card; rows are small
+   inner pieces (sm). */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  [data-sidebar-row] {
+  border-radius: var(--lz-radius-sm);
+}
+
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  [data-sidebar-row][aria-current]:not([aria-current="false"]):not(:focus-visible) {
+  background-color: var(--sidebar-row-selected);
+  box-shadow: none;
+}
+
+/* The thread's details float beside the timeline as a 10 px card. */
+:root[data-lazurio-theme="light"]:not([data-theme-id]):is(:not(.dark), [data-lazurio-theme-dark])
+  [data-thread-details-panel]
+  > :first-child {
+  border-radius: var(--lz-radius-md, 10px);
+}

@@ -100,6 +100,11 @@ jobs:
             apps/web/src/components/sidebar/SidebarChrome.tsx
             apps/web/src/main.tsx
             apps/web/src/rightPanelStore.ts
+            # EXPERIMENT, not for release: the design system's shapes and type over T3's
+            # components (apps/web/src/lazurio/skin.css). button.tsx marks each Button with its
+            # size and variant, the skin's hooks, because a trigger that renders a Button (tooltip,
+            # menu, popover) takes over its data-slot; main.tsx imports the skin after theme.css.
+            apps/web/src/components/ui/button.tsx
             # Hosted configuration: T3CODE_CLIENT_SESSION_TTL, T3CODE_EXTERNAL_ORIGIN (a
             # Secure __Host- cookie, and a loopback bind behind that origin counts as reached
             # remotely; upstream itself accepts cookie-authenticated requests only from allowed
