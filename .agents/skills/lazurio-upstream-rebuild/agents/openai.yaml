@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lazurio Upstream Rebuild"
+  short_description: "Rebuild Lazurio T3 Code on a new upstream stable, end to end"
+  default_prompt: "Use $lazurio-upstream-rebuild to rebuild Lazurio T3 Code on the new upstream stable release."
