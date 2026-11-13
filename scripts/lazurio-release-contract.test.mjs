@@ -3252,10 +3252,10 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     NodeAssert.ok(overlayMayChange(file), file);
 });
 
-// Lazurio/t3code#119, Lazurio/t3code#139, Lazurio/t3code#170 (row 30): a steer into a turn that
-// waits on the person's answer aborts the provider's pending callback, so resolveMessageDispatchIntent
-// queues every steer while a runtime request is pending. The completion wake, queue promotion and
-// the steer of input sent before its turn started (kept auto by the web) share that predicate.
+// Lazurio/t3code#119, Lazurio/t3code#139, Lazurio/t3code#170 (row 30): a steer or restart into a
+// turn that waits on the person's answer aborts the provider's pending callback, so
+// resolveMessageDispatchIntent queues both while a runtime request is pending. The completion wake,
+// queue promotion and the steer of input sent before its turn started share that predicate.
 NodeTest.test(
   "a steer waits behind a turn that waits on the person through its seams",
   async () => {
@@ -3271,7 +3271,7 @@ NodeTest.test(
     );
     NodeAssert.match(
       policy,
-      /const mode = resolveDeliveryIntent\(projection, requestedMode, deliveryIntent\);\n\s+if \(mode\.type !== "steer_active"\) return mode;\n\s+if \(waitsOnPendingRequest\(projection\)\) return \{ type: "queue_after_active" \};\n/,
+      /const mode = resolveDeliveryIntent\(projection, requestedMode, deliveryIntent\);\n\s+if \(mode\.type !== "steer_active" && mode\.type !== "restart_active"\) return mode;\n\s+if \(waitsOnPendingRequest\(projection\)\) return \{ type: "queue_after_active" \};\n\s+if \(mode\.type === "restart_active"\) return mode;\n/,
     );
     // message.dispatch reads the thread with its runtime requests and resolves the mode once.
     NodeAssert.match(

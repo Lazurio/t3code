@@ -89,8 +89,9 @@ have.
 is interrupted. `--mode auto` starts an idle thread, steers a running turn or
 queues behind it, `--mode steer` goes into the running turn, and
 `--mode restart` stops the turn and starts again with your message. While the
-turn waits on the person's answer to a question or an approval, `auto` and
-`steer` queue, so the question stays. Pass `-` as
+turn waits on the person's answer to a question or an approval, `auto`,
+`steer` and `restart` queue, so the question stays; `t3 thread interrupt` still
+stops the turn. Pass `-` as
 the message, or `--message-file -`, to read it from standard input, and
 `--message-file <path>` to read it from a file.
 
