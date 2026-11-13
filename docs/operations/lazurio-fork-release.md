@@ -1305,6 +1305,36 @@ v repozitáři vypne; když ho `gh workflow list --repo Lazurio/t3code --all`
 ukáže jako `disabled_inactivity`, zapněte ho:
 `gh workflow enable lazurio-upstream-watch.yml --repo Lazurio/t3code`.
 
+Plánované běhy se mohou zastavit i u workflow, které hlásí `active`: po
+vypnutí a zapnutí Actions repozitáře v listopadu 2026 přestaly přicházet,
+příčina na straně GitHubu ověřená není (#190). Když poslední běh s `event`
+`schedule` je starší než dva dny, ověřte
+`gh api repos/Lazurio/t3code/actions/permissions` (`"enabled":true`). Pak
+zkuste plán obnovit vypnutím a zapnutím workflow s jedním ručním během:
+
+```bash
+gh workflow disable lazurio-upstream-watch.yml --repo Lazurio/t3code
+gh workflow enable lazurio-upstream-watch.yml --repo Lazurio/t3code
+gh workflow run lazurio-upstream-watch.yml --repo Lazurio/t3code --ref main
+```
+
+Vypnutí a zapnutí workflow je změna nastavení Actions: dělá ji Admin, nebo jeho
+agent s jeho výslovným svolením (tak se to 2026-11-13 zkoušelo, #190). Ruční
+běh ověří jen workflow, ne plán. Plán je obnovený teprve tehdy, když po zásahu
+přijde úspěšný běh s `event` `schedule` vytvořený po něm (GitHub ho spouští
+s několikahodinovým zpožděním):
+
+```bash
+gh run list --repo Lazurio/t3code --workflow lazurio-upstream-watch.yml \
+  --event schedule --limit 1 --json createdAt,conclusion,headSha
+```
+
+Když do 24 hodin po prvním plánovaném čase po zásahu nepřijde, zkuste jako
+další krok commit na `main`, který změní soubor workflow; navrhněte ho běžným
+PR. Ani ten není ověřený lék: po jeho merge znovu čekejte na úspěšný plánovaný
+běh a výsledek každého pokusu zapište do issue. Do té doby nové vydání
+upstreamu hlídá denní kontrola bota vydávání.
+
 ### 2. Inventura a rozhodnutí
 
 Než se změní první řádek kódu, má issue přestavby tabulku rozhodnutí: jeden
@@ -1908,6 +1938,45 @@ Po výměně:
   `main`.
 - `Lazurio Fork CI` proběhne na `main`:
   `gh run list --repo Lazurio/t3code --workflow lazurio-fork-ci.yml --branch main --limit 1`.
+  Když běh zůstane `queued` a nezačne, nejdřív zjistěte příčinu z běhu
+  a jeho úloh, teprve potom volte nápravu:
+
+  ```bash
+  gh api repos/Lazurio/t3code/actions/runs/<run-id>/jobs \
+    --jq '{total_count, jobs: [.jobs[] | {name, status, labels, runner_name}]}'
+  ```
+
+  Na runner čeká jen běh, který úlohy má a ty stojí `queued` bez
+  `runner_name` (u macOS se to stává často); po ztrátě runneru pak dejte
+  Re-run. Běh bez jediné úlohy (`total_count` 0) na runner nečeká, takže
+  postup pro chybějící runner na něj neplatí. Ani
+  `gh api repos/Lazurio/t3code/actions/permissions` příčinu neurčí: popisuje
+  jen současné nastavení repozitáře, ne důvod, proč existující běh stojí.
+  `"enabled":false` znamená vypnuté Actions, které zapnout smí jen Admin,
+  ale `"enabled":true` nic nevysvětlí. Takový běh zapište do issue přestavby
+  i s výpisem úloh a nastavení a nápravu zvolte až podle zjištěné příčiny,
+  s Adminem, kde jde o nastavení. Příklad: běh Fork CI 42272856043
+  z 2026-11-06 zůstal `queued` bez úloh i po zapnutí Actions 2026-11-08
+  (#190).
+
+- Druhý den ověřte, že plánovaný běh `Lazurio upstream watch` po výměně
+  doběhl ([Sledování](#1-sledování)). GitHub ho spouští s několikahodinovým
+  zpožděním, proto hledejte běh s `event` `schedule` vytvořený po výměně:
+
+  ```bash
+  gh run list --repo Lazurio/t3code --workflow lazurio-upstream-watch.yml \
+    --event schedule --limit 1 --json createdAt,conclusion,headSha
+  ```
+
+  Když do 24 hodin po prvním plánovaném čase po výměně žádný nepřišel,
+  zkuste plán obnovit postupem ze [Sledování](#1-sledování), ověřte další
+  plánovaný běh a každý pokus i jeho výsledek zapište do issue přestavby.
+  Po výměně na v0.1.7 (2026-11-06) byly Actions repozitáře
+  (forku) vypnuté; po jejich zapnutí 2026-11-08 běžely push
+  i ruční běhy, plánovaný běh watche ale ne, ačkoli workflow hlásilo
+  `active`, a nové vydání upstreamu tak zachytila až denní kontrola bota
+  vydávání (#190).
+
 - Nové upstream workflow vypněte (viz
   [Hranice automatizace](#hranice-automatizace)). Po výměně na v0.1.6 (z báze
   v0.1.3, přestavby na v0.1.4 a v0.1.5 na `main` nešly) jsou to workflow přidaná

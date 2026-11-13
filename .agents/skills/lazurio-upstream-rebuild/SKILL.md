@@ -70,7 +70,10 @@ Rozhodnutí, která by schvaloval Admin, smíš brát jako schválená jen tehdy
    drobnosti a rozšiřování scope odmítni věcnou námitkou v PR (root `AGENTS.md`, rozhodnutí 0163).
 9. **Brány kompatibility** (etapa 5): každou zapiš do issue i s tím, jak je ověřená.
 10. **Výměna `main`** (etapa 6) přesně podle runbooku: přesné SHA, `--force-with-lease`, nikdy
-    automatický retry; po výměně vypni nové upstream workflow.
+    automatický retry; po výměně vypni nové upstream workflow. Ověř, že Fork CI na `main`
+    opravdu začalo, a druhý den, že plánovaný běh `Lazurio upstream watch` po výměně doběhl.
+    Když nepřišel, zkus ho obnovit podle runbooku (Sledování), ověř další plánovaný běh
+    a každý pokus zapiš do issue (#190).
 11. **Preview a Ring 0** (etapa 7): kontroly z runbooku a kontrola v prohlížeči. Ta potřebuje
     přihlášení člověka nebo testovací účet z lokální custody Ring 0; použij vlastní profil
     prohlížeče, ať tě neodhlásí test jiného vlákna. Agentní turn s Codexem i Claude jen tam, kde je
