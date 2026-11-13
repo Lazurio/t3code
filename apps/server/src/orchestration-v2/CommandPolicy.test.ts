@@ -276,7 +276,7 @@ it.each(["/compact", " /LOGOUT "])("queues a steer sent while %s runs", (text) =
 
 // Claude's MCP elicitation (pingdotgg/t3code#21903) waits as a pending mcp-elicitation request.
 it.each(["user_input", "command", "mcp-elicitation"] as const)(
-  "queues every steer while the active turn waits on a pending %s request",
+  "queues every steer and restart while the active turn waits on a pending %s request",
   (kind) => {
     const projection = dispatchProjection(baseCapabilities);
     const waiting = {
@@ -302,12 +302,27 @@ it.each(["user_input", "command", "mcp-elicitation"] as const)(
     );
     assert.deepEqual(
       CommandPolicy.resolveMessageDispatchIntent(waiting, { type: "start_immediately" }, "restart"),
-      { type: "restart_active", targetRunId: activeRunId },
+      { type: "queue_after_active" },
+    );
+    assert.deepEqual(
+      CommandPolicy.resolveMessageDispatchIntent(waiting, {
+        type: "restart_active",
+        targetRunId: activeRunId,
+      }),
+      { type: "queue_after_active" },
     );
     const answered = {
       ...projection,
       runtimeRequests: [{ kind, status: "resolved" }],
     } as unknown as OrchestrationV2ThreadProjection;
+    assert.deepEqual(
+      CommandPolicy.resolveMessageDispatchIntent(
+        answered,
+        { type: "start_immediately" },
+        "restart",
+      ),
+      { type: "restart_active", targetRunId: activeRunId },
+    );
     for (const deliveryIntent of ["auto", "steer"] as const) {
       assert.deepEqual(
         CommandPolicy.resolveMessageDispatchIntent(

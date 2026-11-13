@@ -90,8 +90,8 @@ export function goalCommandStopsActiveRun(
 }
 
 /**
- * A steer aborts the provider's pending question or approval callback, so the person
- * never sees it; while one is pending, any steer waits behind the turn (Lazurio/t3code#139).
+ * A steer or restart aborts the provider's pending question or approval callback, so the
+ * person never sees it; while one is pending, either waits behind the turn (Lazurio/t3code#139).
  */
 export function waitsOnPendingRequest(
   projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
@@ -105,8 +105,9 @@ export function resolveMessageDispatchIntent(
   deliveryIntent?: "auto" | "steer" | "restart",
 ): MessageDispatchMode {
   const mode = resolveDeliveryIntent(projection, requestedMode, deliveryIntent);
-  if (mode.type !== "steer_active") return mode;
+  if (mode.type !== "steer_active" && mode.type !== "restart_active") return mode;
   if (waitsOnPendingRequest(projection)) return { type: "queue_after_active" };
+  if (mode.type === "restart_active") return mode;
   // Compaction and sign-out cannot accept steers; queue follow-ups.
   const target = projection.runs.find((run) => run.id === mode.targetRunId);
   const targetMessage = projection.messages.find((message) => message.id === target?.userMessageId);

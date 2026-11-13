@@ -362,8 +362,8 @@ jobs:
             apps/web/src/components/chat/ChatComposer.tsx
             apps/web/src/components/chat/ComposerControlsBar.tsx
             apps/web/src/components/chat/QueuedRunsControl.tsx
-            # Any steer queues while the running turn waits on the person's answer to a question or
-            # an approval, instead of aborting the provider's pending callback (row 30,
+            # Any steer or restart queues while the running turn waits on the person's answer to a
+            # question or an approval, instead of aborting the provider's pending callback (row 30,
             # Lazurio/t3code#119, Lazurio/t3code#139): the guard in CommandPolicy.ts, a promoted
             # message first in the queue (Orchestrator.ts), and their tests. A follow-up sent
             # before the provider turn started notes that run (steersRunId in orchestrationV2.ts)
