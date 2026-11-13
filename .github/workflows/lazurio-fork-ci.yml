@@ -369,12 +369,14 @@ jobs:
             # before the provider turn started notes that run (steersRunId in orchestrationV2.ts)
             # and steers in once the turn runs (Lazurio/t3code#170): the web composer keeps such a
             # message auto while the run is set up (ChatView.logic.ts), and one sent as Queue stays
-            # queued (composerDispatch.ts, composerCommandKey.ts and ChatComposer.tsx, above).
+            # queued (composerDispatch.ts, composerCommandKey.ts and ChatComposer.tsx, above). A wait
+            # on such a message follows it into the run it steered (ThreadManagementService.ts).
             apps/server/src/orchestration-v2/CommandPolicy.test.ts
             apps/server/src/orchestration-v2/CommandPolicy.ts
             apps/server/src/orchestration-v2/Orchestrator.ts
             apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts
             apps/server/src/orchestration-v2/ThreadManagementService.test.ts
+            apps/server/src/orchestration-v2/ThreadManagementService.ts
             apps/web/src/components/ChatView.logic.test.ts
             apps/web/src/components/ChatView.logic.ts
             apps/web/src/components/chat/composerCommandKey.ts
