@@ -2119,6 +2119,13 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
   NodeAssert.match(connection, /\n\s+renderScale: "display",\n/);
   NodeAssert.equal(connection.match(/renderScale/g)?.length, 1);
   NodeAssert.match(engine, /if \(input\.renderScale !== "display"\)/);
+  // A snapshot asked for at full resolution gets the uncapped capture too, as on upstream's host
+  // (ServerBrowser.ts); the host's CDP test does not run in the fork CI.
+  NodeAssert.match(
+    connection,
+    /\n\s+fullScreenshot: \(input as PreviewAutomationSnapshotInput \| undefined\)\?\.fullScreenshot,\n/,
+  );
+  NodeAssert.match(engine, /\n\s+full: input\.fullScreenshot \? full : undefined,\n/);
   // The host's copy of upstream's page diagnostics drops data: payloads as upstream's host does
   // (pingdotgg/t3code#22156): they would reach tool results and provider logs.
   NodeAssert.match(page, /\n\s+url: withoutDataPayload\(request\.url\(\)\),\n/);
@@ -3307,11 +3314,12 @@ NodeTest.test(
       awaitingTurn,
       /if \(!firstRunningUpdate\(stored\.event\.payload\.id\) && !\(yield\* followUpWaits\)\) return;\n\s+yield\* threadDispatch\.withLock\(\n\s+threadId,\n\s+Effect\.gen\(function\* \(\) \{\n\s+if \(!\(yield\* followUpWaits\)\) return;\n\s+const projection = yield\* readCommandProjection\(threadId\);\n/,
     );
-    // Since v0.1.8 a fresh session (/clear, pingdotgg/t3code#30325) never steers: the web turns
-    // its steer into a queue, and the server's steer of input sent before the start skips it.
+    // Since v0.1.8 a fresh session (/clear, pingdotgg/t3code#30325) never steers: the web queues
+    // it during setup and turns its steer into a queue, and the server's steer of input sent
+    // before the start skips it.
     NodeAssert.match(
       chatLogic,
-      /compactBeforeSend \|\| \(input\.sendQueuesBehindSetup && dispatchMode !== "auto"\)\n\s+\? \("queue" as const\)\n\s+: dispatchMode,/,
+      /compactBeforeSend \|\|\n\s+\(input\.sendQueuesBehindSetup && \(dispatchMode !== "auto" \|\| input\.freshContext\)\)\n\s+\? \("queue" as const\)\n\s+: dispatchMode,/,
     );
     NodeAssert.match(
       orchestrator,

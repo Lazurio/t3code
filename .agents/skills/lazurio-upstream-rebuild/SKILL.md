@@ -54,7 +54,9 @@ Rozhodnutí, která by schvaloval Admin, smíš brát jako schválená jen tehdy
    skupinám ve vlastních worktree z přesného tagu, každá commit na řádek; společné zadání jako
    u inventury, k tomu „nikdy nepushuj, nesahej na `main`“. Závislosti mezi skupinami řeš dočasným
    lešením, které při integraci zahodíš. Commity skupin přenes do větve cherry-pickem v pořadí
-   Cílového stacku, řádek 5 poslední. Commity řádků ber z `git log --reverse <báze>..origin/main`
+   Cílového stacku, řádek 5 poslední. Zprávy commitů piš do souboru a commituj
+   `git commit -F <soubor> --cleanup=verbatim`, nikdy v editoru: ten smaže řádky začínající `#`
+   (runbook, etapa 3). Commity řádků ber z `git log --reverse <báze>..origin/main`
    podle předmětu, ne z hashů v Cílovém stacku (runbook, etapa 3). Pre-commit hook od v0.1.5 spouští `knip:check` nad celým
    repozitářem: přehrávej s `--no-verify` a knip pusť nad hotovým stackem (runbook, etapa 3).
    Opravu nad hotovým stackem adresuj řádku, který dotčené místo přidal (`git log -S`, runbook,

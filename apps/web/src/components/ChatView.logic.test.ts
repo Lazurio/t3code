@@ -1164,9 +1164,12 @@ describe("planComposerTurn", () => {
       planComposerTurn({ ...settingUp, resumeCompactionTokens: 120_000 }).turnDispatchMode,
     ).toBe("queue");
     // A fresh session never steers, also while the run is set up.
-    expect(
-      planComposerTurn({ ...settingUp, dispatchMode: "steer", freshContext: true }),
-    ).toMatchObject({ turnDispatchMode: "queue", shouldQueueBehindActiveRun: true });
+    for (const dispatchMode of ["auto", "steer"] as const) {
+      expect(planComposerTurn({ ...settingUp, dispatchMode, freshContext: true })).toMatchObject({
+        turnDispatchMode: "queue",
+        shouldQueueBehindActiveRun: true,
+      });
+    }
   });
 });
 

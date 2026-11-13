@@ -116,7 +116,9 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   CDP nemá viewport Playwrightu, proto host žádá snímek v měřítku obrazovky
   (`renderScale: "display"`, upstream #19913): engine pak změří okno sám, jako
   u záložek, které upstreamu kreslí desktop, a snímek širokého okna zmenší
-  nejvýš na 1280 px. Engine ve snímku maskuje hodnoty hesel (#20446) a ve
+  nejvýš na 1280 px. Snímek vyžádaný s `fullScreenshot` (rozhodnutí A2
+  v Lazurio/t3code#185) dostane navíc i snímek v plném rozlišení
+  (`ServerBrowserPage.ts`, `previewAutomation.ts`). Engine ve snímku maskuje hodnoty hesel (#20446) a ve
   stromu přístupnosti vynechá obsah adres `data:` (#22156); diagnostika
   overlaye ho vynechá v síťových záznamech a ve vlastních zprávách konzole
   Chromia stejnými funkcemi enginu (`withoutDataPayload`, `consoleText`) jako
