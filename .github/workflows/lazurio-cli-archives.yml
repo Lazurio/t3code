@@ -41,11 +41,15 @@ jobs:
             platform: linux
             arch: x64
             rust_target: x86_64-unknown-linux-gnu
+            transcribe_native: linux-x64-cpu-vulkan
+            transcribe_library: libtranscribe.so
           - key: darwin-arm64
             runner: macos-15
             platform: mac
             arch: arm64
             rust_target: aarch64-apple-darwin
+            transcribe_native: darwin-arm64-metal
+            transcribe_library: libtranscribe.dylib
     env:
       VERSION: ${{ inputs.version }}
     steps:
@@ -154,6 +158,19 @@ jobs:
 
       - name: Smoke-test CLI archive
         run: node scripts/smoke-cli-archive.ts --archive "release-cli/t3-$VERSION-${{ matrix.key }}.tar.gz" --expect-version "$VERSION"
+
+      # Dictation's packages stay external to the bundle (scripts/lib/cli-external-packages.ts), so
+      # they must be staged beside it; without them dictation fails while the server still starts.
+      - name: Check the archive carries dictation's packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          stem="t3-$VERSION-${{ matrix.key }}"
+          native="node_modules/@transcribe-cpp/${{ matrix.transcribe_native }}"
+          tar -tzf "release-cli/$stem.tar.gz" > "$RUNNER_TEMP/archive-files"
+          for file in node_modules/transcribe-cpp/package.json "$native/package.json" "$native/${{ matrix.transcribe_library }}"; do
+            grep -Fqx "$stem/$file" "$RUNNER_TEMP/archive-files" || { echo "::error::The archive has no $file"; exit 1; }
+          done
 
       - name: Upload CLI archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

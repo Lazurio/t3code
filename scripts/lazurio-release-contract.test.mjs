@@ -304,6 +304,25 @@ NodeTest.test("archives are built with upstream's own release steps", () => {
   NodeAssert.match(archives, /node scripts\/smoke-cli-archive\.ts .* --expect-version "\$VERSION"/);
   NodeAssert.match(archives, /T3CODE_RELEASE_BASE_URL=http:\/\/127\.0\.0\.1:8765/);
   NodeAssert.match(archives, /__service-preflight/);
+  // Dictation's packages stay outside the bundle, so each archive must stage them.
+  NodeAssert.match(
+    archives,
+    /transcribe_native: linux-x64-cpu-vulkan\n {12}transcribe_library: libtranscribe\.so\n/,
+  );
+  NodeAssert.match(
+    archives,
+    /transcribe_native: darwin-arm64-metal\n {12}transcribe_library: libtranscribe\.dylib\n/,
+  );
+  NodeAssert.ok(
+    archives.includes(
+      'for file in node_modules/transcribe-cpp/package.json "$native/package.json" "$native/${{ matrix.transcribe_library }}"; do',
+    ),
+    "the archive check looks for transcribe-cpp, the native package and its library",
+  );
+  NodeAssert.match(
+    archives,
+    /grep -Fqx "\$stem\/\$file" "\$RUNNER_TEMP\/archive-files" \|\| \{[^}]*exit 1; \}/,
+  );
   for (const source of [archives, release, ci]) {
     for (const [, action] of source.matchAll(/uses: ([^\s.][^\s]*)/g)) {
       NodeAssert.match(action, /@[0-9a-f]{40}$/, `${action} must be pinned by commit`);
@@ -323,6 +342,16 @@ NodeTest.test("CI is read-only and pins the exact upstream base", () => {
     ci,
     new RegExp(`version: ${upstreamVersion?.replaceAll(".", "\\.")}-lazurio\\.0\\n`),
   );
+  // The image's own entrypoint, command and user serve the web client, and dictation's native
+  // library resolves from transcribe-cpp inside it.
+  NodeAssert.match(ci, /docker run --detach --network none lazurio\/t3code:ci\)"/);
+  NodeAssert.match(ci, /fetch\("http:\/\/127\.0\.0\.1:3773\/"\)/);
+  NodeAssert.match(ci, /\[ "\$state" != "true 0" \]/);
+  NodeAssert.match(
+    ci,
+    /createRequire\(manifest\)\.resolve\("@transcribe-cpp\/linux-x64-cpu-vulkan\/package\.json"\)/,
+  );
+  NodeAssert.match(ci, /if \(!existsSync\(library\)\) throw/);
 });
 
 // Upstream pins Node exactly (engines.node) and refuses a native CLI built on another, and pnpm's
@@ -404,6 +433,89 @@ NodeTest.test(
     NodeAssert.match(ci, /\(cd "\$package" && pnpm run test "\$\{files\[@\]\}"\) \|\| status=1/);
     NodeAssert.match(ci, /exit "\$status"/);
     NodeAssert.match(ci, /node --test scripts\/lazurio-release-contract\.test\.mjs/);
+  },
+);
+
+// The dictation check (rebuild decision A12): for a published release, each platform's archive is
+// verified against SHA256SUMS and its attestation, then served as published, without transcribe-cpp
+// and without its native library. It only reads the release; the model is the catalog's own.
+NodeTest.test(
+  "the dictation check serves each published archive with and without dictation",
+  async () => {
+    const check = await read(".github/workflows/lazurio-dictation-check.yml");
+    const catalog = JSON.parse(await read("apps/server/src/speech/catalog.json"));
+    const triggers = check.slice(check.indexOf("\non:"), check.indexOf("\npermissions:"));
+    NodeAssert.deepEqual(
+      [...triggers.matchAll(/^ {2}(\w+):/gm)].map((match) => match[1]),
+      ["workflow_dispatch", "pull_request"],
+    );
+    NodeAssert.match(
+      triggers,
+      /pull_request:\n {4}paths:\n {6}- \.github\/workflows\/lazurio-dictation-check\.yml\n$/,
+    );
+    NodeAssert.match(
+      check,
+      /^permissions:\n {2}contents: read\n {2}attestations: read\n {2}id-token: none\n\n/m,
+    );
+    NodeAssert.equal(check.match(/permissions:/g)?.length, 1, "no job widens the permissions");
+    NodeAssert.doesNotMatch(check, /uses:|secrets\./);
+    // Both platforms, with the native package each archive stages.
+    for (const [key, runner, native] of [
+      ["linux-x64", "ubuntu-24\\.04", "linux-x64-cpu-vulkan"],
+      ["darwin-arm64", "macos-15", "darwin-arm64-metal"],
+    ]) {
+      NodeAssert.match(
+        check,
+        new RegExp(`key: ${key}\\n {12}runner: ${runner}\\n {12}native: ${native}\\n`),
+      );
+      NodeAssert.match(archives, new RegExp(`transcribe_native: ${native}\\n`));
+    }
+    // The published archive, checked against the release's own sums and attestation.
+    NodeAssert.match(
+      check,
+      /gh release download "v\$version" --repo "\$REPO" --pattern "\$archive" --pattern SHA256SUMS/,
+    );
+    NodeAssert.match(check, /shasum -a 256 -c expected/);
+    NodeAssert.match(check, /gh attestation verify "\$archive" --repo "\$REPO"/);
+    NodeAssert.ok(check.includes('test "$("$root/t3" --version)" = "t3 v$version"'));
+    for (const [, command, subcommand] of check.matchAll(/\bgh (\w+) (\w+)/g)) {
+      NodeAssert.ok(
+        ["release list", "release download", "attestation verify"].includes(
+          `${command} ${subcommand}`,
+        ),
+        `the dictation check must not run gh ${command} ${subcommand}`,
+      );
+    }
+    // The model is the catalog's entry, downloaded at its pinned revision and checked by hash.
+    const env = (name) => new RegExp(`\\n {2}${name}: (\\S+)\\n`).exec(check)?.[1];
+    const model = catalog.models.find((entry) => entry.id === env("MODEL_ID"));
+    NodeAssert.ok(model, "MODEL_ID is a catalog model");
+    NodeAssert.equal(env("MODEL_REVISION"), model.revision);
+    NodeAssert.equal(env("MODEL_FILE"), model.filename);
+    NodeAssert.equal(env("MODEL_SHA256"), model.sha256);
+    NodeAssert.match(
+      check,
+      /"https:\/\/huggingface\.co\/\$MODEL_ID\/resolve\/\$MODEL_REVISION\/\$MODEL_FILE"/,
+    );
+    NodeAssert.match(
+      check,
+      /echo "\$MODEL_SHA256 {2}\$RUNNER_TEMP\/model\/\$MODEL_FILE" \| shasum -a 256 -c -/,
+    );
+    // Three cases; the server must keep answering in each, and dictation must work only in the first.
+    NodeAssert.match(check, /for mode in normal no-transcribe-cpp no-native-library; do/);
+    NodeAssert.match(check, /no-transcribe-cpp\) rm -rf "\$tree\/node_modules\/transcribe-cpp" ;;/);
+    NodeAssert.match(
+      check,
+      /no-native-library\) rm -rf "\$tree\/node_modules\/@transcribe-cpp\/\$NATIVE" ;;/,
+    );
+    NodeAssert.ok(
+      check.includes(
+        'for code in "$root_before" "$voice" "$root_after"; do [ "$code" = 200 ] || ok=0; done',
+      ),
+    );
+    NodeAssert.ok(check.includes('[ "$alive" = running ] || ok=0'));
+    NodeAssert.ok(check.includes('for code in "$prepare" "$first" "$second"; do'));
+    NodeAssert.match(check, /exit "\$failed"\n$/);
   },
 );
 

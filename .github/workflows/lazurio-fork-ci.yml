@@ -561,6 +561,42 @@ jobs:
           docker run --rm --network none --entrypoint cat lazurio/t3code:ci \
             /opt/lazurio-t3/dist/client/favicon.ico | cmp - assets/prod/t3-black-web-favicon.ico
 
+      # Dictation's native library is resolved the way transcribe-cpp resolves it, and the image's
+      # own entrypoint, command and user must serve the web client (Lazurio/t3code#189).
+      - name: Start the release image and check dictation ships in it
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint node lazurio/t3code:ci -e '
+            const { createRequire } = require("node:module");
+            const { existsSync, realpathSync } = require("node:fs");
+            const { dirname, join } = require("node:path");
+            const manifest = realpathSync("/opt/lazurio-t3/node_modules/transcribe-cpp/package.json");
+            const native = createRequire(manifest).resolve("@transcribe-cpp/linux-x64-cpu-vulkan/package.json");
+            const library = join(dirname(native), "libtranscribe.so");
+            if (!existsSync(library)) throw new Error(`missing ${library}`);
+            console.log(`dictation ships: ${manifest}, ${library}`);
+          '
+          container="$(docker run --detach --network none lazurio/t3code:ci)"
+          served=0
+          for _ in $(seq 1 60); do
+            if docker exec "$container" node -e '
+              fetch("http://127.0.0.1:3773/").then((response) => process.exit(response.status === 200 ? 0 : 1), () => process.exit(1));
+            '; then
+              served=1
+              break
+            fi
+            sleep 1
+          done
+          state="$(docker inspect "$container" --format '{{.State.Running}} {{.RestartCount}}')"
+          if [ "$served" != 1 ] || [ "$state" != "true 0" ]; then
+            echo "::error::The image's default command did not serve / on 127.0.0.1:3773 (state: $state)"
+            docker logs "$container"
+            docker rm --force "$container" > /dev/null
+            exit 1
+          fi
+          docker rm --force "$container" > /dev/null
+          echo "The image's default command serves / on 127.0.0.1:3773."
+
   # The same archive build and launcher install the release runs, under the
   # never-released version <upstream>-lazurio.0. Keep it in step with UPSTREAM_TAG.
   cli-archives:
