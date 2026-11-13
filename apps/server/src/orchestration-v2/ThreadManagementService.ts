@@ -945,6 +945,20 @@ const make = Effect.gen(function* () {
     if (selectedRun === undefined) {
       return { threadId: input.threadId, run: null, timedOut: false };
     }
+    // A queued run promoted into a steer is cancelled before it starts; its
+    // message goes on in the run it joined.
+    const joinedRun = Effect.fnUntraced(function* (
+      runs: ReadonlyArray<OrchestrationV2Run>,
+      run: OrchestrationV2Run,
+    ) {
+      if (run.status !== "cancelled" || run.startedAt !== null) return undefined;
+      const { messages } = yield* getProjectThreadRecords(input, ["messages"], {
+        messageIds: [run.userMessageId],
+      });
+      const runId = messages.find((message) => message.id === run.userMessageId)?.runId;
+      if (runId === null || runId === undefined || runId === run.id) return undefined;
+      return runs.find((candidate) => candidate.id === runId);
+    });
     // A restart cuts a run and continues it as a new run. Follow that chain,
     // so a cut run is not the answer while its continuation is pending.
     // Runs per matching event and is already covered by the waitForThread span.
@@ -956,7 +970,12 @@ const make = Effect.gen(function* () {
           runId: selectedRun.id,
         });
       }
-      const run = latestRestartContinuation(runs, current);
+      let run = latestRestartContinuation(runs, current);
+      for (let hops = 0; hops < runs.length; hops++) {
+        const joined = yield* joinedRun(runs, run);
+        if (joined === undefined) break;
+        run = latestRestartContinuation(runs, joined);
+      }
       const pending =
         isTerminalRunStatus(run.status) && (yield* orchestrator.restartContinuationPending(run));
       return { run, pending, settled: isTerminalRunStatus(run.status) && !pending };
@@ -1030,6 +1049,8 @@ const make = Effect.gen(function* () {
             untilDelegatedWorkSettled ||
             stored.event.type !== "run.updated" ||
             stored.event.payload.id === selectedRun.id ||
+            // The run a promoted message joined settles under its own id.
+            isTerminalRunStatus(stored.event.payload.status) ||
             stored.event.payload.restartContinuationOfRunId !== undefined,
         ),
       ),

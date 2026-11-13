@@ -3259,10 +3259,11 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
 NodeTest.test(
   "a steer waits behind a turn that waits on the person through its seams",
   async () => {
-    const [policy, orchestrator, chatLogic] = await Promise.all([
+    const [policy, orchestrator, chatLogic, threadManagement] = await Promise.all([
       read("apps/server/src/orchestration-v2/CommandPolicy.ts"),
       read("apps/server/src/orchestration-v2/Orchestrator.ts"),
       read("apps/web/src/components/ChatView.logic.ts"),
+      read("apps/server/src/orchestration-v2/ThreadManagementService.ts"),
     ]);
     NodeAssert.match(
       policy,
@@ -3332,14 +3333,28 @@ NodeTest.test(
       /\n\s+if \(\n\s+!freshContext &&\n\s+!waitsOnPendingRequest\(projection\) &&\n\s+\(delegatedCompletion !== undefined\n/,
     );
     NodeAssert.equal(orchestrator.match(/\bwaitsOnPendingRequest\(/g)?.length, 2);
+    // A wait on a follow-up that the promotion steered follows it into the run it joined,
+    // and that run settling wakes the wait.
+    NodeAssert.match(
+      threadManagement,
+      /const joinedRun = Effect\.fnUntraced\(function\* \([^]*?if \(run\.status !== "cancelled" \|\| run\.startedAt !== null\) return undefined;\n\s+const \{ messages \} = yield\* getProjectThreadRecords\(input, \["messages"\], \{\n\s+messageIds: \[run\.userMessageId\],\n/,
+    );
+    NodeAssert.match(
+      threadManagement,
+      /let run = latestRestartContinuation\(runs, current\);\n\s+for \(let hops = 0; hops < runs\.length; hops\+\+\) \{\n\s+const joined = yield\* joinedRun\(runs, run\);\n\s+if \(joined === undefined\) break;\n\s+run = latestRestartContinuation\(runs, joined\);\n/,
+    );
+    NodeAssert.match(
+      threadManagement,
+      /stored\.event\.payload\.id === selectedRun\.id \|\|\n(?:\s+\/\/.*\n)?\s+isTerminalRunStatus\(stored\.event\.payload\.status\) \|\|\n/,
+    );
     for (const file of [
       "apps/server/src/orchestration-v2/CommandPolicy.ts",
       "apps/server/src/orchestration-v2/Orchestrator.ts",
+      "apps/server/src/orchestration-v2/ThreadManagementService.ts",
       "apps/web/src/components/ChatView.logic.ts",
       "packages/contracts/src/orchestrationV2.ts",
     ])
       NodeAssert.ok(overlayMayChange(file), file);
-    NodeAssert.ok(!overlayMayChange("apps/server/src/orchestration-v2/ThreadManagementService.ts"));
   },
 );
 

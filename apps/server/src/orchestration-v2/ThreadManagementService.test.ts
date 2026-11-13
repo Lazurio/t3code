@@ -270,6 +270,93 @@ it.effect("waitForThread follows a restart continuation instead of the cut run",
   }),
 );
 
+it.effect("waitForThread follows a queued message promoted into the active run", () =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project:thread-management:wait-promoted");
+    const threadId = ThreadId.make("thread:thread-management:wait-promoted");
+    const queuedRunId = RunId.make("run:thread-management:wait-promoted:queued");
+    const activeRunId = RunId.make("run:thread-management:wait-promoted:active");
+    const messageId = MessageId.make("message:thread-management:wait-promoted");
+    const subscribed = yield* Deferred.make<void>();
+    const events = yield* Queue.unbounded<OrchestrationV2StoredEvent>();
+    const queued = { id: queuedRunId, startedAt: null, userMessageId: messageId };
+    const active = { id: activeRunId, startedAt: DateTime.makeUnsafe(1_000) };
+    let runs: Array<object> = [
+      { ...active, status: "running" },
+      { ...queued, status: "queued" },
+    ];
+    let messageRunId = queuedRunId;
+    let runReads = 0;
+    // The wait's read after the promotion, so the active run settles only after it.
+    const promotionRead = yield* Deferred.make<void>();
+    const stored = (sequence: number, event: object) =>
+      ({ sequence, event: { threadId, ...event } }) as unknown as OrchestrationV2StoredEvent;
+    const layerTest = ThreadManagementService.layer.pipe(
+      Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+      Layer.provide(
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadEventSequence: () => Effect.succeed(0),
+          restartContinuationPending: () => Effect.succeed(false),
+          streamStoredEventsFrom: (input) =>
+            input?.eventType === "run.updated"
+              ? Stream.fromEffect(Deferred.succeed(subscribed, undefined)).pipe(
+                  Stream.drain,
+                  Stream.concat(Stream.fromQueue(events)),
+                )
+              : Stream.never,
+          getThreadRecords: (_threadId, fields) =>
+            Effect.sync(() => {
+              if (fields?.some((field) => field === "runs") === true) runReads++;
+              return {
+                thread: { id: threadId, projectId, deletedAt: null },
+                runs,
+                messages: [{ id: messageId, runId: messageRunId }],
+              } as unknown as OrchestrationV2ThreadProjection;
+            }).pipe(
+              Effect.tap(() =>
+                runReads === 2 ? Deferred.succeed(promotionRead, undefined) : Effect.void,
+              ),
+            ),
+        }),
+      ),
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(layerReceiptsTest),
+    );
+    const service = yield* ThreadManagementService.ThreadManagementService.pipe(
+      Effect.provide(layerTest),
+    );
+    const fiber = yield* service
+      .waitForThread({ projectId, threadId, runId: queuedRunId, timeoutMs: 60 * 60 * 1_000 })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(subscribed);
+    // Promoting the queued message cancels its run and moves the message into the active run.
+    runs = [
+      { ...active, status: "running" },
+      { ...queued, status: "cancelled" },
+    ];
+    messageRunId = activeRunId;
+    yield* Queue.offer(
+      events,
+      stored(1, { type: "run.updated", payload: { ...queued, status: "cancelled" } }),
+    );
+    yield* Deferred.await(promotionRead);
+    runs = [
+      { ...active, status: "completed" },
+      { ...queued, status: "cancelled" },
+    ];
+    yield* Queue.offer(
+      events,
+      stored(2, { type: "run.updated", payload: { ...active, status: "completed" } }),
+    );
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toMatchObject({
+      timedOut: false,
+      run: { id: activeRunId, status: "completed" },
+    });
+  }),
+);
+
 it.effect("waitForThread can wait past an ended run for the thread's delegated work", () =>
   Effect.gen(function* () {
     const projectId = ProjectId.make("project:thread-management:wait-delegated");

@@ -94,7 +94,7 @@ turn waits on the person's answer to a question or an approval, `auto` and
 the message, or `--message-file -`, to read it from standard input, and
 `--message-file <path>` to read it from a file.
 
-`--wait` waits for the run your message starts and prints the agent's reply.
+`--wait` waits for the run your message starts or steers and prints the agent's reply.
 With `--json` it prints the send's result with the run's `status`, `reply` and
 `error`. It exits 1 when the run fails or stops, and 2 when the agent waits for
 an answer, which `t3 request list --thread <thread>` shows.
