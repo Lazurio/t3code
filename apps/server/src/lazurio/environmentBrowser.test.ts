@@ -2,6 +2,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   PREVIEW_AUTOMATION_SERVER_OPERATIONS,
   PreviewAutomationExecutionError,
@@ -17,23 +18,35 @@ import {
   type PreviewAutomationOperation,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import { ChildProcessSpawner } from "effect/process";
 
+import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
+import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../mcp/McpToolAccess.ts";
+import * as McpToolAccessTestkit from "../mcp/McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import { PreviewStandardToolkit } from "../mcp/toolkits/preview/tools.ts";
+import * as PreviewControlsHandlers from "../mcp/toolkits/previewControls/handlers.ts";
+import { PreviewControlsToolkit } from "../mcp/toolkits/previewControls/tools.ts";
+import * as Preview from "../preview/Manager.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { agentBrowserSessionName } from "./agentBrowserSession.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
+import { EnvironmentBrowserTabs } from "./environmentBrowserTabs.ts";
+import { ThreadLifecycle } from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import { contractCases, foreignId, foreignView, ownHost, personTab } from "./viewAddressCases.ts";
 import type {
@@ -131,6 +144,8 @@ const makeFakeBrowser = () => {
         const page = pages.get(targetId);
         return page === undefined ? undefined : tabOf(page);
       },
+      pages: async () =>
+        [...pages].map(([targetId, page]) => ({ targetId, url: page.url, title: page.title })),
       openWindow: async (url) => {
         opened.push(url);
         const targetId = `C${opened.length}`.padEnd(32, "C");
@@ -189,6 +204,8 @@ const startHost = (cli: {
   link: CliAnswer;
   window?: (args: ReadonlyArray<string>) => CliAnswer | "hang";
   lazurio?: boolean;
+  /** The real strips instead of the observed fake, for what lands in a holder file. */
+  strips?: ThreadTabs.ThreadTabs["Service"];
 }) =>
   Effect.gen(function* () {
     const broker = yield* PreviewAutomationBroker.make;
@@ -222,7 +239,7 @@ const startHost = (cli: {
     };
     // The strips' answer for a thread: the host opens a person's page only while it is available.
     const readAnswer: { current: ThreadTabs.ThreadTabsAnswer } = {
-      current: { available: true } as ThreadTabs.ThreadTabsSnapshot,
+      current: { available: true, tabs: [] } as unknown as ThreadTabs.ThreadTabsSnapshot,
     };
     const threadTabs = ThreadTabs.ThreadTabs.of({
       read: (thread) =>
@@ -309,7 +326,7 @@ const startHost = (cli: {
           };
         }),
     });
-    const pages = yield* EnvironmentBrowser.make.pipe(
+    const { pages, tabs: stripTabs } = yield* EnvironmentBrowser.make.pipe(
       Effect.provideService(PreviewAutomationBroker.PreviewAutomationBroker, observed),
       Effect.provideService(
         ServerEnvironment.ServerEnvironment,
@@ -325,12 +342,13 @@ const startHost = (cli: {
         cli.lazurio === false ? {} : { T3CODE_LAZURIO_FOLDER: `${home}/Lazurio` },
       ),
       Effect.provideService(EnvironmentBrowser.EnvironmentBrowserConnect, browser.connect),
-      Effect.provideService(ThreadTabs.ThreadTabs, threadTabs),
+      Effect.provideService(ThreadTabs.ThreadTabs, cli.strips ?? threadTabs),
     );
     return {
       broker,
       browser,
       pages,
+      stripTabs,
       readAnswer,
       runs,
       registrations,
@@ -407,6 +425,7 @@ it.effect.each([
         url: null,
         title: null,
         loading: false,
+        tabs: [],
       });
       expect(host.registrations).toEqual([
         {
@@ -1369,6 +1388,136 @@ it.effect("lets go of a tab for the thread on close, and leaves the tab open", (
       expect(host.reported.at(-1)).toMatchObject({ liveTabs: [] });
     }),
   ),
+);
+
+/** The real strips on a runtime directory of their own, where only `threadId` lives. */
+const realStrips = (runtime: string) =>
+  Effect.map(
+    Layer.build(
+      ThreadTabs.layer.pipe(
+        Layer.provide(
+          Layer.succeed(
+            ThreadLifecycle,
+            ThreadLifecycle.of({
+              ready: Effect.void,
+              events: Stream.never,
+              liveThread: (thread) =>
+                Effect.succeed(
+                  thread === threadId ? Option.some({ id: threadId, title: "Web" }) : Option.none(),
+                ),
+              liveThreads: Effect.succeed([{ id: threadId, title: "Web" }]),
+            }),
+          ),
+        ),
+        Layer.provide(Layer.succeed(HostProcess.Environment, { XDG_RUNTIME_DIR: runtime })),
+        Layer.provide(
+          Layer.succeed(ThreadTabs.ThreadTabsSeams, {
+            epoch: "epoch-1",
+            bootClock: async () => ({ boot: "6f2c1d0e-1a2b-4c3d-8e4f-5a6b7c8d9e0f", at: 100 }),
+            watch: () => ({ retry: () => undefined, stop: () => undefined }),
+          }),
+        ),
+      ),
+    ),
+    (context) => Context.get(context, ThreadTabs.ThreadTabs),
+  );
+
+// Lazurio/t3code#200: the thread's tabs live in its strip, which upstream's preview list never saw.
+it.effect(
+  "t3_preview_list and t3_preview_close work on the thread's strip and its holder file",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const runtime = yield* fs.makeTempDirectoryScoped({ prefix: "t3-environment-browser-" });
+        const holderFile = `${runtime}/lazurio-browser/holders/${agentBrowserSessionName(threadId)}.json`;
+        const host = yield* startHost({ link: declared, strips: yield* realStrips(runtime) });
+        yield* host.registered;
+        const opened: Array<string> = [];
+        for (const page of ["a", "b", "c"]) {
+          const status = yield* invoke<{ readonly tabId: string }>(host.broker, "open", {
+            url: `http://localhost:3000/${page}`,
+            reuseExistingTab: false,
+            open: false,
+          });
+          host.browser.pages.get(status.tabId)!.title = `Page ${page}`;
+          opened.push(status.tabId);
+        }
+
+        const manager = yield* Preview.make.pipe(
+          Effect.provide(
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-environment-browser-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
+        );
+        const dependencies = Layer.mergeAll(
+          Layer.succeed(PreviewAutomationBroker.PreviewAutomationBroker, host.broker),
+          Layer.succeed(Preview.PreviewManager, manager),
+          Layer.succeed(McpInvocationContext.McpInvocationContext, scopeOf(threadId)),
+          Layer.succeed(EnvironmentBrowserTabs, host.stripTabs),
+          McpToolAccessTestkit.liveThreadsLayer,
+          Layer.mock(ServerSettings.ServerSettingsService)({
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              enableAgentBrowserAccess: true,
+            }),
+          }),
+        );
+        const toolkit = yield* PreviewControlsToolkit.pipe(
+          Effect.provide(
+            McpToolAccess.HandlersLayer.layer(PreviewControlsHandlers.layer).pipe(
+              Layer.provide(dependencies),
+            ),
+          ),
+        );
+        const call = (name: "t3_preview_list" | "t3_preview_close", input: object) =>
+          toolkit.handle(name, input as never).pipe(
+            Stream.unwrap,
+            Stream.runCollect,
+            Effect.map((results) => results.at(-1)?.result as Record<string, unknown>),
+            Effect.provide(dependencies),
+          );
+        const listed = (tabIds: ReadonlyArray<string>) => ({
+          sessions: tabIds.map((tabId) => ({
+            threadId,
+            tabId,
+            navStatus: {
+              _tag: "Success",
+              url: `http://localhost:3000/${"abc"[opened.indexOf(tabId)]}`,
+              title: `Page ${"abc"[opened.indexOf(tabId)]}`,
+            },
+            runtime: "server",
+            view: `https://browser.example.test/t/${tabId}`,
+          })),
+          nextCursor: null,
+        });
+        const holderTabs = Effect.map(
+          fs.readFileString(holderFile),
+          (text) => (JSON.parse(text) as { readonly tabs: ReadonlyArray<string> }).tabs,
+        );
+
+        expect(yield* call("t3_preview_list", {})).toMatchObject(listed(opened));
+        expect(yield* holderTabs).toEqual(opened);
+
+        expect(yield* call("t3_preview_close", { tabId: opened[1] })).toEqual({});
+        const kept = [opened[0]!, opened[2]!];
+        expect(yield* call("t3_preview_list", {})).toMatchObject(listed(kept));
+        expect(yield* holderTabs).toEqual(kept);
+        // preview_status lists the same strip; the window stays for whoever else views it.
+        expect(yield* invoke(host.broker, "status", {})).toMatchObject({
+          tabs: kept.map((tabId) => ({ tabId })),
+        });
+        expect(host.browser.pages.has(opened[1]!)).toBe(true);
+
+        // A tab the thread does not hold is an error, not a quiet {}.
+        expect(yield* call("t3_preview_close", { tabId: opened[1] })).toMatchObject({
+          _tag: "OrchestratorMcpFailure",
+          code: "invalid_request",
+        });
+        expect(yield* holderTabs).toEqual(kept);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("never registers off a Lazurio Environment, even where a browser is declared", () =>

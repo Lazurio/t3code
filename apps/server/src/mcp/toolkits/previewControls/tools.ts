@@ -3,6 +3,7 @@ import {
   OrchestratorMcpFailure,
   PreviewAutomationError,
   PreviewListResult,
+  PreviewSessionSnapshot,
   PreviewTabId,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -32,6 +33,14 @@ const PreviewListTool = Tool.make("t3_preview_list", {
   }),
   success: Schema.Struct({
     ...PreviewListResult.fields,
+    // Lazurio overlay (Lazurio/t3code#200): an Environment browser tab carries its view, as
+    // preview_open answers it.
+    sessions: Schema.Array(
+      PreviewSessionSnapshot.mapFields((fields) => ({
+        ...fields,
+        view: Schema.optional(Schema.String),
+      })),
+    ),
     nextCursor: Schema.NullOr(NonNegativeInt),
   }),
 })
