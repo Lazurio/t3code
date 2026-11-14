@@ -75,9 +75,18 @@ export interface EnvironmentBrowserTab {
   readonly act: (operation: TabOperation, input: unknown, timeoutMs: number) => Promise<unknown>;
 }
 
+/** A page target as the browser lists it, without asking the page. */
+export interface PageSummary {
+  readonly targetId: string;
+  readonly url: string | null;
+  readonly title: string | null;
+}
+
 export interface EnvironmentBrowserConnection {
   /** The page target with this target id, or undefined when the browser has no such page. */
   readonly tab: (targetId: string) => Promise<EnvironmentBrowserTab | undefined>;
+  /** Every page target, in one call: a page that hangs or shows a dialog still answers. */
+  readonly pages: () => Promise<ReadonlyArray<PageSummary>>;
   /** Opens a window in the default context and returns its target id. */
   readonly openWindow: (url: string | undefined) => Promise<string>;
   /** Closes the window with this target id. */
@@ -269,6 +278,15 @@ export const connectEnvironmentBrowser = async (
       const page = await findPage(targetId);
       return page === undefined ? undefined : tabOf(page);
     },
+    pages: async () =>
+      (await browserSession.send("Target.getTargets")).targetInfos
+        .filter((info) => info.type === "page")
+        .map(({ targetId, url, title }) => ({
+          targetId,
+          url: url === "about:blank" || url === "" ? null : url,
+          // Chromium names a page without a title by its address.
+          title: title === "" || title === url ? null : title,
+        })),
     openWindow: async (url) =>
       (
         await browserSession.send("Target.createTarget", {

@@ -2104,11 +2104,22 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
   );
   // The overlay's one layer: the overlay's routes, the thread tabs route over the Environment
   // browser host, whose pages it opens, all over one thread tabs service, which follows the
-  // threads' lifecycle.
+  // threads' lifecycle. /mcp's preview list and close get the same host and strips, by layer
+  // memoization (Lazurio/t3code#200).
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*ThreadTabsRoute\.layer\.pipe\(Layer\.provide\(EnvironmentBrowser\.layer\)\),\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,\s*Layer\.mergeAll\(BuddySurfaceDays\.layer, ActingSendersRoute\.layer\)\.pipe\(\s*Layer\.provide\(ActingSenders\.layer\),?\s*\),?\s*\)\.pipe\(Layer\.provide\(ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\)\)\);/,
+    /\nconst threadTabs = ThreadTabs\.layer\.pipe\(Layer\.provide\(ThreadLifecycle\.layer\)\);\n(?:\/\/[^\n]*\n)*const environmentBrowser = EnvironmentBrowser\.layer\.pipe\(Layer\.provide\(threadTabs\)\);\n/,
   );
+  NodeAssert.match(
+    overlay,
+    /\nexport const layer = Layer\.mergeAll\(\s*ThreadTabsRoute\.layer\.pipe\(Layer\.provide\(environmentBrowser\)\),\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*AgentCliSendState\.layer,\s*Layer\.mergeAll\(BuddySurfaceDays\.layer, ActingSendersRoute\.layer\)\.pipe\(\s*Layer\.provide\(ActingSenders\.layer\),?\s*\),?\s*\)\.pipe\(Layer\.provide\(threadTabs\)\);/,
+  );
+  NodeAssert.match(
+    overlay,
+    /export const withEnvironmentBrowserTabs = <A, E, R>\(mcp: Layer\.Layer<A, E, R>\) =>\n\s+mcp\.pipe\(Layer\.provide\(environmentBrowser\)\);/,
+  );
+  NodeAssert.equal(overlay.match(/EnvironmentBrowser\.layer/g)?.length, 1);
+  NodeAssert.equal(overlay.match(/ThreadTabs\.layer/g)?.length, 1);
   // Archiving or deleting a thread lets go of its tabs: the lifecycle follows upstream's
   // orchestrator's domain events, and the sweep of threads that are gone waits until commands are
   // ready, so a starting server never lets go of every thread's tabs.
@@ -2144,7 +2155,13 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
   );
   const seam = routes.indexOf("\n  LazurioOverlay.layer,\n");
   NodeAssert.ok(seam > 0, "layerMakeRoutes must start the server overlay");
-  NodeAssert.equal(server.match(/LazurioOverlay/g)?.length, 2);
+  // /mcp, in the same routes, sees the threads' strips through the overlay (Lazurio/t3code#200).
+  const mcpSeam = routes.indexOf(
+    "\n  LazurioOverlay.withEnvironmentBrowserTabs(McpHttpServer.layer).pipe(\n",
+  );
+  NodeAssert.ok(mcpSeam > 0, "layerMakeRoutes must hand /mcp the threads' strips");
+  NodeAssert.equal(server.match(/LazurioOverlay/g)?.length, 3);
+  NodeAssert.equal(server.match(/McpHttpServer\.layer/g)?.length, 1);
   NodeAssert.ok(seam < routes.indexOf("Layer.provide(PreviewAutomationBroker.layer)"));
   // One predicate, T3CODE_LAZURIO_FOLDER, decides where the Environment browser is the browser.
   NodeAssert.match(predicate, /export const LAZURIO_FOLDER_ENV = "T3CODE_LAZURIO_FOLDER";/);
@@ -2189,7 +2206,7 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
   );
   NodeAssert.match(
     host,
-    /if \(!\(yield\* isLazurioEnvironment\)\) \{\n\s+yield\* threadTabs\.declare\(undefined\);\n\s+return pages;\n\s+\}/,
+    /if \(!\(yield\* isLazurioEnvironment\)\) \{\n\s+yield\* threadTabs\.declare\(undefined\);\n\s+return \{ pages, tabs \};\n\s+\}/,
   );
   NodeAssert.match(
     host,

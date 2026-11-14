@@ -204,6 +204,12 @@ jobs:
             # view underneath, and the handler test fails without it.
             apps/server/src/mcp/toolkits/preview/handlers.ts
             apps/server/src/mcp/toolkits/preview/handlers.test.ts
+            # t3_preview_list and t3_preview_close see the thread's strip, which upstream's
+            # preview list never sees: the list carries its tabs and their views, and close lets
+            # go of one through the host, or says the thread holds no such tab
+            # (Lazurio/t3code#200).
+            apps/server/src/mcp/toolkits/previewControls/handlers.ts
+            apps/server/src/mcp/toolkits/previewControls/tools.ts
             apps/server/src/terminal/Manager.ts
             apps/web/src/components/chat/ThreadServersPanel.tsx
             # The managed Lazurio Folder (LazurioPlatform F51): with T3CODE_LAZURIO_FOLDER, Chat
