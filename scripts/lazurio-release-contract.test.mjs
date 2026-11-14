@@ -2017,17 +2017,16 @@ NodeTest.test("the panel opens on an agent's tab through its seams", async () =>
     /environmentBrowserLink\(href, window\.location\.origin, snapshot\.viewOrigin\)/,
   );
   // The host records every tab preview_open opens or adopts in the thread's strip, revealed unless
-  // it asked for background work; the service records a new binding of the thread's session too.
+  // it asked for background work; the service records a new binding of the thread's session too,
+  // unless another strip holds that tab or another session's binding names it (LazurioPlatform#974).
   NodeAssert.match(
     host,
     /const reveals = \(input: PreviewAutomationOpenInput\) => \(input\.open \?\? input\.show\) !== false;/,
   );
   NodeAssert.match(host, /yield\* adopt\(request\.threadId, targetId, reveals\(input\)\);/);
   NodeAssert.match(host, /Effect\.andThen\(threadTabs\.record\(threadId, targetId, revealed\)\)/);
-  NodeAssert.match(
-    tabsService,
-    /if \(threadId !== null\) await record\(threadId, binding\.targetId, true\);/,
-  );
+  NodeAssert.match(tabsService, /if \(anothersTab\(stripOf\(threadId\), binding\)\) \{/);
+  NodeAssert.match(tabsService, /await record\(threadId, binding\.targetId, true\);/);
 });
 
 // A plain click on a thread's server in upstream's Servers panel (pingdotgg/t3code#22542) opens it in

@@ -191,6 +191,8 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
   let holdsOf = new Map<string, TabHolder[]>();
   /** Tabs a session with a live daemon is bound to. */
   let working = new Set<string>();
+  /** The sessions whose binding names each tab, daemon or not. */
+  let boundBy = new Map<string, string[]>();
   /** The tab each `t3-` session was last seen bound to: only another one is recorded. */
   const lastBound = new Map<string, string>();
   const threadOfSessionCache = new Map<string, string>();
@@ -391,6 +393,7 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
   async function readBindings(baseline: boolean): Promise<SessionBinding[]> {
     if (seams.socketDirectory === undefined) {
       working = new Set();
+      boundBy = new Map();
       return [];
     }
     let bindings: SessionBinding[];
@@ -402,6 +405,12 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     working = new Set(
       bindings.filter((binding) => binding.working).map((binding) => binding.targetId),
     );
+    boundBy = new Map();
+    for (const binding of bindings) {
+      const sessions = boundBy.get(binding.targetId);
+      if (sessions === undefined) boundBy.set(binding.targetId, [binding.session]);
+      else sessions.push(binding.session);
+    }
     const fresh: SessionBinding[] = [];
     for (const binding of bindings) {
       if (!isThreadStrip(binding.session)) continue;
@@ -607,9 +616,24 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     }
     for (const binding of fresh) {
       const threadId = await threadOfSession(binding.session);
-      if (threadId !== null) await record(threadId, binding.targetId, true);
+      if (threadId === null) continue;
+      if (anothersTab(stripOf(threadId), binding)) {
+        log("thread-tabs-binding-not-recorded", { session: binding.session });
+        continue;
+      }
+      await record(threadId, binding.targetId, true);
     }
     publish();
+  }
+
+  /** LazurioPlatform#974: agent-browser records a fresh daemon's pick of any tab even after a
+   * failed bind, so a tab another place holds or another session is bound to stays theirs. */
+  function anothersTab(strip: string, { session, targetId }: SessionBinding): boolean {
+    if (index.get(strip)?.tabs.has(targetId) === true) return false;
+    return (
+      (holdsOf.get(targetId) ?? []).some((holder) => holder.strip !== strip) ||
+      (boundBy.get(targetId) ?? []).some((other) => other !== session)
+    );
   }
 
   const track = (work: Promise<void>) => {

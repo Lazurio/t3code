@@ -660,6 +660,30 @@ describe("tabs an agent opens", () => {
     expect(snapshot.tabs[0]?.revealRequest).toBeDefined();
   });
 
+  it("a new binding to a tab another session is bound to or another strip holds is not taken in; one the strip holds already is revealed (LazurioPlatform#974)", async () => {
+    const w = await world();
+    // agent-browser left the thread's session on the tab another agent pinned and works in.
+    await w.bind("upload-fix", id(7), process.pid);
+    await w.bind(stripA, id(7));
+    await w.core.refresh();
+    expect(await w.stored()).toBeNull();
+    await w.storeFile(stripB, "Docs", [{ id: id(8), recordedAt: at(90) }]);
+    await w.bind(stripA, id(8));
+    await w.core.refresh();
+    expect(await w.stored()).toBeNull();
+    await w.core.hold(threadA, id(9));
+    await w.bind("codex-other", id(9));
+    await w.bind(stripA, id(9));
+    await w.core.refresh();
+    expect(
+      ((await w.core.read(threadA)) as ThreadTabsSnapshot).tabs[0]?.revealRequest,
+    ).toBeDefined();
+    // The thread's own new window is recorded as before.
+    await w.bind(stripA, id(10));
+    await w.core.refresh();
+    expect(tabIds(await w.core.read(threadA))).toEqual([id(9), id(10)]);
+  });
+
   it("a binding unchanged after a release is not recorded again; a retired thread's is ignored", async () => {
     const w = await world();
     await w.bind(stripA, id(3));
