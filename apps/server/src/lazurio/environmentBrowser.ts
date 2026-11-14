@@ -42,10 +42,15 @@ import {
   connectEnvironmentBrowser,
   type EnvironmentBrowserConnection,
   type EnvironmentBrowserTab,
+  type PageSummary,
   type TabOperation,
   type TabState,
 } from "./environmentBrowserConnection.ts";
 import { resolveNavigationUrl } from "./environmentBrowserPage.ts";
+import {
+  EnvironmentBrowserTabs,
+  type EnvironmentBrowserStripTab,
+} from "./environmentBrowserTabs.ts";
 import { isLazurioEnvironment } from "./lazurioEnvironment.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 
@@ -490,23 +495,74 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  /** The browser's pages by target id; a browser that does not answer lists none. */
+  const pageSummaries = Effect.flatMap(browserConnection, (connection) =>
+    Effect.tryPromise({ try: () => connection.pages(), catch: toOperationError }),
+  ).pipe(
+    Effect.map((pages) => new Map(pages.map((page) => [page.targetId, page]))),
+    Effect.orElseSucceed(() => new Map<string, PageSummary>()),
+  );
+  /**
+   * The thread's strip (Lazurio/t3code#200): the tabs it holds, persisted in its holder file, so
+   * also the ones it held before this server started. None while the strips are off.
+   */
+  const stripTabs = Effect.fn("LazurioEnvironmentBrowser.stripTabs")(function* (
+    threadId: ThreadId,
+  ) {
+    const answer = yield* threadTabs.read(threadId);
+    if (!answer.available) return Option.none<ReadonlyArray<EnvironmentBrowserStripTab>>();
+    const pages = answer.tabs.length === 0 ? new Map() : yield* pageSummaries;
+    return Option.some(
+      answer.tabs.map(({ tabId }): EnvironmentBrowserStripTab => {
+        const page = pages.get(tabId);
+        return {
+          tabId,
+          url: page?.url ?? null,
+          title: page?.title ?? null,
+          view: `${answer.viewOrigin}/t/${tabId}`,
+        };
+      }),
+    );
+  });
+  /** preview_status `tabs`: the strip, as t3_preview_list lists it. */
+  const statusTabs = (threadId: ThreadId) =>
+    stripTabs(threadId).pipe(
+      Effect.map(
+        Option.match({
+          onNone: () => ({}),
+          onSome: (tabs) => ({
+            tabs: tabs.map(({ tabId, url }) => ({
+              tabId,
+              url,
+              visible: shown(threadId, tabId),
+            })),
+          }),
+        }),
+      ),
+      Effect.orElseSucceed(() => ({})),
+    );
+
   const status = Effect.fn("LazurioEnvironmentBrowser.status")(function* (
     request: PreviewAutomationRequest,
   ) {
     const targetId = requestTab(request);
-    if (targetId === undefined) return NO_TAB;
+    const tabs = yield* statusTabs(request.threadId);
+    if (targetId === undefined) return { ...NO_TAB, ...tabs };
     const tab = yield* tabOf(targetId);
     if (tab === undefined) {
       yield* forget(targetId);
       // The thread's own tab that closed leaves it with none; a named tab must exist.
       if (request.tabIdExplicit === true) return yield* missingTab(targetId);
-      return NO_TAB;
+      return { ...NO_TAB, ...tabs };
     }
-    return statusOf(
-      targetId,
-      yield* Effect.tryPromise({ try: () => tab.state(), catch: toOperationError }),
-      shown(request.threadId, targetId),
-    );
+    return {
+      ...statusOf(
+        targetId,
+        yield* Effect.tryPromise({ try: () => tab.state(), catch: toOperationError }),
+        shown(request.threadId, targetId),
+      ),
+      ...tabs,
+    };
   });
 
   /** The thread's own window: the one `lazurio browser window` binds to its agent-browser session. */
@@ -831,9 +887,10 @@ export const make = Effect.gen(function* () {
   // Off a Lazurio Environment upstream's server browser serves T3's tools, and the threads'
   // strips stay off.
   const pages = EnvironmentBrowserPages.of({ open: openPage });
+  const tabs = { list: stripTabs };
   if (!(yield* isLazurioEnvironment)) {
     yield* threadTabs.declare(undefined);
-    return pages;
+    return { pages, tabs };
   }
   // Registered while the Environment declares its browser. The broker ends a host's stream when
   // a request goes unanswered; the host then registers again. The threads' strips share the
@@ -849,7 +906,12 @@ export const make = Effect.gen(function* () {
     yield* Effect.exit(hostSession);
     yield* Effect.sleep(HOST_RECONNECT_DELAY);
   }).pipe(Effect.forever, Effect.forkIn(hostScope));
-  return pages;
+  return { pages, tabs };
 });
 
-export const layer = Layer.effect(EnvironmentBrowserPages, make);
+/** The host's pages, and the threads' strips for the preview tools of /mcp. */
+export const layer = Layer.effectContext(
+  Effect.map(make, ({ pages, tabs }) =>
+    Context.make(EnvironmentBrowserPages, pages).pipe(Context.add(EnvironmentBrowserTabs, tabs)),
+  ),
+);
