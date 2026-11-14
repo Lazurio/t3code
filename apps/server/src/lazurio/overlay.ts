@@ -18,8 +18,12 @@ import * as ThreadLifecycle from "./threadLifecycle.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 import * as ThreadTabsRoute from "./threadTabsRoute.ts";
 
+const threadTabs = ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer));
+// One host and one set of strips, by layer memoization, for the routes and for /mcp.
+const environmentBrowser = EnvironmentBrowser.layer.pipe(Layer.provide(threadTabs));
+
 export const layer = Layer.mergeAll(
-  ThreadTabsRoute.layer.pipe(Layer.provide(EnvironmentBrowser.layer)),
+  ThreadTabsRoute.layer.pipe(Layer.provide(environmentBrowser)),
   ModelRecommendationRoute.layer,
   ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
   BuddySurfaceThreadRoute.layer,
@@ -27,4 +31,8 @@ export const layer = Layer.mergeAll(
   Layer.mergeAll(BuddySurfaceDays.layer, ActingSendersRoute.layer).pipe(
     Layer.provide(ActingSenders.layer),
   ),
-).pipe(Layer.provide(ThreadTabs.layer.pipe(Layer.provide(ThreadLifecycle.layer))));
+).pipe(Layer.provide(threadTabs));
+
+/** /mcp's preview list and close see the threads' strips (Lazurio/t3code#200). */
+export const withEnvironmentBrowserTabs = <A, E, R>(mcp: Layer.Layer<A, E, R>) =>
+  mcp.pipe(Layer.provide(environmentBrowser));

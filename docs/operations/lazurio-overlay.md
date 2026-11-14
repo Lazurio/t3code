@@ -94,7 +94,10 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   změnily, co člověk vidí, a nahrávat host neumí: odpoví chybou, která řekne,
   co místo toho. `upload` umí jen s lokátorem pole souboru (výběr souboru, který
   stránka otevře sama, zůstává člověku) a `close` záložku pro vlákno pustí jako
-  × člověka a nechá ji otevřenou. Každou záložku, kterou
+  × člověka a nechá ji otevřenou. Záložky vlákna upstream `PreviewManager` nezná,
+  proto `t3_preview_list` a `tabs` v `preview_status` čtou záložky vlákna
+  (s adresou, titulkem a `view`) a `t3_preview_close` pošle `close` hostiteli jen
+  pro záložku, kterou vlákno drží; jinou odmítne chybou (Lazurio/t3code#200). Každou záložku, kterou
   `preview_open` otevře nebo převezme, zapíše host do záložek vlákna (viz níže),
   se žádostí ji ukázat, pokud nežádá práci na pozadí (`open: false`, nebo
   zastaralé `show: false`; `open` má přednost jako v desktopové aplikaci).
