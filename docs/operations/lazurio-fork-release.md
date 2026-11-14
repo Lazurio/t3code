@@ -506,14 +506,9 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
   nechalo pod railem. Proto se při definovaném railu stane obal sidebaru
   (`[data-slot="sidebar-wrapper"]`) jejich containing blockem
   (`contain: layout paint`). Bez shellu pravidlo neplatí.
-  Buddyho spouštěč stojí 22 px od pravého a dolního okraje okna a po dobu, kdy ho shell kreslí,
-  nastaví na dokumentu `--lazurio-buddy-clearance`, šířku jeho rohu od pravého okraje
-  (LazurioPlatform F60, dodatek z 2026-10-25). Composer Chatu (`[data-chat-composer-stack]`)
-  nechá tlačítko odeslání mimo ten roh: kde by vycentrovaný composer přišel k pravému okraji blíž,
-  posune se doleva a pak zúží, právě o kolik je třeba. Odsazení konce pruhu composeru
-  (`.chat-composer-lane` v `index.css`, 0,75rem, od 640 px 3rem) pravidlo opakuje, proto ho
-  kontraktní test drží ve shodě. Bez vlastnosti zůstane composer, kde ho T3 kreslí; Buddyho povrch
-  spouštěč nemá.
+  Buddyho spouštěč začíná 22 px od pravého a dolního okraje okna a uživatel ho přetáhne kamkoli
+  (LazurioPlatform F60, dodatek z 2026-11-14). Composer Chatu proto zůstává tam, kde ho kreslí T3,
+  a `--lazurio-buddy-clearance` nečte; kontraktní test hlídá, že se pravidlo nevrátí.
 - `apps/web/src/components/sidebar/SidebarChrome.tsx`:
   `<lazurio-column-head active="chat">` hned pod horním řádkem upstreamu.
   Nahoře zůstává řádek s přepínačem sidebaru, wordmarkem T3 Code a štítkem
