@@ -77,6 +77,33 @@ export interface PendingRequest {
   readonly questions?: ReadonlyArray<unknown>;
 }
 
+/** Authoritative question state, including answers after a request stops being pending. */
+export const questionHistoryOf = (projection: OrchestrationV2ThreadProjection) => {
+  const questions = new Map(
+    projection.turnItems.flatMap((item) =>
+      item.type === "user_input_request" ? [[item.requestId, item.questions] as const] : [],
+    ),
+  );
+  return projection.runtimeRequests
+    .filter((request) => request.kind === "user_input")
+    .map((request) => ({
+      requestId: request.id,
+      threadId: projection.thread.id,
+      status: request.status,
+      createdAt: DateTime.formatIso(request.createdAt),
+      resolvedAt: request.resolvedAt === null ? null : DateTime.formatIso(request.resolvedAt),
+      questions: questions.get(request.id) ?? [],
+      ...(request.status === "resolved" && request.answers !== undefined
+        ? { answers: request.answers }
+        : {}),
+    }))
+    .toSorted(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.requestId.localeCompare(right.requestId),
+    );
+};
+
 /**
  * The pending questions and approvals of one thread, from its control state. `complete` is false
  * when the details of a request lie outside the projection's timeline window, so the caller reads

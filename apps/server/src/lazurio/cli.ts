@@ -282,6 +282,7 @@ const capabilitiesCommand = Command.make("capabilities").pipe(
         providerRefresh: true,
         operatorPairing: true,
         agentCli: true,
+        requestHistory: true,
         threadSendIdempotency: true,
         threadSendOutcome: true,
         buddyThread: true,
