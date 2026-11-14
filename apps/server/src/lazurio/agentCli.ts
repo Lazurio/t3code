@@ -52,6 +52,7 @@ import {
   mergeThreadLists,
   type PendingRequest,
   pendingRequestsOf,
+  questionHistoryOf,
 } from "./agentCliViews.ts";
 import { readModelRecommendationRecord } from "./modelRecommendation.ts";
 
@@ -1141,6 +1142,28 @@ const requestListCommand = Command.make("list", { ...common, thread: requestThre
   ),
 );
 
+const requestHistoryCommand = Command.make("history", {
+  ...common,
+  thread: Flag.String("thread").pipe(
+    Flag.withDescription("The exact thread whose question history to read."),
+  ),
+}).pipe(
+  Command.withDescription(
+    "Read a thread's persisted questions and answers, including resolved, cancelled and expired requests.",
+  ),
+  Command.withHandler((flags) =>
+    run(
+      flags,
+      (connection) =>
+        connection
+          .threadSnapshot(ThreadId.make(flags.thread), { full: true })
+          .pipe(Effect.map(({ projection }) => ({ requests: questionHistoryOf(projection) }))),
+      ({ requests }) =>
+        requests.map((request) => `${request.requestId} ${request.status}`).join("\n"),
+    ),
+  ),
+);
+
 const requestReadCommand = Command.make("read", {
   ...common,
   requestId: requestIdArgument,
@@ -1325,6 +1348,7 @@ const requestCommand = Command.make("request").pipe(
   Command.withDescription("Answer the questions and permission requests threads wait on."),
   Command.withSubcommands([
     requestListCommand,
+    requestHistoryCommand,
     requestReadCommand,
     requestRespondCommand,
     requestApproveCommand,

@@ -1431,6 +1431,57 @@ const withPendingRequests = (world: World) => {
 };
 
 describe("t3 request", () => {
+  it.effect(
+    "reads persisted answers without responding, including a resolved question outside the bounded timeline",
+    () =>
+      Effect.gen(function* () {
+        const baseDir = makeBaseDir();
+        const world = makeWorld();
+        withPendingRequests(world);
+        const projection = world.projections.get("thread-question")!;
+        world.projections.set("thread-question", {
+          ...projection,
+          runtimeRequests: projection.runtimeRequests.map((request) => ({
+            ...request,
+            status: "resolved" as const,
+            resolvedAt: at("2026-10-20T11:00:00.000Z"),
+            answers: { q1: "Wait\nverbatim" },
+          })),
+        });
+        world.boundedWithoutItems.add("thread-question");
+        yield* withLiveServer(baseDir, world, () =>
+          Effect.gen(function* () {
+            const history = yield* printedJson(
+              run([
+                "request",
+                "history",
+                "--thread",
+                "thread-question",
+                "--base-dir",
+                baseDir,
+                "--json",
+              ]),
+            );
+            assert.deepStrictEqual(history.output, {
+              requests: [
+                {
+                  requestId: "request-question",
+                  threadId: "thread-question",
+                  status: "resolved",
+                  createdAt: "2026-10-20T09:00:00.000Z",
+                  resolvedAt: "2026-10-20T11:00:00.000Z",
+                  questions: [{ id: "q1", header: "Deploy", question: "Deploy now?", options: [] }],
+                  answers: { q1: "Wait\nverbatim" },
+                },
+              ],
+            });
+            assert.deepStrictEqual(world.fullReads, ["thread-question"]);
+            assert.deepStrictEqual(world.ownerDispatched, []);
+          }),
+        );
+      }),
+  );
+
   it.effect("lists, answers and decides the requests threads wait on, as their user", () =>
     Effect.gen(function* () {
       const baseDir = makeBaseDir();

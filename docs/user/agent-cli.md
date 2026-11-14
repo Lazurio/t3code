@@ -155,6 +155,15 @@ Approving and declining decide a request as its buttons in the app do.
 `--for-session` allows it for the rest of the agent's session where the agent
 offers that, and `t3 request deny --cancel` also stops the agent's turn.
 
+### Read an answer after it arrives
+
+`t3 request history --thread <id> --json` reads the stored questions of that
+thread, oldest first, including their status and the answers T3 accepted. It
+never answers or reopens a request. Use the returned request id to keep an
+automation bound to its original question when a person continues the chat.
+`requestHistory` in `t3 lazurio capabilities` declares this CLI support; the
+command uses the running server's existing thread snapshot API.
+
 ## Follow changes
 
 `t3 events` prints one JSON line for each thread in the sidebar, then a
