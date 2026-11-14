@@ -174,7 +174,11 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   `preview_open`, nebo sezení agent-browser vlákna `t3-<id>` naváže jinou záložku
   (server sleduje `<socket dir>/t3-<id>.target` jako hub). Vazby nalezené při
   startu se nezapisují a vazba, která se po puštění záložky nezmění, ji nevrátí:
-  vrátí ji jen nové okno agenta nebo `preview_open`.
+  vrátí ji jen nové okno agenta nebo `preview_open`. Novou vazbu na záložku,
+  kterou drží jiný pás nebo kterou jmenuje vazba jiného sezení, server do pásu
+  nepřevezme, pokud ji pás vlákna už nemá (LazurioPlatform#974): agent-browser
+  vazbu zapíše i po neúspěšném `tab <id>`, na záložku, kterou si čerstvý daemon
+  při připojení vybral sám, třeba na záložku jiného agenta.
 - **Cesta pro web.** `GET /api/lazurio/thread-tabs?threadId=<id>` vrátí snímek
   nebo `{"available": false}`, `GET …/events?threadId=<id>` je SSE se snímkem
   hned a při každé změně (a s událostmi `foreign`), `POST …/hold` a
