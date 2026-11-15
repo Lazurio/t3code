@@ -64,6 +64,7 @@ async function world(options: { readonly declared?: boolean; readonly ready?: bo
   /** Reads of a live thread wait here while the test holds them back (`holdLiveReads`). */
   let liveGate: { readonly open: Promise<void>; readonly reached: () => void } | null = null;
   let markReady = () => {};
+  let afterRead: ((path: string) => Promise<void>) | null = null;
   const ready =
     options.ready === false
       ? new Promise<void>((resolve) => {
@@ -90,7 +91,10 @@ async function world(options: { readonly declared?: boolean; readonly ready?: bo
       ready,
       readFile: async (path) => {
         if (path === listPath) listReads.push(listReads.length);
-        return NodeFSP.readFile(path, "utf8");
+        const text = await NodeFSP.readFile(path, "utf8");
+        const hook = afterRead;
+        if (hook !== null) await hook(path);
+        return text;
       },
       daemon: {
         alive: (pid) => processes.has(pid),
@@ -188,6 +192,10 @@ async function world(options: { readonly declared?: boolean; readonly ready?: bo
     storeFile: async (strip: string, label: string, tabs: Parameters<typeof holderFileText>[2]) => {
       await NodeFSP.mkdir(holders, { recursive: true, mode: 0o700 });
       await NodeFSP.writeFile(fileOf(strip), holderFileText(strip, label, tabs), { mode: 0o600 });
+    },
+    /** Runs once a file has been read, before the reader gets its text. */
+    afterRead: (hook: ((path: string) => Promise<void>) | null) => {
+      afterRead = hook;
     },
     bind: async (session: string, targetId: string, pid?: number) => {
       await NodeFSP.mkdir(sockets, { recursive: true });
@@ -714,6 +722,34 @@ describe("tabs an agent opens", () => {
       await w.core.refresh();
       expect(tabIds(await w.core.read(threadA))).toEqual([id(11), id(12)]);
     }
+  });
+
+  it("a binding read while the Platform still verified it is not taken in, though the binding changes and its mark goes before the marks are listed (review of #208)", async () => {
+    const w = await world();
+    const marks = NodePath.join(w.runtime, "lazurio-browser", "unverified");
+    await NodeFSP.mkdir(marks, { recursive: true });
+    const mark = NodePath.join(marks, `${stripA}.json`);
+    const target = NodePath.join(w.sockets, `${stripA}.target`);
+    await NodeFSP.writeFile(mark, "{}");
+    await w.bind(stripA, id(13));
+    w.afterRead(async (path) => {
+      if (path !== target) return;
+      w.afterRead(null);
+      await w.bind(stripA, id(14));
+      await NodeFSP.rm(mark);
+    });
+    await w.core.refresh();
+    expect(await w.stored()).toBeNull();
+    // A binding that moves between two reads, with no mark in sight, waits for a read that holds.
+    w.afterRead(async (path) => {
+      if (path !== target) return;
+      w.afterRead(null);
+      await w.bind(stripA, id(15));
+    });
+    await w.core.refresh();
+    expect(await w.stored()).toBeNull();
+    await w.core.refresh();
+    expect(tabIds(await w.core.read(threadA))).toEqual([id(15)]);
   });
 
   it("a binding unchanged after a release is not recorded again; a retired thread's is ignored", async () => {

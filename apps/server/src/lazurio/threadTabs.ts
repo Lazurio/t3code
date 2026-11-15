@@ -408,6 +408,9 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       boundBy = new Map();
       return [];
     }
+    // Marks listed before and after the read, and a second read that must agree: a binding read
+    // mid-verification is never taken in, whatever the Platform changes in between (C19).
+    const markedBefore = await unverifiedSessions();
     let bindings: SessionBinding[];
     try {
       bindings = await readSessionBindings(seams.socketDirectory, alive, seams.readFile);
@@ -423,13 +426,21 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       if (sessions === undefined) boundBy.set(binding.targetId, [binding.session]);
       else sessions.push(binding.session);
     }
-    const unverified = await unverifiedSessions();
+    const markedAfter = await unverifiedSessions();
+    const readAgain = await readSessionBindings(seams.socketDirectory, alive, seams.readFile).then(
+      (again) => new Map(again.map((binding) => [binding.session, binding.targetId])),
+      () => null,
+    );
+    const marked = (session: string) =>
+      markedBefore === "all" ||
+      markedAfter === "all" ||
+      markedBefore.has(session) ||
+      markedAfter.has(session);
     const fresh: SessionBinding[] = [];
     for (const binding of bindings) {
       if (!isThreadStrip(binding.session)) continue;
-      // An unverified binding is no evidence of the session's window yet: it is taken in, or not,
-      // once the Platform has verified it and its mark is gone (LazurioPlatform#989).
-      if (unverified === "all" || unverified.has(binding.session)) continue;
+      // Taken in, or not, once the Platform has verified it and its mark is gone (LazurioPlatform#989).
+      if (marked(binding.session) || readAgain?.get(binding.session) !== binding.targetId) continue;
       const last = lastBound.get(binding.session);
       lastBound.set(binding.session, binding.targetId);
       if (!baseline && last !== binding.targetId) fresh.push(binding);
