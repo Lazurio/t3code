@@ -42,6 +42,7 @@ import {
   processAlive,
   readBootClock,
   readSessionBindings,
+  readUnverifiedSessions,
   replaceOwnerFile,
   type SessionBinding,
   stopSessionDaemon,
@@ -388,6 +389,17 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     holdsOf = holds;
   }
 
+  /** The sessions whose binding the Platform has not verified (C19); every session when the
+   * marks cannot be listed, so no binding is taken in meanwhile. */
+  async function unverifiedSessions(): Promise<ReadonlySet<string> | "all"> {
+    try {
+      return new Set(await readUnverifiedSessions({ XDG_RUNTIME_DIR: seams.runtimeDirectory }));
+    } catch {
+      log("thread-tabs-unverified-unreadable");
+      return "all";
+    }
+  }
+
   /** The agents' bindings: which tabs an agent works in, and the `t3-` sessions bound to another
    * tab since they were last seen (none on the first read, the baseline). */
   async function readBindings(baseline: boolean): Promise<SessionBinding[]> {
@@ -411,9 +423,13 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       if (sessions === undefined) boundBy.set(binding.targetId, [binding.session]);
       else sessions.push(binding.session);
     }
+    const unverified = await unverifiedSessions();
     const fresh: SessionBinding[] = [];
     for (const binding of bindings) {
       if (!isThreadStrip(binding.session)) continue;
+      // An unverified binding is no evidence of the session's window yet: it is taken in, or not,
+      // once the Platform has verified it and its mark is gone (LazurioPlatform#989).
+      if (unverified === "all" || unverified.has(binding.session)) continue;
       const last = lastBound.get(binding.session);
       lastBound.set(binding.session, binding.targetId);
       if (!baseline && last !== binding.targetId) fresh.push(binding);
@@ -660,7 +676,12 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
     started = true;
     if (stopped) return;
     watcher = (seams.watch ?? watchDirectories)(
-      [lazurioDirectory, holdersDirectory, seams.socketDirectory],
+      [
+        lazurioDirectory,
+        holdersDirectory,
+        seams.socketDirectory,
+        NodePath.join(lazurioDirectory, "unverified"),
+      ],
       refreshSoon,
     );
     beat = setInterval(() => {

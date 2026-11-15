@@ -178,7 +178,12 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   kterou drží jiný pás nebo kterou jmenuje vazba jiného sezení, server do pásu
   nepřevezme, pokud ji pás vlákna už nemá (LazurioPlatform#974): agent-browser
   vazbu zapíše i po neúspěšném `tab <id>`, na záložku, kterou si čerstvý daemon
-  při připojení vybral sám, třeba na záložku jiného agenta.
+  při připojení vybral sám, třeba na záložku jiného agenta. Vazbu sezení, které
+  Platforma označila jako neověřené (`$XDG_RUNTIME_DIR/lazurio-browser/unverified/<sezení>.json`,
+  kontrakt C19), server do pásu nepřevezme vůbec, dokud značka nezmizí; pak ji
+  posoudí jako každou novou vazbu (LazurioPlatform#989). Adresář značek
+  sleduje spolu s ostatními, a když ho nejde vypsat, nepřevezme žádnou novou
+  vazbu.
 - **Cesta pro web.** `GET /api/lazurio/thread-tabs?threadId=<id>` vrátí snímek
   nebo `{"available": false}`, `GET …/events?threadId=<id>` je SSE se snímkem
   hned a při každé změně (a s událostmi `foreign`), `POST …/hold` a

@@ -30,9 +30,11 @@ zachovává. Licence má jít s každou kopií: image ji nese v
 porovná se souborem v repozitáři.
 
 Funkce, které overlay zkopíroval z LazurioPlatform `src/browser/people/holds.ts`
-ve stavu 49d54c9 do `apps/server/src/lazurio/holders.ts` (vyjmenovává je
-hlavička toho souboru), jsou podle grantu Organization Admina z 2026-10-12 pod
-licencí MIT (LazurioPlatform, rozhodnutí F50 bod 6). Ostatní soubory Platformy
+ve stavu 49d54c9 a z modulu kontraktu `src/browser/contract/node.ts` (čtení
+značky neověřené vazby, C19) do `apps/server/src/lazurio/holders.ts`
+(vyjmenovává je hlavička toho souboru), jsou podle grantu Organization Admina
+z 2026-10-12 pod licencí MIT (LazurioPlatform, rozhodnutí F50 bod 6; modul
+kontraktu je pod MIT celý). Ostatní soubory Platformy
 zůstávají pod Elastic-2.0. Záznam platí, dokud kopie nenahradí soubory kontraktu
 prohlížeče, které fork převezme z artefaktu Platformy (F50 bod 5).
 

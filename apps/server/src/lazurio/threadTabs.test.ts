@@ -415,7 +415,12 @@ describe("writes re-read the file and fail closed", () => {
     expect(w.listReads.length - before).toBe(1);
     // The watch covers the hub's directory, the holder files and the agents' bindings.
     expect(w.watched).toEqual([
-      [NodePath.join(w.runtime, "lazurio-browser"), w.holders, w.sockets],
+      [
+        NodePath.join(w.runtime, "lazurio-browser"),
+        w.holders,
+        w.sockets,
+        NodePath.join(w.runtime, "lazurio-browser", "unverified"),
+      ],
     ]);
   });
 
@@ -682,6 +687,33 @@ describe("tabs an agent opens", () => {
     await w.bind(stripA, id(10));
     await w.core.refresh();
     expect(tabIds(await w.core.read(threadA))).toEqual([id(9), id(10)]);
+  });
+
+  it("a new binding of a session the Platform has not verified is taken in only once its mark is gone (LazurioPlatform#989)", async () => {
+    const w = await world();
+    const marks = NodePath.join(w.runtime, "lazurio-browser", "unverified");
+    await NodeFSP.mkdir(marks, { recursive: true });
+    const mark = NodePath.join(marks, `${stripA}.json`);
+    // `lazurio browser window` is binding the session: its binding is no evidence yet.
+    await NodeFSP.writeFile(mark, "{}");
+    await w.bind(stripA, id(11));
+    await w.core.refresh();
+    expect(await w.stored()).toBeNull();
+    // Verified: the mark goes, and the window joins the strip.
+    await NodeFSP.rm(mark);
+    await w.core.refresh();
+    expect(tabIds(await w.core.read(threadA))).toEqual([id(11)]);
+    // Marks that cannot be listed: no new binding is taken in meanwhile.
+    if (process.getuid?.() !== 0) {
+      await NodeFSP.chmod(marks, 0o000);
+      await w.bind(stripA, id(12));
+      await w.core.refresh();
+      expect(tabIds(await w.core.read(threadA))).toEqual([id(11)]);
+      expect(w.logs).toContain("thread-tabs-unverified-unreadable");
+      await NodeFSP.chmod(marks, 0o700);
+      await w.core.refresh();
+      expect(tabIds(await w.core.read(threadA))).toEqual([id(11), id(12)]);
+    }
   });
 
   it("a binding unchanged after a release is not recorded again; a retired thread's is ignored", async () => {
