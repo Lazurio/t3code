@@ -2027,10 +2027,13 @@ NodeTest.test("the panel opens on an agent's tab through its seams", async () =>
   NodeAssert.match(host, /Effect\.andThen\(threadTabs\.record\(threadId, targetId, revealed\)\)/);
   NodeAssert.match(tabsService, /if \(anothersTab\(stripOf\(threadId\), binding\)\) \{/);
   NodeAssert.match(tabsService, /await record\(threadId, binding\.targetId, true\);/);
-  // Nor while the Platform has not verified the session's binding (C19, LazurioPlatform#989).
+  // Nor while the Platform has not verified the session's binding (C19, LazurioPlatform#989):
+  // marks listed before and after the read, and a second read that must agree.
+  NodeAssert.match(tabsService, /const markedBefore = await unverifiedSessions\(\);/);
+  NodeAssert.match(tabsService, /const markedAfter = await unverifiedSessions\(\);/);
   NodeAssert.match(
     tabsService,
-    /if \(unverified === "all" \|\| unverified\.has\(binding\.session\)\) continue;/,
+    /if \(marked\(binding\.session\) \|\| readAgain\?\.get\(binding\.session\) !== binding\.targetId\) continue;/,
   );
 });
 
