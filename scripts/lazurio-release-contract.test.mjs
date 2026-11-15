@@ -2027,6 +2027,11 @@ NodeTest.test("the panel opens on an agent's tab through its seams", async () =>
   NodeAssert.match(host, /Effect\.andThen\(threadTabs\.record\(threadId, targetId, revealed\)\)/);
   NodeAssert.match(tabsService, /if \(anothersTab\(stripOf\(threadId\), binding\)\) \{/);
   NodeAssert.match(tabsService, /await record\(threadId, binding\.targetId, true\);/);
+  // Nor while the Platform has not verified the session's binding (C19, LazurioPlatform#989).
+  NodeAssert.match(
+    tabsService,
+    /if \(unverified === "all" \|\| unverified\.has\(binding\.session\)\) continue;/,
+  );
 });
 
 // A plain click on a thread's server in upstream's Servers panel (pingdotgg/t3code#22542) opens it in

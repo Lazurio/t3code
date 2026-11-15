@@ -21,8 +21,10 @@ import {
   processAlive,
   readBootClock,
   readSessionBindings,
+  readUnverifiedSessions,
   replaceOwnerFile,
   stopSessionDaemon,
+  unverifiedBindingDirectory,
   watchDirectories,
 } from "./holders.ts";
 
@@ -172,6 +174,47 @@ describe("the Platform's vectors", () => {
       { session: "t3-old", targetId: id(4), working: false },
     ]);
     expect(await readSessionBindings(NodePath.join(sockets, "none"))).toEqual([]);
+  });
+
+  // LazurioPlatform `src/browser/contract/vectors/v1/unverified-binding.json` (C19).
+  it("a mark of an unverified binding counts whatever its text; a directory that cannot be listed is thrown", async () => {
+    expect(unverifiedBindingDirectory({ XDG_RUNTIME_DIR: "/run/user/1000" })).toBe(
+      "/run/user/1000/lazurio-browser/unverified",
+    );
+    expect(unverifiedBindingDirectory({ XDG_RUNTIME_DIR: "run/user" })).toBeUndefined();
+    expect(unverifiedBindingDirectory({})).toBeUndefined();
+    const runtime = await temporary("holders-unverified-");
+    const marks = NodePath.join(runtime, "lazurio-browser", "unverified");
+    expect(await readUnverifiedSessions({ XDG_RUNTIME_DIR: runtime })).toEqual([]);
+    expect(await readUnverifiedSessions({})).toEqual([]);
+    await NodeFSP.mkdir(marks, { recursive: true });
+    const write = (name: string, text: string) =>
+      NodeFSP.writeFile(NodePath.join(marks, name), text);
+    await write(
+      "t3-thread.json",
+      JSON.stringify({
+        schema: "lazurio.browser-unverified-binding.v1",
+        session: "t3-thread",
+        targetId: id(14),
+        before: null,
+      }),
+    );
+    await write("codex-2.json", "not a mark");
+    await write("claude-1.json", "");
+    await NodeFSP.chmod(NodePath.join(marks, "claude-1.json"), 0o000);
+    await write(".codex-3.json.tmp", "");
+    await write("codex 4.json", "");
+    await write("codex-5.txt", "");
+    expect(await readUnverifiedSessions({ XDG_RUNTIME_DIR: runtime })).toEqual([
+      "claude-1",
+      "codex-2",
+      "t3-thread",
+    ]);
+    if (process.getuid?.() !== 0) {
+      await NodeFSP.chmod(marks, 0o000);
+      await expect(readUnverifiedSessions({ XDG_RUNTIME_DIR: runtime })).rejects.toThrow();
+      await NodeFSP.chmod(marks, 0o700);
+    }
   });
 
   it("a process is alive while kill -0 reaches it", () => {

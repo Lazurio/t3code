@@ -1,9 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off - The holder files and the daemon's socket are the Platform's, read, written and asked outside the Effect runtime as it does.
 
 /**
- * Lazurio overlay (LazurioPlatform F47 points 4 and 5): the hub keeps a remote tab while a holder
- * file lists it or a bound agent-browser daemon runs. Copied from LazurioPlatform
- * `src/browser/people/holds.ts` at 49d54c9; holders.test.ts runs the Platform's vectors.
+ * Lazurio overlay (LazurioPlatform F47 points 4 and 5): copied from LazurioPlatform
+ * `src/browser/people/holds.ts` at 49d54c9, and the two readers of C19's marks from
+ * `src/browser/contract/node.ts`; holders.test.ts runs the Platform's vectors.
  */
 
 import * as NodeCrypto from "node:crypto";
@@ -50,6 +50,32 @@ export function liveTabsPath(
   return runtime !== undefined && NodePath.isAbsolute(runtime)
     ? NodePath.join(runtime, "lazurio-browser", "tabs.json")
     : undefined;
+}
+
+/** `$XDG_RUNTIME_DIR/lazurio-browser/unverified`, where the Platform marks a session whose
+ * agent-browser binding it has not verified (C19); undefined without an absolute runtime
+ * directory. */
+export function unverifiedBindingDirectory(
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  const runtime = env.XDG_RUNTIME_DIR;
+  return runtime !== undefined && NodePath.isAbsolute(runtime)
+    ? NodePath.join(runtime, "lazurio-browser", "unverified")
+    : undefined;
+}
+
+/** The sessions marked unverified now (C19), sorted: each `<session>.json` of the directory
+ * whose name is a session's, whatever its text. Empty without the directory; a directory that
+ * cannot be listed is thrown. */
+export async function readUnverifiedSessions(
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string[]> {
+  const directory = unverifiedBindingDirectory(env);
+  if (directory === undefined) return [];
+  return (await directoryNames(directory)).flatMap((name) => {
+    const session = name.endsWith(".json") ? name.slice(0, -".json".length) : "";
+    return isStrip(session) ? [session] : [];
+  });
 }
 
 /** Where agent-browser keeps its sockets and a session's tab binding
