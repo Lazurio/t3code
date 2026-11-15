@@ -181,7 +181,10 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   při připojení vybral sám, třeba na záložku jiného agenta. Vazbu sezení, které
   Platforma označila jako neověřené (`$XDG_RUNTIME_DIR/lazurio-browser/unverified/<sezení>.json`,
   kontrakt C19), server do pásu nepřevezme vůbec, dokud značka nezmizí; pak ji
-  posoudí jako každou novou vazbu (LazurioPlatform#989). Adresář značek
+  posoudí jako každou novou vazbu (LazurioPlatform#989). Značky čte před
+  vazbami i po nich a vazby přečte dvakrát: převezme jen vazbu, kterou žádné
+  z obou čtení značek nezná a která se mezi oběma čteními nezměnila, takže ani
+  vazbu přečtenou uprostřed ověřování nevezme za ověřenou. Adresář značek
   sleduje spolu s ostatními, a když ho nejde vypsat, nepřevezme žádnou novou
   vazbu.
 - **Cesta pro web.** `GET /api/lazurio/thread-tabs?threadId=<id>` vrátí snímek
