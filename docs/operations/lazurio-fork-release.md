@@ -516,7 +516,9 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
   Po zavření panelu se rail vrátí před `#root`, kde zůstává cílem skoku ⌘⇧E. Dialog, který
   rail otevře (skok ⌘⇧E), se kreslí jen tam, kde rail je, proto je rail při otevřeném dialogu vidět
   i se zavřeným panelem (`data-lazurio-dialog-open`). Chování drží
-  `apps/web/src/lazurio/narrowRail.browser.test.tsx`. Široké rozložení se nemění.
+  `apps/web/src/lazurio/narrowRail.browser.test.tsx`. Pravý panel (`RightPanelSheet.tsx`, druhý
+  a jediný další sheet, bez `data-mobile`) má v úzkém okně celou šířku místo upstreamových
+  `min(88vw, 24rem)`. Zavírá ho jeho vlastní přepínač nebo Escape. Široké rozložení se nemění.
   Buddyho spouštěč začíná 22 px od pravého a dolního okraje okna a uživatel ho přetáhne kamkoli
   (LazurioPlatform F60, dodatek z 2026-11-14). Composer Chatu proto zůstává tam, kde ho kreslí T3,
   a `--lazurio-buddy-clearance` nečte; kontraktní test hlídá, že se pravidlo nevrátí.

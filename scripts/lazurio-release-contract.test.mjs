@@ -1407,6 +1407,12 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
     narrow,
     /\[data-mobile="true"\]\[data-sidebar="sidebar"\]:has\(> lazurio-rail:defined\) \{\s*padding-left: var\(--lazurio-rail-width, 0px\);\s*\}/,
   );
+  // The right panel (RightPanelSheet.tsx, the one sheet without data-mobile) takes the whole
+  // width in a narrow window with the shell present.
+  NodeAssert.match(
+    narrow,
+    /:root:has\(lazurio-rail:defined\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\) \{\s*width: 100vw;\s*min-width: 0;\s*max-width: none;/,
+  );
   NodeAssert.ok(
     page.indexOf("@media (max-width: 767px)") > page.search(/#root \{\s*box-sizing: border-box;/),
     "the narrow rule follows the rail's padding, so it wins",
