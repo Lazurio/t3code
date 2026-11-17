@@ -17,6 +17,7 @@ import { Atom } from "effect/reactivity";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { hiddenThreadKeys, NO_HIDDEN_THREADS } from "./threadTagFilter.ts";
+import { listHiddenKeys, sameThreadKeys, unlistedThreadKeys } from "../lazurio/unlistedProjects.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import {
   arrayElementsEqual,
@@ -630,50 +631,27 @@ export function createEnvironmentThreadShellAtoms(input: {
     return next;
   }).pipe(Atom.withLabel("environment-hidden-thread-keys"));
 
-  // Lazurio overlay (LZD-0033): threads of an unlisted project (Buddy's) and their children stay
-  // out of lists like tag-hidden ones, but unlike those they still open by their link.
-  let previousUnlistedThreadKeys: ReadonlySet<string> = NO_HIDDEN_THREADS;
-  const unlistedThreadKeysAtom = Atom.make((get) => {
-    const environments = Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).flatMap(
-      (environmentId) => {
-        const projectIds = input.unlistedProjectIdsAtom
-          ? get(input.unlistedProjectIdsAtom(environmentId))
-          : null;
-        return projectIds === null || projectIds.size === 0 ? [] : [{ environmentId, projectIds }];
-      },
-    );
-    if (environments.length === 0) {
-      previousUnlistedThreadKeys = NO_HIDDEN_THREADS;
-      return NO_HIDDEN_THREADS;
-    }
-    const inProjects = new Set<string>();
-    const scoped = environments.map(({ environmentId, projectIds }) => {
-      const threads = get(environmentThreadsAtom(environmentId));
-      for (const thread of threads) {
-        if (projectIds.has(thread.projectId))
-          inProjects.add(threadKey({ environmentId, threadId: thread.id }));
-      }
-      return { environmentId, threads, hiddenTags: null };
-    });
-    const next = inProjects.size === 0 ? NO_HIDDEN_THREADS : hiddenThreadKeys(scoped, inProjects);
-    if (
-      next.size === previousUnlistedThreadKeys.size &&
-      [...next].every((key) => previousUnlistedThreadKeys.has(key))
-    ) {
-      return previousUnlistedThreadKeys;
-    }
-    previousUnlistedThreadKeys = next;
-    return next;
-  }).pipe(Atom.withLabel("environment-unlisted-thread-keys"));
-
-  /** Keys lists leave out: tag-hidden threads and unlisted ones. */
-  const listHiddenThreadKeysAtom = Atom.make((get) => {
-    const hidden = get(hiddenThreadKeysAtom);
-    const unlisted = get(unlistedThreadKeysAtom);
-    if (unlisted.size === 0) return hidden;
-    if (hidden.size === 0) return unlisted;
-    return new Set([...hidden, ...unlisted]);
-  }).pipe(Atom.withLabel("environment-list-hidden-thread-keys"));
+  // Lazurio overlay (LZD-0033): lists leave out unlisted projects' threads; the route still opens them.
+  const unlistedThreadKeysAtom = Atom.make((get) =>
+    unlistedThreadKeys(
+      Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).flatMap((environmentId) => {
+        const projectIds = input.unlistedProjectIdsAtom?.(environmentId);
+        const ids = projectIds === undefined ? null : get(projectIds);
+        return ids === null || ids.size === 0
+          ? []
+          : [
+              {
+                environmentId,
+                projectIds: ids,
+                threads: get(environmentThreadsAtom(environmentId)),
+              },
+            ];
+      }),
+    ),
+  ).pipe(Atom.withEquality(sameThreadKeys), Atom.withLabel("environment-unlisted-thread-keys"));
+  const listHiddenThreadKeysAtom = Atom.make((get) =>
+    listHiddenKeys(get(hiddenThreadKeysAtom), get(unlistedThreadKeysAtom)),
+  ).pipe(Atom.withLabel("environment-list-hidden-thread-keys"));
 
   const anyEnvironmentHidingAtom = Atom.make((get) =>
     Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).some(

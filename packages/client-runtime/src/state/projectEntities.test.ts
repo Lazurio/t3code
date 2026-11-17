@@ -26,10 +26,7 @@ function makeHarness(withConfig = true) {
     }),
   );
   const configAtom = Atom.family((_environmentId: EnvironmentId) =>
-    Atom.make<
-      | (Pick<ServerConfig, "scratchWorkspaceRoot" | "lazurioBuddyFolder"> & { revision?: number })
-      | null
-    >(null),
+    Atom.make<(Pick<ServerConfig, "scratchWorkspaceRoot"> & { revision?: number }) | null>(null),
   );
   const catalogValueAtom = Atom.make({
     isReady: true,
@@ -119,27 +116,6 @@ describe("project scratch identity", () => {
 
       registry.set(configAtom(environmentId), null);
       expect(registry.get(projects.projectsAtom).every((project) => !project.isScratch)).toBe(true);
-    } finally {
-      registry.dispose();
-    }
-  });
-
-  it("leaves Buddy's project out of the lists of a managed Environment, still found by its ref", () => {
-    const { registry, projects, configAtom } = makeHarness();
-    try {
-      const ordinary = { environmentId, projectId: ProjectId.make("ordinary") };
-      expect(registry.get(projects.projectRefsAtom)).toContainEqual(ordinary);
-      registry.set(configAtom(environmentId), { lazurioBuddyFolder: "/repo" });
-      expect(registry.get(projects.projectRefsAtom)).not.toContainEqual(ordinary);
-      expect(registry.get(projects.projectsAtom).map((project) => project.workspaceRoot)).toEqual([
-        v2Project.workspaceRoot,
-        v2Project.workspaceRoot,
-        "/repo",
-      ]);
-      expect(registry.get(projects.unlistedProjectIdsAtom(environmentId))).toEqual(
-        new Set([ordinary.projectId]),
-      );
-      expect(registry.get(projects.projectAtom(ordinary))?.workspaceRoot).toBe("/repo");
     } finally {
       registry.dispose();
     }

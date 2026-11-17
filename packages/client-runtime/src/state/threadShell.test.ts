@@ -22,10 +22,7 @@ const environmentId = EnvironmentId.make("environment-v2");
 const remoteEnvironmentId = EnvironmentId.make("remote-environment-v2");
 const otherProjectId = ProjectId.make("other-project");
 
-function makeHarness(
-  environmentIds: ReadonlyArray<EnvironmentId> = [environmentId],
-  unlistedProjectIds: ReadonlySet<ProjectId> = new Set(),
-) {
+function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environmentId]) {
   const snapshotAtom = Atom.family((_environmentId: EnvironmentId) =>
     Atom.make<OrchestrationV2ShellSnapshot | null>(v2ShellSnapshot),
   );
@@ -55,7 +52,6 @@ function makeHarness(
       catalogValueAtom,
       snapshotAtom,
       hiddenThreadTagsAtom: () => Atom.make(null),
-      unlistedProjectIdsAtom: () => Atom.make(unlistedProjectIds),
     }),
   };
 }
@@ -112,41 +108,6 @@ describe("v2 thread shell lists", () => {
     });
     expect(registry.get(threads.navigationThreadShellsAtom)).toBe(before);
     expect(registry.get(threads.threadShellsAtom)).toHaveLength(3);
-    dispose();
-    registry.dispose();
-  });
-
-  it("leaves threads of an unlisted project and their subagents out of lists, still openable", () => {
-    const { registry, threads, snapshotAtom } = makeHarness(
-      [environmentId],
-      new Set([otherProjectId]),
-    );
-    const listed = v2ThreadShell;
-    const buddy = { ...v2ThreadShell, id: ThreadId.make("buddy"), projectId: otherProjectId };
-    const child = {
-      ...buddy,
-      id: ThreadId.make("buddy-child"),
-      projectId: listed.projectId,
-      lineage: {
-        ...buddy.lineage,
-        parentThreadId: buddy.id,
-        relationshipToParent: "subagent" as const,
-      },
-    };
-    registry.set(snapshotAtom(environmentId), {
-      ...v2ShellSnapshot,
-      threads: [listed, buddy, child],
-    });
-    const dispose = registry.mount(threads.navigationThreadShellsAtom);
-    expect(registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id)).toEqual([
-      listed.id,
-    ]);
-    expect(registry.get(threads.visibleThreadShellsAtom).map((thread) => thread.id)).toEqual([
-      listed.id,
-    ]);
-    expect(registry.get(threads.threadShellsAtom)).toHaveLength(3);
-    // Not tag-hidden: the thread route still opens it by its link.
-    expect(registry.get(threads.hiddenThreadKeysAtom).size).toBe(0);
     dispose();
     registry.dispose();
   });

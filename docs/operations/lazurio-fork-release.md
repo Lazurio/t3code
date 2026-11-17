@@ -793,6 +793,11 @@ a hledání. Na rozdíl od vláken skrytých filtrem štítků je otevře přím
 Chatu vidět musí. Oficiální desktop a mobil projekt ukážou jako běžný, protože
 skrytí je ve webovém klientu a client-runtime overlaye. Bez proměnné se nic
 nemění a Buddyho T3 Code GEN3 (`T3CODE_LAZURIO_BUDDY=1`) ji nedostává.
+Logika vynechání je v modulu overlaye
+`packages/client-runtime/src/lazurio/unlistedProjects.ts`. Atomy projektů
+a vláken upstreamu (`projectEntities.ts`, `threadShell.ts`) a
+`apps/web/src/state/threads.ts` nesou po jednom háčku. Všech pět souborů je
+proto v allowlistu.
 
 Kód spravované složky žije ve složkách overlaye (`apps/*/src/lazurio/`);
 upstream soubory nesou jen háčky o několika řádcích. Kontraktní test je hlídá

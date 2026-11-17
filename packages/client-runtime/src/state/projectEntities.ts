@@ -11,12 +11,12 @@ import { Atom } from "effect/reactivity";
 import type { EnvironmentProject } from "./models.ts";
 import { scopeProject } from "./models.ts";
 import { isScratchProject } from "./projects.ts";
+import { sameProjectIds, unlistedProjectIds } from "../lazurio/unlistedProjects.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import { arrayElementsEqual, parseProjectKey, projectKey, projectRefsEqual } from "./entities.ts";
 
 const EMPTY_PROJECTS: ReadonlyArray<OrchestrationProjectShell> = Object.freeze([]);
 const EMPTY_PROJECT_INDEX: ReadonlyMap<ProjectId, OrchestrationProjectShell> = new Map();
-const NO_UNLISTED_PROJECTS: ReadonlySet<ProjectId> = new Set();
 
 export function createEnvironmentProjectAtoms(input: {
   readonly catalogValueAtom: Atom.Atom<EnvironmentCatalogState>;
@@ -44,25 +44,18 @@ export function createEnvironmentProjectAtoms(input: {
     }).pipe(Atom.withLabel(`environment-project-index:${environmentId}`)),
   );
 
-  // Lazurio overlay (LZD-0033): Buddy's project, over the Buddy folder a managed Environment
-  // declares, is Lazurio's own and stays out of every project list. Point reads still find it, so
-  // a link to one of its threads opens.
+  // Lazurio overlay (LZD-0033): Buddy's project stays out of the lists below, not out of point reads.
   const unlistedProjectIdsAtom = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get): ReadonlySet<ProjectId> => {
-      const buddyFolder = input.serverConfigValueAtom
-        ? get(input.serverConfigValueAtom(environmentId))?.lazurioBuddyFolder
-        : undefined;
-      if (buddyFolder === undefined) return NO_UNLISTED_PROJECTS;
-      const ids = get(environmentProjectsAtom(environmentId)).flatMap((project) =>
-        project.workspaceRoot === buddyFolder ? [project.id] : [],
-      );
-      return ids.length === 0 ? NO_UNLISTED_PROJECTS : new Set(ids);
-    }).pipe(
-      Atom.withEquality(
-        (a: ReadonlySet<ProjectId>, b: ReadonlySet<ProjectId>) =>
-          a === b || (a.size === b.size && [...a].every((id) => b.has(id))),
+    Atom.make((get) =>
+      unlistedProjectIds(
+        get(environmentProjectsAtom(environmentId)),
+        input.serverConfigValueAtom
+          ? get(input.serverConfigValueAtom(environmentId))?.lazurioBuddyFolder
+          : undefined,
       ),
-      Atom.withLabel(`environment-unlisted-project-ids:${environmentId}`),
+    ).pipe(
+      Atom.withEquality(sameProjectIds),
+      Atom.withLabel(`environment-unlisted-projects:${environmentId}`),
     ),
   );
 

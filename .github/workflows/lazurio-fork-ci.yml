@@ -416,6 +416,14 @@ jobs:
             # admits, a copy of APPLICATION_PUBLIC_PATHS in HumanAndMachine-ai/Machines (row 34,
             # root decision 0157).
             packages/client-runtime/src/lazurio/workspaceGateway.test.ts
+            # Buddy's project beside the managed Folder (LZD-0033, row 15): the web leaves it and its
+            # threads out of lists, not out of point reads, so a link to its thread opens. The
+            # logic is in the overlay module; the project and thread atoms carry one hook each.
+            packages/client-runtime/src/lazurio/unlistedProjects.ts
+            packages/client-runtime/src/lazurio/unlistedProjects.test.ts
+            packages/client-runtime/src/state/projectEntities.ts
+            packages/client-runtime/src/state/threadShell.ts
+            apps/web/src/state/threads.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |
