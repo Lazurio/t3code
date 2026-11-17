@@ -302,6 +302,10 @@ NodeTest.test("archives are built with upstream's own release steps", () => {
     /source_sha: \$\{\{ inputs\.source_sha \}\}\n {6}darwin_runner: lazurio-release-macos\n/,
   );
   NodeAssert.doesNotMatch(ci, /darwin_runner/);
+  NodeAssert.match(
+    archives,
+    /name: Launcher install linux-x64\n {4}needs: build\n(?: {4}#.*\n)* {4}if: \$\{\{ !cancelled\(\) \}\}\n/,
+  );
   const stamp = archives.indexOf('node scripts/update-release-package-versions.ts "$VERSION"');
   NodeAssert.ok(stamp > 0 && stamp < archives.indexOf("vp run --filter t3 build"));
   NodeAssert.match(archives, /node apps\/server\/scripts\/cli\.ts build-exe/);
