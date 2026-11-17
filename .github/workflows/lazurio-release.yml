@@ -128,6 +128,9 @@ jobs:
     with:
       version: ${{ inputs.version }}
       source_sha: ${{ inputs.source_sha }}
+      # Temporary exception (Lazurio/t3code#218, #185, #220): hosted macos-15 gets no runner here, so the
+      # release builds darwin-arm64 on its own ephemeral Mac and the darwin PR check is not required.
+      # Both are undone when a whole release or preview run gets a hosted macOS runner and passes.
       darwin_runner: lazurio-release-macos
 
   publish:

@@ -299,7 +299,7 @@ NodeTest.test("archives are built with upstream's own release steps", () => {
   NodeAssert.match(archives, /darwin_runner:\n(?: {8}.*\n)*? {8}default: macos-15\n/);
   NodeAssert.match(
     release,
-    /source_sha: \$\{\{ inputs\.source_sha \}\}\n {6}darwin_runner: lazurio-release-macos\n/,
+    /source_sha: \$\{\{ inputs\.source_sha \}\}\n(?: {6}#.*\n)* {6}darwin_runner: lazurio-release-macos\n/,
   );
   NodeAssert.doesNotMatch(ci, /darwin_runner/);
   NodeAssert.match(
