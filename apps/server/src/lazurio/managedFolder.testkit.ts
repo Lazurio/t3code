@@ -19,7 +19,8 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 /**
  * A managed Environment on disk: its Folder, a repository inside it, one beside it (an earlier
- * project), a symlink to the Folder, and where its database goes.
+ * project), the Buddy folder beside it and a symlink to it, a symlink to the Folder, and where its
+ * database goes.
  */
 export const makeFolderDirectories = () => {
   const parent = NodeFS.realpathSync(
@@ -29,19 +30,36 @@ export const makeFolderDirectories = () => {
   const inside = NodePath.join(folder, "organizations", "example");
   const repository = NodePath.join(parent, "repository");
   const link = NodePath.join(parent, "link-to-Lazurio");
+  const buddy = NodePath.join(parent, "Buddy");
+  const buddyLink = NodePath.join(parent, "link-to-Buddy");
   NodeFS.mkdirSync(inside, { recursive: true });
   NodeFS.mkdirSync(repository);
+  NodeFS.mkdirSync(buddy);
   NodeFS.symlinkSync(folder, link);
-  return { parent, folder, inside, repository, link, database: NodePath.join(parent, "db.sqlite") };
+  NodeFS.symlinkSync(buddy, buddyLink);
+  return {
+    parent,
+    folder,
+    inside,
+    repository,
+    link,
+    buddy,
+    buddyLink,
+    database: NodePath.join(parent, "db.sqlite"),
+  };
 };
 
-/** The test server config, with `lazurioFolder` as `T3CODE_LAZURIO_FOLDER` would set it. */
-export const layerManagedConfig = (lazurioFolder?: string) =>
+/**
+ * The test server config, with `lazurioFolder` and `lazurioBuddyFolder` as `T3CODE_LAZURIO_FOLDER`
+ * and `T3CODE_LAZURIO_BUDDY_FOLDER` would set them.
+ */
+export const layerManagedConfig = (lazurioFolder?: string, lazurioBuddyFolder?: string) =>
   Layer.effect(
     ServerConfig.ServerConfig,
     Effect.map(ServerConfig.ServerConfig, (config) => ({
       ...config,
       ...(lazurioFolder === undefined ? {} : { lazurioFolder }),
+      ...(lazurioBuddyFolder === undefined ? {} : { lazurioBuddyFolder }),
     })),
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-lazurio-folder-" })));
 
@@ -65,6 +83,7 @@ const layerMetadata = Layer.merge(
 export const layerProjects = <E, R>(input: {
   readonly persistence: Layer.Layer<SqlClient.SqlClient, E, R>;
   readonly lazurioFolder?: string;
+  readonly lazurioBuddyFolder?: string;
 }) =>
   RuntimeLayer.layerProjectService.pipe(
     Layer.provideMerge(ProjectEnrichmentService.layer),
@@ -72,6 +91,6 @@ export const layerProjects = <E, R>(input: {
     Layer.provideMerge(layerMetadata),
     Layer.provideMerge(input.persistence),
     Layer.provideMerge(ServerSettings.layerTest()),
-    Layer.provideMerge(layerManagedConfig(input.lazurioFolder)),
+    Layer.provideMerge(layerManagedConfig(input.lazurioFolder, input.lazurioBuddyFolder)),
     Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );

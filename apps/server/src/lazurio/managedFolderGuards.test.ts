@@ -153,6 +153,74 @@ describe("projects in a managed Environment", () => {
     });
   });
 
+  it.effect("take Buddy's project only from the startup's bootstrap, and keep it", () => {
+    const { folder, buddy, buddyLink } = makeFolderDirectories();
+    const bootstrapBuddy = Effect.flatMap(ProjectService.ProjectService, (projects) =>
+      projects.bootstrap({
+        commandId: CommandId.make("bootstrap-buddy"),
+        projectId: ProjectId.make("buddy"),
+        title: "Buddy",
+        workspaceRoot: buddyLink,
+      }),
+    );
+    // Separate provides: layers memoize across a nested one.
+    const withoutBuddy = Effect.gen(function* () {
+      // Without a declared Buddy folder it is any other folder.
+      assert.strictEqual(
+        yield* projectRefusal(bootstrapBuddy),
+        "In this Environment, the Lazurio project is the Lazurio Folder itself.",
+      );
+    }).pipe(
+      Effect.provide(
+        layerProjects({ persistence: SqlitePersistence.layerMemory, lazurioFolder: folder }),
+      ),
+    );
+    const withBuddy = Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      // Clients, agents and the CLI create projects, and get only the Folder's.
+      assert.strictEqual(
+        yield* projectRefusal(
+          projects.create({
+            commandId: CommandId.make("create-buddy"),
+            projectId: ProjectId.make("buddy-created"),
+            title: "Buddy",
+            workspaceRoot: buddy,
+          }),
+        ),
+        "In this Environment, the Lazurio project is the Lazurio Folder itself.",
+      );
+      const { project } = yield* bootstrapBuddy;
+      assert.strictEqual(project.workspaceRoot, buddy);
+      const kept =
+        "Buddy's project belongs to this Environment: it keeps its name and cannot be archived or removed.";
+      let updates = 0;
+      const update = (change: { title?: string; archived?: boolean; pinned?: boolean }) =>
+        projects.update({
+          commandId: CommandId.make(`update-buddy-${++updates}`),
+          projectId: project.id,
+          ...change,
+        });
+      assert.strictEqual(yield* projectRefusal(update({ title: "Chat" })), kept);
+      assert.strictEqual(yield* projectRefusal(update({ archived: true })), kept);
+      assert.strictEqual(
+        yield* projectRefusal(
+          projects.delete({ commandId: CommandId.make("delete-buddy"), projectId: project.id }),
+        ),
+        kept,
+      );
+      yield* update({ title: "Buddy", pinned: true });
+    }).pipe(
+      Effect.provide(
+        layerProjects({
+          persistence: SqlitePersistence.layerMemory,
+          lazurioFolder: folder,
+          lazurioBuddyFolder: buddy,
+        }),
+      ),
+    );
+    return Effect.andThen(withoutBuddy, withBuddy);
+  });
+
   it.effect("are upstream's without T3CODE_LAZURIO_FOLDER", () => {
     const { parent, repository } = makeFolderDirectories();
     return Effect.gen(function* () {
@@ -178,8 +246,10 @@ describe("projects in a managed Environment", () => {
 });
 
 describe("orchestration commands in a managed Environment", () => {
-  const { folder } = makeFolderDirectories();
+  const { folder, buddy } = makeFolderDirectories();
   const folderProject = ProjectId.make("project-lazurio");
+  const buddyProject = ProjectId.make("project-buddy");
+  const buddyThread = ThreadId.make("thread-buddy");
   const historyProject = ProjectId.make("project-history");
   const folderThread = ThreadId.make("thread-lazurio");
   const historyThread = ThreadId.make("thread-history");
@@ -187,17 +257,19 @@ describe("orchestration commands in a managed Environment", () => {
   const threads = new Map([
     [folderThread, { projectId: folderProject, worktreePath: null }],
     [historyThread, { projectId: historyProject, worktreePath: null }],
+    [buddyThread, { projectId: buddyProject, worktreePath: null }],
     [worktreeThread, { projectId: folderProject, worktreePath: `${folder}-worktree` }],
   ]);
   const roots = new Map([
     [folderProject, folder],
     [historyProject, "/home/person/older-repository"],
+    [buddyProject, buddy],
   ]);
   const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" };
   const creation = { createdBy: "user", creationSource: "web" } as const;
 
   /** The decorated orchestrator over a stand-in that records what reached it. */
-  const withOrchestrator = (lazurioFolder: string | undefined) => {
+  const withOrchestrator = (lazurioFolder: string | undefined, lazurioBuddyFolder?: string) => {
     const reached: Array<string> = [];
     const layer = LazurioManagedFolder.guardCommands(
       Layer.mock(Orchestrator.OrchestratorV2)({
@@ -219,7 +291,7 @@ describe("orchestration commands in a managed Environment", () => {
             ),
         }),
       ),
-      Layer.provide(layerManagedConfig(lazurioFolder)),
+      Layer.provide(layerManagedConfig(lazurioFolder, lazurioBuddyFolder)),
       Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     return { reached, layer };
@@ -310,6 +382,9 @@ describe("orchestration commands in a managed Environment", () => {
           createThread("create-folder", folderProject, null),
         ),
         "create elsewhere": yield* refusalOf(createThread("create-history", historyProject, null)),
+        "create in Buddy's undeclared folder": yield* refusalOf(
+          createThread("create-buddy", buddyProject, null),
+        ),
         "create in a worktree": yield* refusalOf(
           createThread("create-worktree", folderProject, `${folder}-worktree`),
         ),
@@ -334,6 +409,7 @@ describe("orchestration commands in a managed Environment", () => {
       assert.deepStrictEqual(refusals, {
         "create in the Folder": null,
         "create elsewhere": threadElsewhere,
+        "create in Buddy's undeclared folder": threadElsewhere,
         "create in a worktree": threadElsewhere,
         "message in the Folder": null,
         "launch in the Folder": null,
@@ -362,6 +438,35 @@ describe("orchestration commands in a managed Environment", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("keep threads in Buddy's project root too, once its folder is declared", () => {
+    const { reached, layer } = withOrchestrator(folder, buddy);
+    return Effect.gen(function* () {
+      const refusals = {
+        create: yield* refusalOf(createThread("create-buddy", buddyProject, null)),
+        "create in a worktree": yield* refusalOf(
+          createThread("create-buddy-worktree", buddyProject, `${buddy}-worktree`),
+        ),
+        message: yield* refusalOf(message("message-buddy", buddyThread)),
+        "launch into a worktree": yield* refusalOf(
+          message("launch-buddy-worktree", buddyThread, { type: "worktree", baseRef: "main" }),
+        ),
+        fork: yield* refusalOf(fork("fork-buddy", buddyThread)),
+        "create elsewhere": yield* refusalOf(createThread("create-history", historyProject, null)),
+        "message to history": yield* refusalOf(message("message-history", historyThread)),
+      };
+      assert.deepStrictEqual(refusals, {
+        create: null,
+        "create in a worktree": threadElsewhere,
+        message: null,
+        "launch into a worktree": threadInWorktree,
+        fork: null,
+        "create elsewhere": threadElsewhere,
+        "message to history": threadElsewhere,
+      });
+      assert.deepStrictEqual(reached, ["create-buddy", "message-buddy", "fork-buddy"]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("are upstream's without T3CODE_LAZURIO_FOLDER", () => {
     const { reached, layer } = withOrchestrator(undefined);
     return Effect.gen(function* () {
@@ -384,7 +489,7 @@ describe("agent sessions in a managed Environment", () => {
   const claude = { instanceId: ProviderInstanceId.make("claudeAgent"), model: "claude-model" };
 
   /** The decorated session manager over a stand-in provider that records each session it opens. */
-  const withSessions = (lazurioFolder: string | undefined) => {
+  const withSessions = (lazurioFolder: string | undefined, lazurioBuddyFolder?: string) => {
     const opened: Array<string | null> = [];
     const layer = LazurioManagedFolder.guardTurns(
       Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
@@ -395,7 +500,7 @@ describe("agent sessions in a managed Environment", () => {
           }),
       }),
     ).pipe(
-      Layer.provide(layerManagedConfig(lazurioFolder)),
+      Layer.provide(layerManagedConfig(lazurioFolder, lazurioBuddyFolder)),
       Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     return { opened, layer };
@@ -427,12 +532,12 @@ describe("agent sessions in a managed Environment", () => {
   ];
 
   it.effect.each(providers)("open for $provider only in the Folder itself", ({ selection }) => {
-    const { folder, link, inside, repository } = makeFolderDirectories();
+    const { folder, link, inside, repository, buddy } = makeFolderDirectories();
     const { opened, layer } = withSessions(folder);
     return Effect.gen(function* () {
       assert.isNull(yield* open(selection, folder));
       assert.isNull(yield* open(selection, link));
-      for (const elsewhere of [inside, repository, `${folder}-missing`, null]) {
+      for (const elsewhere of [inside, repository, buddy, `${folder}-missing`, null]) {
         assert.deepStrictEqual(yield* open(selection, elsewhere), {
           instanceId: selection.instanceId,
           cause: turnOutsideFolder,
@@ -442,6 +547,25 @@ describe("agent sessions in a managed Environment", () => {
       assert.deepStrictEqual(opened, [folder, link]);
     }).pipe(Effect.provide(layer));
   });
+
+  it.effect.each(providers)(
+    "open for $provider in the declared Buddy folder too, and nowhere else new",
+    ({ selection }) => {
+      const { folder, buddy, buddyLink, inside, repository } = makeFolderDirectories();
+      const { opened, layer } = withSessions(folder, buddy);
+      return Effect.gen(function* () {
+        for (const allowed of [folder, buddy, buddyLink])
+          assert.isNull(yield* open(selection, allowed));
+        for (const elsewhere of [inside, repository, `${buddy}/inside`, null]) {
+          assert.deepStrictEqual(yield* open(selection, elsewhere), {
+            instanceId: selection.instanceId,
+            cause: turnOutsideFolder,
+          });
+        }
+        assert.deepStrictEqual(opened, [folder, buddy, buddyLink]);
+      }).pipe(Effect.provide(layer));
+    },
+  );
 
   it.effect.each(providers)(
     "refuse $provider in a Folder path that now leads elsewhere",

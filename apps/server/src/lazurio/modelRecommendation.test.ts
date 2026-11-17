@@ -134,6 +134,14 @@ it.effect("the settings writer applies recommendations and keeps the person's ow
       selection: second,
     });
 
+    // Another project's model, such as Buddy's (LZD-0033), is never the recommendation's.
+    yield* settings.updateSettings({
+      projectSettingsOverrides: { [historyProject]: { defaultModelSelection: personal } },
+    });
+    yield* apply(first);
+    yield* apply(second);
+    assert.deepStrictEqual(folderModel(yield* settings.getSettings, historyProject), personal);
+
     // The person's own model for the project stays, and so does their Environment default.
     yield* settings.updateSettings({
       defaultModelSelection: claude,

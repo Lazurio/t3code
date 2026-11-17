@@ -16,6 +16,7 @@ import { arrayElementsEqual, parseProjectKey, projectKey, projectRefsEqual } fro
 
 const EMPTY_PROJECTS: ReadonlyArray<OrchestrationProjectShell> = Object.freeze([]);
 const EMPTY_PROJECT_INDEX: ReadonlyMap<ProjectId, OrchestrationProjectShell> = new Map();
+const NO_UNLISTED_PROJECTS: ReadonlySet<ProjectId> = new Set();
 
 export function createEnvironmentProjectAtoms(input: {
   readonly catalogValueAtom: Atom.Atom<EnvironmentCatalogState>;
@@ -24,7 +25,7 @@ export function createEnvironmentProjectAtoms(input: {
   ) => Atom.Atom<OrchestrationV2ShellSnapshot | null>;
   readonly serverConfigValueAtom?: (
     environmentId: EnvironmentId,
-  ) => Atom.Atom<Pick<ServerConfig, "scratchWorkspaceRoot"> | null>;
+  ) => Atom.Atom<Pick<ServerConfig, "scratchWorkspaceRoot" | "lazurioBuddyFolder"> | null>;
 }) {
   const environmentProjectsAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make(
@@ -43,13 +44,35 @@ export function createEnvironmentProjectAtoms(input: {
     }).pipe(Atom.withLabel(`environment-project-index:${environmentId}`)),
   );
 
+  // Lazurio overlay (LZD-0033): Buddy's project, over the Buddy folder a managed Environment
+  // declares, is Lazurio's own and stays out of every project list. Point reads still find it, so
+  // a link to one of its threads opens.
+  const unlistedProjectIdsAtom = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get): ReadonlySet<ProjectId> => {
+      const buddyFolder = input.serverConfigValueAtom
+        ? get(input.serverConfigValueAtom(environmentId))?.lazurioBuddyFolder
+        : undefined;
+      if (buddyFolder === undefined) return NO_UNLISTED_PROJECTS;
+      const ids = get(environmentProjectsAtom(environmentId)).flatMap((project) =>
+        project.workspaceRoot === buddyFolder ? [project.id] : [],
+      );
+      return ids.length === 0 ? NO_UNLISTED_PROJECTS : new Set(ids);
+    }).pipe(
+      Atom.withEquality(
+        (a: ReadonlySet<ProjectId>, b: ReadonlySet<ProjectId>) =>
+          a === b || (a.size === b.size && [...a].every((id) => b.has(id))),
+      ),
+      Atom.withLabel(`environment-unlisted-project-ids:${environmentId}`),
+    ),
+  );
+
   const environmentProjectRefsAtom = Atom.family((environmentId: EnvironmentId) => {
     let previous: ReadonlyArray<ScopedProjectRef> = [];
     return Atom.make((get) => {
-      const next = get(environmentProjectsAtom(environmentId)).map((project) => ({
-        environmentId,
-        projectId: project.id,
-      }));
+      const unlisted = get(unlistedProjectIdsAtom(environmentId));
+      const next = get(environmentProjectsAtom(environmentId)).flatMap((project) =>
+        unlisted.has(project.id) ? [] : [{ environmentId, projectId: project.id }],
+      );
       if (projectRefsEqual(previous, next)) {
         return previous;
       }
@@ -133,6 +156,7 @@ export function createEnvironmentProjectAtoms(input: {
     projectRefsAtom,
     projectsAtom,
     projectConfigsReadyAtom,
+    unlistedProjectIdsAtom,
     projectAtom: (ref: ScopedProjectRef) => projectAtomFamily(projectKey(ref)),
   };
 }

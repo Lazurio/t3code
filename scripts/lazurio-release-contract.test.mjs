@@ -1074,7 +1074,8 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   );
   NodeAssert.match(
     source.guards,
-    /bootstrap: Effect\.fn\("LazurioManagedFolder\.bootstrapProject"\)\(\(input\) =>\n\s+Effect\.flatMap\(inFolder\(input\), projects\.bootstrap\),/,
+    // Only the startup bootstraps, so only it can make Buddy's project (LZD-0033); create cannot.
+    /bootstrap: Effect\.fn\("LazurioManagedFolder\.bootstrapProject"\)\(\(input\) =>\n\s+Effect\.flatMap\(inFolderOrBuddy\(input\), projects\.bootstrap\),/,
   );
   NodeAssert.match(source.guards, /scratchRoot: Effect\.succeedNone,/);
   NodeAssert.match(source.vcs, /const lazurioFolderGuard = yield\* makeFolderGuard;/);

@@ -88,3 +88,33 @@ it.effect(
     });
   },
 );
+
+it.effect("with a Buddy folder declared, also creates Buddy's project once, named Buddy", () => {
+  const { folder, buddy } = makeFolderDirectories();
+  return Effect.gen(function* () {
+    const first = yield* ensureManagedFolderProject;
+    yield* ensureManagedFolderProject;
+    const projects = (yield* (yield* ProjectService.ProjectService).snapshot).projects;
+    assert.deepStrictEqual(
+      projects.map((project) => [project.title, project.workspaceRoot]).toSorted(),
+      [
+        ["Buddy", buddy],
+        ["Lazurio", folder],
+      ],
+    );
+    // The Platform's model recommendation stays the Folder project's alone.
+    const { stateDir } = yield* ServerConfig.ServerConfig;
+    assert.strictEqual(
+      Option.getOrThrow(yield* readModelRecommendationRecord(stateDir)).projectId,
+      first.bootstrapProjectId,
+    );
+  }).pipe(
+    Effect.provide(
+      layerProjects({
+        persistence: SqlitePersistence.layerMemory,
+        lazurioFolder: folder,
+        lazurioBuddyFolder: buddy,
+      }),
+    ),
+  );
+});
