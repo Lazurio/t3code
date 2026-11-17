@@ -193,6 +193,9 @@ jobs:
   launcher:
     name: Launcher install linux-x64
     needs: build
+    # Needs only the linux-x64 archive: a darwin job without a runner (#218) must not skip it, and
+    # a failed linux-x64 build still fails this job when its artifact is missing.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
