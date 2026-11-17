@@ -17,7 +17,12 @@ import { Atom } from "effect/reactivity";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { hiddenThreadKeys, NO_HIDDEN_THREADS } from "./threadTagFilter.ts";
-import { listHiddenKeys, sameThreadKeys, unlistedThreadKeys } from "../lazurio/unlistedProjects.ts";
+import {
+  listHiddenKeys,
+  NO_UNLISTED_PROJECT_IDS,
+  sameThreadKeys,
+  unlistedThreadKeys,
+} from "../lazurio/unlistedProjects.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import {
   arrayElementsEqual,
@@ -632,23 +637,21 @@ export function createEnvironmentThreadShellAtoms(input: {
   }).pipe(Atom.withLabel("environment-hidden-thread-keys"));
 
   // Lazurio overlay (LZD-0033): lists leave out unlisted projects' threads; the route still opens them.
-  const unlistedThreadKeysAtom = Atom.make((get) =>
-    unlistedThreadKeys(
-      Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).flatMap((environmentId) => {
-        const projectIds = input.unlistedProjectIdsAtom?.(environmentId);
-        const ids = projectIds === undefined ? null : get(projectIds);
-        return ids === null || ids.size === 0
-          ? []
-          : [
-              {
-                environmentId,
-                projectIds: ids,
-                threads: get(environmentThreadsAtom(environmentId)),
-              },
-            ];
-      }),
-    ),
-  ).pipe(Atom.withEquality(sameThreadKeys), Atom.withLabel("environment-unlisted-thread-keys"));
+  const unlistedThreadKeysAtom = Atom.make((get) => {
+    const environments = Array.from(enabledEnvironmentIds(get(input.catalogValueAtom)), (id) => ({
+      environmentId: id,
+      projectIds: input.unlistedProjectIdsAtom ? get(input.unlistedProjectIdsAtom(id)) : null,
+    }));
+    if (!environments.some(({ projectIds }) => projectIds !== null && projectIds.size > 0))
+      return NO_HIDDEN_THREADS;
+    return unlistedThreadKeys(
+      environments.map(({ environmentId, projectIds }) => ({
+        environmentId,
+        projectIds: projectIds ?? NO_UNLISTED_PROJECT_IDS,
+        threads: get(environmentThreadsAtom(environmentId)),
+      })),
+    );
+  }).pipe(Atom.withEquality(sameThreadKeys), Atom.withLabel("environment-unlisted-thread-keys"));
   const listHiddenThreadKeysAtom = Atom.make((get) =>
     listHiddenKeys(get(hiddenThreadKeysAtom), get(unlistedThreadKeysAtom)),
   ).pipe(Atom.withLabel("environment-list-hidden-thread-keys"));
@@ -750,6 +753,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     threadShellsAtom,
     visibleThreadShellsAtom,
     hiddenThreadKeysAtom,
+    listHiddenThreadKeysAtom,
     anyEnvironmentHidingAtom,
     quietThreadShellsAtom,
     navigationThreadShellsAtom,

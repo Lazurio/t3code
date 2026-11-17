@@ -80,13 +80,23 @@ it.effect("declares the Buddy folder beside the Folder by its canonical path", (
         lazurioBuddyFolder: buddy,
       },
     );
-    // Not made yet: no Buddy project, and the Folder's Chat still starts.
-    assert.deepStrictEqual(
-      yield* resolveManagedFolderConfig.pipe(
-        withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: `${buddy}-missing` }),
-      ),
-      { cwd: folder, lazurioFolder: folder, autoBootstrapProjectFromCwd: false },
-    );
+    // Missing (not made yet, or removed): Chat still starts and the path stays, so an earlier
+    // Buddy project stays unlisted. A sibling whose name starts with two dots is still beside.
+    const dotsSibling = NodePath.join(NodePath.dirname(folder), "..Buddy");
+    NodeFS.mkdirSync(dotsSibling);
+    for (const declared of [`${buddy}-missing`, dotsSibling]) {
+      assert.deepStrictEqual(
+        yield* resolveManagedFolderConfig.pipe(
+          withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: declared }),
+        ),
+        {
+          cwd: folder,
+          lazurioFolder: folder,
+          autoBootstrapProjectFromCwd: false,
+          lazurioBuddyFolder: declared,
+        },
+      );
+    }
   }),
 );
 
@@ -97,6 +107,9 @@ it.effect("refuses a relative path, a file, an insecure or credentialed tools UR
     NodeFS.writeFileSync(file, "");
     const insideFolder = NodePath.join(folder, ".agents", "buddy");
     NodeFS.mkdirSync(insideFolder, { recursive: true });
+    const dotsInsideFolder = NodePath.join(folder, "..buddy");
+    NodeFS.mkdirSync(dotsInsideFolder);
+    NodeFS.mkdirSync(NodePath.join(folder, "..x"));
     const beside = "T3CODE_LAZURIO_BUDDY_FOLDER must be beside the Lazurio Folder";
     for (const [env, expected] of [
       [{ T3CODE_LAZURIO_FOLDER: "Lazurio" }, "T3CODE_LAZURIO_FOLDER must be an absolute"],
@@ -111,6 +124,8 @@ it.effect("refuses a relative path, a file, an insecure or credentialed tools UR
       ],
       [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: folder }, beside],
       [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: insideFolder }, beside],
+      [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: dotsInsideFolder }, beside],
+      [{ T3CODE_LAZURIO_FOLDER: `${folder}/..x`, T3CODE_LAZURIO_BUDDY_FOLDER: folder }, beside],
       [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: parent }, beside],
       [
         { T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_TOOLS_URL: "http://launchpad.test/" },

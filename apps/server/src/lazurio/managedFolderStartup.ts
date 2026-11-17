@@ -36,7 +36,16 @@ export const ensureManagedFolderProject = Effect.gen(function* () {
       title: "Lazurio",
     });
   }
-  if (typeof lazurioBuddyFolder === "string") yield* ensureBuddyProject(lazurioBuddyFolder);
+  // A Buddy folder not made yet has no project to adopt; its declared path keeps any earlier one unlisted.
+  const fileSystemForBuddy = yield* Effect.serviceOption(FileSystem.FileSystem);
+  if (
+    typeof lazurioBuddyFolder === "string" &&
+    (Option.isNone(fileSystemForBuddy) ||
+      (yield* fileSystemForBuddy.value
+        .exists(lazurioBuddyFolder)
+        .pipe(Effect.orElseSucceed(() => false))))
+  )
+    yield* ensureBuddyProject(lazurioBuddyFolder);
   // A server always runs on the platform's file system. Upstream's startup tests build this phase
   // without one, so it is read here rather than added to the startup's requirements.
   const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);

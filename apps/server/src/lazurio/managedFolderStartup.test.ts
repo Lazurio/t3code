@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - the Buddy folder is a real directory, removed in one case.
+import * as NodeFS from "node:fs";
+
 import { CommandId, ProjectId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -117,4 +120,29 @@ it.effect("with a Buddy folder declared, also creates Buddy's project once, name
       }),
     ),
   );
+});
+
+it.effect("restarts without the Buddy folder: Chat starts and Buddy's project stays", () => {
+  const { folder, buddy, database } = makeFolderDirectories();
+  const persistence = SqlitePersistence.layerFromPath(database);
+  const managed = layerProjects({ persistence, lazurioFolder: folder, lazurioBuddyFolder: buddy });
+  const projectsByTitle = Effect.gen(function* () {
+    const { projects } = yield* (yield* ProjectService.ProjectService).snapshot;
+    return projects.map((project) => [project.title, project.workspaceRoot]).toSorted();
+  });
+  return Effect.gen(function* () {
+    yield* Effect.andThen(ensureManagedFolderProject, projectsByTitle).pipe(
+      Effect.provide(managed),
+    );
+    yield* Effect.sync(() => NodeFS.rmSync(buddy, { recursive: true }));
+    assert.deepStrictEqual(
+      yield* Effect.andThen(ensureManagedFolderProject, projectsByTitle).pipe(
+        Effect.provide(managed),
+      ),
+      [
+        ["Buddy", buddy],
+        ["Lazurio", folder],
+      ],
+    );
+  });
 });

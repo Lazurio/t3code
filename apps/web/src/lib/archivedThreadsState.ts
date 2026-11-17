@@ -8,6 +8,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 
 import { orchestrationEnvironment } from "../state/orchestration";
 import { serverEnvironment } from "../state/server";
+import { environmentProjects } from "../state/projects";
 import { environmentThreadShells } from "../state/threads";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 
@@ -21,9 +22,11 @@ function archivedSnapshotAtom(environmentId: EnvironmentId) {
 const archivedSnapshotsAtom = createArchivedThreadSnapshotsAtomFamily({
   getSnapshotAtom: archivedSnapshotAtom,
   hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
-  hiddenThreadKeysAtom: environmentThreadShells.hiddenThreadKeysAtom,
+  // Lazurio overlay (LZD-0033): live and archived threads of Buddy's project stay out too.
+  hiddenThreadKeysAtom: environmentThreadShells.listHiddenThreadKeysAtom,
   liveThreadRefsAtom: environmentThreadShells.threadRefsAtom,
   anyEnvironmentHidingAtom: environmentThreadShells.anyEnvironmentHidingAtom,
+  unlistedProjectIdsAtom: environmentProjects.unlistedProjectIdsAtom,
   labelPrefix: "web:archived-thread-snapshots",
 });
 

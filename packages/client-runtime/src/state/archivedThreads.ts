@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   type OrchestrationV2ArchivedShellSnapshot,
+  type ProjectId,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
@@ -10,6 +11,11 @@ import { AsyncResult, Atom } from "effect/reactivity";
 
 import { threadKey } from "./entities.ts";
 import { hiddenThreadKeys, type TagFilteredEnvironment } from "./threadTagFilter.ts";
+import {
+  listHiddenKeys,
+  NO_UNLISTED_PROJECT_IDS,
+  unlistedArchivedThreadKeys,
+} from "../lazurio/unlistedProjects.ts";
 
 export interface ArchivedSnapshotEntry {
   readonly environmentId: EnvironmentId;
@@ -56,6 +62,10 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
   readonly liveThreadRefsAtom: Atom.Atom<ReadonlyArray<ScopedThreadRef>>;
   /** Whether any connected environment hides tags, including ones outside this archive's scope. */
   readonly anyEnvironmentHidingAtom: Atom.Atom<boolean>;
+  /** Lazurio overlay (LZD-0033): projects whose archived threads, and their children, stay out. */
+  readonly unlistedProjectIdsAtom?: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<ReadonlySet<ProjectId>>;
   readonly labelPrefix: string;
 }) {
   return Atom.family((environmentKey: string) =>
@@ -88,9 +98,18 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
       // One pass over every environment's page, so archived tasks follow parents archived elsewhere.
       // Any connected machine may hide an unloaded parent, so the global flag decides, not the scope.
       const hidingAnywhere = get(options.anyEnvironmentHidingAtom);
+      const unlisted = unlistedArchivedThreadKeys(
+        snapshots.map(({ environmentId, snapshot }) => ({
+          environmentId,
+          projectIds: options.unlistedProjectIdsAtom
+            ? get(options.unlistedProjectIdsAtom(environmentId))
+            : NO_UNLISTED_PROJECT_IDS,
+          threads: snapshot.threads,
+        })),
+      );
       const hidden = hiddenThreadKeys(
         environments,
-        get(options.hiddenThreadKeysAtom),
+        listHiddenKeys(get(options.hiddenThreadKeysAtom), unlisted),
         hidingAnywhere ? new Set(get(options.liveThreadRefsAtom).map(threadKey)) : undefined,
         hidingAnywhere,
       );

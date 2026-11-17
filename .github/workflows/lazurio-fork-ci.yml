@@ -417,13 +417,17 @@ jobs:
             # root decision 0157).
             packages/client-runtime/src/lazurio/workspaceGateway.test.ts
             # Buddy's project beside the managed Folder (LZD-0033, row 15): the web leaves it and its
-            # threads out of lists, not out of point reads, so a link to its thread opens. The
-            # logic is in the overlay module; the project and thread atoms carry one hook each.
+            # threads out of lists, the archive and pull request rows, not out of point reads, so a
+            # link to its thread opens. The logic is in the overlay module; the project, thread and
+            # archive atoms and their web wiring carry one hook each.
             packages/client-runtime/src/lazurio/unlistedProjects.ts
             packages/client-runtime/src/lazurio/unlistedProjects.test.ts
             packages/client-runtime/src/state/projectEntities.ts
             packages/client-runtime/src/state/threadShell.ts
+            packages/client-runtime/src/state/archivedThreads.ts
             apps/web/src/state/threads.ts
+            apps/web/src/lib/archivedThreadsState.ts
+            apps/web/src/components/pullRequest/PullRequestThreadLinks.tsx
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

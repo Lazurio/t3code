@@ -46,15 +46,19 @@ const canonicalFolder = Effect.fn("LazurioManagedFolder.canonicalFolder")(functi
   return root;
 });
 
-/** Whether `inner` is `outer` or lies under it. Both are canonical. */
+/** Whether `inner` is `outer` or lies under it, compared by whole path components. */
 const within = (path: Path.Path, outer: string, inner: string) => {
   const relative = path.relative(outer, inner);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
 };
 
 /**
  * The Buddy folder's canonical path, beside the Folder (not inside or around it), so its agents
- * load its own instructions. A folder not made yet means no Buddy project, not a Chat that is down.
+ * load its own instructions. A missing folder keeps its declared path, so Chat runs and an earlier
+ * Buddy project stays unlisted; nothing resolves to it, so no turn runs there.
  */
 const canonicalBuddyFolder = Effect.fn("LazurioManagedFolder.canonicalBuddyFolder")(function* (
   folder: string | undefined,
@@ -64,8 +68,10 @@ const canonicalBuddyFolder = Effect.fn("LazurioManagedFolder.canonicalBuddyFolde
     return yield* invalid("T3CODE_LAZURIO_BUDDY_FOLDER needs T3CODE_LAZURIO_FOLDER.");
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
-  if (path.isAbsolute(declared) && !(yield* fs.exists(declared))) return undefined;
-  const root = yield* canonicalFolder("T3CODE_LAZURIO_BUDDY_FOLDER", declared);
+  const root =
+    path.isAbsolute(declared) && !(yield* fs.exists(declared))
+      ? path.resolve(declared)
+      : yield* canonicalFolder("T3CODE_LAZURIO_BUDDY_FOLDER", declared);
   if (within(path, folder, root) || within(path, root, folder))
     return yield* invalid(
       "T3CODE_LAZURIO_BUDDY_FOLDER must be beside the Lazurio Folder, not inside it or around it.",

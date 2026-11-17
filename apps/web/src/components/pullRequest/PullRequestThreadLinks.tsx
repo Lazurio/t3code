@@ -68,7 +68,8 @@ function EnabledPullRequestThreadLinks({
   const currentThreadRef = thread === null ? null : threadRef;
   const linking = usePullRequestLinking(environmentId);
   const linkedHere = linking.isLinked(thread, url);
-  const hiddenKeys = useAtomValue(environmentThreadShells.hiddenThreadKeysAtom);
+  // Lazurio overlay (LZD-0033): Buddy's threads stay out of linked-thread rows too.
+  const hiddenKeys = useAtomValue(environmentThreadShells.listHiddenThreadKeysAtom);
   const hidingAnywhere = useAnyEnvironmentHiding();
   const loadedThreadRefs = useEnvironmentThreadRefs(environmentId);
   const relations = useEnvironmentQuery(
