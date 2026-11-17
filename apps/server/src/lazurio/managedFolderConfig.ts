@@ -53,8 +53,8 @@ const within = (path: Path.Path, outer: string, inner: string) => {
 };
 
 /**
- * The Buddy folder's canonical path. It sits beside the Folder, neither inside it nor holding it,
- * so its agents load its own instructions and not the Folder's, and it means nothing without one.
+ * The Buddy folder's canonical path, beside the Folder (not inside or around it), so its agents
+ * load its own instructions. A folder not made yet means no Buddy project, not a Chat that is down.
  */
 const canonicalBuddyFolder = Effect.fn("LazurioManagedFolder.canonicalBuddyFolder")(function* (
   folder: string | undefined,
@@ -63,6 +63,8 @@ const canonicalBuddyFolder = Effect.fn("LazurioManagedFolder.canonicalBuddyFolde
   if (folder === undefined)
     return yield* invalid("T3CODE_LAZURIO_BUDDY_FOLDER needs T3CODE_LAZURIO_FOLDER.");
   const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  if (path.isAbsolute(declared) && !(yield* fs.exists(declared))) return undefined;
   const root = yield* canonicalFolder("T3CODE_LAZURIO_BUDDY_FOLDER", declared);
   if (within(path, folder, root) || within(path, root, folder))
     return yield* invalid(

@@ -777,7 +777,8 @@ popisuje [specifikace overlaye](./lazurio-overlay.md#odkazy-na-zadání-upstream
 **Projekt Buddyho (plán LZD-0033, řez R1).** `T3CODE_LAZURIO_BUDDY_FOLDER`
 určí vedle složky Lazuria kanonickou existující složku Buddyho; bez
 `T3CODE_LAZURIO_FOLDER` ji server odmítne, stejně jako složku uvnitř Folderu
-nebo složku, která Folder obsahuje. Projekt nad ní je vnitřní věc Lazuria, ne
+nebo složku, která Folder obsahuje. Složka, která ještě neexistuje, znamená
+jen „bez projektu Buddyho“, Chat kvůli ní nespadne. Projekt nad ní je vnitřní věc Lazuria, ne
 funkce Chatu: založí ho jen start serveru (`ProjectService.bootstrap`, jméno
 Buddy), kam žádný klient, agent ani CLI nedosáhne. `create` ho dál odmítne
 (`t3 project add`, `t3_project_create` i web) a přejmenování, archivaci

@@ -80,6 +80,13 @@ it.effect("declares the Buddy folder beside the Folder by its canonical path", (
         lazurioBuddyFolder: buddy,
       },
     );
+    // Not made yet: no Buddy project, and the Folder's Chat still starts.
+    assert.deepStrictEqual(
+      yield* resolveManagedFolderConfig.pipe(
+        withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: `${buddy}-missing` }),
+      ),
+      { cwd: folder, lazurioFolder: folder, autoBootstrapProjectFromCwd: false },
+    );
   }),
 );
 
