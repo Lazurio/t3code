@@ -1,9 +1,14 @@
-import { CommandId, ProjectId } from "@t3tools/contracts";
+// @effect-diagnostics nodeBuiltinImport:off - the Buddy folder is a real directory, removed in one case.
+import * as NodeFS from "node:fs";
+
+import { CommandId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import { layerProjects, makeFolderDirectories } from "./managedFolder.testkit.ts";
@@ -88,3 +93,163 @@ it.effect(
     });
   },
 );
+
+it.effect("with a Buddy folder declared, also creates Buddy's project once, named Buddy", () => {
+  const { folder, buddy } = makeFolderDirectories();
+  return Effect.gen(function* () {
+    const first = yield* ensureManagedFolderProject;
+    yield* ensureManagedFolderProject;
+    const projects = (yield* (yield* ProjectService.ProjectService).snapshot).projects;
+    assert.deepStrictEqual(
+      projects.map((project) => [project.title, project.workspaceRoot]).toSorted(),
+      [
+        ["Buddy", buddy],
+        ["Lazurio", folder],
+      ],
+    );
+    // The Platform's model recommendation stays the Folder project's alone.
+    const { stateDir } = yield* ServerConfig.ServerConfig;
+    assert.strictEqual(
+      Option.getOrThrow(yield* readModelRecommendationRecord(stateDir)).projectId,
+      first.bootstrapProjectId,
+    );
+  }).pipe(
+    Effect.provide(
+      layerProjects({
+        persistence: SqlitePersistence.layerMemory,
+        lazurioFolder: folder,
+        lazurioBuddyFolder: buddy,
+      }),
+    ),
+  );
+});
+
+it.effect("restarts without the Buddy folder: Chat starts and Buddy's project stays", () => {
+  const { folder, buddy, database } = makeFolderDirectories();
+  const persistence = SqlitePersistence.layerFromPath(database);
+  const managed = layerProjects({ persistence, lazurioFolder: folder, lazurioBuddyFolder: buddy });
+  const projectsByTitle = Effect.gen(function* () {
+    const { projects } = yield* (yield* ProjectService.ProjectService).snapshot;
+    return projects.map((project) => [project.title, project.workspaceRoot]).toSorted();
+  });
+  return Effect.gen(function* () {
+    yield* Effect.andThen(ensureManagedFolderProject, projectsByTitle).pipe(
+      Effect.provide(managed),
+    );
+    yield* Effect.sync(() => NodeFS.rmSync(buddy, { recursive: true }));
+    assert.deepStrictEqual(
+      yield* Effect.andThen(ensureManagedFolderProject, projectsByTitle).pipe(
+        Effect.provide(managed),
+      ),
+      [
+        ["Buddy", buddy],
+        ["Lazurio", folder],
+      ],
+    );
+  });
+});
+
+it.effect("re-enabling the Buddy folder brings Buddy's archived threads back, nothing else", () => {
+  const { folder, buddy } = makeFolderDirectories();
+  const unarchived: Array<string> = [];
+  // A thread archived while the folder was not declared, and an archived Chat thread.
+  const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+    getShellSnapshot: (options) =>
+      Effect.succeed({
+        schemaVersion: 1,
+        snapshotSequence: 1,
+        threads: [],
+        archivedThreads: [
+          { id: ThreadId.make("buddy-archived"), projectId: options?.projectId },
+          { id: ThreadId.make("chat-archived"), projectId: ProjectId.make("lazurio") },
+        ],
+      } as never),
+    dispatch: (command) =>
+      Effect.sync(() => {
+        if (command.type === "thread.unarchive") unarchived.push(command.threadId);
+        return { sequence: unarchived.length, storedEvents: [] };
+      }),
+  });
+  return Effect.gen(function* () {
+    yield* ensureManagedFolderProject;
+    assert.deepStrictEqual(unarchived, ["buddy-archived"]);
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        orchestrator,
+        layerProjects({
+          persistence: SqlitePersistence.layerMemory,
+          lazurioFolder: folder,
+          lazurioBuddyFolder: buddy,
+        }),
+      ),
+    ),
+  );
+});
+
+it.effect(
+  "with the Buddy folder gone, its earlier project still gets its archived threads back",
+  () => {
+    const { folder, buddy, database } = makeFolderDirectories();
+    const persistence = SqlitePersistence.layerFromPath(database);
+    const unarchived: Array<string> = [];
+    const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+      getShellSnapshot: (options) =>
+        Effect.succeed({
+          schemaVersion: 1,
+          snapshotSequence: 1,
+          threads: [],
+          archivedThreads: [{ id: ThreadId.make("buddy-archived"), projectId: options?.projectId }],
+        } as never),
+      dispatch: (command) =>
+        Effect.sync(() => {
+          if (command.type === "thread.unarchive") unarchived.push(command.threadId);
+          return { sequence: unarchived.length, storedEvents: [] };
+        }),
+    });
+    const managed = (lazurioBuddyFolder?: string) =>
+      Layer.merge(
+        orchestrator,
+        layerProjects({
+          persistence,
+          lazurioFolder: folder,
+          ...(lazurioBuddyFolder === undefined ? {} : { lazurioBuddyFolder }),
+        }),
+      );
+    return Effect.gen(function* () {
+      yield* ensureManagedFolderProject.pipe(Effect.provide(managed(buddy)));
+      // Turned off, the thread archived and the folder removed, then turned on again.
+      yield* ensureManagedFolderProject.pipe(Effect.provide(managed()));
+      yield* Effect.sync(() => NodeFS.rmSync(buddy, { recursive: true }));
+      unarchived.length = 0;
+      yield* ensureManagedFolderProject.pipe(Effect.provide(managed(buddy)));
+      assert.deepStrictEqual(unarchived, ["buddy-archived"]);
+    });
+  },
+);
+
+it.effect("a failure in Buddy's part leaves the Folder's project and Chat starting", () => {
+  const { folder, buddy } = makeFolderDirectories();
+  const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+    getShellSnapshot: () => Effect.fail(new Error("projection unavailable") as never),
+  });
+  return Effect.gen(function* () {
+    const started = yield* ensureManagedFolderProject;
+    const projects = (yield* (yield* ProjectService.ProjectService).snapshot).projects;
+    assert.strictEqual(
+      projects.find((project) => project.id === started.bootstrapProjectId)?.workspaceRoot,
+      folder,
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        orchestrator,
+        layerProjects({
+          persistence: SqlitePersistence.layerMemory,
+          lazurioFolder: folder,
+          lazurioBuddyFolder: buddy,
+        }),
+      ),
+    ),
+  );
+});

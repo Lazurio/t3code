@@ -94,6 +94,8 @@ export class ServerConfig extends Context.Service<
     readonly cwd: string;
     /** Opt-in hosted Folder entry contract, declared by Machines. */
     readonly lazurioFolder?: string;
+    /** The Buddy folder beside the Folder, declared with it (`T3CODE_LAZURIO_BUDDY_FOLDER`). */
+    readonly lazurioBuddyFolder?: string;
     readonly lazurioToolsUrl?: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;

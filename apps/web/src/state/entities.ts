@@ -115,9 +115,9 @@ export function useAnyEnvironmentHiding(): boolean {
   return useAtomValue(environmentThreadShells.anyEnvironmentHidingAtom);
 }
 
-/** Keys of threads the tag filter hides from display, by `threadKey`. */
+/** Keys of threads the tag filter hides from display, and Buddy's unlisted ones (LZD-0033). */
 export function useHiddenThreadKeys(): ReadonlySet<string> {
-  return useAtomValue(environmentThreadShells.hiddenThreadKeysAtom);
+  return useAtomValue(environmentThreadShells.listHiddenThreadKeysAtom);
 }
 
 /** Thread shells minus those the tag filter hides, for lists that show threads to the user. */

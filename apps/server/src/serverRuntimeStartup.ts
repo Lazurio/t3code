@@ -582,7 +582,10 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
     yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
     const managedWelcome = yield* runStartupPhase(
       "lazurio.project",
-      ensureManagedFolderProject.pipe(Effect.provideService(SecureRandom.SecureRandom, random)),
+      ensureManagedFolderProject.pipe(
+        Effect.provideService(SecureRandom.SecureRandom, random),
+        Effect.provideService(Orchestrator.OrchestratorV2, orchestrator),
+      ),
     );
     // Runs after activation: the status check fetches every enabled project's
     // remote, and awaiting it here held command readiness for that long.

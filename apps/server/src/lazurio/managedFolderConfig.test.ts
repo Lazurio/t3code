@@ -31,7 +31,11 @@ const makeFolder = () => {
   NodeFS.mkdirSync(folder);
   const link = NodePath.join(parent, "link-to-Lazurio");
   NodeFS.symlinkSync(folder, link);
-  return { parent, folder, link };
+  const buddy = NodePath.join(parent, "Buddy");
+  NodeFS.mkdirSync(buddy);
+  const buddyLink = NodePath.join(parent, "link-to-Buddy");
+  NodeFS.symlinkSync(buddy, buddyLink);
+  return { parent, folder, link, buddy, buddyLink };
 };
 
 it.effect(
@@ -62,14 +66,77 @@ it.effect("makes the Folder's canonical path the cwd, without a cwd bootstrap", 
   }),
 );
 
+it.effect("declares the Buddy folder beside the Folder by its canonical path", () =>
+  Effect.gen(function* () {
+    const { folder, buddy, buddyLink } = makeFolder();
+    assert.deepStrictEqual(
+      yield* resolveManagedFolderConfig.pipe(
+        withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: buddyLink }),
+      ),
+      {
+        cwd: folder,
+        lazurioFolder: folder,
+        autoBootstrapProjectFromCwd: false,
+        lazurioBuddyFolder: buddy,
+      },
+    );
+    // Missing (not made yet, or removed): Chat still starts and the path stays, so an earlier
+    // Buddy project stays unlisted. A sibling whose name starts with two dots is still beside.
+    // A link whose target was removed still names the target, the root its project was made with.
+    const target = NodePath.join(NodePath.dirname(folder), "Buddy-target");
+    const dangling = NodePath.join(NodePath.dirname(folder), "Buddy-link");
+    NodeFS.symlinkSync(target, dangling);
+    assert.strictEqual(
+      (yield* resolveManagedFolderConfig.pipe(
+        withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: dangling }),
+      )).lazurioBuddyFolder,
+      target,
+    );
+    const dotsSibling = NodePath.join(NodePath.dirname(folder), "..Buddy");
+    NodeFS.mkdirSync(dotsSibling);
+    for (const declared of [`${buddy}-missing`, dotsSibling]) {
+      assert.deepStrictEqual(
+        yield* resolveManagedFolderConfig.pipe(
+          withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: declared }),
+        ),
+        {
+          cwd: folder,
+          lazurioFolder: folder,
+          autoBootstrapProjectFromCwd: false,
+          lazurioBuddyFolder: declared,
+        },
+      );
+    }
+  }),
+);
+
 it.effect("refuses a relative path, a file, an insecure or credentialed tools URL", () =>
   Effect.gen(function* () {
-    const { parent, folder } = makeFolder();
+    const { parent, folder, buddy } = makeFolder();
     const file = NodePath.join(parent, "not-a-folder");
     NodeFS.writeFileSync(file, "");
+    const insideFolder = NodePath.join(folder, ".agents", "buddy");
+    NodeFS.mkdirSync(insideFolder, { recursive: true });
+    const dotsInsideFolder = NodePath.join(folder, "..buddy");
+    NodeFS.mkdirSync(dotsInsideFolder);
+    NodeFS.mkdirSync(NodePath.join(folder, "..x"));
+    const beside = "T3CODE_LAZURIO_BUDDY_FOLDER must be beside the Lazurio Folder";
     for (const [env, expected] of [
       [{ T3CODE_LAZURIO_FOLDER: "Lazurio" }, "T3CODE_LAZURIO_FOLDER must be an absolute"],
       [{ T3CODE_LAZURIO_FOLDER: file }, "T3CODE_LAZURIO_FOLDER must be a directory"],
+      [
+        { T3CODE_LAZURIO_BUDDY_FOLDER: buddy },
+        "T3CODE_LAZURIO_BUDDY_FOLDER needs T3CODE_LAZURIO_FOLDER",
+      ],
+      [
+        { T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: "Buddy" },
+        "T3CODE_LAZURIO_BUDDY_FOLDER must be an absolute",
+      ],
+      [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: folder }, beside],
+      [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: insideFolder }, beside],
+      [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: dotsInsideFolder }, beside],
+      [{ T3CODE_LAZURIO_FOLDER: `${folder}/..x`, T3CODE_LAZURIO_BUDDY_FOLDER: folder }, beside],
+      [{ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: parent }, beside],
       [
         { T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_TOOLS_URL: "http://launchpad.test/" },
         "T3CODE_LAZURIO_TOOLS_URL must be an HTTPS URL",
