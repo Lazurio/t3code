@@ -43,6 +43,8 @@ const threadElsewhere =
   "Start a new chat in the Lazurio project. Agents in this Environment work in its Lazurio Folder; your earlier chats stay here as history.";
 const threadInWorktree =
   "Chats in this Environment start in the Lazurio Folder, without a separate worktree.";
+const buddyThreadUnknown =
+  "This Environment could not check whether this thread is Buddy's, so it stays as it is. Try again.";
 const buddyThreadKept =
   "Buddy's threads belong to this Environment, like its project: they are not archived or deleted.";
 const turnOutsideFolder =
@@ -252,6 +254,7 @@ describe("orchestration commands in a managed Environment", () => {
   const folderProject = ProjectId.make("project-lazurio");
   const buddyProject = ProjectId.make("project-buddy");
   const buddyThread = ThreadId.make("thread-buddy");
+  const unreadableThread = ThreadId.make("thread-unreadable");
   const historyProject = ProjectId.make("project-history");
   const folderThread = ThreadId.make("thread-lazurio");
   const historyThread = ThreadId.make("thread-history");
@@ -280,7 +283,10 @@ describe("orchestration commands in a managed Environment", () => {
             reached.push(command.commandId);
             return { sequence: reached.length, storedEvents: [] };
           }),
-        getThreadShell: (threadId) => Effect.succeed((threads.get(threadId) ?? null) as never),
+        getThreadShell: (threadId) =>
+          threadId === unreadableThread
+            ? Effect.fail(new Error("projection unavailable") as never)
+            : Effect.succeed((threads.get(threadId) ?? null) as never),
       }),
     ).pipe(
       Layer.provide(
@@ -473,6 +479,9 @@ describe("orchestration commands in a managed Environment", () => {
         "archive a Chat thread": yield* refusalOf(
           organize("archive-folder", "thread.archive", folderThread),
         ),
+        "archive an unreadable thread": yield* refusalOf(
+          organize("archive-unreadable", "thread.archive", unreadableThread),
+        ),
         "create elsewhere": yield* refusalOf(createThread("create-history", historyProject, null)),
         "message to history": yield* refusalOf(message("message-history", historyThread)),
       };
@@ -486,6 +495,7 @@ describe("orchestration commands in a managed Environment", () => {
         delete: buddyThreadKept,
         "delete if unused": null,
         "archive a Chat thread": null,
+        "archive an unreadable thread": buddyThreadUnknown,
         "create elsewhere": threadElsewhere,
         "message to history": threadElsewhere,
       });

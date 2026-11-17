@@ -1,4 +1,5 @@
 import { everyEnvironmentManaged, offeredInProjectPicker } from "../lazurio/managedFolder";
+import { listedLinkedRows, useLinkedUnlistedProjectIds } from "../lazurio/unlistedRows";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -422,6 +423,7 @@ function OpenCommandPaletteDialog(props: {
   const linkedEnvironmentId = linkedThreadSearch?.linkedThreads?.environmentId ?? null;
   const hidingAnywhere = useAnyEnvironmentHiding();
   const linkedThreadRefs = useEnvironmentThreadRefs(linkedEnvironmentId);
+  const linkedUnlistedProjectIds = useLinkedUnlistedProjectIds(linkedEnvironmentId);
   const [searchState, dispatchSearch] = useReducer(reduceCommandPaletteSearchState, null, () => {
     const view = props.initialContext ? null : openIntentView(props.openIntent);
     return view
@@ -1803,7 +1805,7 @@ function OpenCommandPaletteDialog(props: {
         ? buildLinkedThreadActionItems({
             ...linkedThreadSearch.linkedThreads,
             threads: visibleLinkedThreads(
-              linkedThreadSearch.linkedThreads.threads,
+              listedLinkedRows(linkedThreadSearch.linkedThreads.threads, linkedUnlistedProjectIds),
               linkedThreadSearch.linkedThreads.environmentId,
               linkedThreadRefs,
               hiddenKeys,

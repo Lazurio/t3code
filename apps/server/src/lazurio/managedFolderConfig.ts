@@ -96,7 +96,8 @@ const canonicalBuddyFolder = Effect.fn("LazurioManagedFolder.canonicalBuddyFolde
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const root =
-    path.isAbsolute(declared) && !(yield* fs.exists(declared))
+    path.isAbsolute(declared) &&
+    !(yield* fs.exists(declared).pipe(Effect.orElseSucceed(() => false)))
       ? yield* canonicalMissing(declared)
       : yield* canonicalFolder("T3CODE_LAZURIO_BUDDY_FOLDER", declared);
   if (within(path, folder, root) || within(path, root, folder))

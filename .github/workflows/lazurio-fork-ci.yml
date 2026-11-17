@@ -428,6 +428,9 @@ jobs:
             apps/web/src/state/threads.ts
             apps/web/src/lib/archivedThreadsState.ts
             apps/web/src/components/pullRequest/PullRequestThreadLinks.tsx
+            apps/web/src/components/ThreadNotificationCoordinator.tsx
+            apps/web/src/state/entities.ts
+            apps/web/src/hooks/useActiveProjectTarget.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

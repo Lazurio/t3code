@@ -31,6 +31,8 @@ const projectRenamed = "This project keeps the name Lazurio.";
 const projectRemoved = "The Lazurio project belongs to this Environment and cannot be removed.";
 const triageUnavailable = "This Environment does not triage issues against upstream T3 Code.";
 const projectArchived = "The Lazurio project belongs to this Environment and cannot be archived.";
+const buddyThreadUnknown =
+  "This Environment could not check whether this thread is Buddy's, so it stays as it is. Try again.";
 const buddyThreadKept =
   "Buddy's threads belong to this Environment, like its project: they are not archived or deleted.";
 const buddyProjectChanged =
@@ -138,12 +140,16 @@ export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectServ
  * forks belong to the root of the Folder's or the Buddy folder's project, and no thread moves into
  * a worktree. A command whose thread is gone is left to upstream, which answers for it.
  */
+const buddyRefusal = (buddy: boolean | null) =>
+  buddy === null ? buddyThreadUnknown : buddy ? buddyThreadKept : null;
+
 const commandRefusal = (
   command: OrchestrationV2ServerCommand,
   state: {
     readonly isFolderProject: (projectId: ProjectId) => Effect.Effect<boolean>;
     readonly isInFolderRoot: (threadId: ThreadId) => Effect.Effect<boolean>;
-    readonly isBuddyThread: (threadId: ThreadId) => Effect.Effect<boolean>;
+    /** Whether the thread is in Buddy's project; null when that could not be read. */
+    readonly isBuddyThread: (threadId: ThreadId) => Effect.Effect<boolean | null>;
   },
 ): Effect.Effect<string | null> => {
   const unless = (allowed: Effect.Effect<boolean>, refusal: string) =>
@@ -168,15 +174,11 @@ const commandRefusal = (
       return unless(state.isInFolderRoot(command.sourceThreadId), threadElsewhere);
     // An archived or deleted Buddy thread would leave the tasks it runs elsewhere listed in Chat.
     case "thread.archive":
-      return Effect.map(state.isBuddyThread(command.threadId), (buddy) =>
-        buddy ? buddyThreadKept : null,
-      );
+      return Effect.map(state.isBuddyThread(command.threadId), buddyRefusal);
     case "thread.delete":
       return command.onlyIfUnused === true
         ? Effect.succeed(null)
-        : Effect.map(state.isBuddyThread(command.threadId), (buddy) =>
-            buddy ? buddyThreadKept : null,
-          );
+        : Effect.map(state.isBuddyThread(command.threadId), buddyRefusal);
     case "delegated_task.request":
       return Effect.succeed(
         command.workspaceStrategy === undefined || command.workspaceStrategy.type === "root"
@@ -241,7 +243,7 @@ export const guardCommands = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV
                         ),
                       ),
               ),
-              Effect.orElseSucceed(() => true),
+              Effect.orElseSucceed(() => null),
             );
       return Orchestrator.OrchestratorV2.of({
         ...orchestrator,

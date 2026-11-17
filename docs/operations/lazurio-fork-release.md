@@ -795,7 +795,10 @@ běží v jiném Environmentu, ze seznamů, palety, hledání, archivu (Settings
 Archived threads; archivy Environmentů s projektem Buddyho se čtou i mimo
 zvolený rozsah, aby úloha následovala rodiče archivovaného jinde) a vláken
 propojených s pull requestem (řádky nesou projekt, takže vypadnou i
-archivované). Vlákna projektu
+archivované), a to i v paletě a panelu vztahů; neposílá ani oznámení. Vlákno
+otevřené odkazem čte svůj projekt přímo, takže výběr souborů a hledání v něm
+fungují. Chyba v části startu, která patří Buddymu, se jen zaloguje a Chat
+složky Lazurio naběhne bez projektu Buddyho. Vlákna projektu
 Buddyho stráž příkazů nearchivuje ani nemaže (kromě nepoužitého vlákna,
 `onlyIfUnused`), stejně jako jeho projekt. Vlákno archivované v době,
 kdy proměnná nastavená nebyla, vrátí start serveru z archivu, i když
@@ -811,7 +814,9 @@ Logika vynechání je v modulu overlaye
 `packages/client-runtime/src/lazurio/unlistedProjects.ts`. Atomy projektů,
 vláken a archivu upstreamu (`projectEntities.ts`, `threadShell.ts`,
 `archivedThreads.ts`) a jejich zapojení ve webu (`state/threads.ts`,
-`lib/archivedThreadsState.ts`, `pullRequest/PullRequestThreadLinks.tsx`, filtr
+`lib/archivedThreadsState.ts`, `pullRequest/PullRequestThreadLinks.tsx`,
+`ThreadNotificationCoordinator.tsx`, `state/entities.ts` a
+`hooks/useActiveProjectTarget.ts`, filtr
 řádků je v `apps/web/src/lazurio/unlistedRows.ts`)
 nesou po jednom háčku. Proto jsou v allowlistu i s modulem a jeho testem.
 

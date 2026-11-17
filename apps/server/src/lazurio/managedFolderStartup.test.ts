@@ -227,3 +227,29 @@ it.effect(
     });
   },
 );
+
+it.effect("a failure in Buddy's part leaves the Folder's project and Chat starting", () => {
+  const { folder, buddy } = makeFolderDirectories();
+  const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+    getShellSnapshot: () => Effect.fail(new Error("projection unavailable") as never),
+  });
+  return Effect.gen(function* () {
+    const started = yield* ensureManagedFolderProject;
+    const projects = (yield* (yield* ProjectService.ProjectService).snapshot).projects;
+    assert.strictEqual(
+      projects.find((project) => project.id === started.bootstrapProjectId)?.workspaceRoot,
+      folder,
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        orchestrator,
+        layerProjects({
+          persistence: SqlitePersistence.layerMemory,
+          lazurioFolder: folder,
+          lazurioBuddyFolder: buddy,
+        }),
+      ),
+    ),
+  );
+});

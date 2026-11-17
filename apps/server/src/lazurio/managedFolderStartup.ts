@@ -38,20 +38,30 @@ export const ensureManagedFolderProject = Effect.gen(function* () {
     });
   }
   if (typeof lazurioBuddyFolder === "string") {
-    // A missing Buddy folder gets no project; one made earlier keeps its threads unarchived.
-    const fileSystemForBuddy = yield* Effect.serviceOption(FileSystem.FileSystem);
-    const exists =
-      Option.isNone(fileSystemForBuddy) ||
-      (yield* fileSystemForBuddy.value
-        .exists(lazurioBuddyFolder)
-        .pipe(Effect.orElseSucceed(() => false)));
-    if (exists) yield* ensureBuddyProject(lazurioBuddyFolder);
-    else {
-      const earlier = (yield* projects.snapshot).projects.find(
-        (candidate) => candidate.workspaceRoot === lazurioBuddyFolder,
-      );
-      if (earlier !== undefined) yield* restoreBuddyThreads(earlier.id);
-    }
+    // Buddy's part never stops the Folder's Chat: a failure here is logged and the startup goes on.
+    yield* Effect.gen(function* () {
+      // A missing Buddy folder gets no project; one made earlier keeps its threads unarchived.
+      const fileSystemForBuddy = yield* Effect.serviceOption(FileSystem.FileSystem);
+      const exists =
+        Option.isNone(fileSystemForBuddy) ||
+        (yield* fileSystemForBuddy.value
+          .exists(lazurioBuddyFolder)
+          .pipe(Effect.orElseSucceed(() => false)));
+      if (exists) yield* ensureBuddyProject(lazurioBuddyFolder);
+      else {
+        const earlier = (yield* projects.snapshot).projects.find(
+          (candidate) => candidate.workspaceRoot === lazurioBuddyFolder,
+        );
+        if (earlier !== undefined) yield* restoreBuddyThreads(earlier.id);
+      }
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning(
+          "Lazurio could not prepare Buddy's project; Chat starts without it.",
+          cause,
+        ),
+      ),
+    );
   }
   // A server always runs on the platform's file system. Upstream's startup tests build this phase
   // without one, so it is read here rather than added to the startup's requirements.
@@ -77,11 +87,12 @@ const ensureBuddyProject = Effect.fn("LazurioManagedFolder.ensureBuddyProject")(
     title: BUDDY_PROJECT_TITLE,
     workspaceRoot: buddyFolder,
   });
-  if (project.title !== BUDDY_PROJECT_TITLE) {
+  if (project.title !== BUDDY_PROJECT_TITLE || (project.archivedAt ?? null) !== null) {
     yield* projects.update({
       commandId: CommandId.make(`lazurio-buddy-project-title:${id}`),
       projectId: project.id,
       title: BUDDY_PROJECT_TITLE,
+      archived: false,
     });
   }
   yield* restoreBuddyThreads(project.id);
