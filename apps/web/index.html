@@ -714,41 +714,56 @@
         background-repeat: repeat;
         background-size: var(--surface-grain-size);
       }
-      /* A narrow window, where T3's left panel is a sheet (sidebar.tsx, SIDEBAR_MOBILE_QUERY): the
-         conversation takes the whole width and the rail stands only beside the open panel, which
-         moves aside for it. The rail slides with the panel. */
+      /* A narrow window, where T3's left panel is a modal sheet (sidebar.tsx, SIDEBAR_MOBILE_QUERY):
+         the conversation takes the whole width without the rail, and the open panel carries the
+         rail at its left edge. The script below moves the rail into the panel while it is open, so
+         the rail is part of the dialog for the keyboard and screen readers and slides with it. */
       @media (max-width: 767px) {
         #root {
           padding-left: 0;
         }
-        lazurio-rail:defined {
-          visibility: hidden;
-          transform: translateX(-100%);
-          transition:
-            transform 200ms ease-in-out,
-            visibility 0s linear 200ms;
-        }
-        body:has([data-mobile="true"][data-sidebar="sidebar"][data-open]) > lazurio-rail:defined {
-          z-index: calc(var(--z-sheet) + 1);
-          visibility: visible;
-          transform: none;
-          transition: transform 200ms ease-in-out;
-        }
-        lazurio-rail:defined
-          ~ *
-          [data-slot="sheet-viewport"]:has(> [data-mobile="true"][data-sidebar="sidebar"]) {
-          padding-left: var(--lazurio-rail-width, 0px);
-        }
-        lazurio-rail:defined ~ * [data-mobile="true"][data-sidebar="sidebar"] {
-          width: calc(100vw - var(--lazurio-rail-width, 0px) - var(--spacing) * 3);
-        }
-      }
-      @media (max-width: 767px) and (prefers-reduced-motion: reduce) {
         body > lazurio-rail:defined {
-          transition: none !important;
+          display: none;
+        }
+        /* The rail is no longer #root's sibling while it is in the panel; T3's fixed controls stay
+           contained all the same, below the panel. */
+        :root:has(lazurio-rail:defined) #root [data-slot="sidebar-wrapper"] {
+          contain: layout paint;
+        }
+        [data-mobile="true"][data-sidebar="sidebar"]:has(> lazurio-rail:defined) {
+          padding-left: var(--lazurio-rail-width, 0px);
         }
       }
     </style>
+    <script>
+      // The rail in a narrow window (see the style above): T3's open left panel is a modal dialog
+      // that keeps the focus inside and hides the rest of the page from screen readers, so the rail
+      // goes inside the panel, as its first child, while the panel is on the page (it fades out
+      // with it), and back before #root once the panel is gone; there it stays the target of the
+      // Environment jump (⌘⇧E) and a narrow window hides it. The
+      // panel marks the page outside when it opens, possibly before the move, so the rail drops
+      // those marks once inside. Outside Lazurio there is no rail and nothing runs.
+      document.addEventListener("DOMContentLoaded", () => {
+        const rail = document.querySelector("body > lazurio-rail");
+        if (!rail) return;
+        const body = document.body;
+        const place = () => {
+          const panel = body.querySelector('[data-mobile="true"][data-sidebar="sidebar"]');
+          if (panel) {
+            if (rail.parentElement !== panel) panel.prepend(rail);
+            rail.removeAttribute("aria-hidden");
+            rail.removeAttribute("data-base-ui-inert");
+          } else if (rail.parentElement !== body) {
+            body.insertBefore(rail, document.getElementById("root"));
+          }
+        };
+        new MutationObserver(place).observe(body, { childList: true });
+        new MutationObserver(place).observe(body, {
+          subtree: true,
+          attributeFilter: ["aria-hidden"],
+        });
+      });
+    </script>
   </head>
   <body>
     <lazurio-rail data-app-sidebar app="chat"></lazurio-rail>
