@@ -508,6 +508,12 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
   nechalo pod railem. Proto se při definovaném railu stane obal sidebaru
   (`[data-slot="sidebar-wrapper"]`) jejich containing blockem
   (`contain: layout paint`). Bez shellu pravidlo neplatí.
+  V úzkém okně (pod 768 px, kdy je levý panel T3 modální sheet, `SIDEBAR_MOBILE_QUERY`
+  v `sidebar.tsx`) má rozhovor celou šířku a rail není vidět; ukáže se, až když člověk otevře
+  levý panel, a panel se mu odsune o šířku railu. Rail přitom vyjede spolu s panelem
+  (200 ms, bez pohybu při omezeném pohybu). Jen CSS v `index.html`; široké rozložení se nemění.
+  Při otevřeném panelu nese rail `aria-hidden` od modálního sheetu T3 a klávesnice z panelu na
+  rail nepřejde (stejně jako dosud, kdy ho panel překrýval); ukazatel i dotyk na něm fungují.
   Buddyho spouštěč začíná 22 px od pravého a dolního okraje okna a uživatel ho přetáhne kamkoli
   (LazurioPlatform F60, dodatek z 2026-11-14). Composer Chatu proto zůstává tam, kde ho kreslí T3,
   a `--lazurio-buddy-clearance` nečte; kontraktní test hlídá, že se pravidlo nevrátí.

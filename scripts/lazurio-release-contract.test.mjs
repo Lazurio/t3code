@@ -1387,6 +1387,22 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
     /lazurio-rail:defined ~ #root \[data-slot="sidebar-wrapper"\] \{\s*contain: layout paint;\s*\}/,
   );
   NodeAssert.match(sidebarUi, /data-slot="sidebar-wrapper"/);
+  // A narrow window: the conversation takes the whole width without the rail, and the rail stands
+  // beside the open left panel, which moves aside for it. The breakpoint is T3's own for its sheet.
+  const narrow = page.match(/@media \(max-width: 767px\) \{([\s\S]*?)\n      \}\n/)?.[1] ?? "";
+  NodeAssert.match(sidebarUi, /const SIDEBAR_MOBILE_QUERY = "\(max-width: 767px\)";/);
+  NodeAssert.match(sidebarUi, /data-mobile="true"\s*data-sidebar="sidebar"/);
+  NodeAssert.match(narrow, /#root \{\s*padding-left: 0;\s*\}/);
+  NodeAssert.match(narrow, /lazurio-rail:defined \{\s*visibility: hidden;/);
+  NodeAssert.match(
+    narrow,
+    /body:has\(\[data-mobile="true"\]\[data-sidebar="sidebar"\]\[data-open\]\) > lazurio-rail:defined \{\s*z-index: calc\(var\(--z-sheet\) \+ 1\);\s*visibility: visible;/,
+  );
+  NodeAssert.match(narrow, /padding-left: var\(--lazurio-rail-width, 0px\);/);
+  NodeAssert.ok(
+    page.indexOf("@media (max-width: 767px)") > page.search(/#root \{\s*box-sizing: border-box;/),
+    "the narrow rule follows the rail's padding, so it wins",
+  );
   NodeAssert.match(
     page,
     /<body>\s*<lazurio-rail data-app-sidebar app="chat"><\/lazurio-rail>\s*<div id="root">/,
