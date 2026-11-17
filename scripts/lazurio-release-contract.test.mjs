@@ -293,7 +293,7 @@ NodeTest.test("archives are built with upstream's own release steps", () => {
   NodeAssert.match(archives, /on:\n {2}workflow_call:/);
   NodeAssert.match(archives, /^permissions:\n {2}contents: read\n {2}id-token: none/m);
   NodeAssert.match(archives, /key: linux-x64\n {12}runner: ubuntu-24\.04/);
-  NodeAssert.match(archives, /key: darwin-arm64\n {12}runner: macos-15/);
+  NodeAssert.match(archives, /key: darwin-arm64\n {12}runner: lazurio-release-macos/);
   const stamp = archives.indexOf('node scripts/update-release-package-versions.ts "$VERSION"');
   NodeAssert.ok(stamp > 0 && stamp < archives.indexOf("vp run --filter t3 build"));
   NodeAssert.match(archives, /node apps\/server\/scripts\/cli\.ts build-exe/);

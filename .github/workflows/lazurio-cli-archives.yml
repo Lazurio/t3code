@@ -44,7 +44,7 @@ jobs:
             transcribe_native: linux-x64-cpu-vulkan
             transcribe_library: libtranscribe.so
           - key: darwin-arm64
-            runner: macos-15
+            runner: lazurio-release-macos
             platform: mac
             arch: arm64
             rust_target: aarch64-apple-darwin
