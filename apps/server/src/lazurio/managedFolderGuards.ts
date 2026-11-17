@@ -31,6 +31,8 @@ const projectRenamed = "This project keeps the name Lazurio.";
 const projectRemoved = "The Lazurio project belongs to this Environment and cannot be removed.";
 const triageUnavailable = "This Environment does not triage issues against upstream T3 Code.";
 const projectArchived = "The Lazurio project belongs to this Environment and cannot be archived.";
+const buddyThreadKept =
+  "Buddy's threads belong to this Environment, like its project: they are not archived or deleted.";
 const buddyProjectChanged =
   "Buddy's project belongs to this Environment: it keeps its name and cannot be archived or removed.";
 
@@ -141,6 +143,7 @@ const commandRefusal = (
   state: {
     readonly isFolderProject: (projectId: ProjectId) => Effect.Effect<boolean>;
     readonly isInFolderRoot: (threadId: ThreadId) => Effect.Effect<boolean>;
+    readonly isBuddyThread: (threadId: ThreadId) => Effect.Effect<boolean>;
   },
 ): Effect.Effect<string | null> => {
   const unless = (allowed: Effect.Effect<boolean>, refusal: string) =>
@@ -163,6 +166,17 @@ const commandRefusal = (
     }
     case "thread.fork":
       return unless(state.isInFolderRoot(command.sourceThreadId), threadElsewhere);
+    // An archived or deleted Buddy thread would leave the tasks it runs elsewhere listed in Chat.
+    case "thread.archive":
+      return Effect.map(state.isBuddyThread(command.threadId), (buddy) =>
+        buddy ? buddyThreadKept : null,
+      );
+    case "thread.delete":
+      return command.onlyIfUnused === true
+        ? Effect.succeed(null)
+        : Effect.map(state.isBuddyThread(command.threadId), (buddy) =>
+            buddy ? buddyThreadKept : null,
+          );
     case "delegated_task.request":
       return Effect.succeed(
         command.workspaceStrategy === undefined || command.workspaceStrategy.type === "root"
@@ -212,19 +226,38 @@ export const guardCommands = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV
           ),
           Effect.orElseSucceed(() => false),
         );
+      const isBuddyThread = (threadId: ThreadId) =>
+        buddyFolder === undefined
+          ? Effect.succeed(false)
+          : orchestrator.getThreadShell(threadId).pipe(
+              Effect.flatMap((thread) =>
+                thread === null
+                  ? Effect.succeed(false)
+                  : projects
+                      .get(thread.projectId)
+                      .pipe(
+                        Effect.map(
+                          Option.exists((project) => project.workspaceRoot === buddyFolder),
+                        ),
+                      ),
+              ),
+              Effect.orElseSucceed(() => true),
+            );
       return Orchestrator.OrchestratorV2.of({
         ...orchestrator,
         dispatch: Effect.fn("LazurioManagedFolder.dispatch")((command) =>
-          Effect.flatMap(commandRefusal(command, { isFolderProject, isInFolderRoot }), (refusal) =>
-            refusal === null
-              ? orchestrator.dispatch(command)
-              : Effect.fail(
-                  new Orchestrator.OrchestratorCommandRejectedError({
-                    commandId: command.commandId,
-                    commandType: command.type,
-                    cause: refusal,
-                  }),
-                ),
+          Effect.flatMap(
+            commandRefusal(command, { isFolderProject, isInFolderRoot, isBuddyThread }),
+            (refusal) =>
+              refusal === null
+                ? orchestrator.dispatch(command)
+                : Effect.fail(
+                    new Orchestrator.OrchestratorCommandRejectedError({
+                      commandId: command.commandId,
+                      commandType: command.type,
+                      cause: refusal,
+                    }),
+                  ),
           ),
         ),
       });

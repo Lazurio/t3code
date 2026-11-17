@@ -795,9 +795,11 @@ běží v jiném Environmentu, ze seznamů, palety, hledání, archivu (Settings
 Archived threads; archivy Environmentů s projektem Buddyho se čtou i mimo
 zvolený rozsah, aby úloha následovala rodiče archivovaného jinde) a vláken
 propojených s pull requestem (řádky nesou projekt, takže vypadnou i
-archivované). Živá úloha v jiném Environmentu, jejíž rodič z projektu Buddyho
-je archivovaný, v seznamech zůstává: řádky shellu ani propojení nenesou
-rodokmen archivovaných vláken a vyřeší to až skrytí na serveru (R3). Na rozdíl od vláken skrytých filtrem štítků je otevře přímý odkaz
+archivované). Vlákna projektu
+Buddyho stráž příkazů nearchivuje ani nemaže (kromě nepoužitého vlákna,
+`onlyIfUnused`), stejně jako jeho projekt. Úloha, kterou vlákno Buddyho
+spustilo v jiném Environmentu, tak má rodiče vždy v živém shellu a ze seznamů
+vypadne s ním. Na rozdíl od vláken skrytých filtrem štítků je otevře přímý odkaz
 `/<environment>/<vlákno>`. Agenti Chatu Buddyho vlákno přes MCP dál vidí
 (`t3_thread_list`, `t3_project_list`); server ho neskrývá, protože Buddy vlákna
 Chatu vidět musí. Oficiální desktop a mobil projekt ukážou jako běžný, protože

@@ -43,6 +43,8 @@ const threadElsewhere =
   "Start a new chat in the Lazurio project. Agents in this Environment work in its Lazurio Folder; your earlier chats stay here as history.";
 const threadInWorktree =
   "Chats in this Environment start in the Lazurio Folder, without a separate worktree.";
+const buddyThreadKept =
+  "Buddy's threads belong to this Environment, like its project: they are not archived or deleted.";
 const turnOutsideFolder =
   "Agents in this Environment work in its Lazurio Folder. Start a new chat in the Lazurio project.";
 
@@ -363,6 +365,18 @@ describe("orchestration commands in a managed Environment", () => {
       interactionMode: "default",
       ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
     }) satisfies OrchestrationV2ServerCommand;
+  const organize = (
+    id: string,
+    type: "thread.archive" | "thread.delete",
+    threadId: ThreadId,
+    onlyIfUnused?: boolean,
+  ) =>
+    ({
+      type,
+      commandId: CommandId.make(id),
+      threadId,
+      ...(onlyIfUnused === undefined ? {} : { onlyIfUnused }),
+    }) as OrchestrationV2ServerCommand;
   const moveThread = (id: string, worktreePath: string | null) =>
     ({
       type: "thread.metadata.update",
@@ -451,6 +465,14 @@ describe("orchestration commands in a managed Environment", () => {
           message("launch-buddy-worktree", buddyThread, { type: "worktree", baseRef: "main" }),
         ),
         fork: yield* refusalOf(fork("fork-buddy", buddyThread)),
+        archive: yield* refusalOf(organize("archive-buddy", "thread.archive", buddyThread)),
+        delete: yield* refusalOf(organize("delete-buddy", "thread.delete", buddyThread)),
+        "delete if unused": yield* refusalOf(
+          organize("delete-unused-buddy", "thread.delete", buddyThread, true),
+        ),
+        "archive a Chat thread": yield* refusalOf(
+          organize("archive-folder", "thread.archive", folderThread),
+        ),
         "create elsewhere": yield* refusalOf(createThread("create-history", historyProject, null)),
         "message to history": yield* refusalOf(message("message-history", historyThread)),
       };
@@ -460,10 +482,20 @@ describe("orchestration commands in a managed Environment", () => {
         message: null,
         "launch into a worktree": threadInWorktree,
         fork: null,
+        archive: buddyThreadKept,
+        delete: buddyThreadKept,
+        "delete if unused": null,
+        "archive a Chat thread": null,
         "create elsewhere": threadElsewhere,
         "message to history": threadElsewhere,
       });
-      assert.deepStrictEqual(reached, ["create-buddy", "message-buddy", "fork-buddy"]);
+      assert.deepStrictEqual(reached, [
+        "create-buddy",
+        "message-buddy",
+        "fork-buddy",
+        "delete-unused-buddy",
+        "archive-folder",
+      ]);
     }).pipe(Effect.provide(layer));
   });
 
