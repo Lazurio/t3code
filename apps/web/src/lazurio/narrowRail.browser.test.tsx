@@ -1,8 +1,11 @@
 import { page, userEvent } from "vite-plus/test/browser";
 import { describe, expect, it } from "vite-plus/test";
 
+import "~/index.css";
+
 import indexHtml from "../../index.html?raw";
 import { render } from "../../test/render";
+import { RightPanelSheet } from "../components/RightPanelSheet";
 import { Sidebar, SidebarProvider, SidebarTrigger } from "../components/ui/sidebar";
 
 // The rail in a narrow window (index.html, the Lazurio shell slot): hidden beside the
@@ -117,7 +120,7 @@ describe("the Lazurio rail in a narrow window", () => {
     await expect.poll(() => rail.parentElement === panel() && panel() !== null).toBe(true);
     expect(panel()!.firstElementChild).toBe(rail);
     expect(rail.checkVisibility()).toBe(true);
-    expect(rail.getBoundingClientRect().left).toBe(0);
+    await expect.poll(() => rail.getBoundingClientRect().left).toBe(0);
     // The modal panel hides the page outside it from screen readers; the rail is not outside.
     await expect.poll(() => rail.closest('[aria-hidden="true"], [inert]')).toBe(null);
     const control = rail.shadowRoot!.querySelector("button")!;
@@ -174,5 +177,38 @@ describe("the Lazurio rail in a narrow window", () => {
     await using _screen = await render(layout(), { router: false /* no routes involved */ });
     await expect.poll(() => rail.checkVisibility()).toBe(true);
     expect(rail.parentElement).toBe(document.body);
+  });
+});
+
+describe("the right panel in a narrow window", () => {
+  const sheet = () => (
+    <RightPanelSheet animationDurationMs={0} open onClose={() => {}}>
+      <button type="button" aria-label="Toggle right panel">
+        ×
+      </button>
+    </RightPanelSheet>
+  );
+  const box = () =>
+    document.querySelector('[data-slot="sheet-popup"]:not([data-mobile])')?.getBoundingClientRect();
+
+  it("takes the whole width, with its own toggle in reach", async () => {
+    await page.viewport(390, 844);
+    using _shell = narrowShell();
+    await using _screen = await render(sheet(), { router: false /* no routes involved */ });
+    await expect.poll(() => [box()?.left, box()?.width]).toEqual([0, 390]);
+    // The sheet is portalled out of the render's container.
+    await expect.element(page.getByRole("button", { name: "Toggle right panel" })).toBeVisible();
+  });
+
+  it("keeps T3's width in a wide window and outside Lazurio", async () => {
+    await page.viewport(900, 800);
+    {
+      using _shell = narrowShell();
+      await using _screen = await render(sheet(), { router: false /* no routes involved */ });
+      await expect.poll(() => box()?.width).toBeLessThan(900);
+    }
+    await page.viewport(390, 844);
+    await using _screen = await render(sheet(), { router: false /* no routes involved */ });
+    await expect.poll(() => box()?.width).toBeLessThan(390);
   });
 });

@@ -728,8 +728,8 @@
         background-size: var(--surface-grain-size);
       }
       /* A narrow window, where T3's left panel is a modal sheet (sidebar.tsx, SIDEBAR_MOBILE_QUERY):
-         the conversation takes the whole width without the rail, and the open panel carries the
-         rail at its left edge. The script below moves the rail into the panel while it is open, so
+         the conversation takes the whole width without the rail, the open left panel carries the
+         rail at its left edge, and the open right panel takes the whole width. The script below moves the rail into the panel while it is open, so
          the rail is part of the dialog for the keyboard and screen readers and slides with it. */
       @media (max-width: 767px) {
         #root {
@@ -745,6 +745,15 @@
         }
         [data-mobile="true"][data-sidebar="sidebar"]:has(> lazurio-rail:defined) {
           padding-left: var(--lazurio-rail-width, 0px);
+        }
+        /* The right panel (RightPanelSheet.tsx, the one other sheet) takes the whole screen: no
+           sliver of the conversation beside it. Its own toggle closes it, back to the conversation. */
+        :root:has(lazurio-rail:defined) [data-slot="sheet-popup"]:not([data-mobile]) {
+          width: 100vw;
+          min-width: 0;
+          max-width: none;
+          border-inline-start: 0;
+          padding-inline-start: env(safe-area-inset-left);
         }
       }
     </style>
