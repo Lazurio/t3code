@@ -37,16 +37,22 @@ export const ensureManagedFolderProject = Effect.gen(function* () {
       title: "Lazurio",
     });
   }
-  // A Buddy folder not made yet has no project to adopt; its declared path keeps any earlier one unlisted.
-  const fileSystemForBuddy = yield* Effect.serviceOption(FileSystem.FileSystem);
-  if (
-    typeof lazurioBuddyFolder === "string" &&
-    (Option.isNone(fileSystemForBuddy) ||
+  if (typeof lazurioBuddyFolder === "string") {
+    // A missing Buddy folder gets no project; one made earlier keeps its threads unarchived.
+    const fileSystemForBuddy = yield* Effect.serviceOption(FileSystem.FileSystem);
+    const exists =
+      Option.isNone(fileSystemForBuddy) ||
       (yield* fileSystemForBuddy.value
         .exists(lazurioBuddyFolder)
-        .pipe(Effect.orElseSucceed(() => false))))
-  )
-    yield* ensureBuddyProject(lazurioBuddyFolder);
+        .pipe(Effect.orElseSucceed(() => false)));
+    if (exists) yield* ensureBuddyProject(lazurioBuddyFolder);
+    else {
+      const earlier = (yield* projects.snapshot).projects.find(
+        (candidate) => candidate.workspaceRoot === lazurioBuddyFolder,
+      );
+      if (earlier !== undefined) yield* restoreBuddyThreads(earlier.id);
+    }
+  }
   // A server always runs on the platform's file system. Upstream's startup tests build this phase
   // without one, so it is read here rather than added to the startup's requirements.
   const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
@@ -78,16 +84,26 @@ const ensureBuddyProject = Effect.fn("LazurioManagedFolder.ensureBuddyProject")(
       title: BUDDY_PROJECT_TITLE,
     });
   }
-  // Buddy's threads are never archived (managedFolderGuards.ts); one archived while the folder was
-  // not declared comes back, so the tasks it runs elsewhere follow a live parent again.
+  yield* restoreBuddyThreads(project.id);
+});
+
+/**
+ * Buddy's threads are never archived (managedFolderGuards.ts); one archived while the folder was not
+ * declared comes back, so the tasks it runs elsewhere follow a live parent again.
+ */
+const restoreBuddyThreads = Effect.fn("LazurioManagedFolder.restoreBuddyThreads")(function* (
+  projectId: ProjectId,
+) {
   const orchestrator = yield* Effect.serviceOption(Orchestrator.OrchestratorV2);
   if (Option.isNone(orchestrator)) return;
+  const random = yield* SecureRandom.SecureRandom;
+  const id = yield* random.uuidV4();
   const { archivedThreads } = yield* orchestrator.value.getShellSnapshot({
     location: "archive",
-    projectId: project.id,
+    projectId,
   });
   for (const thread of archivedThreads) {
-    if (thread.projectId !== project.id) continue;
+    if (thread.projectId !== projectId) continue;
     yield* orchestrator.value.dispatch({
       type: "thread.unarchive",
       commandId: CommandId.make(`lazurio-buddy-unarchive:${id}:${thread.id}`),

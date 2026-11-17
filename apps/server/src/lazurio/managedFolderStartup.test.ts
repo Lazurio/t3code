@@ -186,3 +186,44 @@ it.effect("re-enabling the Buddy folder brings Buddy's archived threads back, no
     ),
   );
 });
+
+it.effect(
+  "with the Buddy folder gone, its earlier project still gets its archived threads back",
+  () => {
+    const { folder, buddy, database } = makeFolderDirectories();
+    const persistence = SqlitePersistence.layerFromPath(database);
+    const unarchived: Array<string> = [];
+    const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+      getShellSnapshot: (options) =>
+        Effect.succeed({
+          schemaVersion: 1,
+          snapshotSequence: 1,
+          threads: [],
+          archivedThreads: [{ id: ThreadId.make("buddy-archived"), projectId: options?.projectId }],
+        } as never),
+      dispatch: (command) =>
+        Effect.sync(() => {
+          if (command.type === "thread.unarchive") unarchived.push(command.threadId);
+          return { sequence: unarchived.length, storedEvents: [] };
+        }),
+    });
+    const managed = (lazurioBuddyFolder?: string) =>
+      Layer.merge(
+        orchestrator,
+        layerProjects({
+          persistence,
+          lazurioFolder: folder,
+          ...(lazurioBuddyFolder === undefined ? {} : { lazurioBuddyFolder }),
+        }),
+      );
+    return Effect.gen(function* () {
+      yield* ensureManagedFolderProject.pipe(Effect.provide(managed(buddy)));
+      // Turned off, the thread archived and the folder removed, then turned on again.
+      yield* ensureManagedFolderProject.pipe(Effect.provide(managed()));
+      yield* Effect.sync(() => NodeFS.rmSync(buddy, { recursive: true }));
+      unarchived.length = 0;
+      yield* ensureManagedFolderProject.pipe(Effect.provide(managed(buddy)));
+      assert.deepStrictEqual(unarchived, ["buddy-archived"]);
+    });
+  },
+);

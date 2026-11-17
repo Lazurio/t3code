@@ -798,8 +798,8 @@ propojených s pull requestem (řádky nesou projekt, takže vypadnou i
 archivované). Vlákna projektu
 Buddyho stráž příkazů nearchivuje ani nemaže (kromě nepoužitého vlákna,
 `onlyIfUnused`), stejně jako jeho projekt. Vlákno archivované v době,
-kdy proměnná nastavená nebyla, vrátí start serveru po převzetí projektu
-z archivu. Úloha, kterou vlákno Buddyho
+kdy proměnná nastavená nebyla, vrátí start serveru z archivu, i když
+složka Buddyho mezitím zmizela a projekt se jen najde podle cesty. Úloha, kterou vlákno Buddyho
 spustilo v jiném Environmentu, tak má rodiče vždy v živém shellu a ze seznamů
 vypadne s ním. Na rozdíl od vláken skrytých filtrem štítků je otevře přímý odkaz
 `/<environment>/<vlákno>`. Agenti Chatu Buddyho vlákno přes MCP dál vidí
