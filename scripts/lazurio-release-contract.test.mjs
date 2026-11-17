@@ -1062,7 +1062,7 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   // decorator is an Effect.fn with its own span (effectFnOpportunity is an error).
   NodeAssert.match(
     source.guards,
-    /dispatch: Effect\.fn\("LazurioManagedFolder\.dispatch"\)\(\(command\) =>\n\s+Effect\.flatMap\(commandRefusal\(command, \{ isFolderProject, isInFolderRoot \}\), \(refusal\) =>\n\s+refusal === null\n\s+\? orchestrator\.dispatch\(command\)/,
+    /dispatch: Effect\.fn\("LazurioManagedFolder\.dispatch"\)\(\(command\) =>\n\s+Effect\.flatMap\(\n\s+commandRefusal\(command, \{ isFolderProject, isInFolderRoot, isBuddyThread \}\),\n\s+\(refusal\) =>\n\s+refusal === null\n\s+\? orchestrator\.dispatch\(command\)/,
   );
   NodeAssert.match(
     source.guards,
@@ -1074,7 +1074,8 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   );
   NodeAssert.match(
     source.guards,
-    /bootstrap: Effect\.fn\("LazurioManagedFolder\.bootstrapProject"\)\(\(input\) =>\n\s+Effect\.flatMap\(inFolder\(input\), projects\.bootstrap\),/,
+    // Only the startup bootstraps, so only it can make Buddy's project (LZD-0033); create cannot.
+    /bootstrap: Effect\.fn\("LazurioManagedFolder\.bootstrapProject"\)\(\(input\) =>\n\s+Effect\.flatMap\(inFolderOrBuddy\(input\), projects\.bootstrap\),/,
   );
   NodeAssert.match(source.guards, /scratchRoot: Effect\.succeedNone,/);
   NodeAssert.match(source.vcs, /const lazurioFolderGuard = yield\* makeFolderGuard;/);

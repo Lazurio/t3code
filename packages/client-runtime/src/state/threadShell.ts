@@ -17,6 +17,12 @@ import { Atom } from "effect/reactivity";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { hiddenThreadKeys, NO_HIDDEN_THREADS } from "./threadTagFilter.ts";
+import {
+  listHiddenKeys,
+  NO_UNLISTED_PROJECT_IDS,
+  sameThreadKeys,
+  unlistedThreadKeys,
+} from "../lazurio/unlistedProjects.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import {
   arrayElementsEqual,
@@ -209,6 +215,10 @@ export function createEnvironmentThreadShellAtoms(input: {
   readonly hiddenThreadTagsAtom: (
     environmentId: EnvironmentId,
   ) => Atom.Atom<ReadonlyArray<string> | null>;
+  /** Lazurio overlay (LZD-0033): projects whose threads, and their children, lists leave out. */
+  readonly unlistedProjectIdsAtom?: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<ReadonlySet<ProjectId>>;
 }) {
   // Point reads and aggregate lists share values without keeping an atom alive
   // for every listed thread. Replaced source objects can be collected.
@@ -626,6 +636,26 @@ export function createEnvironmentThreadShellAtoms(input: {
     return next;
   }).pipe(Atom.withLabel("environment-hidden-thread-keys"));
 
+  // Lazurio overlay (LZD-0033): lists leave out unlisted projects' threads; the route still opens them.
+  const unlistedThreadKeysAtom = Atom.make((get) => {
+    const environments = Array.from(enabledEnvironmentIds(get(input.catalogValueAtom)), (id) => ({
+      environmentId: id,
+      projectIds: input.unlistedProjectIdsAtom ? get(input.unlistedProjectIdsAtom(id)) : null,
+    }));
+    if (!environments.some(({ projectIds }) => projectIds !== null && projectIds.size > 0))
+      return NO_HIDDEN_THREADS;
+    return unlistedThreadKeys(
+      environments.map(({ environmentId, projectIds }) => ({
+        environmentId,
+        projectIds: projectIds ?? NO_UNLISTED_PROJECT_IDS,
+        threads: get(environmentThreadsAtom(environmentId)),
+      })),
+    );
+  }).pipe(Atom.withEquality(sameThreadKeys), Atom.withLabel("environment-unlisted-thread-keys"));
+  const listHiddenThreadKeysAtom = Atom.make((get) =>
+    listHiddenKeys(get(hiddenThreadKeysAtom), get(unlistedThreadKeysAtom)),
+  ).pipe(Atom.withLabel("environment-list-hidden-thread-keys"));
+
   const anyEnvironmentHidingAtom = Atom.make((get) =>
     Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).some(
       (environmentId) => get(input.hiddenThreadTagsAtom(environmentId)) !== null,
@@ -636,7 +666,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   let previousVisibleThreadShells: ReadonlyArray<EnvironmentThreadShell> = [];
   const visibleThreadShellsAtom = Atom.make((get) => {
     const threads = get(threadShellsAtom);
-    const hidden = get(hiddenThreadKeysAtom);
+    const hidden = get(listHiddenThreadKeysAtom);
     if (hidden.size === 0) return threads;
     const next = threads.filter(
       (thread) =>
@@ -652,7 +682,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   let previousQuietThreadShells: ReadonlyArray<EnvironmentThreadShell> = [];
   const quietThreadShellsAtom = Atom.make((get) => {
     const next: EnvironmentThreadShell[] = [];
-    const hidden = get(hiddenThreadKeysAtom);
+    const hidden = get(listHiddenThreadKeysAtom);
     for (const ref of get(threadRefsAtom)) {
       if (hidden.has(threadKey(ref))) continue;
       const shell = get(quietThreadShellAtomFamily(threadKey(ref)));
@@ -695,7 +725,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   const navigationThreadShellsAtom = Atom.make((get) => {
     const next: EnvironmentThreadShell[] = [];
     const underParent = get(delegatedUnderParentAtom);
-    const hidden = get(hiddenThreadKeysAtom);
+    const hidden = get(listHiddenThreadKeysAtom);
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
       for (const thread of get(environmentThreadsAtom(environmentId))) {
@@ -723,6 +753,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     threadShellsAtom,
     visibleThreadShellsAtom,
     hiddenThreadKeysAtom,
+    listHiddenThreadKeysAtom,
     anyEnvironmentHidingAtom,
     quietThreadShellsAtom,
     navigationThreadShellsAtom,

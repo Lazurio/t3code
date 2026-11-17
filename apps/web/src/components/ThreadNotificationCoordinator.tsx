@@ -86,10 +86,11 @@ export function startThreadNotifications(
     if (remaining.length === 0) openToasts.delete(key);
     else openToasts.set(key, remaining);
   };
+  // Lazurio overlay (LZD-0033): Buddy's unlisted threads notify no more than tag-hidden ones.
   // A notification shown before the tag filter turned on must not stay on screen. While hiding,
   // one whose thread left the live list (archived) cannot be judged, so it closes too.
   const closeHiddenPending = () => {
-    const hidden = registry.get(environmentThreadShells.hiddenThreadKeysAtom);
+    const hidden = registry.get(environmentThreadShells.listHiddenThreadKeysAtom);
     const live = registry.get(environmentThreadShells.anyEnvironmentHidingAtom)
       ? new Set(registry.get(environmentThreadShells.threadRefsAtom).map(threadKey))
       : null;
@@ -121,7 +122,7 @@ export function startThreadNotifications(
     const { thread, status } = state;
     if (
       registry
-        .get(environmentThreadShells.hiddenThreadKeysAtom)
+        .get(environmentThreadShells.listHiddenThreadKeysAtom)
         .has(threadKey({ environmentId, threadId: thread.id }))
     )
       return;
@@ -411,7 +412,7 @@ export function startThreadNotifications(
     },
   );
   const unsubscribeHidden = [
-    registry.subscribe(environmentThreadShells.hiddenThreadKeysAtom, closeHiddenPending),
+    registry.subscribe(environmentThreadShells.listHiddenThreadKeysAtom, closeHiddenPending),
     registry.subscribe(environmentThreadShells.anyEnvironmentHidingAtom, closeHiddenPending),
     registry.subscribe(environmentThreadShells.threadRefsAtom, closeHiddenPending),
   ];

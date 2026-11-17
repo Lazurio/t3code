@@ -22,7 +22,7 @@ import * as ProviderSessionManager from "../orchestration-v2/ProviderSessionMana
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as TriageService from "../triage/TriageService.ts";
-import { makeFolderGuard } from "./managedFolder.ts";
+import { BUDDY_PROJECT_TITLE, makeFolderGuard } from "./managedFolder.ts";
 
 const projectElsewhere = "In this Environment, the Lazurio project is the Lazurio Folder itself.";
 const projectMoved =
@@ -31,15 +31,22 @@ const projectRenamed = "This project keeps the name Lazurio.";
 const projectRemoved = "The Lazurio project belongs to this Environment and cannot be removed.";
 const triageUnavailable = "This Environment does not triage issues against upstream T3 Code.";
 const projectArchived = "The Lazurio project belongs to this Environment and cannot be archived.";
+const buddyThreadUnknown =
+  "This Environment could not check whether this thread is Buddy's, so it stays as it is. Try again.";
+const buddyThreadKept =
+  "Buddy's threads belong to this Environment, like its project: they are not archived or deleted.";
+const buddyProjectChanged =
+  "Buddy's project belongs to this Environment: it keeps its name and cannot be archived or removed.";
+
 const threadElsewhere =
   "Start a new chat in the Lazurio project. Agents in this Environment work in its Lazurio Folder; your earlier chats stay here as history.";
 const threadInWorktree =
   "Chats in this Environment start in the Lazurio Folder, without a separate worktree.";
 
 /**
- * Upstream's project service from `live`, which in a managed Environment creates or adopts a
- * project only for the Folder (a path that resolves to the Folder names it), keeps the Folder's
- * project named Lazurio, in place and not archived, and moves no project to another folder.
+ * Upstream's project service from `live`, which in a managed Environment creates a project only for
+ * the Folder, keeps it named Lazurio, in place and not archived, and moves no project. Buddy's project
+ * comes only from the startup's `bootstrap`, which no client, agent or CLI reaches, and stays as made.
  */
 export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectService, E, R>) =>
   Layer.effect(
@@ -47,7 +54,7 @@ export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectServ
     Effect.gen(function* () {
       const projects = yield* ProjectService.ProjectService;
       const guard = yield* makeFolderGuard;
-      const folder = guard.folder;
+      const { folder, buddyFolder } = guard;
       if (folder === undefined) return projects;
       const path = yield* Path.Path;
       const refuse = (projectId: ProjectId, refusal: string) =>
@@ -58,10 +65,10 @@ export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectServ
             cause: refusal,
           }),
         );
-      const isFolderProject = (projectId: ProjectId) =>
+      const rootOf = (projectId: ProjectId) =>
         projects
           .getById(projectId)
-          .pipe(Effect.map(Option.exists((project) => project.workspaceRoot === folder)));
+          .pipe(Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot));
       // The Folder's project always has the Folder's canonical path as its root.
       const inFolder = <
         A extends { readonly projectId: ProjectId; readonly workspaceRoot: string },
@@ -73,13 +80,24 @@ export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectServ
             ? Effect.succeed({ ...input, workspaceRoot: folder })
             : refuse(input.projectId, projectElsewhere),
         );
+      // Buddy's project, likewise, has the Buddy folder's canonical path.
+      const inFolderOrBuddy = <
+        A extends { readonly projectId: ProjectId; readonly workspaceRoot: string },
+      >(
+        input: A,
+      ) =>
+        buddyFolder === undefined
+          ? inFolder(input)
+          : Effect.flatMap(guard.isBuddyFolder(input.workspaceRoot), (isBuddy) =>
+              isBuddy ? Effect.succeed({ ...input, workspaceRoot: buddyFolder }) : inFolder(input),
+            );
       return ProjectService.ProjectService.of({
         ...projects,
         create: Effect.fn("LazurioManagedFolder.createProject")((input) =>
           Effect.flatMap(inFolder(input), projects.create),
         ),
         bootstrap: Effect.fn("LazurioManagedFolder.bootstrapProject")((input) =>
-          Effect.flatMap(inFolder(input), projects.bootstrap),
+          Effect.flatMap(inFolderOrBuddy(input), projects.bootstrap),
         ),
         update: Effect.fn("LazurioManagedFolder.updateProject")(function* (input) {
           if (input.workspaceRoot !== undefined) {
@@ -90,36 +108,48 @@ export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectServ
             )
               return yield* refuse(input.projectId, projectMoved);
           }
-          if (
-            input.title !== undefined &&
-            input.title !== "Lazurio" &&
-            (yield* isFolderProject(input.projectId))
-          )
-            return yield* refuse(input.projectId, projectRenamed);
-          // Archived, it would leave a new chat only "Add project", which this Environment refuses.
-          if (input.archived === true && (yield* isFolderProject(input.projectId)))
-            return yield* refuse(input.projectId, projectArchived);
+          if (input.title === undefined && input.archived !== true)
+            return yield* projects.update(input);
+          const root = yield* rootOf(input.projectId);
+          if (root === folder) {
+            if (input.title !== undefined && input.title !== "Lazurio")
+              return yield* refuse(input.projectId, projectRenamed);
+            // Archived, it would leave a new chat only "Add project", which this Environment refuses.
+            if (input.archived === true) return yield* refuse(input.projectId, projectArchived);
+          }
+          if (buddyFolder !== undefined && root === buddyFolder) {
+            if (input.title !== undefined && input.title !== BUDDY_PROJECT_TITLE)
+              return yield* refuse(input.projectId, buddyProjectChanged);
+            if (input.archived === true) return yield* refuse(input.projectId, buddyProjectChanged);
+          }
           return yield* projects.update(input);
         }),
-        delete: Effect.fn("LazurioManagedFolder.deleteProject")((input) =>
-          Effect.flatMap(isFolderProject(input.projectId), (isFolder) =>
-            isFolder ? refuse(input.projectId, projectRemoved) : projects.delete(input),
-          ),
-        ),
+        delete: Effect.fn("LazurioManagedFolder.deleteProject")(function* (input) {
+          const root = yield* rootOf(input.projectId);
+          if (root === folder) return yield* refuse(input.projectId, projectRemoved);
+          if (buddyFolder !== undefined && root === buddyFolder)
+            return yield* refuse(input.projectId, buddyProjectChanged);
+          return yield* projects.delete(input);
+        }),
       });
     }),
   ).pipe(Layer.provide(live));
 
 /**
  * Why a managed Environment refuses an orchestration command, or null: new threads, messages and
- * forks belong to the Folder project's root, and no thread moves into a worktree. A command whose
- * thread is gone is left to upstream, which answers for it.
+ * forks belong to the root of the Folder's or the Buddy folder's project, and no thread moves into
+ * a worktree. A command whose thread is gone is left to upstream, which answers for it.
  */
+const buddyRefusal = (buddy: boolean | null) =>
+  buddy === null ? buddyThreadUnknown : buddy ? buddyThreadKept : null;
+
 const commandRefusal = (
   command: OrchestrationV2ServerCommand,
   state: {
     readonly isFolderProject: (projectId: ProjectId) => Effect.Effect<boolean>;
     readonly isInFolderRoot: (threadId: ThreadId) => Effect.Effect<boolean>;
+    /** Whether the thread is in Buddy's project; null when that could not be read. */
+    readonly isBuddyThread: (threadId: ThreadId) => Effect.Effect<boolean | null>;
   },
 ): Effect.Effect<string | null> => {
   const unless = (allowed: Effect.Effect<boolean>, refusal: string) =>
@@ -142,6 +172,13 @@ const commandRefusal = (
     }
     case "thread.fork":
       return unless(state.isInFolderRoot(command.sourceThreadId), threadElsewhere);
+    // An archived or deleted Buddy thread would leave the tasks it runs elsewhere listed in Chat.
+    case "thread.archive":
+      return Effect.map(state.isBuddyThread(command.threadId), buddyRefusal);
+    case "thread.delete":
+      return command.onlyIfUnused === true
+        ? Effect.succeed(null)
+        : Effect.map(state.isBuddyThread(command.threadId), buddyRefusal);
     case "delegated_task.request":
       return Effect.succeed(
         command.workspaceStrategy === undefined || command.workspaceStrategy.type === "root"
@@ -155,8 +192,8 @@ const commandRefusal = (
 
 /**
  * Upstream's orchestrator from `live`, which in a managed Environment rejects a command that would
- * start a thread, a message or a fork outside the Folder project's root, or move a thread into a
- * worktree, before it is decided. Every command passes `dispatch`, so this holds for clients,
+ * start a thread, a message or a fork outside the Folder's or the Buddy folder's project root, or
+ * move a thread into a worktree, before it is decided. Every command passes `dispatch`, so this holds for clients,
  * agents, scheduled tasks and the server's own launches alike.
  */
 export const guardCommands = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV2, E, R>) =>
@@ -164,13 +201,20 @@ export const guardCommands = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV
     Orchestrator.OrchestratorV2,
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const { lazurioFolder: folder } = yield* ServerConfig.ServerConfig;
+      const { lazurioFolder: folder, lazurioBuddyFolder } = yield* ServerConfig.ServerConfig;
       if (folder === undefined) return orchestrator;
+      const buddyFolder = typeof lazurioBuddyFolder === "string" ? lazurioBuddyFolder : undefined;
       const projects = yield* ProjectStore.ProjectStoreV2;
-      // A lookup that fails refuses: the guard fails closed.
+      // A lookup that fails refuses: the guard fails closed. Buddy's project counts as the Folder's.
       const isFolderProject = (projectId: ProjectId) =>
         projects.get(projectId).pipe(
-          Effect.map(Option.exists((project) => project.workspaceRoot === folder)),
+          Effect.map(
+            Option.exists(
+              (project) =>
+                project.workspaceRoot === folder ||
+                (buddyFolder !== undefined && project.workspaceRoot === buddyFolder),
+            ),
+          ),
           Effect.orElseSucceed(() => false),
         );
       const isInFolderRoot = (threadId: ThreadId) =>
@@ -184,19 +228,38 @@ export const guardCommands = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV
           ),
           Effect.orElseSucceed(() => false),
         );
+      const isBuddyThread = (threadId: ThreadId) =>
+        buddyFolder === undefined
+          ? Effect.succeed(false)
+          : orchestrator.getThreadShell(threadId).pipe(
+              Effect.flatMap((thread) =>
+                thread === null
+                  ? Effect.succeed(false)
+                  : projects
+                      .get(thread.projectId)
+                      .pipe(
+                        Effect.map(
+                          Option.exists((project) => project.workspaceRoot === buddyFolder),
+                        ),
+                      ),
+              ),
+              Effect.orElseSucceed(() => null),
+            );
       return Orchestrator.OrchestratorV2.of({
         ...orchestrator,
         dispatch: Effect.fn("LazurioManagedFolder.dispatch")((command) =>
-          Effect.flatMap(commandRefusal(command, { isFolderProject, isInFolderRoot }), (refusal) =>
-            refusal === null
-              ? orchestrator.dispatch(command)
-              : Effect.fail(
-                  new Orchestrator.OrchestratorCommandRejectedError({
-                    commandId: command.commandId,
-                    commandType: command.type,
-                    cause: refusal,
-                  }),
-                ),
+          Effect.flatMap(
+            commandRefusal(command, { isFolderProject, isInFolderRoot, isBuddyThread }),
+            (refusal) =>
+              refusal === null
+                ? orchestrator.dispatch(command)
+                : Effect.fail(
+                    new Orchestrator.OrchestratorCommandRejectedError({
+                      commandId: command.commandId,
+                      commandType: command.type,
+                      cause: refusal,
+                    }),
+                  ),
           ),
         ),
       });
@@ -205,8 +268,8 @@ export const guardCommands = <E, R>(live: Layer.Layer<Orchestrator.OrchestratorV
 
 /**
  * Upstream's provider session manager from `live`, which in a managed Environment opens a session
- * only where the run's workspace resolves to the Folder itself. A turn elsewhere, or in a Folder
- * path that now leads somewhere else, fails as a session that did not open, with the reason, and
+ * only where the run's workspace resolves to the Folder or the Buddy folder itself. A turn elsewhere,
+ * or in a Folder path that now leads somewhere else, fails as a session that did not open, with the reason, and
  * the provider is never started; upstream then settles the run as failed.
  */
 export const guardTurns = <E, R>(

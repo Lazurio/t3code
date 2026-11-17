@@ -1,7 +1,7 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 
-import { useProjects } from "~/state/entities";
+import { useProject } from "~/state/entities";
 
 import { useHandleNewThread } from "./useHandleNewThread";
 
@@ -14,15 +14,12 @@ export interface ActiveProjectTarget {
 
 export function useActiveProjectTarget(): ActiveProjectTarget | null {
   const { activeDraftThread, activeThread } = useHandleNewThread();
-  const projects = useProjects();
   const thread = activeThread ?? activeDraftThread;
   const threadId = activeThread?.id ?? activeDraftThread?.threadId;
-  const project = thread
-    ? projects.find(
-        (candidate) =>
-          candidate.environmentId === thread.environmentId && candidate.id === thread.projectId,
-      )
-    : null;
+  // A point read: lists leave out Buddy's project (LZD-0033), its thread still has a project.
+  const project = useProject(
+    thread ? scopeProjectRef(thread.environmentId, thread.projectId) : null,
+  );
   const cwd = thread?.worktreePath ?? project?.workspaceRoot;
 
   if (!thread || !threadId || !project || !cwd) return null;
