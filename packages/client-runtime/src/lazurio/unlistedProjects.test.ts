@@ -168,4 +168,50 @@ describe("Buddy's project in a managed Environment", () => {
       registry.dispose();
     }
   });
+
+  it("keeps a task archived elsewhere out when its archived Buddy parent is in another archive", () => {
+    const { registry, projects, threads, configAtom } = makeHarness();
+    const archivedBuddy = { ...buddyThread, id: ThreadId.make("archived-buddy") };
+    const archivedTask = {
+      ...v2ThreadShell,
+      id: ThreadId.make("archived-remote-task"),
+      delegatedFrom: { environmentId, threadId: archivedBuddy.id, title: "Buddy" },
+    };
+    const archivedRemote = { ...v2ThreadShell, id: ThreadId.make("archived-remote") };
+    const page = (
+      threadsOnPage: OrchestrationV2ArchivedShellSnapshot["threads"],
+    ): OrchestrationV2ArchivedShellSnapshot => ({
+      schemaVersion: 1,
+      snapshotSequence: 1,
+      projects: [v2Project, buddyProject],
+      threads: threadsOnPage,
+    });
+    const archive = createArchivedThreadSnapshotsAtomFamily<Error>({
+      getSnapshotAtom: (id) =>
+        Atom.make(
+          AsyncResult.success<OrchestrationV2ArchivedShellSnapshot, Error>(
+            id === environmentId ? page([archivedBuddy]) : page([archivedTask, archivedRemote]),
+          ),
+        ),
+      hiddenThreadTagsAtom: () => Atom.make(null),
+      hiddenThreadKeysAtom: threads.listHiddenThreadKeysAtom,
+      liveThreadRefsAtom: threads.threadRefsAtom,
+      anyEnvironmentHidingAtom: threads.anyEnvironmentHidingAtom,
+      unlistedProjectIdsAtom: projects.unlistedProjectIdsAtom,
+      unlistedEnvironmentIdsAtom: Atom.make([environmentId]),
+      labelPrefix: "test:unlisted-archive-elsewhere",
+    });
+    try {
+      registry.set(configAtom(environmentId), { lazurioBuddyFolder: buddyProject.workspaceRoot });
+      // Scoped to the remote environment only, with no tag filter anywhere.
+      expect(registry.get(threads.anyEnvironmentHidingAtom)).toBe(false);
+      const { snapshots } = registry.get(
+        archive(makeArchivedThreadsEnvironmentKey([remoteEnvironmentId])),
+      );
+      expect(snapshots.map(({ environmentId: id }) => id)).toEqual([remoteEnvironmentId]);
+      expect(snapshots[0]?.snapshot.threads.map(({ id }) => id)).toEqual([archivedRemote.id]);
+    } finally {
+      registry.dispose();
+    }
+  });
 });

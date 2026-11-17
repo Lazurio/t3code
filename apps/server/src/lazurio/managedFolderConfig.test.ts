@@ -82,6 +82,16 @@ it.effect("declares the Buddy folder beside the Folder by its canonical path", (
     );
     // Missing (not made yet, or removed): Chat still starts and the path stays, so an earlier
     // Buddy project stays unlisted. A sibling whose name starts with two dots is still beside.
+    // A link whose target was removed still names the target, the root its project was made with.
+    const target = NodePath.join(NodePath.dirname(folder), "Buddy-target");
+    const dangling = NodePath.join(NodePath.dirname(folder), "Buddy-link");
+    NodeFS.symlinkSync(target, dangling);
+    assert.strictEqual(
+      (yield* resolveManagedFolderConfig.pipe(
+        withEnv({ T3CODE_LAZURIO_FOLDER: folder, T3CODE_LAZURIO_BUDDY_FOLDER: dangling }),
+      )).lazurioBuddyFolder,
+      target,
+    );
     const dotsSibling = NodePath.join(NodePath.dirname(folder), "..Buddy");
     NodeFS.mkdirSync(dotsSibling);
     for (const declared of [`${buddy}-missing`, dotsSibling]) {

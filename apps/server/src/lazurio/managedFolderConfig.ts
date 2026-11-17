@@ -46,6 +46,33 @@ const canonicalFolder = Effect.fn("LazurioManagedFolder.canonicalFolder")(functi
   return root;
 });
 
+/**
+ * Where a missing path would be once made: links followed, also dangling ones, and the deepest
+ * existing ancestor resolved, so a project created through a link keeps its root after a restart.
+ */
+const canonicalMissing = Effect.fn("LazurioManagedFolder.canonicalMissing")(function* (
+  declared: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  let current = path.resolve(declared);
+  const rest: Array<string> = [];
+  for (let hop = 0; hop < 40; hop++) {
+    const target = yield* fs.readLink(current).pipe(Effect.option);
+    if (Option.isSome(target)) {
+      current = path.resolve(path.dirname(current), target.value);
+      continue;
+    }
+    if (yield* fs.exists(current).pipe(Effect.orElseSucceed(() => false)))
+      return path.join(yield* fs.realPath(current), ...rest);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    rest.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.resolve(declared);
+});
+
 /** Whether `inner` is `outer` or lies under it, compared by whole path components. */
 const within = (path: Path.Path, outer: string, inner: string) => {
   const relative = path.relative(outer, inner);
@@ -70,7 +97,7 @@ const canonicalBuddyFolder = Effect.fn("LazurioManagedFolder.canonicalBuddyFolde
   const fs = yield* FileSystem.FileSystem;
   const root =
     path.isAbsolute(declared) && !(yield* fs.exists(declared))
-      ? path.resolve(declared)
+      ? yield* canonicalMissing(declared)
       : yield* canonicalFolder("T3CODE_LAZURIO_BUDDY_FOLDER", declared);
   if (within(path, folder, root) || within(path, root, folder))
     return yield* invalid(

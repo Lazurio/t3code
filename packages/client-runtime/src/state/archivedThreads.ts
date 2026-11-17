@@ -66,6 +66,8 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
   readonly unlistedProjectIdsAtom?: (
     environmentId: EnvironmentId,
   ) => Atom.Atom<ReadonlySet<ProjectId>>;
+  /** Environments with unlisted projects, whose archives are read so tasks follow parents there. */
+  readonly unlistedEnvironmentIdsAtom?: Atom.Atom<ReadonlyArray<EnvironmentId>>;
   readonly labelPrefix: string;
 }) {
   return Atom.family((environmentKey: string) =>
@@ -95,11 +97,30 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
         }
       }
 
+      // Lazurio overlay (LZD-0033): archives outside the scope that hold unlisted projects join the
+      // pass only, so a task follows a parent archived there.
+      const traversed = [...snapshots];
+      for (const environmentId of options.unlistedEnvironmentIdsAtom
+        ? get(options.unlistedEnvironmentIdsAtom)
+        : []) {
+        if (environments.some((environment) => environment.environmentId === environmentId))
+          continue;
+        const result = get(options.getSnapshotAtom(environmentId));
+        isLoading ||= result.waiting;
+        const snapshot = AsyncResult.getOrElse(result, () => null);
+        if (snapshot !== null) traversed.push({ environmentId, snapshot });
+        environments.push({
+          environmentId,
+          threads: snapshot?.threads ?? [],
+          hiddenTags: get(options.hiddenThreadTagsAtom(environmentId)),
+        });
+      }
+
       // One pass over every environment's page, so archived tasks follow parents archived elsewhere.
       // Any connected machine may hide an unloaded parent, so the global flag decides, not the scope.
       const hidingAnywhere = get(options.anyEnvironmentHidingAtom);
       const unlisted = unlistedArchivedThreadKeys(
-        snapshots.map(({ environmentId, snapshot }) => ({
+        traversed.map(({ environmentId, snapshot }) => ({
           environmentId,
           projectIds: options.unlistedProjectIdsAtom
             ? get(options.unlistedProjectIdsAtom(environmentId))

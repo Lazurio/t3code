@@ -4,7 +4,11 @@ import {
   createArchivedThreadSnapshotsAtomFamily,
   makeArchivedThreadsEnvironmentKey,
 } from "@t3tools/client-runtime/state/threads";
+import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
+
+import { environmentCatalog } from "../connection/catalog";
 
 import { orchestrationEnvironment } from "../state/orchestration";
 import { serverEnvironment } from "../state/server";
@@ -27,6 +31,11 @@ const archivedSnapshotsAtom = createArchivedThreadSnapshotsAtomFamily({
   liveThreadRefsAtom: environmentThreadShells.threadRefsAtom,
   anyEnvironmentHidingAtom: environmentThreadShells.anyEnvironmentHidingAtom,
   unlistedProjectIdsAtom: environmentProjects.unlistedProjectIdsAtom,
+  unlistedEnvironmentIdsAtom: Atom.make((get) =>
+    Array.from(enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom))).filter(
+      (environmentId) => get(environmentProjects.unlistedProjectIdsAtom(environmentId)).size > 0,
+    ),
+  ),
   labelPrefix: "web:archived-thread-snapshots",
 });
 

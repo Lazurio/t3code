@@ -778,9 +778,10 @@ popisuje [specifikace overlaye](./lazurio-overlay.md#odkazy-na-zadání-upstream
 určí vedle složky Lazuria kanonickou existující složku Buddyho; bez
 `T3CODE_LAZURIO_FOLDER` ji server odmítne, stejně jako složku uvnitř Folderu
 nebo složku, která Folder obsahuje (porovnává celé složky cesty, takže
-`Lazurio/..buddy` leží uvnitř). Chybějící složka Chat nezastaví: server běží,
-projekt nezakládá a cesta zůstane v konfiguraci, takže dřívější projekt
-Buddyho zůstane nevypsaný a tahy v něm stráže odmítnou. Projekt nad ní je vnitřní věc Lazuria, ne
+`Lazurio/..buddy` leží uvnitř). Chybějící složka Chat nezastaví: server běží
+a projekt nezakládá. V konfiguraci zůstane cesta, kde by složka byla (odkazy
+i visící se přečtou, nejhlubší existující předek se kanonizuje), takže
+dřívější projekt Buddyho zůstane nevypsaný a tahy v něm stráže odmítnou. Projekt nad ní je vnitřní věc Lazuria, ne
 funkce Chatu: založí ho jen start serveru (`ProjectService.bootstrap`, jméno
 Buddy), kam žádný klient, agent ani CLI nedosáhne. `create` ho dál odmítne
 (`t3 project add`, `t3_project_create` i web) a přejmenování, archivaci
@@ -791,7 +792,12 @@ projektu Buddyho Lazurio nepřepíše. Server pošle složku klientům
 (`lazurioBuddyFolder` v `server.getConfig`). Web projekt vynechá ze všech
 seznamů projektů a jeho vlákna i s podřízenými vlákny a úlohami, které pro ně
 běží v jiném Environmentu, ze seznamů, palety, hledání, archivu (Settings →
-Archived threads) a vláken propojených s pull requestem. Na rozdíl od vláken skrytých filtrem štítků je otevře přímý odkaz
+Archived threads; archivy Environmentů s projektem Buddyho se čtou i mimo
+zvolený rozsah, aby úloha následovala rodiče archivovaného jinde) a vláken
+propojených s pull requestem (řádky nesou projekt, takže vypadnou i
+archivované). Živá úloha v jiném Environmentu, jejíž rodič z projektu Buddyho
+je archivovaný, v seznamech zůstává: řádky shellu ani propojení nenesou
+rodokmen archivovaných vláken a vyřeší to až skrytí na serveru (R3). Na rozdíl od vláken skrytých filtrem štítků je otevře přímý odkaz
 `/<environment>/<vlákno>`. Agenti Chatu Buddyho vlákno přes MCP dál vidí
 (`t3_thread_list`, `t3_project_list`); server ho neskrývá, protože Buddy vlákna
 Chatu vidět musí. Oficiální desktop a mobil projekt ukážou jako běžný, protože
@@ -801,7 +807,8 @@ Logika vynechání je v modulu overlaye
 `packages/client-runtime/src/lazurio/unlistedProjects.ts`. Atomy projektů,
 vláken a archivu upstreamu (`projectEntities.ts`, `threadShell.ts`,
 `archivedThreads.ts`) a jejich zapojení ve webu (`state/threads.ts`,
-`lib/archivedThreadsState.ts`, `pullRequest/PullRequestThreadLinks.tsx`)
+`lib/archivedThreadsState.ts`, `pullRequest/PullRequestThreadLinks.tsx`, filtr
+řádků je v `apps/web/src/lazurio/unlistedRows.ts`)
 nesou po jednom háčku. Proto jsou v allowlistu i s modulem a jeho testem.
 
 Kód spravované složky žije ve složkách overlaye (`apps/*/src/lazurio/`);

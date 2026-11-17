@@ -20,6 +20,8 @@ import {
   useVisibleThreadShells,
 } from "~/state/entities";
 import { pullRequestEnvironment } from "~/state/pullRequests";
+import { listedLinkedRows } from "~/lazurio/unlistedRows";
+import { environmentProjects } from "~/state/projects";
 import { environmentThreadShells } from "~/state/threads";
 import { useEnvironmentQuery } from "~/state/query";
 import { useThreadSearch } from "~/state/queries";
@@ -70,6 +72,9 @@ function EnabledPullRequestThreadLinks({
   const linkedHere = linking.isLinked(thread, url);
   // Lazurio overlay (LZD-0033): Buddy's threads stay out of linked-thread rows too.
   const hiddenKeys = useAtomValue(environmentThreadShells.listHiddenThreadKeysAtom);
+  const unlistedProjectIds = useAtomValue(
+    environmentProjects.unlistedProjectIdsAtom(environmentId),
+  );
   const hidingAnywhere = useAnyEnvironmentHiding();
   const loadedThreadRefs = useEnvironmentThreadRefs(environmentId);
   const relations = useEnvironmentQuery(
@@ -119,7 +124,10 @@ function EnabledPullRequestThreadLinks({
 
   if (parsed === null || (!linkedHere && !linking.canLink(url))) return null;
   const linkedThreads = visibleLinkedThreads(
-    linking.mode === "multiple" ? ((relations.data ?? lastRelations)?.threads ?? []) : [],
+    listedLinkedRows(
+      linking.mode === "multiple" ? ((relations.data ?? lastRelations)?.threads ?? []) : [],
+      unlistedProjectIds,
+    ),
     environmentId,
     loadedThreadRefs,
     hiddenKeys,
