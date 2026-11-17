@@ -1,12 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off - the Buddy folder is a real directory, removed in one case.
 import * as NodeFS from "node:fs";
 
-import { CommandId, ProjectId } from "@t3tools/contracts";
+import { CommandId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import { layerProjects, makeFolderDirectories } from "./managedFolder.testkit.ts";
@@ -145,4 +147,42 @@ it.effect("restarts without the Buddy folder: Chat starts and Buddy's project st
       ],
     );
   });
+});
+
+it.effect("re-enabling the Buddy folder brings Buddy's archived threads back, nothing else", () => {
+  const { folder, buddy } = makeFolderDirectories();
+  const unarchived: Array<string> = [];
+  // A thread archived while the folder was not declared, and an archived Chat thread.
+  const orchestrator = Layer.mock(Orchestrator.OrchestratorV2)({
+    getShellSnapshot: (options) =>
+      Effect.succeed({
+        schemaVersion: 1,
+        snapshotSequence: 1,
+        threads: [],
+        archivedThreads: [
+          { id: ThreadId.make("buddy-archived"), projectId: options?.projectId },
+          { id: ThreadId.make("chat-archived"), projectId: ProjectId.make("lazurio") },
+        ],
+      } as never),
+    dispatch: (command) =>
+      Effect.sync(() => {
+        if (command.type === "thread.unarchive") unarchived.push(command.threadId);
+        return { sequence: unarchived.length, storedEvents: [] };
+      }),
+  });
+  return Effect.gen(function* () {
+    yield* ensureManagedFolderProject;
+    assert.deepStrictEqual(unarchived, ["buddy-archived"]);
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        orchestrator,
+        layerProjects({
+          persistence: SqlitePersistence.layerMemory,
+          lazurioFolder: folder,
+          lazurioBuddyFolder: buddy,
+        }),
+      ),
+    ),
+  );
 });

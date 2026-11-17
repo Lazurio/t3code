@@ -10,6 +10,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import { BUDDY_PROJECT_TITLE } from "./managedFolder.ts";
 import { recordFolderProject } from "./modelRecommendation.ts";
@@ -75,6 +76,22 @@ const ensureBuddyProject = Effect.fn("LazurioManagedFolder.ensureBuddyProject")(
       commandId: CommandId.make(`lazurio-buddy-project-title:${id}`),
       projectId: project.id,
       title: BUDDY_PROJECT_TITLE,
+    });
+  }
+  // Buddy's threads are never archived (managedFolderGuards.ts); one archived while the folder was
+  // not declared comes back, so the tasks it runs elsewhere follow a live parent again.
+  const orchestrator = yield* Effect.serviceOption(Orchestrator.OrchestratorV2);
+  if (Option.isNone(orchestrator)) return;
+  const { archivedThreads } = yield* orchestrator.value.getShellSnapshot({
+    location: "archive",
+    projectId: project.id,
+  });
+  for (const thread of archivedThreads) {
+    if (thread.projectId !== project.id) continue;
+    yield* orchestrator.value.dispatch({
+      type: "thread.unarchive",
+      commandId: CommandId.make(`lazurio-buddy-unarchive:${id}:${thread.id}`),
+      threadId: thread.id,
     });
   }
 });
