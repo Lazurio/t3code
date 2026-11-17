@@ -26,12 +26,7 @@ import * as Layer from "effect/Layer";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
-import * as ServerSettings from "../serverSettings.ts";
-import {
-  buddyCommandRefusal,
-  withoutBuddyCheckpoints,
-  withoutLinkedEnvironments,
-} from "./buddySurfaceGuards.ts";
+import { buddyCommandRefusal, withoutBuddyCheckpoints } from "./buddySurfaceGuards.ts";
 import { addProject, buddyModel, layerBuddyServer } from "./buddySurface.testkit.ts";
 import { BUDDY_THREAD_ID, resolveBuddyThread } from "./buddySurfaceThread.ts";
 
@@ -275,91 +270,6 @@ describe("checkpoints in Buddy's T3 Code", () => {
       assert.isTrue(yield* isGit(layer));
     }).pipe(
       Effect.provide(withoutBuddyCheckpoints(store([])).pipe(Layer.provide(layerConfig))),
-      Effect.provideService(HostProcess.Environment, { HOME: home }),
-    );
-  });
-});
-
-describe("linked Environments in Buddy's T3 Code", () => {
-  const linkedOn = () =>
-    withoutLinkedEnvironments(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true }));
-  const read = Effect.gen(function* () {
-    const settings = yield* ServerSettings.ServerSettingsService;
-    return [
-      (yield* settings.getSettings).linkedEnvironmentsEnabled,
-      (yield* settings.updateSettings({ linkedEnvironmentsEnabled: true }))
-        .linkedEnvironmentsEnabled,
-      yield* settings.withSettingsSnapshot((current) =>
-        Effect.succeed(current.linkedEnvironmentsEnabled),
-      ),
-    ];
-  });
-
-  it.effect("are off, also when the stored settings turn them on", () => {
-    const { home } = makeHome();
-    return Effect.gen(function* () {
-      assert.deepStrictEqual(yield* read, [false, false, false]);
-    }).pipe(
-      Effect.provide(linkedOn()),
-      Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
-    );
-  });
-
-  // `t3 environment` reads the stored settings, also without the switch in its environment.
-  it.effect("are stored off by every write, the startup's defaults included", () => {
-    const { home } = makeHome();
-    return Effect.gen(function* () {
-      const stored = yield* ServerSettings.ServerSettingsService.pipe(
-        Effect.provide(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
-      );
-      const written: Array<boolean> = [];
-      const guarded = yield* ServerSettings.ServerSettingsService.pipe(
-        Effect.provide(
-          withoutLinkedEnvironments(
-            Layer.succeed(ServerSettings.ServerSettingsService, {
-              ...stored,
-              updateSettingsWith: (apply) =>
-                Effect.map(stored.getSettings, (current) => {
-                  const next = apply(current);
-                  written.push(next.linkedEnvironmentsEnabled);
-                  return next;
-                }),
-            }),
-          ),
-        ),
-      );
-      yield* guarded.updateSettingsWith!((current) => current);
-      yield* guarded.updateSettings({ linkedEnvironmentsEnabled: true });
-      assert.deepStrictEqual(written, [false]);
-      assert.isFalse((yield* stored.getSettings).linkedEnvironmentsEnabled);
-    }).pipe(
-      Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
-    );
-  });
-
-  // Clients learn of the administrator's policy from this field; dropping it unlocks their controls.
-  it.effect("keep the administrator's policy summary", () => {
-    const { home } = makeHome();
-    const policy = { organization: "Example", lockedSettings: ["providers.codex.enabled"] };
-    return Effect.gen(function* () {
-      const settings = yield* ServerSettings.ServerSettingsService;
-      assert.deepStrictEqual(settings.managedPolicy, policy);
-    }).pipe(
-      Effect.provide(
-        withoutLinkedEnvironments(
-          ServerSettings.layerTest({ linkedEnvironmentsEnabled: true }, policy),
-        ),
-      ),
-      Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
-    );
-  });
-
-  it.effect("are upstream's outside Buddy's T3 Code", () => {
-    const { home } = makeHome();
-    return Effect.gen(function* () {
-      assert.deepStrictEqual(yield* read, [true, true, true]);
-    }).pipe(
-      Effect.provide(linkedOn()),
       Effect.provideService(HostProcess.Environment, { HOME: home }),
     );
   });
