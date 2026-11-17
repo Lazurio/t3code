@@ -22,6 +22,11 @@ on:
         required: false
         default: ${{ github.repository }}
         type: string
+      darwin_runner:
+        description: Runner for the darwin-arm64 build; only the release passes its own Mac, pull requests keep GitHub's
+        required: false
+        default: macos-15
+        type: string
 
 permissions:
   contents: read
@@ -44,7 +49,7 @@ jobs:
             transcribe_native: linux-x64-cpu-vulkan
             transcribe_library: libtranscribe.so
           - key: darwin-arm64
-            runner: lazurio-release-macos
+            runner: ${{ inputs.darwin_runner }}
             platform: mac
             arch: arm64
             rust_target: aarch64-apple-darwin
