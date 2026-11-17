@@ -722,7 +722,7 @@
         #root {
           padding-left: 0;
         }
-        body > lazurio-rail:defined {
+        body > lazurio-rail:defined:not([data-lazurio-dialog-open]) {
           display: none;
         }
         /* The rail is no longer #root's sibling while it is in the panel; T3's fixed controls stay
@@ -739,10 +739,14 @@
       // The rail in a narrow window (see the style above): T3's open left panel is a modal dialog
       // that keeps the focus inside and hides the rest of the page from screen readers, so the rail
       // goes inside the panel, as its first child, while the panel is on the page (it fades out
-      // with it), and back before #root once the panel is gone; there it stays the target of the
-      // Environment jump (⌘⇧E) and a narrow window hides it. The
-      // panel marks the page outside when it opens, possibly before the move, so the rail drops
-      // those marks once inside. Outside Lazurio there is no rail and nothing runs.
+      // with it), and back before #root once the panel is gone, where a narrow window hides it.
+      // The panel marks the page outside when it opens, possibly before the move, so the rail
+      // drops those marks once inside. A dialog the rail opens (the Environment jump, ⌘⇧E) is
+      // drawn only where the rail is, so while one is open the rail is shown wherever it stands.
+      // The jump puts the focus into its search as it opens, so the rail is shown already when
+      // its shortcut comes, before the shell takes it, and settles once the key has passed: hidden
+      // again when the app took the key and no dialog opened. Outside Lazurio there is no rail
+      // and nothing runs.
       document.addEventListener("DOMContentLoaded", () => {
         const rail = document.querySelector("body > lazurio-rail");
         if (!rail) return;
@@ -756,11 +760,38 @@
           } else if (rail.parentElement !== body) {
             body.insertBefore(rail, document.getElementById("root"));
           }
+          rail.toggleAttribute(
+            "data-lazurio-dialog-open",
+            rail.shadowRoot?.querySelector("dialog[open]") != null,
+          );
         };
         new MutationObserver(place).observe(body, { childList: true });
         new MutationObserver(place).observe(body, {
           subtree: true,
           attributeFilter: ["aria-hidden"],
+        });
+        window.addEventListener(
+          "keydown",
+          (event) => {
+            const jump =
+              event.shiftKey &&
+              !event.altKey &&
+              (event.metaKey || event.ctrlKey) &&
+              event.key.toLowerCase() === "e";
+            if (!jump || rail.parentElement !== body) return;
+            rail.setAttribute("data-lazurio-dialog-open", "");
+            window.addEventListener("keydown", place, { once: true });
+            setTimeout(place);
+          },
+          true,
+        );
+        customElements.whenDefined("lazurio-rail").then(() => {
+          if (!rail.shadowRoot) return;
+          new MutationObserver(place).observe(rail.shadowRoot, {
+            subtree: true,
+            attributeFilter: ["open"],
+          });
+          place();
         });
       });
     </script>

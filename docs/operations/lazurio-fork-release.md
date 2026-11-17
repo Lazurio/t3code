@@ -513,8 +513,10 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
   panel: krátký skript v hlavičce `index.html` přesune rail do otevřeného panelu jako jeho první
   prvek a panel mu nechá místo. Rail je tak součástí dialogu: klávesnice na něj dojde Tabem
   a čtečka ho čte, i když modální sheet zbytek stránky skryje (`aria-hidden`) a drží fokus v sobě.
-  Po zavření panelu se rail vrátí před `#root`, kde zůstává cílem skoku ⌘⇧E. Široké rozložení
-  se nemění.
+  Po zavření panelu se rail vrátí před `#root`, kde zůstává cílem skoku ⌘⇧E. Dialog, který
+  rail otevře (skok ⌘⇧E), se kreslí jen tam, kde rail je, proto je rail při otevřeném dialogu vidět
+  i se zavřeným panelem (`data-lazurio-dialog-open`). Chování drží
+  `apps/web/src/lazurio/narrowRail.browser.test.tsx`. Široké rozložení se nemění.
   Buddyho spouštěč začíná 22 px od pravého a dolního okraje okna a uživatel ho přetáhne kamkoli
   (LazurioPlatform F60, dodatek z 2026-11-14). Composer Chatu proto zůstává tam, kde ho kreslí T3,
   a `--lazurio-buddy-clearance` nečte; kontraktní test hlídá, že se pravidlo nevrátí.
