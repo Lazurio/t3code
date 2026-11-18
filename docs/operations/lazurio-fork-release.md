@@ -508,6 +508,17 @@ Slot jsou dva upstream soubory, každý jako vlastní řádek v
   nechalo pod railem. Proto se při definovaném railu stane obal sidebaru
   (`[data-slot="sidebar-wrapper"]`) jejich containing blockem
   (`contain: layout paint`). Bez shellu pravidlo neplatí.
+  V úzkém okně (pod 768 px, kdy je levý panel T3 modální sheet, `SIDEBAR_MOBILE_QUERY`
+  v `sidebar.tsx`) má rozhovor celou šířku a rail není vidět. Ukáže se, až člověk otevře levý
+  panel: krátký skript v hlavičce `index.html` přesune rail do otevřeného panelu jako jeho první
+  prvek a panel mu nechá místo. Rail je tak součástí dialogu: klávesnice na něj dojde Tabem
+  a čtečka ho čte, i když modální sheet zbytek stránky skryje (`aria-hidden`) a drží fokus v sobě.
+  Po zavření panelu se rail vrátí před `#root`, kde zůstává cílem skoku ⌘⇧E. Dialog, který
+  rail otevře (skok ⌘⇧E), se kreslí jen tam, kde rail je, proto je rail při otevřeném dialogu vidět
+  i se zavřeným panelem (`data-lazurio-dialog-open`). Chování drží
+  `apps/web/src/lazurio/narrowRail.browser.test.tsx`. Pravý panel (`RightPanelSheet.tsx`, druhý
+  a jediný další sheet, bez `data-mobile`) má v úzkém okně celou šířku místo upstreamových
+  `min(88vw, 24rem)`. Zavírá ho jeho vlastní přepínač nebo Escape. Široké rozložení se nemění.
   Buddyho spouštěč začíná 22 px od pravého a dolního okraje okna a uživatel ho přetáhne kamkoli
   (LazurioPlatform F60, dodatek z 2026-11-14). Composer Chatu proto zůstává tam, kde ho kreslí T3,
   a `--lazurio-buddy-clearance` nečte; kontraktní test hlídá, že se pravidlo nevrátí.

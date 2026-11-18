@@ -1387,6 +1387,57 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
     /lazurio-rail:defined ~ #root \[data-slot="sidebar-wrapper"\] \{\s*contain: layout paint;\s*\}/,
   );
   NodeAssert.match(sidebarUi, /data-slot="sidebar-wrapper"/);
+  // A narrow window: the conversation takes the whole width without the rail, and the open left
+  // panel (T3's modal sheet) carries the rail inside it, so the dialog's focus trap and its
+  // aria-hidden on the page outside leave the rail reachable. The breakpoint and the sheet's
+  // attributes are T3's own.
+  const narrow = page.match(/@media \(max-width: 767px\) \{([\s\S]*?)\n      \}\n/)?.[1] ?? "";
+  NodeAssert.match(sidebarUi, /const SIDEBAR_MOBILE_QUERY = "\(max-width: 767px\)";/);
+  NodeAssert.match(sidebarUi, /data-mobile="true"\s*data-sidebar="sidebar"/);
+  NodeAssert.match(narrow, /#root \{\s*padding-left: 0;\s*\}/);
+  NodeAssert.match(
+    narrow,
+    /body > lazurio-rail:defined:not\(\[data-lazurio-dialog-open\]\) \{\s*display: none;\s*\}/,
+  );
+  NodeAssert.match(
+    narrow,
+    /:root:has\(lazurio-rail:defined\) #root \[data-slot="sidebar-wrapper"\] \{\s*contain: layout paint;\s*\}/,
+  );
+  NodeAssert.match(
+    narrow,
+    /\[data-mobile="true"\]\[data-sidebar="sidebar"\]:has\(> lazurio-rail:defined\) \{\s*padding-left: var\(--lazurio-rail-width, 0px\);\s*\}/,
+  );
+  // The right panel (RightPanelSheet.tsx, the one sheet without data-mobile) takes the whole
+  // width in a narrow window with the shell present.
+  NodeAssert.match(
+    narrow,
+    /:root:has\(lazurio-rail:defined\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\) \{\s*width: 100vw;\s*min-width: 0;\s*max-width: none;/,
+  );
+  NodeAssert.ok(
+    page.indexOf("@media (max-width: 767px)") > page.search(/#root \{\s*box-sizing: border-box;/),
+    "the narrow rule follows the rail's padding, so it wins",
+  );
+  const mover =
+    page.match(/<script>\s*\/\/ The rail in a narrow window[\s\S]*?<\/script>/)?.[0] ?? "";
+  NodeAssert.match(
+    mover,
+    /body\.querySelector\('\[data-mobile="true"\]\[data-sidebar="sidebar"\]'\)/,
+  );
+  NodeAssert.match(mover, /panel\.prepend\(rail\)/);
+  NodeAssert.match(mover, /rail\.removeAttribute\("aria-hidden"\)/);
+  NodeAssert.match(mover, /body\.insertBefore\(rail, document\.getElementById\("root"\)\)/);
+  // A dialog the rail opens (the Environment jump) is drawn only where the rail is: while one is
+  // open, the rail is shown wherever it stands (narrowRail.browser.test.tsx).
+  NodeAssert.match(
+    mover,
+    /"data-lazurio-dialog-open",\s*rail\.shadowRoot\?\.querySelector\("dialog\[open\]"\) != null/,
+  );
+  // The jump focuses its search as it opens: the rail is shown before the shell takes the key.
+  NodeAssert.match(
+    mover,
+    /window\.addEventListener\(\s*"keydown",[\s\S]*?rail\.setAttribute\("data-lazurio-dialog-open", ""\);[\s\S]*?true,\s*\);/,
+  );
+  NodeAssert.ok(page.indexOf(mover) < page.indexOf("<body>"), "the mover is in the head");
   NodeAssert.match(
     page,
     /<body>\s*<lazurio-rail data-app-sidebar app="chat"><\/lazurio-rail>\s*<div id="root">/,
