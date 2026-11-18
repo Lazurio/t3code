@@ -436,7 +436,14 @@ it.effect.each(
       assert.equal(started.length, 2);
       assert.equal(started[1]?.message.messageId, messageId);
       if (mailbox) assert.include(started[1]?.message.text ?? "", String(taskId));
-      else assert.equal(started[1]?.message.text, "fix the popover");
+      // Lazurio overlay: a question's wake is T3's own notice, and says so.
+      else
+        assert.equal(
+          started[1]?.message.text,
+          question
+            ? `<message_origin>Sent by T3 Code itself about delegated task ${taskId}, not typed by the user.</message_origin>\n\nfix the popover`
+            : "fix the popover",
+        );
       assert.deepEqual(started[1]?.message.attachments, [
         {
           type: "image",
@@ -782,9 +789,14 @@ it.effect.each([
         });
         yield* worker.drain();
         const after = yield* orchestrator.getThreadProjection(threadId);
+        // Lazurio overlay: T3's own notice says T3 sent it.
+        const fromT3 =
+          notice === "delegated task question"
+            ? "<message_origin>Sent by T3 Code itself about delegated task task:question, not typed by the user.</message_origin>\n\n"
+            : "<message_origin>Sent by T3 Code itself as a command notice, not typed by the user.</message_origin>\n\n";
         assert.deepEqual(
           steered,
-          steers ? [`${notification.summary}\nexit 0: built 12 files`] : [],
+          steers ? [`${fromT3}${notification.summary}\nexit 0: built 12 files`] : [],
         );
         assert.lengthOf(started, 1);
         assert.equal(
