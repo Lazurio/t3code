@@ -4693,6 +4693,210 @@ it.each([
   );
 });
 
+const pendingQuestionCases = () =>
+  NodeFS.readFileSync(new URL("./cases/pending-questions.ndjson", import.meta.url), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => decodeDeviceCase(line));
+
+it.effect("answers a $byArgs mock by the call's arguments, also inside a $sequence", () =>
+  Effect.gen(function* () {
+    const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
+    const config = {
+      apiKey: "",
+      model: "claude-sonnet-5-5",
+      effort: "high",
+      maxSteps: 6,
+      shellModel: "claude-haiku-5-5",
+    } as const;
+    const testCase = pendingQuestionCases().find((c) => c.id === "pq-wait-until-question")!;
+    const wait = (sample: ReturnType<typeof makeSample>, input: Record<string, unknown>) =>
+      answerToolCall(sample, config, {
+        type: "tool_use",
+        id: "wait",
+        name: "mcp__t3-code__t3_thread_wait",
+        input,
+      }).pipe(Effect.map((block) => JSON.parse(String(block.content))));
+    const threadId = "11111111-1111-4111-8111-111111111111";
+    const asks = makeSample(testCase, base);
+    asks.tools.push({ name: "mcp__t3-code__t3_thread_wait" });
+    // With untilQuestion the first wait names the question; the next one settles.
+    assert.deepInclude(yield* wait(asks, { threadId, untilQuestion: true }), {
+      timedOut: false,
+      returnedFor: "question",
+      pendingQuestionIds: ["request-batch-1"],
+    });
+    assert.deepInclude(yield* wait(asks, { threadId, untilQuestion: true }), {
+      status: "completed",
+      returnedFor: "settled",
+    });
+    // Without it every wait times out, as one on a blocked thread does.
+    const plain = makeSample(testCase, base);
+    plain.tools.push({ name: "mcp__t3-code__t3_thread_wait" });
+    for (let i = 0; i < 3; i++) {
+      const result = yield* wait(plain, { threadId });
+      assert.isTrue(result.timedOut);
+      assert.isUndefined(result.pendingQuestionIds);
+    }
+    // Array args match when the call names every listed id.
+    const known = pendingQuestionCases().find((c) => c.id === "pq-wait-past-known-question")!;
+    const past = makeSample(known, base);
+    past.tools.push({ name: "mcp__t3-code__t3_thread_wait" });
+    assert.deepEqual(
+      (yield* wait(past, { threadId, untilQuestion: true, knownQuestionIds: ["request-window-1"] }))
+        .pendingQuestionIds,
+      ["request-window-1", "request-batch-1"],
+    );
+    assert.deepEqual((yield* wait(past, { threadId, untilQuestion: true })).pendingQuestionIds, [
+      "request-window-1",
+    ]);
+  }).pipe(Effect.provide(FetchHttpClient.layer)),
+);
+
+it("grades the pending-question cases on untilQuestion, knownQuestionIds and the remote ids", () => {
+  const cases = pendingQuestionCases();
+  assert.deepEqual(
+    cases.map((c) => c.id),
+    [
+      "pq-wait-until-question",
+      "pq-wait-past-known-question",
+      "pq-remote-wake-answers-from-task",
+      "pq-remote-wake-asks-user",
+      "pq-blocking-remote-delegate-question",
+      "pq-control-no-question-wait",
+    ],
+  );
+  const byId = (id: string) => cases.find((c) => c.id === id)!.expect;
+  const threadId = "11111111-1111-4111-8111-111111111111";
+  const run = (calls: ReadonlyArray<{ tool: string; input: unknown }>, finalText = "Done.") => ({
+    calls: calls.map((call) => ({ step: 0, ...call })),
+    text: finalText,
+    finalText,
+    stopReason: "end_turn",
+  });
+  const read = { action: "read", threadId, requestId: "request-batch-1" };
+  const respond = { ...read, action: "respond", answers: { batch: "5,000" } };
+  assert.deepEqual(
+    failed(
+      byId("pq-wait-until-question"),
+      run([
+        { tool: "t3_thread_wait", input: { threadId, untilQuestion: true } },
+        { tool: "t3_pending_request", input: read },
+        { tool: "t3_pending_request", input: respond },
+      ]),
+    ),
+    [],
+  );
+  // Main's way: the wait times out, then the agent finds the question by listing.
+  assert.isNotEmpty(
+    failed(
+      byId("pq-wait-until-question"),
+      run([
+        { tool: "t3_thread_wait", input: { threadId } },
+        { tool: "t3_pending_request", input: { action: "list", threadId } },
+        { tool: "t3_pending_request", input: read },
+        { tool: "t3_pending_request", input: respond },
+      ]),
+    ),
+  );
+  const knownWait = { threadId, untilQuestion: true, knownQuestionIds: ["request-window-1"] };
+  assert.deepEqual(
+    failed(
+      byId("pq-wait-past-known-question"),
+      run([{ tool: "t3_thread_wait", input: knownWait }]),
+    ),
+    [],
+  );
+  assert.isNotEmpty(
+    failed(
+      byId("pq-wait-past-known-question"),
+      run([{ tool: "t3_thread_wait", input: { threadId, untilQuestion: true } }]),
+    ),
+  );
+  assert.isNotEmpty(
+    failed(
+      byId("pq-wait-past-known-question"),
+      run([
+        { tool: "t3_thread_wait", input: knownWait },
+        {
+          tool: "t3_pending_request",
+          input: { action: "respond", threadId, requestId: "request-window-1", answers: {} },
+        },
+      ]),
+    ),
+  );
+  const remote = { environmentId: "environment-build-mac", threadId: "thread-ios-release" };
+  const scheme = { ...remote, requestId: "request-scheme-1" };
+  assert.deepEqual(
+    failed(
+      byId("pq-remote-wake-answers-from-task"),
+      run([
+        { tool: "t3_pending_request", input: { ...scheme, action: "read" } },
+        {
+          tool: "t3_pending_request",
+          input: { ...scheme, action: "respond", answers: { scheme: "Release-Staging" } },
+        },
+      ]),
+    ),
+    [],
+  );
+  // Read on this environment, where the remote thread does not exist.
+  assert.isNotEmpty(
+    failed(
+      byId("pq-remote-wake-answers-from-task"),
+      run([
+        {
+          tool: "t3_pending_request",
+          input: { ...scheme, environmentId: undefined, action: "read" },
+        },
+        {
+          tool: "t3_pending_request",
+          input: { ...scheme, environmentId: undefined, action: "respond", answers: {} },
+        },
+      ]),
+    ),
+  );
+  const cert = { ...remote, requestId: "request-cert-1", action: "read" };
+  assert.deepEqual(
+    failed(
+      byId("pq-remote-wake-asks-user"),
+      run(
+        [{ tool: "t3_pending_request", input: cert }],
+        "The build is blocked: the distribution certificate expired. Should it create a new one?",
+      ),
+    ),
+    [],
+  );
+  assert.isNotEmpty(
+    failed(
+      byId("pq-remote-wake-asks-user"),
+      run(
+        [
+          { tool: "t3_pending_request", input: cert },
+          { tool: "t3_pending_request", input: { ...cert, action: "respond", answers: {} } },
+        ],
+        "Answered the certificate question.",
+      ),
+    ),
+  );
+  assert.isNotEmpty(
+    failed(
+      byId("pq-blocking-remote-delegate-question"),
+      run([
+        { tool: "delegate_task", input: { target: { environmentId: remote.environmentId } } },
+        { tool: "t3_pending_request", input: { action: "list", threadId: null } },
+      ]),
+    ),
+  );
+  assert.deepEqual(
+    failed(
+      byId("pq-control-no-question-wait"),
+      run([{ tool: "t3_thread_wait", input: { threadId } }], "It copied 1,284,000 rows."),
+    ),
+    [],
+  );
+});
+
 const messageOriginCases = () =>
   NodeFS.readFileSync(new URL("./cases/message-origin.ndjson", import.meta.url), "utf8")
     .trim()
