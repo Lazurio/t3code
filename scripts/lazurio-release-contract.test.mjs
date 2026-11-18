@@ -1170,7 +1170,7 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   );
   NodeAssert.match(
     source.gitActions,
-    /if \(!gitCwd \|\| serverConfig\?\.lazurioFolder === gitCwd\) return null;/,
+    /if \(\n\s+!gitCwd \|\|\n\s+serverConfig\?\.lazurioFolder === gitCwd \|\|\n\s+serverConfig\?\.lazurioBuddyFolder === gitCwd\n\s+\)\n\s+return null;/,
   );
   before(
     source.welcome,

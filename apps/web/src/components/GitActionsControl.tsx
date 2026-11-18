@@ -1550,7 +1550,12 @@ export default function GitActionsControl({
     </>
   );
 
-  if (!gitCwd || serverConfig?.lazurioFolder === gitCwd) return null;
+  if (
+    !gitCwd ||
+    serverConfig?.lazurioFolder === gitCwd ||
+    serverConfig?.lazurioBuddyFolder === gitCwd
+  )
+    return null;
 
   return (
     <>

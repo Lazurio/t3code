@@ -9,7 +9,7 @@ import * as VcsProvisioningService from "../vcs/VcsProvisioningService.ts";
 import { layerManagedConfig, makeFolderDirectories } from "./managedFolder.testkit.ts";
 
 it.effect("never makes a managed Environment's Lazurio Folder a repository", () => {
-  const { folder, inside } = makeFolderDirectories();
+  const { folder, inside, buddy } = makeFolderDirectories();
   const calls: string[] = [];
   // Provisioning asks the driver only to make the repository.
   const driver = {
@@ -24,6 +24,9 @@ it.effect("never makes a managed Environment's Lazurio Folder a repository", () 
       refused.detail,
       "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.",
     );
+    // Buddy's folder beside it does not become one either (LZD-0033 R3).
+    const buddyRefused = yield* provisioning.initRepository({ cwd: buddy }).pipe(Effect.flip);
+    if (buddyRefused._tag !== "VcsUnsupportedOperationError") return assert.fail(buddyRefused._tag);
     yield* provisioning.initRepository({ cwd: inside });
     assert.deepStrictEqual(calls, [inside]);
   }).pipe(
@@ -32,7 +35,7 @@ it.effect("never makes a managed Environment's Lazurio Folder a repository", () 
         Layer.provide(
           Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ get: () => Effect.succeed(driver) }),
         ),
-        Layer.provide(layerManagedConfig(folder)),
+        Layer.provide(layerManagedConfig(folder, buddy)),
         Layer.provide(NodeServices.layer),
       ),
     ),
