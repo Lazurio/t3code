@@ -103,7 +103,7 @@ const conflict = () =>
 
 /**
  * Buddy GEN4 (plan LZD-0033, R3): on the shared Chat server Buddy's project is the one over the
- * declared Buddy folder (#214), and Buddy's thread is its oldest root thread. Archiving one is
+ * declared Buddy folder, and Buddy's thread is its oldest root thread. Archiving one is
  * refused and the startup brings archived ones back, so this is the conversation the person had.
  */
 const sharedBuddyProject = Effect.fn("LazurioBuddySurface.sharedBuddyProject")(function* (

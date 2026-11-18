@@ -3376,11 +3376,8 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   );
   NodeAssert.equal(timeline.match(/<TimelineRowContent\b/g)?.length, 1);
   NodeAssert.match(composer, /\n\s+const buddyComposer = useBuddyComposer\(environmentId\);\n/);
-  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's controls stand in for all of T3's (model
-  // picker, options chip, access and mode, the overflow menu) before the bar builds any of them.
-  // Since v0.1.4 the resting composer has no strip of its own to hide. Since v0.1.8 the bar's
-  // hooks end with the model pick (pingdotgg/t3code#31739), and Buddy's return comes after them.
-  // Only Hermes's chat (GEN3) swaps the bar; Buddy's window on the shared server keeps T3's
+  // Root decision 0210: Hermes's chat (GEN3) swaps all of T3's controls before the bar builds any,
+  // after the bar's last hook, the model pick. Buddy's window on the shared server keeps T3's
   // picker (LZD-0033 R3).
   NodeAssert.match(
     controlsBar,

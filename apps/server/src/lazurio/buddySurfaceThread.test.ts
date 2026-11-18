@@ -209,7 +209,7 @@ describe("Buddy's thread", () => {
   );
 
   describe("on the shared Chat server (GEN4, LZD-0033 R3)", () => {
-    /** A managed Folder and a Buddy folder beside it, as #214 declares them. */
+    /** A managed Folder and a Buddy folder beside it, as the Environment declares them. */
     const makeShared = () => {
       const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "buddy-shared-home-"));
       const folder = NodePath.join(home, "Lazurio");
