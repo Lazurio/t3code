@@ -100,6 +100,8 @@ const UNUSED_SHORTCUTS: ReadonlySet<KeybindingCommand> = new Set([
   ...PANEL_SHORTCUTS,
   ...CHOICE_SHORTCUTS,
 ]);
+/** Buddy's window on the shared server keeps T3's picker, so only the panels go (GEN4). */
+const UNUSED_PANEL_SHORTCUTS: ReadonlySet<KeybindingCommand> = new Set(PANEL_SHORTCUTS);
 
 const NO_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 
@@ -111,10 +113,14 @@ export type ChatShortcutsInput = Parameters<typeof useChatShortcuts>[0];
  * them, not even the chat's guards that hold Mod+W for a closing terminal before any command runs,
  * so their keys reach the browser, as on any page that has no use for them.
  */
-export function withoutUnusedShortcuts(input: ChatShortcutsInput): ChatShortcutsInput {
+export function withoutUnusedShortcuts(
+  input: ChatShortcutsInput,
+  keepsChoices = false,
+): ChatShortcutsInput {
+  const unused = keepsChoices ? UNUSED_PANEL_SHORTCUTS : UNUSED_SHORTCUTS;
   return {
     ...input,
-    keybindings: input.keybindings.filter((binding) => !UNUSED_SHORTCUTS.has(binding.command)),
+    keybindings: input.keybindings.filter((binding) => !unused.has(binding.command)),
     scriptKeybindings: NO_KEYBINDINGS,
   };
 }

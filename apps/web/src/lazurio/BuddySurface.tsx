@@ -449,7 +449,10 @@ export const buddyRightPanelState = (buddy: boolean, state: RightPanelState): Ri
 
 /** The chat's shortcuts, without those Buddy's surface has no use for there. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
-  useChatShortcuts(buddy ? withoutUnusedShortcuts(input) : input);
+  // Only Buddy's window on the shared server (GEN4) has a model and effort choice.
+  const surface = useBuddySurfaceMode() === true;
+  const hermes = useBuddyHermesControls();
+  useChatShortcuts(buddy ? withoutUnusedShortcuts(input, surface && !hermes) : input);
 }
 
 /**

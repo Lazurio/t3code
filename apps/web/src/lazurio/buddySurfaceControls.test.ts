@@ -12,6 +12,7 @@ import {
   buddySpeedSelection,
   isBuddyWindowOrigin,
   personsQueuedRuns,
+  withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
 
 const BUDDY = ProviderInstanceId.make("buddy");
@@ -107,5 +108,22 @@ describe("Buddy's window on the shared server", () => {
     expect(isBuddyWindowOrigin(config, "https://t3code.example.test")).toBe(false);
     expect(isBuddyWindowOrigin({}, "https://buddy.example.test")).toBe(false);
     expect(isBuddyWindowOrigin(null, "https://buddy.example.test")).toBe(false);
+  });
+});
+
+describe("the chat's shortcuts in Buddy's surface", () => {
+  const binding = (command: string) => ({ command, shortcut: { key: "k" } }) as never;
+  const input = {
+    keybindings: [binding("modelPicker.toggle"), binding("terminal.toggle"), binding("chat.new")],
+  } as unknown as Parameters<typeof withoutUnusedShortcuts>[0];
+  const commands = (result: ReturnType<typeof withoutUnusedShortcuts>) =>
+    result.keybindings.map((entry) => entry.command);
+
+  it("drop the model choice only in Hermes's chat, the panels in both", () => {
+    expect(commands(withoutUnusedShortcuts(input))).toEqual(["chat.new"]);
+    expect(commands(withoutUnusedShortcuts(input, true))).toEqual([
+      "modelPicker.toggle",
+      "chat.new",
+    ]);
   });
 });
