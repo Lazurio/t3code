@@ -126,8 +126,10 @@ export const resolveManagedFolderConfig = Effect.gen(function* () {
     if (env.buddyFolder === undefined)
       return yield* invalid("T3CODE_LAZURIO_BUDDY_ORIGIN needs T3CODE_LAZURIO_BUDDY_FOLDER.");
     const url = env.buddyOrigin;
+    // HTTPS, or plain HTTP on a loopback host, where a developer runs both origins.
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     if (
-      url.protocol !== "https:" ||
+      (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
       url.username ||
       url.password ||
       url.origin !== url.href.replace(/\/$/, "")

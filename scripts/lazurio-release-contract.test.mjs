@@ -3380,9 +3380,11 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   // picker, options chip, access and mode, the overflow menu) before the bar builds any of them.
   // Since v0.1.4 the resting composer has no strip of its own to hide. Since v0.1.8 the bar's
   // hooks end with the model pick (pingdotgg/t3code#31739), and Buddy's return comes after them.
+  // Only Hermes's chat (GEN3) swaps the bar; Buddy's window on the shared server keeps T3's
+  // picker (LZD-0033 R3).
   NodeAssert.match(
     controlsBar,
-    /\n\s+const applyRouteThreadModelPick = useStableCallback\(\(\) => applyThreadModelPick\(routeThreadRef\)\);\n(?:\s+\/\/[^\n]*\n)*\s+const buddySurface = useBuddySurfaceMode\(environmentId\) === true;\n\s+if \(buddySurface\) return <BuddyComposerControls \{\.\.\.props\} \/>;\n\s+const traitsInput = resolveComposerTraitsInput\(/,
+    /\n\s+const applyRouteThreadModelPick = useStableCallback\(\(\) => applyThreadModelPick\(routeThreadRef\)\);\n(?:\s+\/\/[^\n]*\n)*\s+const buddyHermes = useBuddyHermesControls\(environmentId\);\n\s+if \(buddyHermes\) return <BuddyComposerControls \{\.\.\.props\} \/>;\n\s+const traitsInput = resolveComposerTraitsInput\(/,
   );
   NodeAssert.doesNotMatch(composer, /buddyComposer\.hasControls/);
   // Buddy always works with full access: the web never asks Buddy's thread for another mode.

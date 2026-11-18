@@ -42,6 +42,7 @@ import {
   buddySpeedSelection,
   type ChatShortcutsInput,
   isBuddySpeed,
+  isBuddyWindowOrigin,
   personsQueuedRuns,
   type QueueMessage,
   withoutUnusedShortcuts,
@@ -52,8 +53,14 @@ import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./budd
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
+type BuddyConfig = { readonly lazurioBuddy?: true; readonly lazurioBuddyOrigin?: string } | null;
+
+/** Buddy's surface: Buddy's own T3 Code (GEN3), or Buddy's window on the shared server (GEN4). */
+const isBuddySurfaceConfig = (config: BuddyConfig) =>
+  config?.lazurioBuddy === true || isBuddyWindowOrigin(config);
+
 /**
- * Buddy's T3 Code; null until the primary server's config is known, false without one. With
+ * Buddy's surface; null until the primary server's config is known, false without one. With
  * `environmentId`, only for that Environment: another Environment's thread is never Buddy's.
  */
 export function useBuddySurfaceMode(environmentId?: string): boolean | null {
@@ -61,12 +68,21 @@ export function useBuddySurfaceMode(environmentId?: string): boolean | null {
   const config = useAtomValue(primaryServerConfigAtom);
   if (primaryEnvironmentId === null) return false;
   if (environmentId !== undefined && environmentId !== primaryEnvironmentId) return false;
-  return config === null ? null : config.lazurioBuddy === true;
+  return config === null ? null : isBuddySurfaceConfig(config);
 }
 
-/** Buddy's T3 Code, read outside React when a command runs: false until the config is known. */
+/**
+ * Hermes's chat (GEN3 only): Normal / Fast instead of T3's model, effort and mode. Buddy's window on
+ * the shared server keeps T3's whole picker, as a Chat thread has it (GEN4).
+ */
+export function useBuddyHermesControls(environmentId?: string): boolean {
+  const config = useAtomValue(primaryServerConfigAtom);
+  return useBuddySurfaceMode(environmentId) === true && config?.lazurioBuddy === true;
+}
+
+/** Buddy's surface, read outside React when a command runs: false until the config is known. */
 export const isBuddySurfaceNow = (): boolean =>
-  appAtomRegistry.get(primaryServerConfigAtom)?.lazurioBuddy === true;
+  isBuddySurfaceConfig(appAtomRegistry.get(primaryServerConfigAtom));
 
 const BUDDY_THREAD_ROUTE = "/api/lazurio/buddy/thread";
 const BUDDY_DAYS_ROUTE = "/api/lazurio/buddy/days";

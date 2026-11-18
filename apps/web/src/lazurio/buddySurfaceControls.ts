@@ -139,3 +139,14 @@ export function personsQueuedRuns<Queued extends { readonly messageId: string }>
   if (!queued.some((run) => notThePersons.has(run.messageId))) return queued;
   return queued.filter((run) => !notThePersons.has(run.messageId));
 }
+
+/**
+ * Whether this page is Buddy's window on the shared server (GEN4, plan LZD-0033 R3): the page's
+ * origin is the one the server names for Buddy's window. On Chat's origin it is Chat.
+ */
+export function isBuddyWindowOrigin(
+  config: { readonly lazurioBuddyOrigin?: string } | null | undefined,
+  origin: string = globalThis.location?.origin ?? "",
+): boolean {
+  return config?.lazurioBuddyOrigin !== undefined && config.lazurioBuddyOrigin === origin;
+}

@@ -10,6 +10,7 @@ import {
   buddySpeedOf,
   buddySpeedOption,
   buddySpeedSelection,
+  isBuddyWindowOrigin,
   personsQueuedRuns,
 } from "./buddySurfaceControls";
 
@@ -96,5 +97,15 @@ describe("Buddy's queue", () => {
 
   it("hands back the same queue when all of it is the person's", () => {
     expect(personsQueuedRuns(queued, [{ id: "person", createdBy: "user" }])).toBe(queued);
+  });
+});
+
+describe("Buddy's window on the shared server", () => {
+  it("is the page whose origin the server names for it, and nothing else", () => {
+    const config = { lazurioBuddyOrigin: "https://buddy.example.test" };
+    expect(isBuddyWindowOrigin(config, "https://buddy.example.test")).toBe(true);
+    expect(isBuddyWindowOrigin(config, "https://t3code.example.test")).toBe(false);
+    expect(isBuddyWindowOrigin({}, "https://buddy.example.test")).toBe(false);
+    expect(isBuddyWindowOrigin(null, "https://buddy.example.test")).toBe(false);
   });
 });
