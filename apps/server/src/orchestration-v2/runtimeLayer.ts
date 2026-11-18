@@ -22,6 +22,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
 import * as LazurioManagedFolder from "../lazurio/managedFolderGuards.ts";
 import * as LazurioActingSenders from "../lazurio/actingSenders.ts";
+import * as LazurioMessageClients from "../lazurio/messageClients.ts";
 import * as LazurioBuddyGuards from "../lazurio/buddySurfaceGuards.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -184,13 +185,21 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       layerRunExecutionServiceProvided,
       layerRuntimePolicyProvided,
       TurnItemPositionStore.layer,
+      // Lazurio overlay (plan LZD-0025 B9): the store of where messages came from.
+      LazurioMessageClients.layer,
     ),
   ),
 );
 
 const layerProviderTurnControlServiceProvided = ProviderTurnControlService.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(layerEventSink, ProjectionStore.layer, layerProviderSessionManagerProvided),
+    Layer.mergeAll(
+      layerEventSink,
+      ProjectionStore.layer,
+      layerProviderSessionManagerProvided,
+      // Lazurio overlay (plan LZD-0025 B9): the store of where messages came from.
+      LazurioMessageClients.layer,
+    ),
   ),
 );
 const layerRuntimeRequestServiceProvided = RuntimeRequestService.layer.pipe(
@@ -224,10 +233,14 @@ const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
   Layer.provide(Layer.merge(layerCheckpointCaptureServiceProvided, ProjectionStore.layer)),
 );
 
-// Lazurio overlay (plan DEV-6676): in Buddy's T3 Code, Buddy keeps one conversation; the record of
-// who acted (root decision 0210) keeps only what the guards let through.
+// Lazurio overlay (plans DEV-6676, LZD-0025 B9): in Buddy's T3 Code, Buddy keeps one conversation;
+// the record of who acted (root decision 0210) keeps only what the guards let through. The mark of
+// a client's message wraps upstream directly: a turn waits for it, so nothing may run between the
+// commit and the mark.
 const layerOrchestratorProvided = LazurioActingSenders.recordSteps(
-  LazurioBuddyGuards.guardBuddyCommands(LazurioManagedFolder.guardCommands(Orchestrator.layer)),
+  LazurioBuddyGuards.guardBuddyCommands(
+    LazurioManagedFolder.guardCommands(LazurioMessageClients.recordClients(Orchestrator.layer)),
+  ),
 ).pipe(
   Layer.provide(
     Layer.mergeAll(

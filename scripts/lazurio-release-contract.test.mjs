@@ -1011,10 +1011,11 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
     /export const layerProjectService = LazurioManagedFolder\.guardProjects\(ProjectService\.layer\)\.pipe\(/,
   );
   // Buddy's one conversation (row 25) wraps the managed Folder's guard of the orchestrator, inside
-  // the record of who acted (row 27), which only records what the guards let through.
+  // the record of who acted (row 27), which only records what the guards let through. The mark of
+  // each message's client (plan LZD-0025 B9) wraps upstream's orchestrator directly.
   NodeAssert.match(
     source.runtime,
-    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\)\),\n\)\.pipe\(/,
+    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(\n\s+LazurioManagedFolder\.guardCommands\(LazurioMessageClients\.recordClients\(Orchestrator\.layer\)\),\n\s+\),\n\)\.pipe\(/,
   );
   NodeAssert.match(
     source.runtime,
@@ -2821,7 +2822,7 @@ NodeTest.test("Buddy's Hermes gets only the person's words through its seams", a
   NodeAssert.match(
     turnStart,
     // Since v0.1.10 a natively resumed thread sends its unsent message (pingdotgg/t3code#36526).
-    /const userText = yield\* LazurioBuddyPrompt\.projectComposerContextForProvider\(\{\n\s+instanceId: run\.providerInstanceId,\n\s+text: providerMessage\.text,\n\s+records: providerMessage\.context\?\.records \?\? \[\],\n\s+\}\);/,
+    /const userText = yield\* projectForProvider\(\{\n\s+instanceId: run\.providerInstanceId,\n\s+text: providerMessage\.text,\n\s+records: providerMessage\.context\?\.records \?\? \[\],\n\s+message: providerMessage,\n\s+\}\);/,
   );
   for (const file of [
     "packages/provider-acp/src/server/adapter.ts",
@@ -3270,7 +3271,7 @@ NodeTest.test("Buddy's and Delegace's steps carry who took them through their se
   );
   NodeAssert.match(
     runtimeLayer,
-    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(LazurioManagedFolder\.guardCommands\(Orchestrator\.layer\)\),\n\)/,
+    /const layerOrchestratorProvided = LazurioActingSenders\.recordSteps\(\n\s+LazurioBuddyGuards\.guardBuddyCommands\(\n\s+LazurioManagedFolder\.guardCommands\(LazurioMessageClients\.recordClients\(Orchestrator\.layer\)\),\n\s+\),\n\)/,
   );
   // Who acted comes from the session alone: the client surface's, else the MCP client's.
   NodeAssert.match(senders, /const surface = yield\* ClientSurfaceActingSender;/);
@@ -3659,4 +3660,48 @@ NodeTest.test("a saved follow-up queue becomes steer once through its seam", asy
     { settings: queued, migrated: false },
   );
   NodeAssert.ok(overlayMayChange("apps/web/src/clientPersistenceStorage.ts"));
+});
+
+// Plan LZD-0025 B9: each message a client socket sends is marked with that socket's client, and
+// every turn and steer but Buddy's opens with the line saying where its message came from.
+NodeTest.test("each message's origin reaches the agent through its seams", async () => {
+  const [ws, turnStart, turnControl, buddyPrompt] = await Promise.all([
+    read("apps/server/src/ws.ts"),
+    read("apps/server/src/orchestration-v2/ProviderTurnStartService.ts"),
+    read("apps/server/src/orchestration-v2/ProviderTurnControlService.ts"),
+    read("apps/server/src/lazurio/buddyPrompt.ts"),
+  ]);
+  // Both client dispatches, a message and a launch, run as the socket's client.
+  NodeAssert.equal(
+    ws.match(/LazurioMessageClients\.fromClient\(currentSession, originProps\),/g)?.length,
+    2,
+  );
+  // A turn reads the message whose text it sends: a natively resumed thread's unsent one included.
+  for (const [service, projection] of [
+    [
+      turnStart,
+      /yield\* projectForProvider\(\{\n\s+instanceId: run\.providerInstanceId,\n\s+text: providerMessage\.text,\n\s+records: providerMessage\.context\?\.records \?\? \[\],\n\s+message: providerMessage,\n\s+\}\);/,
+    ],
+    [
+      turnControl,
+      /yield\* projectForProvider\(\{\n\s+instanceId: run\.providerInstanceId,\n\s+text: message\.text,\n\s+records: message\.context\?\.records \?\? \[\],\n\s+message,\n\s+\}\);/,
+    ],
+  ]) {
+    NodeAssert.match(
+      service,
+      /const projectForProvider = yield\* LazurioBuddyPrompt\.providerProjection;/,
+    );
+    NodeAssert.match(service, projection);
+  }
+  NodeAssert.match(
+    buddyPrompt,
+    /if \(isBuddyInstance\(environment, input\.instanceId\)\) return buddyProviderText\(input\);/,
+  );
+  for (const file of [
+    "apps/server/src/ws.ts",
+    "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+    "apps/server/src/orchestration-v2/ProviderTurnControlService.ts",
+    "apps/server/src/orchestration-v2/runtimeLayer.ts",
+  ])
+    NodeAssert.ok(overlayMayChange(file), file);
 });

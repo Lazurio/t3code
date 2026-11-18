@@ -121,6 +121,8 @@ export const layer: Layer.Layer<
     const eventSink = yield* EventSink.EventSinkV2;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
+    // Lazurio overlay (plan LZD-0025 B9): a steer's text reads where its message came from.
+    const projectForProvider = yield* LazurioBuddyPrompt.providerProjection;
 
     const load = Effect.fn("ProviderTurnControlService.load")(function* (input: {
       readonly threadId: ThreadId;
@@ -453,11 +455,13 @@ export const layer: Layer.Layer<
               cause: "The persisted steering message or target run is missing.",
             });
           }
-          // Lazurio overlay (Lazurio/t3code#150): a steer into Buddy's turn gets the Czech page block too.
-          const steerText = yield* LazurioBuddyPrompt.projectComposerContextForProvider({
+          // Lazurio overlay (Lazurio/t3code#150, plan LZD-0025 B9): a steer into Buddy's turn gets
+          // the Czech page block too, into any other the line saying where its message came from.
+          const steerText = yield* projectForProvider({
             instanceId: run.providerInstanceId,
             text: message.text,
             records: message.context?.records ?? [],
+            message,
           });
           yield* session
             .steerTurn({

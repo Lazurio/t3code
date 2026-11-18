@@ -21,7 +21,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import type { MessageSenderFields } from "./actingSenderVisibility.ts";
 import { isBuddyInstance } from "./buddySurface.ts";
+import { MessageClients, messageOriginLine } from "./messageClients.ts";
 
 /** The composer record of the page Buddy is asked from. */
 const LAZURIO_PAGE_CONTEXT_KIND = "lazurio-page";
@@ -130,21 +132,39 @@ export function buddyProviderText(input: {
     .join("\n\n");
 }
 
-/**
- * The text a provider turn gets for a message: Buddy's projection for Buddy's instance, upstream's
- * for every other.
- */
-export const projectComposerContextForProvider = Effect.fn(
-  "LazurioBuddyPrompt.projectComposerContextForProvider",
-)(function* (input: {
+interface ProviderProjectionInput {
   readonly instanceId: ProviderInstanceId;
   readonly text: string;
   readonly records: ReadonlyArray<ComposerContextRecord>;
-}) {
+  /** The message the text is, for the line saying where it came from (plan LZD-0025 B9). */
+  readonly message?: MessageSenderFields;
+}
+
+/**
+ * The text a provider turn gets for a message: Buddy's projection for Buddy's instance, only the
+ * person's words; for every other, upstream's after a line saying where the message came from.
+ */
+export const projectComposerContextForProvider = Effect.fn(
+  "LazurioBuddyPrompt.projectComposerContextForProvider",
+)(function* (input: ProviderProjectionInput) {
   const environment = yield* HostProcess.Environment;
-  return isBuddyInstance(environment, input.instanceId)
-    ? buddyProviderText(input)
-    : projectUpstream(input);
+  if (isBuddyInstance(environment, input.instanceId)) return buddyProviderText(input);
+  const text = projectUpstream(input);
+  // A native slash command (`/compact`, `/goal`) works only at the start of the prompt.
+  if (input.message === undefined || text.trimStart().startsWith("/")) return text;
+  const clients = yield* MessageClients;
+  const line = messageOriginLine(input.message, yield* clients.clientOf(input.message.id));
+  return line === null ? text : `${line}\n\n${text}`;
+});
+
+/**
+ * The projection with the server's marks of where messages came from, taken where a turn service
+ * is built: its turns run on the effect worker, which does not carry the store.
+ */
+export const providerProjection = Effect.gen(function* () {
+  const clients = yield* MessageClients;
+  return (input: ProviderProjectionInput) =>
+    projectComposerContextForProvider(input).pipe(Effect.provideService(MessageClients, clients));
 });
 
 /** T3's instructions for every ACP instance but Buddy's. */

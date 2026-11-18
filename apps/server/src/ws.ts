@@ -227,6 +227,7 @@ import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { buddySurfaceClientConfig } from "./lazurio/buddySurface.ts";
 import * as LazurioActingSenders from "./lazurio/actingSenders.ts";
+import * as LazurioMessageClients from "./lazurio/messageClients.ts";
 import { managedFolderClientConfig } from "./lazurio/managedFolder.ts";
 import * as LazurioProviderSignIn from "./lazurio/providerSignIn.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -2003,6 +2004,8 @@ export const layerWsRpc = (
                     Effect.provide(intakeContext),
                     // Lazurio overlay (root decision 0210): a session acting as Buddy marks them.
                     LazurioActingSenders.actingAs(currentSession),
+                    // Lazurio overlay (plan LZD-0025 B9): its messages carry the client's mark.
+                    LazurioMessageClients.fromClient(currentSession, originProps),
                   ),
                 )
                 .pipe(
@@ -2209,6 +2212,8 @@ export const layerWsRpc = (
                         }),
                       ),
                       Effect.provide(intakeContext),
+                      // Lazurio overlay (plan LZD-0025 B9): its message carries the client's mark.
+                      LazurioMessageClients.fromClient(currentSession, originProps),
                     ),
                 )
                 .pipe(

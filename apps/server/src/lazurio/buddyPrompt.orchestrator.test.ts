@@ -23,6 +23,7 @@ import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { isTerminalRunStatus } from "../orchestration-v2/ThreadManagementService.ts";
 import { lazurioPageContextBlock } from "./buddyPrompt.ts";
+import * as MessageClients from "./messageClients.ts";
 import {
   addProject,
   BUDDY,
@@ -43,6 +44,9 @@ const page = {
   app: "chat",
   page: { path: "/a1b2c3" },
 } as const;
+
+/** The person's web client on a computer, as ws.ts reads its socket. */
+const fromWeb = MessageClients.fromClient({}, { surface: "web", clientDeviceType: "desktop" });
 
 /**
  * Send a message as the person's web client does, and run the effect worker until the message's
@@ -70,21 +74,23 @@ const send = Effect.fn("test.buddyPrompt.send")(function* (
       Stream.take(1),
       Stream.runDrain,
     );
-  yield* orchestrator.dispatch({
-    type: "message.dispatch",
-    createdBy: "user",
-    creationSource: "web",
-    commandId: CommandId.make(`command:buddy-prompt:${ordinal}`),
-    threadId,
-    messageId: MessageId.make(`message:buddy-prompt:${ordinal}`),
-    text: message.text,
-    ...(message.records === undefined
-      ? {}
-      : { context: { version: 1 as const, records: [...message.records] } }),
-    attachments: [],
-    modelSelection: message.modelSelection ?? buddyModel,
-    dispatchMode: { type: "start_immediately" },
-  });
+  yield* orchestrator
+    .dispatch({
+      type: "message.dispatch",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: CommandId.make(`command:buddy-prompt:${ordinal}`),
+      threadId,
+      messageId: MessageId.make(`message:buddy-prompt:${ordinal}`),
+      text: message.text,
+      ...(message.records === undefined
+        ? {}
+        : { context: { version: 1 as const, records: [...message.records] } }),
+      attachments: [],
+      modelSelection: message.modelSelection ?? buddyModel,
+      dispatchMode: { type: "start_immediately" },
+    })
+    .pipe(fromWeb);
   yield* Effect.raceFirst(
     settled,
     Effect.forever(worker.drain().pipe(Effect.andThen(worker.awaitWork))),
@@ -125,6 +131,48 @@ describe("Buddy's T3 Code", () => {
       }),
     ),
   );
+});
+
+describe("T3 Code without Buddy", () => {
+  it.live("opens an agent's prompt with the client the person wrote it in", () => {
+    const agentHome = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "message-origin-"));
+    const agentLog = NodePath.join(agentHome, "requests.jsonl");
+    return Effect.gen(function* () {
+      const projectId = ProjectId.make("project:agent");
+      yield* addProject(projectId, agentHome);
+      const threadId = ThreadId.make("thread:agent");
+      yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("command:agent-thread"),
+        threadId,
+        projectId,
+        title: "Agent",
+        modelSelection: buddyModel,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* send(threadId, 1, { text: "Run the tests." });
+
+      const origin = MessageClients.messageOriginLine(
+        { id: "message", role: "user", createdBy: "user" },
+        { surface: "web", deviceType: "desktop" },
+      );
+      assert.include(receivedPrompts(agentLog)[0]?.join("\n\n"), `${origin}\n\nRun the tests.`);
+    }).pipe(
+      Effect.provide(layerBuddyServer),
+      Effect.scoped,
+      Effect.provideService(HostProcess.Environment, {
+        ...process.env,
+        HOME: agentHome,
+        T3CODE_LAZURIO_BUDDY: undefined,
+        T3_ACP_REQUEST_LOG_PATH: agentLog,
+      }),
+    );
+  });
 });
 
 describe("Buddy's T3 Code and Hermes's settings", () => {
