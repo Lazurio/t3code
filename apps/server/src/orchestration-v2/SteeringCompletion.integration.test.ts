@@ -1112,6 +1112,10 @@ it.effect.each(
   }),
 );
 
+// Lazurio overlay (plan LZD-0025 B9): an MCP agent's prompt opens with where it came from.
+const viaTools =
+  "<message_origin>Sent through T3 Code's tools by an agent outside T3 threads, not from a T3 Code client.</message_origin>\n\n";
+
 // Lazurio/t3code#170: agents and Buddy send plain messages; one sent while the turn starts
 // steers in once it runs where an auto send would steer the running turn, instead of waiting
 // for a turn of its own. An ACP agent reports steering only on its session.
@@ -1228,7 +1232,7 @@ it.effect.each([
         yield* Queue.offer(events, { type: "provider_turn.updated", driver, providerTurn: turn });
         if (defers) yield* Fiber.join(delivered);
         yield* worker.drain();
-        assert.deepEqual(steered, steers ? ["sent while starting"] : []);
+        assert.deepEqual(steered, steers ? [`${viaTools}sent while starting`] : []);
         assert.deepEqual(interrupted, []);
         assert.lengthOf(started, 1);
         const after = yield* orchestrator.getThreadProjection(threadId);
@@ -2529,7 +2533,10 @@ it.effect("steers a promoted scheduled delivery with the thread's current select
         yield* worker.drain();
 
         const projection = yield* orchestrator.getThreadProjection(threadId);
-        assert.deepEqual(steered, ["scheduled"]);
+        // Lazurio overlay (plan LZD-0025 B9): a scheduled task's steer says it sent the message.
+        assert.deepEqual(steered, [
+          "<message_origin>Sent by scheduled task task:scheduled, not typed by the user.</message_origin>\n\nscheduled",
+        ]);
         assert.deepEqual(projection.thread.modelSelection, composerSelection);
       }).pipe(Effect.provide(layer));
     }),
@@ -3547,7 +3554,10 @@ it.effect("starts a restart that stops the running turn ahead of an older held q
       const { queue, started: startedTexts } = yield* read(threadId);
       assert.deepEqual(
         { queue, started: startedTexts },
-        { queue: ["queued"], started: ["first", "second", "do this instead"] },
+        {
+          queue: ["queued"],
+          started: ["first", `${viaTools}second`, `${viaTools}do this instead`],
+        },
       );
     }).pipe(Effect.provide(layer));
   }),
