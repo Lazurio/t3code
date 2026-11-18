@@ -337,8 +337,6 @@ function RightPanelEmptyState(props: {
   deviceAvailable: boolean;
   sideChatAvailable: boolean;
   sideChatDisabledReason: string | null;
-  /** Lazurio overlay: why the Environment browser is not here yet, instead of upstream's line. */
-  browserNote: string | null;
 }) {
   const [highlight, setHighlight] = useState(-1);
 
@@ -348,7 +346,7 @@ function RightPanelEmptyState(props: {
       icon: Globe2,
       shortcut: "B",
       available: props.browserAvailable,
-      disabledReason: props.browserNote ?? SURFACE_UNAVAILABLE_HINTS.browser,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.browser,
       onClick: props.onAddBrowser,
     },
     {
@@ -568,9 +566,6 @@ function RightPanelEmptyState(props: {
             ),
           )}
         </div>
-        {props.browserNote === null ? null : (
-          <p className="mt-3 text-center text-muted-foreground text-xs">{props.browserNote}</p>
-        )}
       </div>
     </div>
   );
@@ -1581,7 +1576,6 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             deviceAvailable={props.deviceAvailable}
             sideChatAvailable={props.sideChatAvailable === true}
             sideChatDisabledReason={props.sideChatDisabledReason ?? null}
-            browserNote={lazurio.browserNote}
           />
         ) : (
           props.children

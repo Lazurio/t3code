@@ -292,7 +292,7 @@ Commity v pořadí na `main`:
   `apps/server/src/lazurio/agentBrowserSession.ts` a jeho test.
 - **9.** `6c83822f37`. `apps/web/src/components/ChatView.tsx`\* (volání háčku,
   obal rámů), `RightPanelTabs.tsx`\* (název s titulky rámů jako vstupem, ikona,
-  tooltip v `RightPanelTab`, menu záložky, volání háčku, řádek konceptu),
+  tooltip v `RightPanelTab`, menu záložky, volání háčku),
   `apps/web/src/rightPanelStore.ts`\* (druh povrchu, jeho člen, `openProactive`,
   akce `lazurio`, přeskočení v paměti zavřených záložek); `apps/web/src/lazurio/`:
   `LazurioEnvironmentBrowser.tsx`\* a jeho test v prohlížeči, `environmentBrowser.ts`

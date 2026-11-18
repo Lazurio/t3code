@@ -69,6 +69,14 @@ export const layer = HttpRouter.use((router) =>
       ),
     );
 
+    // `&draft=1`: a client's draft, a thread not live yet; only the plain read takes it.
+    const draftOfQuery = Effect.map(HttpServerRequest.HttpServerRequest, (request) =>
+      Option.exists(
+        HttpServerRequest.toURL(request),
+        (url) => url.searchParams.get("draft") === "1",
+      ),
+    );
+
     const tabRequest = HttpServerRequest.schemaBodyJson(TabRequest).pipe(
       Effect.asSome,
       Effect.orElseSucceed(() => Option.none<typeof TabRequest.Type>()),
@@ -85,7 +93,7 @@ export const layer = HttpRouter.use((router) =>
         yield* authenticate(threadTabsScopes.read);
         const threadId = yield* threadIdOfQuery;
         if (Option.isNone(threadId)) return refused("invalid-request");
-        return yield* answered(threadTabs.read(threadId.value));
+        return yield* answered(threadTabs.read(threadId.value, yield* draftOfQuery));
       }),
     );
 

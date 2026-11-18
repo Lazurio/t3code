@@ -221,6 +221,16 @@ it.layer(authLayer.pipe(Layer.provide(platformLayer)), { excludeTestServices: tr
                 expect(missing.status).toBe(404);
                 expect(await missing.json()).toEqual({ error: "thread-not-found" });
               }
+              // A draft's read: the strip of a thread not live yet.
+              const draft = await on.handler(
+                new Request(route("?threadId=5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6&draft=1"), {
+                  headers: { cookie },
+                }),
+              );
+              expect(await draft.json()).toMatchObject({
+                strip: "t3-5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6",
+                tabs: [],
+              });
               const released = await on.handler(
                 post("/release", { threadId: threadA, tabId: tab }, { cookie, ...sameOrigin }),
               );

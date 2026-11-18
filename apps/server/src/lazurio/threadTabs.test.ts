@@ -493,9 +493,15 @@ describe("holds and releases", () => {
     await expect(w.core.hold("5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6", id(1))).rejects.toMatchObject({
       reason: "thread-not-found",
     });
+    // A draft's read: an unknown thread's strip, which holds nothing.
+    expect(await w.core.read("5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6", true)).toMatchObject({
+      strip: "t3-5c4b3a29-1807-4f6e-9d5c-4b3a2918f7e6",
+      tabs: [],
+    });
     await w.core.lifecycle({ type: "retired", threadId: threadA });
     await expect(w.core.hold(threadA, id(1))).rejects.toMatchObject({ reason: "thread-not-found" });
     await expect(w.core.read(threadA)).rejects.toMatchObject({ reason: "thread-not-found" });
+    await expect(w.core.read(threadA, true)).rejects.toMatchObject({ reason: "thread-not-found" });
     await w.core.record(threadA, id(2), true);
     expect(await w.stored()).toBeNull();
   });

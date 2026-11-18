@@ -144,7 +144,8 @@ export interface ThreadTabsCoreSeams {
 export interface ThreadTabsCore {
   /** The Environment's declaration of its browser: the origin of its view, or undefined. */
   readonly declare: (viewOrigin: string | undefined) => void;
-  readonly read: (threadId: string) => Promise<ThreadTabsAnswer>;
+  /** With `draft`, a thread not live yet is a draft's: its strip, which holds nothing so far. */
+  readonly read: (threadId: string, draft?: boolean) => Promise<ThreadTabsAnswer>;
   readonly hold: (threadId: string, tabId: string) => Promise<ThreadTabsSnapshot>;
   readonly release: (threadId: string, tabId: string) => Promise<ThreadTabsSnapshot>;
   /** An agent's tab joins the thread's strip (preview_open, a new binding); never fails. */
@@ -748,11 +749,11 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
       }
       publish();
     },
-    async read(threadId) {
+    async read(threadId, draft = false) {
       if (!available()) return { available: false };
       await loaded();
       const strip = stripOf(threadId);
-      if (retired.has(strip) || (await liveThreadOf(threadId)) === null) {
+      if (retired.has(strip) || (!draft && (await liveThreadOf(threadId)) === null)) {
         throw refusal("thread-not-found");
       }
       return snapshotFor(strip, threadId);
@@ -831,8 +832,12 @@ export function createThreadTabs(seams: ThreadTabsCoreSeams): ThreadTabsCore {
 export class ThreadTabs extends Context.Service<
   ThreadTabs,
   {
-    /** The thread's snapshot, or `{available: false}` while the service is off. */
-    readonly read: (threadId: ThreadId) => Effect.Effect<ThreadTabsAnswer, ThreadTabsError>;
+    /** The thread's snapshot, or `{available: false}` while the service is off; with `draft`,
+     * also of a thread that is not live yet (a draft of a client). */
+    readonly read: (
+      threadId: ThreadId,
+      draft?: boolean,
+    ) => Effect.Effect<ThreadTabsAnswer, ThreadTabsError>;
     readonly hold: (
       threadId: ThreadId,
       tabId: string,
@@ -931,8 +936,8 @@ const make = Effect.gen(function* () {
   );
   const attempt = <A>(work: () => Promise<A>) => Effect.tryPromise({ try: work, catch: asError });
   return ThreadTabs.of({
-    read: Effect.fn("ThreadTabs.read")(function (threadId) {
-      return attempt(() => core.read(threadId));
+    read: Effect.fn("ThreadTabs.read")(function (threadId, draft) {
+      return attempt(() => core.read(threadId, draft));
     }),
     hold: Effect.fn("ThreadTabs.hold")(function (threadId, tabId) {
       return attempt(() => core.hold(threadId, tabId));

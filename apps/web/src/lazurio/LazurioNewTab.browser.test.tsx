@@ -15,6 +15,7 @@ import {
 import { LazurioRightPanelSurfaces } from "./LazurioEnvironmentBrowser";
 import { NEW_TAB_ELEMENT } from "./LazurioNewTab";
 import {
+  enterDraft,
   isNewTabSurface,
   newTabSurface,
   resetThreadTabs,
@@ -48,8 +49,6 @@ const snapshot: ThreadTabsSnapshot = {
   viewOrigin,
   tabs: [],
 };
-/** The draft's line in English, the test browser's language. */
-const DRAFT_LINE = "The Environment browser comes with the first message.";
 const files: RightPanelSurface = { id: "files", kind: "files" };
 const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA);
 const setPanel = (state: ThreadRightPanelState) =>
@@ -58,7 +57,8 @@ const noop = () => undefined;
 
 /**
  * One test's page with the shell's element, from nothing: the stores start empty, and the server's
- * POSTs answer with thread A's holder file.
+ * POSTs and a draft's read (recorded by its address, with no body) answer with thread A's holder
+ * file.
  */
 async function setup() {
   resetThreadTabs();
@@ -71,12 +71,15 @@ async function setup() {
   let held: string[] = [];
   const fetch = stubGlobal("fetch", async (url: string, init: RequestInit) => {
     const action = url.split("/").at(-1) ?? "";
-    const body = JSON.parse(String(init.body)) as { readonly tabId: string };
+    const body =
+      init.body === undefined ? null : (JSON.parse(String(init.body)) as { tabId: string });
     posted.push({ action, body });
-    held =
-      action === "hold"
-        ? [...new Set([...held, body.tabId])]
-        : held.filter((entry) => entry !== body.tabId);
+    if (body !== null) {
+      held =
+        action === "hold"
+          ? [...new Set([...held, body.tabId])]
+          : held.filter((entry) => entry !== body.tabId);
+    }
     const tabs = held.map((tab) => ({ tabId: tab, agent: false, alsoHeldBy: [] }));
     return new Response(JSON.stringify({ ...snapshot, tabs }), {
       status: 200,
@@ -199,25 +202,18 @@ describe("with the shell's element", () => {
     expect(panel().surfaces).toEqual([]);
   });
 
-  it("says on a draft's empty panel that the Environment browser comes with its first message", async () => {
-    using _page = await setup();
-    useThreadTabsStore.setState({ draftInView: threadA });
+  it("shows Nová karta on a draft's empty panel, where a chosen page is the device's own", async () => {
+    using page = await setup();
     setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
+    await enterDraft(threadA);
     await using screen = await render(strip());
-    expect(screen.container.textContent).toContain("Open a surface");
-    expect(screen.container.textContent).toContain(DRAFT_LINE);
-    expect(screen.container.querySelector(NEW_TAB_ELEMENT)).toBeNull();
-    // Where the server said of another thread that this Environment has no browser, upstream's
-    // line stays.
-    await act(() =>
-      useThreadTabsStore.setState({
-        snapshots: {
-          [scopedThreadKey(scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B")))]:
-            null,
-        },
-      }),
+    expect(screen.container.querySelector(NEW_TAB_ELEMENT)?.getAttribute("strip")).toBe(
+      "t3-thread-A",
     );
-    expect(screen.container.textContent).not.toContain(DRAFT_LINE);
+    await choose(screen.container, { kind: "page", tab: tabId, view: `${viewOrigin}/t/${tabId}` });
+    expect(panel().surfaces).toEqual([{ id: tabSurfaceId(tabId), kind: "environment-browser" }]);
+    await syncOf(threadA).queue;
+    expect(page.posted).toEqual([{ action: "thread-tabs?threadId=thread-A&draft=1", body: null }]);
   });
 
   it("shows Nová karta as the empty panel, with the thread's strip and upstream's tools", async () => {

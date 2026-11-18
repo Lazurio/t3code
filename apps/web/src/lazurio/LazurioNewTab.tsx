@@ -117,9 +117,6 @@ if (typeof customElements !== "undefined") {
     .then(() => useNewTabStore.setState({ defined: true }));
 }
 
-/** Whether this page's shell defines Nová karta: the page is a Lazurio Environment's. */
-export const useNewTabDefined = () => useNewTabStore((state) => state.defined);
-
 /** Upstream's actions as RightPanelTabs last rendered them: each runs in Nová karta's place. */
 let publishedActions: ReadonlyArray<SurfaceAction> = [];
 
@@ -190,7 +187,7 @@ const sameTools = (left: readonly NewTabTool[], right: readonly NewTabTool[]) =>
     return other !== undefined && other.id === tool.id && other.key === tool.key;
   });
 
-/** The thread in view while the server keeps its tabs, else null. */
+/** The thread or draft in view while the server keeps its tabs, else null. */
 const threadWithTabs = (state: ReturnType<typeof useThreadTabsStore.getState>) =>
   state.inView !== null && (state.snapshots[scopedThreadKey(state.inView)] ?? null) !== null
     ? state.inView

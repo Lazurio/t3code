@@ -26,15 +26,13 @@ import {
   readEnvironmentBrowserMessage,
   viewEnvironmentId,
 } from "./environmentBrowser";
-import { NewTabSurface, type SurfaceAction, useNewTab, useNewTabDefined } from "./LazurioNewTab";
+import { NewTabSurface, type SurfaceAction, useNewTab } from "./LazurioNewTab";
 import {
   type ClosedTabs,
-  draftBrowserNote,
   type EnvironmentBrowserSurface,
   enterDraft,
   enterThreadTabs,
   isNewTabSurface,
-  leaveDraft,
   leaveThreadTabs,
   letGoOfTabs,
   openLinkInPanel,
@@ -97,8 +95,8 @@ const parseData = (data: unknown) => {
 
 /**
  * A tab of this Environment that the person closed in the strip, by any close action, while the
- * list still has it or its hold is pending: the thread lets go of it. Store changes in one task
- * (upstream's Close all closes one at a time) make one batch and one toast.
+ * list still has it, its hold is pending or a draft keeps it: the thread lets go of it. Store
+ * changes in one task (upstream's Close all closes one at a time) make one batch and one toast.
  */
 function watchClosedTabs(threadRef: ScopedThreadRef): () => void {
   const key = scopedThreadKey(threadRef);
@@ -120,7 +118,7 @@ function watchClosedTabs(threadRef: ScopedThreadRef): () => void {
       if (remaining.has(surface.id)) return false;
       const tab = tabIdOfSurface(surface);
       if (tab === null || sync.ended.has(tab) || sync.released.has(tab)) return false;
-      return listed.has(tab) || sync.pending.has(tab);
+      return listed.has(tab) || sync.pending.has(tab) || (sync.draft && sync.local.has(tab));
     });
     if (closed.length === 0) return;
     if (batch === null) {
@@ -151,8 +149,8 @@ function watchClosedTabs(threadRef: ScopedThreadRef): () => void {
 /**
  * Lazurio overlay: ChatView's one hook. The strip follows the server's list of the thread's tabs,
  * a new reveal opens the inline panel (never the sheet), and a plain click on a remote-tab link in
- * the chat opens it in the panel. A draft opens no stream: the server would answer 404, which an
- * EventSource never retries, so the stream starts once the draft is a thread (Lazurio/t3code#53).
+ * the chat opens it in the panel. A draft opens no stream and holds nothing (`enterDraft`); the
+ * stream starts once its first message makes it a thread, which then holds the draft's tabs.
  */
 export function useLazurioThreadTabs(
   input: ScopedThreadRef | null,
@@ -168,11 +166,15 @@ export function useLazurioThreadTabs(
     if (threadRef !== null) syncOf(threadRef).inlinePanel = inlinePanel;
   }, [threadRef, inlinePanel]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a draft's presence in view is a mount lifecycle the module tracks
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a draft in view: one read of its strip on the server, and its presence the module tracks
   useEffect(() => {
     if (threadRef === null || !draft) return;
-    enterDraft(threadRef);
-    return () => leaveDraft(threadRef, stillShown(router, threadRef));
+    void enterDraft(threadRef);
+    const stopWatching = watchClosedTabs(threadRef);
+    return () => {
+      stopWatching();
+      leaveThreadTabs(threadRef, stillShown(router, threadRef));
+    };
   }, [threadRef, draft, router]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the server's EventSource of the thread's tabs
@@ -316,27 +318,14 @@ export type FrameTitles = ReturnType<typeof useThreadTabsStore.getState>["titles
 
 /**
  * RightPanelTabs's one hook: whether "+" and the empty panel open Nová karta (`newTab`,
- * LazurioNewTab.tsx), the empty panel's line on a draft, and the titles the frames report. The
- * strip is compiled and memoizes its tabs by their inputs, so a tab's title follows its frame only
- * because the titles reach `surfaceTitle` through here, never read from the store while it renders.
+ * LazurioNewTab.tsx), and the titles the frames report. The strip is compiled and memoizes its tabs
+ * by their inputs, so a tab's title follows its frame only because the titles reach `surfaceTitle`
+ * through here, never read from the store while it renders.
  */
 export function useRightPanel(actions: ReadonlyArray<SurfaceAction>) {
   const newTab = useNewTab(actions);
   const titles = useThreadTabsStore((state) => state.titles);
-  // A draft on an Environment whose shell offers Nová karta, unless the server already said that
-  // this Environment has no browser for another thread.
-  const draftNote = useThreadTabsStore(
-    (state) =>
-      state.draftInView !== null &&
-      !Object.values(state.snapshots).some((answer) => answer === null),
-  );
-  const defined = useNewTabDefined();
-  return {
-    newTab,
-    /** The empty panel's line about the Environment browser, or null for upstream's. */
-    browserNote: draftNote && defined ? draftBrowserNote(prefersCzech()) : null,
-    titles,
-  };
+  return { newTab, titles };
 }
 
 /** The strip's title of an Environment browser tab: what its frame reported, or Nová karta. */

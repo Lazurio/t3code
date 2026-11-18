@@ -297,11 +297,8 @@ interface ThreadTabsState {
   /** How often each tab's frame was reloaded, by surface id: part of its frame's key, so a reload
    * is a fresh frame, also of a tab behind the one in front. */
   readonly reloads: Readonly<Record<string, number>>;
-  /** The thread the chat shows, whose panel may show Nová karta. */
+  /** The thread or draft the chat shows, whose panel may show Nová karta. */
   readonly inView: ScopedThreadRef | null;
-  /** The draft the chat shows: no thread of the server yet, so it has no tabs until its first
-   * message (Lazurio/t3code#53). */
-  readonly draftInView: ScopedThreadRef | null;
 }
 
 export const useThreadTabsStore = create<ThreadTabsState>(() => ({
@@ -309,7 +306,6 @@ export const useThreadTabsStore = create<ThreadTabsState>(() => ({
   titles: {},
   reloads: {},
   inView: null,
-  draftInView: null,
 }));
 
 export function rememberTitle(surfaceId: string, title: string | null): void {
@@ -356,6 +352,8 @@ export interface ThreadTabsSync {
   accepted: { readonly epoch: string; readonly revision: number } | null;
   /** Runs of the server the device saw replaced: their snapshots never come back. */
   readonly leftEpochs: Set<string>;
+  /** A draft on this device: its tabs are the device's own (`local`) until its stream opens. */
+  draft: boolean;
 }
 
 const syncs = new Map<string, ThreadTabsSync>();
@@ -375,6 +373,7 @@ export function syncOf(threadRef: ScopedThreadRef): ThreadTabsSync {
       intentCount: 0,
       accepted: null,
       leftEpochs: new Set(),
+      draft: false,
     };
     syncs.set(key, sync);
   }
@@ -389,7 +388,6 @@ export function resetThreadTabs(): void {
     titles: {},
     reloads: {},
     inView: null,
-    draftInView: null,
   });
 }
 
@@ -567,11 +565,22 @@ function leftThread(threadRef: ScopedThreadRef, stillShown: boolean): void {
   if (!stillShown) syncOf(threadRef).baseline = null;
 }
 
-/** The thread's stream opens. */
+/**
+ * The thread's stream opens. Where the first message made this device's draft the thread, the
+ * thread holds the draft's tabs still in the strip, pending from here on: before any snapshot of
+ * the stream can reconcile them away.
+ */
 export function enterThreadTabs(threadRef: ScopedThreadRef): void {
   useThreadTabsStore.setState({ inView: threadRef });
+  const sync = syncOf(threadRef);
+  if (!sync.draft) return;
+  sync.draft = false;
+  const tabs = [...sync.local];
+  sync.local.clear();
+  for (const tab of tabs) if (hasSurface(threadRef, tabSurfaceId(tab))) holdTab(threadRef, tab);
 }
 
+/** The thread's or the draft's view closes. */
 export function leaveThreadTabs(threadRef: ScopedThreadRef, stillShown: boolean): void {
   leftThread(threadRef, stillShown);
   const inView = useThreadTabsStore.getState().inView;
@@ -580,25 +589,38 @@ export function leaveThreadTabs(threadRef: ScopedThreadRef, stillShown: boolean)
   }
 }
 
-/** A draft comes into view: the panel says that the Environment browser comes with the first
- * message, instead of upstream's desktop-only line. */
-export function enterDraft(threadRef: ScopedThreadRef): void {
-  useThreadTabsStore.setState({ draftInView: threadRef });
-}
-
-export function leaveDraft(threadRef: ScopedThreadRef, stillShown: boolean): void {
-  leftThread(threadRef, stillShown);
-  const draft = useThreadTabsStore.getState().draftInView;
-  if (draft !== null && scopedThreadKey(draft) === scopedThreadKey(threadRef)) {
-    useThreadTabsStore.setState({ draftInView: null });
+/** One read of a draft's strip on this page's own origin; null where the server gave none. */
+async function readDraft(threadId: string): Promise<ThreadTabsAnswer | null> {
+  try {
+    const response = await window.fetch(
+      `${THREAD_TABS_ROUTE}?threadId=${encodeURIComponent(threadId)}&draft=1`,
+      {
+        credentials: "same-origin",
+        redirect: "error",
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      },
+    );
+    return response.status === 200 ? parseThreadTabsAnswer(await response.json()) : null;
+  } catch {
+    return null;
   }
 }
 
-/** The empty panel's line on a draft (Lazurio/t3code#53; the Admin chose it on 2026-10-12). */
-export const draftBrowserNote = (czech: boolean) =>
-  czech
-    ? "Prohlížeč Prostředí bude k dispozici po první zprávě."
-    : "The Environment browser comes with the first message.";
+/**
+ * A draft comes into view (Lazurio/t3code#53): no stream, whose 404 an EventSource never retries,
+ * and its tabs stay the device's own (`holdTab`). One read of its empty strip gives Nová karta the
+ * strip and the frames the view origin.
+ */
+export function enterDraft(threadRef: ScopedThreadRef): Promise<void> {
+  syncOf(threadRef).draft = true;
+  useThreadTabsStore.setState({ inView: threadRef });
+  // Outside the holds' queue: a stalled read never holds back the first message's holds. Once the
+  // draft is a thread, its stream is newer than any answer of the read.
+  return readDraft(threadRef.threadId).then((answer) => {
+    if (answer !== null && syncOf(threadRef).draft) receiveSnapshot(threadRef, answer);
+  });
+}
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 
@@ -612,16 +634,20 @@ function intend(sync: ThreadTabsSync, tab: string): () => boolean {
 
 /**
  * Pending until the POST answers. Network failures and 5xx retry with backoff for about a minute
- * while the tab is in the strip; a refusal or an outlasting failure leaves it the device's own,
- * which ends 30 s after its last viewer (F39). A later × replaces the hold, even mid-flight.
+ * while the tab is in the strip; a refusal, an outlasting failure or a draft leaves it the
+ * device's own, which ends 30 s after its last viewer (F39). A later × replaces the hold.
  */
 export function holdTab(threadRef: ScopedThreadRef, tabId: string): void {
   const sync = syncOf(threadRef);
   const tab = tabId.toUpperCase();
   const current = intend(sync, tab);
-  sync.pending.add(tab);
   sync.released.delete(tab);
   sync.ended.delete(tab);
+  if (sync.draft) {
+    sync.local.add(tab);
+    return;
+  }
+  sync.pending.add(tab);
   sync.local.delete(tab);
   const attempt = (tries: number) =>
     enqueue(sync, async () => {
@@ -672,6 +698,8 @@ function releaseTab(threadRef: ScopedThreadRef, tabId: string): void {
   const sync = syncOf(threadRef);
   const current = intend(sync, tabId);
   sync.pending.delete(tabId);
+  // A draft holds nothing to let go of.
+  if (sync.draft) return;
   const attempt = (tries: number) =>
     enqueue(sync, async () => {
       if (!current()) return;
@@ -700,7 +728,8 @@ export interface ClosedTabs {
 /**
  * The person closed tabs of the thread in the strip (×, middle click, Close others, Close all):
  * the thread lets go of them, and one toast says what becomes of them, with Vrátit for 7 s, within
- * the hub's 8 s grace. The remote tab stays while anything still needs it.
+ * the hub's 8 s grace. The remote tab stays while anything still needs it. A draft holds nothing,
+ * so it only forgets them.
  */
 export function letGoOfTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): void {
   const sync = syncOf(threadRef);
@@ -710,6 +739,10 @@ export function letGoOfTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): voi
     const tab = tabIdOfSurface(surface);
     if (tab === null) continue;
     tabs.push(tab);
+    if (sync.draft) {
+      sync.local.delete(tab);
+      continue;
+    }
     sync.released.add(tab);
     releaseTab(threadRef, tab);
   }
@@ -737,7 +770,8 @@ export function letGoOfTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): voi
   );
 }
 
-/** Vrátit: the tabs go back where they were and the thread holds them again (a new record). */
+/** Vrátit: the tabs go back where they were and the thread holds them again (a new record), or a
+ * draft keeps them as the device's own (`holdTab`). */
 function restoreTabs(threadRef: ScopedThreadRef, closed: ClosedTabs): void {
   useRightPanelStore.getState().lazurio(threadRef, false, (current) => {
     const surfaces = [...current.surfaces];
