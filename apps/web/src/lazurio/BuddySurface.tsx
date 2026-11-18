@@ -46,12 +46,14 @@ import {
   type ChatShortcutsInput,
   isBuddySpeed,
   isBuddyWindowOrigin,
+  leadsToBuddysThread,
   personsQueuedRuns,
   type QueueMessage,
   withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
 import { isPlainPrimaryClick } from "./environmentBrowser";
 import { pageRecordOf } from "./buddySurfacePage";
+import { useLinkedUnlistedProjectIds } from "./unlistedRows";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
@@ -677,7 +679,6 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
 type Opening = { readonly attempt: number; readonly outcome: "not-ready" | "failed" };
 
 let buddyThreadId: string | null = null;
-let buddyProjectId: string | null = null;
 const buddyThreadListeners = new Set<() => void>();
 const subscribeBuddyThread = (listener: () => void) => {
   buddyThreadListeners.add(listener);
@@ -700,12 +701,18 @@ export function useLeadsToBuddysThread(
       ? null
       : scopeThreadRef(threadRef.environmentId as EnvironmentId, threadRef.threadId as ThreadId),
   );
-  if (threadRef === null || !buddy || threadRef.threadId === known) return false;
-  // Buddy's window on the shared server opens the threads of Buddy's project, its subagents and
-  // forks included, as Chat does (GEN4); Hermes's chat has only its one thread.
-  if (!hermes && known !== null && shell !== null && shell.projectId === buddyProjectId)
-    return false;
-  return true;
+  // Buddy's project from the server's Buddy folder, known on a fresh load before `/` ever ran.
+  const buddyProjectIds = useLinkedUnlistedProjectIds(
+    (threadRef?.environmentId ?? null) as EnvironmentId | null,
+  );
+  if (threadRef === null || !buddy) return false;
+  return leadsToBuddysThread({
+    threadId: threadRef.threadId,
+    buddyThreadId: known,
+    hermes,
+    projectId: shell?.projectId,
+    buddyProjectIds,
+  });
 }
 
 /** Asks the server for Buddy's thread: its id, or why there is none. */
@@ -746,7 +753,6 @@ export function BuddySurfaceIndex() {
         return;
       }
       buddyThreadId = outcome.threadId;
-      buddyProjectId = outcome.projectId;
       for (const listener of buddyThreadListeners) listener();
       void navigate({
         to: "/$environmentId/$threadId",

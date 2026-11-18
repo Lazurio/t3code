@@ -11,6 +11,7 @@ import {
   buddySpeedOption,
   buddySpeedSelection,
   isBuddyWindowOrigin,
+  leadsToBuddysThread,
   personsQueuedRuns,
   withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
@@ -108,6 +109,35 @@ describe("Buddy's window on the shared server", () => {
     expect(isBuddyWindowOrigin(config, "https://t3code.example.test")).toBe(false);
     expect(isBuddyWindowOrigin({}, "https://buddy.example.test")).toBe(false);
     expect(isBuddyWindowOrigin(null, "https://buddy.example.test")).toBe(false);
+  });
+});
+
+describe("a thread route in Buddy's surface", () => {
+  const buddyProjectIds = new Set(["buddy-project"]);
+  const route = (over: Partial<Parameters<typeof leadsToBuddysThread>[0]>) =>
+    leadsToBuddysThread({
+      threadId: "fork",
+      buddyThreadId: null,
+      hermes: false,
+      projectId: "buddy-project",
+      buddyProjectIds,
+      ...over,
+    });
+
+  it("keeps a fork or subagent of Buddy's project open on a fresh load, before Buddy's thread is known", () => {
+    expect(route({})).toBe(false);
+    expect(route({ buddyThreadId: "root" })).toBe(false);
+  });
+
+  it("waits for the thread and Buddy's project before it leads anywhere", () => {
+    expect(route({ projectId: undefined })).toBe(false);
+    expect(route({ projectId: "other", buddyProjectIds: new Set() })).toBe(false);
+  });
+
+  it("leads another project's thread to Buddy's, and every other thread of Hermes's chat", () => {
+    expect(route({ projectId: "other" })).toBe(true);
+    expect(route({ hermes: true })).toBe(true);
+    expect(route({ hermes: true, threadId: "buddy", buddyThreadId: "buddy" })).toBe(false);
   });
 });
 

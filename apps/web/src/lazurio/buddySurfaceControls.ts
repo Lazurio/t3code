@@ -147,6 +147,25 @@ export function personsQueuedRuns<Queued extends { readonly messageId: string }>
 }
 
 /**
+ * Whether a thread route in Buddy's surface leads to Buddy's thread instead. Hermes's chat (GEN3)
+ * has only its one thread. Buddy's window on the shared server (GEN4) opens every thread of
+ * Buddy's project, forks and subagents too, a fresh load included: it decides only once the thread
+ * (`projectId`, undefined while not loaded) and Buddy's project are known.
+ */
+export function leadsToBuddysThread(input: {
+  readonly threadId: string;
+  readonly buddyThreadId: string | null;
+  readonly hermes: boolean;
+  readonly projectId: string | undefined;
+  readonly buddyProjectIds: ReadonlySet<string>;
+}): boolean {
+  if (input.threadId === input.buddyThreadId) return false;
+  if (input.hermes) return true;
+  if (input.projectId === undefined || input.buddyProjectIds.size === 0) return false;
+  return !input.buddyProjectIds.has(input.projectId);
+}
+
+/**
  * Whether this page is Buddy's window on the shared server (GEN4, plan LZD-0033 R3): the page's
  * origin is the one the server names for Buddy's window. On Chat's origin it is Chat.
  */
