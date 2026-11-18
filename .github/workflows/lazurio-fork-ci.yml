@@ -440,6 +440,12 @@ jobs:
             apps/web/src/components/ThreadNotificationCoordinator.tsx
             apps/web/src/state/entities.ts
             apps/web/src/hooks/useActiveProjectTarget.ts
+            # Where a message came from, for a linked environment's thread too (row 40): the
+            # receiving server records the link's label with the sender (OrchestratorMcpService.ts
+            # and orchestrationV2.ts, listed above), and the tests that see it.
+            apps/server/src/mcp/OrchestratorMcpService.test.ts
+            apps/server/src/peer/PeerForwarding.test.ts
+            apps/server/src/provider/agentContextBudget.json
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

@@ -3425,7 +3425,12 @@ const make = Effect.gen(function* () {
           ...(parent === undefined ? {} : { senderThreadId: parent.thread.id }),
           // A linked environment's agent has no thread here; the link names it.
           ...(parent === undefined && scope.client?.senderThread !== undefined
-            ? { linkedSender: scope.client.senderThread }
+            ? {
+                linkedSender: {
+                  ...scope.client.senderThread,
+                  environmentLabel: scope.client.label,
+                },
+              }
             : {}),
           messageId,
           text: input.message,

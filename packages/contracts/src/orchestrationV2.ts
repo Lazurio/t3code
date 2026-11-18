@@ -149,6 +149,8 @@ export const OrchestrationV2LinkedSender = Schema.Struct({
   environmentId: EnvironmentId,
   threadId: ThreadId,
   title: Schema.String,
+  /** Lazurio overlay: the label of the link it came through, as this environment records it. */
+  environmentLabel: Schema.optional(Schema.String),
 });
 export type OrchestrationV2LinkedSender = typeof OrchestrationV2LinkedSender.Type;
 

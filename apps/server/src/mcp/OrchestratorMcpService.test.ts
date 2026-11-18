@@ -4605,7 +4605,8 @@ describe("OrchestratorMcpService thread lookup", () => {
         });
 
       const fromLink = yield* sendAs(linked(sender));
-      assert.deepStrictEqual(fromLink?.linkedSender, sender);
+      // The label is the one this environment recorded for the link session.
+      assert.deepStrictEqual(fromLink?.linkedSender, { ...sender, environmentLabel: "A" });
       assert.isUndefined(fromLink?.senderThreadId);
       assert.isUndefined((yield* sendAs(linked()))?.linkedSender);
     }),

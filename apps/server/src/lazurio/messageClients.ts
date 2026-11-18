@@ -207,22 +207,61 @@ const typedIn = (client: MessageClient | undefined): string | null => {
   }
 };
 
+/** A message as far as the line goes: its sender, a linked environment's thread, and T3's notice. */
+export interface MessageOriginFields extends MessageSenderFields {
+  readonly linkedSender?:
+    | {
+        readonly environmentId: string;
+        readonly threadId: string;
+        readonly title: string;
+        readonly environmentLabel?: string | undefined;
+      }
+    | undefined;
+  readonly notification?:
+    | { readonly source: { readonly kind: string; readonly taskIds?: ReadonlyArray<string> } }
+    | undefined;
+}
+
+/** A linked environment's thread, by what this environment knows of it; all of it is the peer's word. */
+const linkedThread = (sender: NonNullable<MessageOriginFields["linkedSender"]>): string => {
+  const label = sender.environmentLabel === undefined ? "" : oneLine(sender.environmentLabel);
+  const environment = oneLine(sender.environmentId);
+  return `T3 thread ${oneLine(sender.threadId)} ("${oneLine(sender.title).replaceAll('"', "'")}") in the linked environment ${
+    label === "" ? environment : `${label} (${environment})`
+  }`;
+};
+
+/** T3 Code's own notice; a message it only sends on (a restart's continuation) has none. */
+const serverNotice = (source: {
+  readonly kind: string;
+  readonly taskIds?: ReadonlyArray<string>;
+}) =>
+  source.kind === "delegated_task" && source.taskIds !== undefined
+    ? `Sent by T3 Code itself about delegated task ${source.taskIds.map(oneLine).join(", ")}, not typed by the user.`
+    : `Sent by T3 Code itself as a ${oneLine(source.kind).replaceAll("_", " ")} notice, not typed by the user.`;
+
 /** The line saying where a user message came from, or null where that is not known. */
 export const messageOriginLine = (
-  message: MessageSenderFields,
+  message: MessageOriginFields,
   client: MessageClient | undefined,
 ): string | null => {
   const origin =
     message.role !== "user"
       ? null
-      : message.senderThreadId !== undefined
-        ? `Sent by the agent of T3 thread ${oneLine(message.senderThreadId)}, not typed by the user.`
-        : message.scheduledTaskId !== undefined
-          ? `Sent by scheduled task ${oneLine(message.scheduledTaskId)}, not typed by the user.`
-          : message.createdBy === "user"
-            ? typedIn(client)
-            : message.createdBy === "agent" && message.creationSource === "mcp"
-              ? "Sent through T3 Code's tools by an agent outside T3 threads, not from a T3 Code client."
-              : null;
+      : message.linkedSender !== undefined
+        ? `Sent by the agent of ${linkedThread(message.linkedSender)}, not typed by the user.`
+        : message.senderThreadId !== undefined
+          ? `Sent by the agent of T3 thread ${oneLine(message.senderThreadId)} in this environment, not typed by the user.`
+          : message.scheduledTaskId !== undefined
+            ? `Sent by scheduled task ${oneLine(message.scheduledTaskId)}, not typed by the user.`
+            : message.createdBy === "user"
+              ? typedIn(client)
+              : message.createdBy === "agent" && message.creationSource === "mcp"
+                ? "Sent through T3 Code's tools by an agent outside T3 threads, not from a T3 Code client."
+                : message.createdBy === "agent" &&
+                    message.creationSource === "server" &&
+                    message.notification !== undefined
+                  ? serverNotice(message.notification.source)
+                  : null;
   return origin === null ? null : `<message_origin>${origin}</message_origin>`;
 };
