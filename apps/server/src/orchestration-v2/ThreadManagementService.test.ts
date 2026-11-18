@@ -14,6 +14,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
@@ -551,6 +552,107 @@ it.effect("waitForThread can wait past an ended run for the thread's delegated w
       resultRun: { id: wakeRunId, status: "completed" },
     });
   }),
+);
+
+it.effect(
+  "waitForThread with untilQuestion returns once the thread asks, and once it is answered",
+  () =>
+    Effect.gen(function* () {
+      const projectId = ProjectId.make("project:thread-management:wait-question");
+      const threadId = ThreadId.make("thread:thread-management:wait-question");
+      const runId = RunId.make("run:thread-management:wait-question");
+      const questionId = RuntimeRequestId.make("request:thread-management:wait-question");
+      const events = yield* Queue.unbounded<OrchestrationV2StoredEvent>();
+      const subscribed = yield* Queue.unbounded<void>();
+      const runs = [{ id: runId, ordinal: 1, status: "running" }];
+      const question = (status: "pending" | "resolved", responseCapability = "live") => ({
+        id: questionId,
+        kind: "user_input",
+        status,
+        responseCapability: { type: responseCapability },
+        createdAt: DateTime.makeUnsafe(1_000),
+      });
+      // An approval and a question no answer can reach are not questions to return for.
+      let runtimeRequests: Array<object> = [
+        { ...question("pending"), id: "request:approval", kind: "command" },
+        { ...question("pending", "not_resumable"), id: "request:stale" },
+      ];
+      const stored = (sequence: number, event: object) =>
+        ({ sequence, event: { threadId, ...event } }) as unknown as OrchestrationV2StoredEvent;
+      const layerTest = ThreadManagementService.layer.pipe(
+        Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+        Layer.provide(
+          Layer.mock(Orchestrator.OrchestratorV2)({
+            getThreadEventSequence: () => Effect.succeed(0),
+            restartContinuationPending: () => Effect.succeed(false),
+            streamStoredEventsFrom: (input) =>
+              input?.eventType === "runtime-request.updated"
+                ? Stream.fromEffect(Queue.offer(subscribed, undefined)).pipe(
+                    Stream.drain,
+                    Stream.concat(Stream.fromQueue(events)),
+                  )
+                : Stream.never,
+            getThreadRecords: () =>
+              Effect.sync(
+                () =>
+                  ({
+                    thread: { id: threadId, projectId, deletedAt: null },
+                    runs,
+                    runtimeRequests,
+                  }) as unknown as OrchestrationV2ThreadProjection,
+              ),
+          }),
+        ),
+        Layer.provide(ServerSettings.layerTest()),
+        Layer.provide(layerReceiptsTest),
+      );
+      const service = yield* ThreadManagementService.ThreadManagementService.pipe(
+        Effect.provide(layerTest),
+      );
+      const wait = { projectId, threadId, runId, timeoutMs: 60_000 };
+
+      // Without the option a question changes nothing: the wait runs out as before.
+      runtimeRequests = [...runtimeRequests, question("pending")];
+      const plain = yield* service.waitForThread(wait).pipe(Effect.forkChild);
+      yield* TestClock.adjust(Duration.minutes(1));
+      const plainResult = yield* Fiber.join(plain);
+      expect(plainResult).toMatchObject({ timedOut: true, run: { id: runId, status: "running" } });
+      expect(plainResult).not.toHaveProperty("pendingQuestionIds");
+      runtimeRequests = runtimeRequests.slice(0, 2);
+
+      const asked = yield* service
+        .waitForThread({ ...wait, untilQuestion: true })
+        .pipe(Effect.forkChild);
+      // A wait that returns early fails below instead of hanging here.
+      yield* Effect.raceFirst(Queue.take(subscribed), Fiber.await(asked));
+      runtimeRequests = [...runtimeRequests, question("pending")];
+      yield* Queue.offer(events, stored(1, { type: "runtime-request.updated", payload: {} }));
+      expect(yield* Fiber.join(asked)).toMatchObject({
+        timedOut: false,
+        run: { id: runId, status: "running" },
+        pendingQuestionIds: [questionId],
+      });
+
+      // A caller that knows of the question waits until it is answered.
+      const answered = yield* service
+        .waitForThread({ ...wait, untilQuestion: true, knownQuestionIds: [questionId] })
+        .pipe(Effect.forkChild);
+      yield* Effect.raceFirst(Queue.take(subscribed), Fiber.await(answered));
+      runtimeRequests = [...runtimeRequests.slice(0, 2), question("resolved")];
+      yield* Queue.offer(events, stored(2, { type: "runtime-request.updated", payload: {} }));
+      expect(yield* Fiber.join(answered)).toMatchObject({
+        timedOut: false,
+        run: { id: runId, status: "running" },
+        pendingQuestionIds: [],
+      });
+
+      // With no question, the wait runs out and says so.
+      const quiet = yield* service
+        .waitForThread({ ...wait, untilQuestion: true })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust(Duration.minutes(1));
+      expect(yield* Fiber.join(quiet)).toMatchObject({ timedOut: true, pendingQuestionIds: [] });
+    }),
 );
 
 it.effect("waitForThread settles delegated work on a thread rolled back past its only run", () =>

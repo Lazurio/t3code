@@ -2340,11 +2340,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // An unknown task gives no evidence the question is obsolete.
     if (task === undefined) return false;
     const childThreadId = task.childThreadId;
-    if (
-      childThreadId === null ||
-      ["completed", "failed", "cancelled", "interrupted"].includes(task.status)
-    )
-      return true;
+    if (["completed", "failed", "cancelled", "interrupted"].includes(task.status)) return true;
+    // Only its follower sees a remote task's questions there; it drops their wakes itself.
+    if (childThreadId === null) return task.remoteChild === undefined;
     const child = yield* projectionStore
       .getThreadRecords(childThreadId, ["runtimeRequests"])
       .pipe(

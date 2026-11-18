@@ -16,6 +16,7 @@ import {
   type Project,
   type RepositoryIdentity,
   RunId,
+  RuntimeRequestId,
   type ServerProvider,
   ThreadId,
   TurnItemId,
@@ -141,6 +142,10 @@ interface BoxThread {
   readonly sent: Ref.Ref<ReadonlyArray<string>>;
   /** Runs as the launch there is answered, before the laptop hears back. */
   readonly afterLaunch: Ref.Ref<Effect.Effect<void>>;
+  /** The questions the thread there waits on. */
+  readonly questions: SubscriptionRef.SubscriptionRef<ReadonlyArray<RuntimeRequestId>>;
+  /** The box predates waiting until a question, so it ignores the option and reports none. */
+  readonly predatesQuestions: Ref.Ref<boolean>;
 }
 
 const makeBoxThread = Effect.gen(function* () {
@@ -179,6 +184,8 @@ const makeBoxThread = Effect.gen(function* () {
     releaseStop: yield* Deferred.make<void>(),
     sent: yield* Ref.make<ReadonlyArray<string>>([]),
     afterLaunch: yield* Ref.make<Effect.Effect<void>>(Effect.void),
+    questions: yield* SubscriptionRef.make<ReadonlyArray<RuntimeRequestId>>([]),
+    predatesQuestions: yield* Ref.make(false),
   } satisfies BoxThread;
 });
 
@@ -324,9 +331,35 @@ const boxToolkitLayer = (thread: BoxThread) => {
               : {}),
           };
         }
-        const done = yield* Deferred.await(thread.finished).pipe(
+        const askedFor =
+          input.untilQuestion === true && !(yield* Ref.get(thread.predatesQuestions));
+        const known = input.knownQuestionIds ?? [];
+        const differs = (ids: ReadonlyArray<RuntimeRequestId>) =>
+          ids.length !== known.length || ids.some((id) => !known.includes(id));
+        const asked = askedFor
+          ? SubscriptionRef.changes(thread.questions).pipe(
+              Stream.filter(differs),
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            )
+          : Effect.never;
+        const doneOrAsked = yield* Deferred.await(thread.finished).pipe(
+          Effect.as({ asked: undefined }),
+          Effect.raceFirst(asked.pipe(Effect.map((ids) => ({ asked: ids })))),
           Effect.timeoutOption(input.timeoutMs),
         );
+        if (Option.isSome(doneOrAsked) && doneOrAsked.value.asked !== undefined) {
+          return {
+            threadId: input.threadId,
+            run: { id: runId, status: yield* Ref.get(thread.status) } as OrchestrationV2Run,
+            timedOut: false,
+            pendingQuestionIds: doneOrAsked.value.asked,
+          };
+        }
+        const done = doneOrAsked;
+        const pendingQuestions = askedFor
+          ? { pendingQuestionIds: yield* SubscriptionRef.get(thread.questions) }
+          : {};
         // Only a waiter that asks waits past the run for the thread's own task.
         if (
           Option.isSome(done) &&
@@ -355,6 +388,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
             status: later ? "completed" : yield* Ref.get(thread.status),
           } as OrchestrationV2Run,
           timedOut: Option.isNone(done),
+          ...pendingQuestions,
         };
       }),
     getTimelinePage: (threadId, options) =>
@@ -1049,6 +1083,162 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
         state: "acknowledged",
         observedByRunId: parentRunId,
       });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+const isQuestionWake = (messageId: string) => messageId.startsWith("message:remote-task-question:");
+
+/** The parent's first message that wakes it for a remote task's question. */
+const questionWake = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+  laptopEnv.orchestrator
+    .streamStoredEventsFrom({
+      threadId: parentThreadId,
+      afterSequence: 0,
+      eventType: "message.updated",
+    })
+    .pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "message.updated" && isQuestionWake(stored.event.payload.id),
+      ),
+      Stream.runHead,
+      Effect.map((stored) =>
+        Option.isSome(stored) && stored.value.event.type === "message.updated"
+          ? stored.value.event.payload
+          : undefined,
+      ),
+    );
+
+/** The parent's run with `runId` once it is cancelled. */
+const runCancelled = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>, runId: RunId) =>
+  laptopEnv.orchestrator
+    .streamStoredEventsFrom({
+      threadId: parentThreadId,
+      afterSequence: 0,
+      eventType: "run.updated",
+    })
+    .pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "run.updated" &&
+          stored.event.payload.id === runId &&
+          stored.event.payload.status === "cancelled",
+      ),
+      Stream.runHead,
+    );
+
+it.effect.each(["current", "older"] as const)(
+  "a question asked by a task there wakes the parent here, and an answer drops the wake (%s box)",
+  (boxVersion) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        yield* Ref.set(thread.predatesQuestions, boxVersion === "older");
+        const b = yield* serveBox(thread);
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const a = yield* makeLaptop(database, offers);
+        yield* linkTo(a.links, b, "full-access");
+        yield* seedParent(a);
+        const delegated = yield* delegateToBox(a);
+        const questionId = RuntimeRequestId.make("request:box-question");
+        yield* SubscriptionRef.set(thread.questions, [questionId]);
+
+        if (boxVersion === "current") {
+          const wake = yield* questionWake(a);
+          expect(wake?.text).toContain(
+            `t3_pending_request action read, environmentId ${box.environmentId}, threadId ${delegated.remoteChild.threadId}, and requestId ${questionId}`,
+          );
+          expect(wake?.notification).toMatchObject({
+            source: { kind: "delegated_task", taskIds: [delegated.taskId] },
+            outcome: "updated",
+          });
+          const asking = yield* a.call("task_status", { taskId: delegated.taskId });
+          expect(asking.structuredContent).toMatchObject({
+            status: "running",
+            hasPendingQuestion: true,
+          });
+
+          // The wake waits behind the parent's live run.
+          const queued = (yield* a.orchestrator.getThreadRecords(parentThreadId, [
+            "runs",
+          ])).runs.find((run) => run.status === "queued" && run.userMessageId === wake?.id);
+          expect(queued).toBeDefined();
+          // Answered there before the parent read it: the wake is dropped.
+          yield* SubscriptionRef.set(thread.questions, []);
+          expect(Option.isSome(yield* runCancelled(a, queued!.id))).toBe(true);
+          const answered = yield* a.call("task_status", { taskId: delegated.taskId });
+          expect(answered.structuredContent).toMatchObject({ hasPendingQuestion: false });
+        } else {
+          // A box that predates the option reports no question, as before.
+          const asking = yield* a.call("task_status", { taskId: delegated.taskId });
+          expect(asking.structuredContent).toMatchObject({ hasPendingQuestion: false });
+        }
+
+        // After the answer, the task ends as it always did.
+        yield* Ref.set(thread.reply, "Done after the answer.");
+        yield* Ref.set(thread.status, "completed");
+        yield* Deferred.succeed(thread.finished, undefined);
+        const task = yield* taskResult(a, delegated.taskId);
+        expect(task).toMatchObject({ status: "completed", result: "Done after the answer." });
+        const { messages } = yield* a.orchestrator.getThreadRecords(parentThreadId, ["messages"]);
+        // One wake for the one question, however often the follower looked.
+        expect(messages.filter((message) => isQuestionWake(message.id))).toHaveLength(
+          boxVersion === "current" ? 1 : 0,
+        );
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a question there ends a blocking delegate_task wait here without a wake", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const a = yield* makeLaptop(database, offers);
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedParent(a);
+      const launched = yield* Deferred.make<void>();
+      yield* Ref.set(thread.afterLaunch, Deferred.succeed(launched, undefined).pipe(Effect.asVoid));
+
+      const waiting = yield* a
+        .call("delegate_task", {
+          task: "Run the full suite on the box.",
+          target: {
+            environmentId: box.environmentId,
+            providerInstanceId: instanceId,
+            model: "gpt-5.4",
+          },
+          mode: "wait",
+          clientRequestId: "suite-on-box-wait",
+        })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(launched);
+      const questionId = RuntimeRequestId.make("request:box-question");
+      yield* SubscriptionRef.set(thread.questions, [questionId]);
+      const result = yield* Fiber.join(waiting);
+      expect(result.isError, JSON.stringify(result.content)).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        status: "running",
+        childThreadId: null,
+        hasPendingQuestion: true,
+      });
+      // The blocking wait delivered the question, so no wake was sent for it.
+      const { messages } = yield* a.orchestrator.getThreadRecords(parentThreadId, ["messages"]);
+      expect(messages.filter((message) => isQuestionWake(message.id))).toEqual([]);
+
+      yield* SubscriptionRef.set(thread.questions, []);
+      yield* Ref.set(thread.status, "completed");
+      yield* Deferred.succeed(thread.finished, undefined);
+      const taskId = (result.structuredContent as { taskId: NodeId }).taskId;
+      expect(yield* taskResult(a, taskId)).toMatchObject({ status: "completed" });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

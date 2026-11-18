@@ -16,7 +16,9 @@ import {
   type ProjectId,
   type ProviderInstanceId,
   ProviderDriverKind,
+  MessageId,
   type RunId,
+  type RuntimeRequestId,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -27,10 +29,12 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Tool from "effect/ai/Tool";
+import { reportLabel } from "@t3tools/provider-core/server/notification";
 import { withExecutedModelNote } from "@t3tools/provider-core/server/subagentProjection";
 
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
@@ -129,6 +133,10 @@ export class RemoteDelegation extends Context.Service<
       scope: ThreadScope,
       task: OrchestrationV2Subagent,
     ) => Effect.Effect<OrchestratorMcpThreadRun["status"] | null>;
+    /** The questions the task's thread there waits on, as its follower last saw them. */
+    readonly pendingQuestionIds: (taskId: NodeId) => Effect.Effect<ReadonlyArray<RuntimeRequestId>>;
+    /** From now on, the id of each task whose pending questions there changed. */
+    readonly subscribeQuestionChanges: Effect.Effect<Stream.Stream<NodeId>, never, Scope.Scope>;
     /**
      * Follows every open remote task until it ends, including after a
      * restart, and a finished one again when a Stop here owes it a stop there.
@@ -739,6 +747,154 @@ const make = Effect.gen(function* () {
       );
     });
 
+  // In memory only: after a restart the first wait reports the questions again, and a wake
+  // already sent for one is the same command, so it is not sent twice.
+  const questions = new Map<
+    NodeId,
+    { pending: ReadonlyArray<RuntimeRequestId>; woken: Set<RuntimeRequestId> }
+  >();
+  const questionPubSub = yield* PubSub.unbounded<NodeId>();
+
+  const questionWakeKey = (parentThreadId: ThreadId, taskId: NodeId, requestId: RuntimeRequestId) =>
+    `${parentThreadId}:${taskId}:${requestId}`;
+
+  /** Mirrors a local child's question: a blocking `delegate_task` wait delivers it itself. */
+  const wakeOwed = Effect.fnUntraced(function* (
+    parentThreadId: ThreadId,
+    task: OrchestrationV2Subagent,
+  ) {
+    if (task.completionDelivery?.state === "disposed") return false;
+    const parent = yield* threads.getThreadRecords(parentThreadId, ["runs"]);
+    if (parent.thread.archivedAt !== null || parent.thread.deletedAt !== null) return false;
+    return !(
+      task.completionWake === "settled_only" &&
+      parent.runs.some(
+        (run) =>
+          run.id === task.runId &&
+          (run.status === "preparing" || run.status === "starting" || run.status === "running"),
+      )
+    );
+  });
+
+  const wakeForQuestion = Effect.fnUntraced(function* (
+    parentThreadId: ThreadId,
+    task: OrchestrationV2Subagent,
+    remote: OrchestrationV2RemoteTaskChild,
+    requestId: RuntimeRequestId,
+  ) {
+    const key = questionWakeKey(parentThreadId, task.id, requestId);
+    const label = reportLabel(task.title?.trim() || task.prompt);
+    yield* threads.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make(`server:remote-task-question:${key}`),
+      threadId: parentThreadId,
+      messageId: MessageId.make(`message:remote-task-question:${key}`),
+      text: `Delegated task ${task.id} in ${remote.label} is blocked on a question and cannot continue until it is answered. Read it with t3_pending_request action read, environmentId ${remote.environmentId}, threadId ${remote.threadId}, and requestId ${requestId}. Answer it with action respond when the answer follows from the task or the user's instructions; otherwise ask the user, then answer it. If it is no longer pending, it was answered or dismissed.`,
+      notification: {
+        source: { kind: "delegated_task", taskIds: [task.id] },
+        outcome: "updated",
+        summary: `Delegated task${label === undefined ? "" : ` "${label}"`} has a question`,
+      },
+      attachments: [],
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "agent",
+      creationSource: "server",
+    });
+  });
+
+  /** Drops a wake the parent has not read yet for a question no longer pending there. */
+  const cancelQuestionWakes = Effect.fnUntraced(function* (
+    parentThreadId: ThreadId,
+    taskId: NodeId,
+    requestIds: Iterable<RuntimeRequestId>,
+  ) {
+    const ids = [...requestIds];
+    if (ids.length === 0) return;
+    const { runs } = yield* threads.getThreadRecords(parentThreadId, ["runs"]);
+    for (const requestId of ids) {
+      const key = questionWakeKey(parentThreadId, taskId, requestId);
+      const messageId = MessageId.make(`message:remote-task-question:${key}`);
+      const queued = runs.find((run) => run.status === "queued" && run.userMessageId === messageId);
+      if (queued === undefined) continue;
+      yield* threads.dispatch({
+        type: "queued-run.cancel",
+        commandId: CommandId.make(`server:remote-task-question-cancel:${key}`),
+        threadId: parentThreadId,
+        runId: queued.id,
+      });
+    }
+  });
+
+  /**
+   * Records the questions the task's thread there waits on, wakes the parent once for each
+   * new one, and drops unread wakes for those answered there. A question a blocking wait was
+   * delivering is woken for on a later look, once that wait has ended.
+   */
+  const noteQuestions = Effect.fn("RemoteDelegation.noteQuestions")(function* (
+    parentThreadId: ThreadId,
+    task: OrchestrationV2Subagent,
+    remote: OrchestrationV2RemoteTaskChild,
+    pending: ReadonlyArray<RuntimeRequestId>,
+  ) {
+    const entry = questions.get(task.id) ?? { pending: [], woken: new Set<RuntimeRequestId>() };
+    const changed =
+      entry.pending.length !== pending.length || entry.pending.some((id) => !pending.includes(id));
+    const answered = [...entry.woken].filter((id) => !pending.includes(id));
+    for (const id of answered) entry.woken.delete(id);
+    entry.pending = pending;
+    if (pending.length === 0 && entry.woken.size === 0) questions.delete(task.id);
+    else questions.set(task.id, entry);
+    if (changed) yield* PubSub.publish(questionPubSub, task.id);
+    yield* cancelQuestionWakes(parentThreadId, task.id, answered).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Dropping a remote task's question wake failed", {
+          taskId: task.id,
+          cause,
+        }),
+      ),
+    );
+    const unwoken = pending.filter((id) => !entry.woken.has(id));
+    if (unwoken.length === 0) return;
+    const owed = yield* wakeOwed(parentThreadId, task).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Reading the parent of a remote task's question failed", {
+          taskId: task.id,
+          cause,
+        }).pipe(Effect.as(false)),
+      ),
+    );
+    if (!owed) return;
+    for (const requestId of unwoken) {
+      yield* wakeForQuestion(parentThreadId, task, remote, requestId).pipe(
+        Effect.tap(() => Effect.sync(() => entry.woken.add(requestId))),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Waking the parent of a remote task's question failed", {
+            taskId: task.id,
+            requestId,
+            cause,
+          }),
+        ),
+      );
+    }
+  });
+
+  /** A settled task can no longer use an answer to its questions there. */
+  const forgetQuestions = (parentThreadId: ThreadId, taskId: NodeId) =>
+    Effect.suspend(() => {
+      const entry = questions.get(taskId);
+      if (entry === undefined) return Effect.void;
+      questions.delete(taskId);
+      return PubSub.publish(questionPubSub, taskId).pipe(
+        Effect.andThen(cancelQuestionWakes(parentThreadId, taskId, entry.woken)),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Dropping a settled remote task's question wakes failed", {
+            taskId,
+            cause,
+          }),
+        ),
+      );
+    });
+
   /**
    * One wait on the task's thread there; true once the task here is done.
    * A task completed here first (cancelled, or its parent stopped) is
@@ -817,10 +973,16 @@ const make = Effect.gen(function* () {
         // tasks to wake it for the answer, which a task here waits for too.
         // An older peer ignores this and reports the run alone.
         untilDelegatedWorkSettled: true,
+        // An older peer ignores these too and reports no questions.
+        untilQuestion: true,
+        knownQuestionIds: questions.get(taskId)?.pending ?? [],
       })
       .pipe(Effect.raceFirst(endedHere));
     // The next look reads the result and stops it there.
     if ("endedHere" in waited) return false;
+    if (waited.pendingQuestionIds !== undefined && task.result === null) {
+      yield* noteQuestions(parentThreadId, task, remote, waited.pendingQuestionIds);
+    }
     if (waited.timedOut) return false;
     // A task recorded without its run waits on the thread's latest; a
     // thread there with none has nothing left to wait for.
@@ -902,6 +1064,7 @@ const make = Effect.gen(function* () {
       const state = { again: false };
       following.set(taskId, state);
       return follow(parentThreadId, taskId).pipe(
+        Effect.andThen(forgetQuestions(parentThreadId, taskId)),
         // Checked and released in one step, so a request between them is never lost.
         Effect.repeat({
           while: () => {
@@ -1034,7 +1197,21 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.ignoreCause({ log: true })),
     );
 
-  return RemoteDelegation.of({ delegate, followUp, cancel, runStatus, start });
+  const pendingQuestionIds = (taskId: NodeId) =>
+    Effect.sync(() => questions.get(taskId)?.pending ?? []);
+  const subscribeQuestionChanges = PubSub.subscribe(questionPubSub).pipe(
+    Effect.map(Stream.fromSubscription),
+  );
+
+  return RemoteDelegation.of({
+    delegate,
+    followUp,
+    cancel,
+    runStatus,
+    pendingQuestionIds,
+    subscribeQuestionChanges,
+    start,
+  });
 });
 
 /** A defect, logged, as a failure, so a retry covers it. */
