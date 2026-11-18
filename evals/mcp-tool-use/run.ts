@@ -38,6 +38,7 @@ import * as McpSchema from "effect/ai/McpSchema";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
+import * as LazurioBuddyPrompt from "../../apps/server/src/lazurio/buddyPrompt.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
 import * as Contracts from "@t3tools/contracts";
@@ -48,6 +49,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { THEME_GUIDE } from "@t3tools/shared/themeCss";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
@@ -295,6 +297,72 @@ const McpToolUseWorld = Schema.StructWithRest(
   Rest,
 );
 
+/** A message's sender as T3 records it, as far as the `<message_origin>` line reads it. */
+const MessageOrigin = Schema.Struct({
+  createdBy: Schema.Literals(["user", "agent"]),
+  creationSource: Schema.optional(Schema.String),
+  senderThreadId: Schema.optional(Schema.String),
+  scheduledTaskId: Schema.optional(Schema.String),
+  linkedSender: Schema.optional(
+    Schema.Struct({
+      environmentId: Schema.String,
+      threadId: Schema.String,
+      title: Schema.String,
+      environmentLabel: Schema.optional(Schema.String),
+    }),
+  ),
+  notification: Schema.optional(
+    Schema.Struct({
+      source: Schema.Struct({
+        kind: Schema.String,
+        taskIds: Schema.optionalKey(Schema.Array(Schema.String)),
+      }),
+    }),
+  ),
+  client: Schema.optional(
+    Schema.Struct({
+      surface: Schema.Literals(["web", "desktop", "mobile", "cli"]),
+      deviceType: Schema.optional(Schema.String),
+    }),
+  ),
+});
+
+// Only checkouts with the line have this module; without it a message gets no line.
+const messageClients = await import("../../apps/server/src/lazurio/messageClients.ts").catch(
+  (error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND")
+      return undefined;
+    throw error;
+  },
+);
+
+/** The text a provider turn gets for the case's prompt, through T3's own projection. */
+export const promptText = ({ prompt, promptContext, setup }: McpToolUseCase): string => {
+  const records = promptContext?.records ?? [];
+  if (setup.message === undefined)
+    return promptContext === undefined
+      ? prompt
+      : projectComposerContextForProvider({ text: prompt, records });
+  const { client, ...sender } = setup.message;
+  const projected = LazurioBuddyPrompt.projectComposerContextForProvider({
+    instanceId: ProviderInstanceId.make(CLAUDE_PROVIDER),
+    text: prompt,
+    records,
+    message: { id: "message-eval-prompt", role: "user", ...sender },
+  }).pipe(Effect.provideService(HostProcess.Environment, {}));
+  return Effect.runSync(
+    messageClients === undefined
+      ? projected
+      : projected.pipe(
+          Effect.provideService(messageClients.MessageClients, {
+            record: () => Effect.void,
+            clientOf: () => Effect.succeed(client as never),
+            tracking: (_messageId, dispatch) => dispatch,
+          }),
+        ),
+  );
+};
+
 /** One fake thread, one JSON object per line in a case file. */
 export const McpToolUseCase = Schema.Struct({
   id: Schema.String,
@@ -334,6 +402,11 @@ export const McpToolUseCase = Schema.Struct({
     shellMocks: Schema.optional(
       Schema.Array(Schema.Struct({ match: Schema.String, output: Schema.String })),
     ),
+    /**
+     * Who sent `prompt`, for the `<message_origin>` line T3 puts ahead of it (Lazurio plan
+     * LZD-0025 B9). `client` is the T3 Code client the user typed it in. Without it, no line.
+     */
+    message: Schema.optional(MessageOrigin),
     /** The thread is a side chat's first turn: T3 puts the parent's digest ahead of `prompt`. */
     sideChat: Schema.optional(
       Schema.Struct({ parentThreadId: Schema.String, digest: Schema.Array(Schema.String) }),
@@ -1095,10 +1168,7 @@ export const buildMessages = (sample: Sample) => {
     }
     if (turn.text) push(turn.role, text(turn.text));
   }
-  const userText =
-    testCase.promptContext === undefined
-      ? testCase.prompt
-      : projectComposerContextForProvider({ text: testCase.prompt, ...testCase.promptContext });
+  const userText = promptText(testCase);
   const prompt =
     sideChatContext === undefined ? userText : withInlineContext(sideChatContext, userText);
   const childPrompt = () => taskPrompt({ task: prompt, role: delegateRole });
