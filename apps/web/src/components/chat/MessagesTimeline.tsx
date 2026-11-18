@@ -26,6 +26,7 @@ import {
   buddySurfaceRows,
   useBuddyDayJump,
   useBuddyDayLines,
+  useBuddyHermesControls,
   useBuddySurfaceMode,
 } from "../../lazurio/BuddySurface";
 import { buddyAnnouncementLevel } from "../../lazurio/buddySurfaceTimeline";
@@ -645,7 +646,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     }
   }
 
-  const buddySurface = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
+  // Hermes's quiet conversation (GEN3); Buddy's days and their jump in either Buddy surface.
+  const buddySurface = useBuddyHermesControls(activeThreadEnvironmentId);
+  const buddyDays = useBuddySurfaceMode(activeThreadEnvironmentId) === true;
   // Lazurio overlay (plan DEV-6676): Buddy's conversation filters its own rows
   // (buddySurfaceTimeline.ts), so "zen" would hide Buddy's messages between turns there.
   const preferredToolCallVisibility = useClientSettings((settings) =>
@@ -785,7 +788,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     buddySurface,
     (isWorking || buddyBackgroundWork) && !awaitingUser,
   );
-  const buddyDayLines = useBuddyDayLines(rows, buddySurface);
+  const buddyDayLines = useBuddyDayLines(rows, buddyDays);
   const matchedApprovalRequestIds = new Set<string>();
   for (const row of pendingApprovalRequestIds.size > 0 ? rows : []) {
     const entries =
@@ -825,7 +828,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const viewportRef = useRef<TimelineViewport | null>(null);
   const navigateTimeline = () => viewportRef.current?.navigate({ releasesFollow: true });
   useBuddyDayJump({
-    buddy: buddySurface,
+    buddy: buddyDays,
     rows,
     listRef,
     onManualNavigation: navigateTimeline,

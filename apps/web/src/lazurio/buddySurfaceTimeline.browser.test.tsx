@@ -20,6 +20,7 @@ const surface = vi.hoisted(() => ({ buddy: true }));
 vi.mock(import("./BuddySurface"), async (original) => ({
   ...(await original()),
   useBuddySurfaceMode: () => surface.buddy,
+  useBuddyHermesControls: () => surface.buddy,
 }));
 
 const setup = (buddy: boolean) => {

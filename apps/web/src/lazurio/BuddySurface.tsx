@@ -19,7 +19,10 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useComposerDraftStore } from "~/composerDraftStore";
+import { useThreadShell } from "~/state/entities";
 import type { ComposerControlsBar } from "~/components/chat/ComposerControlsBar";
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import { ThreadDetailsPanel } from "~/components/chat/ThreadDetailsPanel";
@@ -100,9 +103,7 @@ interface BuddyDay {
  * surface has none, since Buddy's thread is a conversation, not work in a checkout.
  */
 export function BuddyThreadDetailsPanel(props: ComponentProps<typeof ThreadDetailsPanel>) {
-  return useBuddySurfaceMode(props.environmentId) === true ? null : (
-    <ThreadDetailsPanel {...props} />
-  );
+  return useBuddyHermesControls(props.environmentId) ? null : <ThreadDetailsPanel {...props} />;
 }
 
 /** The surface's language: the host page's when framed, else the browser's. */
@@ -337,7 +338,7 @@ export function BuddyThreadErrorBanner({
   environmentId,
   ...props
 }: ComponentProps<typeof ThreadErrorBanner> & { readonly environmentId: string }) {
-  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const buddy = useBuddyHermesControls(environmentId);
   const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
   return buddy && props.error !== null ? (
     <ThreadErrorBanner {...props} error={text.somethingFailed} errorCode={null} />
@@ -465,7 +466,7 @@ export function useBuddyQueuedRuns<Queued extends { readonly messageId: string }
   queued: ReadonlyArray<Queued>,
   messages: ReadonlyArray<QueueMessage> | undefined,
 ): ReadonlyArray<Queued> {
-  return useBuddySurfaceMode(environmentId) === true ? personsQueuedRuns(queued, messages) : queued;
+  return useBuddyHermesControls(environmentId) ? personsQueuedRuns(queued, messages) : queued;
 }
 
 /**
@@ -477,7 +478,7 @@ export function useBuddyQueuedRunCount(
   runs: ReadonlyArray<{ readonly userMessageId: string }> | null,
   messages: ReadonlyArray<QueueMessage> | undefined,
 ): number {
-  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const buddy = useBuddyHermesControls(environmentId);
   if (runs === null) return 0;
   if (!buddy) return runs.length;
   return personsQueuedRuns(
@@ -676,6 +677,7 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
 type Opening = { readonly attempt: number; readonly outcome: "not-ready" | "failed" };
 
 let buddyThreadId: string | null = null;
+let buddyProjectId: string | null = null;
 const buddyThreadListeners = new Set<() => void>();
 const subscribeBuddyThread = (listener: () => void) => {
   buddyThreadListeners.add(listener);
@@ -691,12 +693,25 @@ export function useLeadsToBuddysThread(
   threadRef: { readonly environmentId: string; readonly threadId: string } | null,
 ): boolean {
   const buddy = useBuddySurfaceMode(threadRef?.environmentId) === true;
+  const hermes = useBuddyHermesControls(threadRef?.environmentId);
   const known = useSyncExternalStore(subscribeBuddyThread, () => buddyThreadId, noTarget);
-  return threadRef !== null && buddy && threadRef.threadId !== known;
+  const shell = useThreadShell(
+    threadRef === null
+      ? null
+      : scopeThreadRef(threadRef.environmentId as EnvironmentId, threadRef.threadId as ThreadId),
+  );
+  if (threadRef === null || !buddy || threadRef.threadId === known) return false;
+  // Buddy's window on the shared server opens the threads of Buddy's project, its subagents and
+  // forks included, as Chat does (GEN4); Hermes's chat has only its one thread.
+  if (!hermes && known !== null && shell !== null && shell.projectId === buddyProjectId)
+    return false;
+  return true;
 }
 
 /** Asks the server for Buddy's thread: its id, or why there is none. */
-async function openBuddyThread(): Promise<string | "not-ready" | "failed"> {
+async function openBuddyThread(): Promise<
+  { readonly threadId: string; readonly projectId: string } | "not-ready" | "failed"
+> {
   const response = await fetch(BUDDY_THREAD_ROUTE, {
     method: "POST",
     credentials: "same-origin",
@@ -705,9 +720,11 @@ async function openBuddyThread(): Promise<string | "not-ready" | "failed"> {
   }).catch(() => null);
   const body = (await response?.json().catch(() => null)) as {
     threadId?: string;
+    projectId?: string;
     error?: string;
   } | null;
-  if (response?.ok && typeof body?.threadId === "string") return body.threadId;
+  if (response?.ok && typeof body?.threadId === "string")
+    return { threadId: body.threadId, projectId: body.projectId ?? "" };
   return body?.error === "no-project" ? "not-ready" : "failed";
 }
 
@@ -728,11 +745,12 @@ export function BuddySurfaceIndex() {
         setFailure({ attempt, outcome });
         return;
       }
-      buddyThreadId = outcome;
+      buddyThreadId = outcome.threadId;
+      buddyProjectId = outcome.projectId;
       for (const listener of buddyThreadListeners) listener();
       void navigate({
         to: "/$environmentId/$threadId",
-        params: { environmentId, threadId: outcome },
+        params: { environmentId, threadId: outcome.threadId },
         replace: true,
       });
     });

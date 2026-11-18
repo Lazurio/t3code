@@ -191,7 +191,7 @@ import {
   useBuddyChatShortcuts,
   useBuddyPage,
   useBuddyQueuedRunCount,
-  useBuddySurfaceMode,
+  useBuddyHermesControls,
 } from "../lazurio/BuddySurface";
 import { BuddyPageChip } from "../lazurio/BuddySurfacePageChip";
 import {
@@ -599,9 +599,10 @@ export default function ChatView(props: ChatViewProps) {
     }
     return ids;
   })();
-  // Lazurio overlay (plan DEV-6676): in Buddy's one conversation a follow-up steers by default,
-  // and queueing is the explicit alternative.
-  const buddySurface = useBuddySurfaceMode(environmentId) === true;
+  // Lazurio overlay (plan DEV-6676): in Hermes's one conversation (GEN3) a follow-up steers by
+  // default and the chat is only the conversation; Buddy's window on the shared server is a whole
+  // T3 thread (GEN4).
+  const buddySurface = useBuddyHermesControls(environmentId);
   // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
   const buddyPage = useBuddyPage(environmentId);
   const environmentSettings = useEnvironmentSettings(environmentId);

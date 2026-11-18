@@ -3078,8 +3078,9 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
     layout,
     /\{toBuddysThread \? \(\n\s+<BuddySurfaceIndex \/>\n\s+\) : shownTarget \? \(/,
   );
-  NodeAssert.match(chat, /const buddySurface = useBuddySurfaceMode\(environmentId\) === true;/);
-  NodeAssert.doesNotMatch(chat, /useBuddySurfaceMode\(\)/);
+  // Hermes's one conversation (GEN3); Buddy's window on the shared server is a whole thread (GEN4).
+  NodeAssert.match(chat, /const buddySurface = useBuddyHermesControls\(environmentId\);/);
+  NodeAssert.doesNotMatch(chat, /useBuddyHermesControls\(\)/);
   NodeAssert.match(chat, /\? \{ \.\.\.environmentSettings, followUpBehavior: "steer" as const \}/);
   NodeAssert.match(chat, /const supportsConversationRollback =\n\s+!buddySurface &&/);
   // Buddy's thread keeps its provider session: upstream's /clear (a fresh session) is never offered there.
@@ -3103,13 +3104,13 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   NodeAssert.equal(timeline.match(/\buseBuddySurfaceMode\(/g)?.length, 1);
   NodeAssert.match(
     timeline,
-    /const buddySurface = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n[^]*?\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddySurface\);/,
+    /const buddySurface = useBuddyHermesControls\(activeThreadEnvironmentId\);\n\s+const buddyDays = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n[^]*?\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddyDays\);/,
   );
   NodeAssert.match(timeline, /\n\s+workGroupViewState,\n\s+buddySurface,\n\s+\};/);
   // Since v0.1.3 the timeline navigates itself (pingdotgg/t3code#25463): the jump takes its navigateTimeline.
   NodeAssert.match(
     timeline,
-    /const navigateTimeline = \(\) => viewportRef\.current\?\.navigate\(\{ releasesFollow: true \}\);\n\s+useBuddyDayJump\(\{\n\s+buddy: buddySurface,\n\s+rows,\n\s+listRef,\n\s+onManualNavigation: navigateTimeline,\n\s+history: historyControls,\n\s+\}\);/,
+    /const navigateTimeline = \(\) => viewportRef\.current\?\.navigate\(\{ releasesFollow: true \}\);\n\s+useBuddyDayJump\(\{\n\s+buddy: buddyDays,\n\s+rows,\n\s+listRef,\n\s+onManualNavigation: navigateTimeline,\n\s+history: historyControls,\n\s+\}\);/,
   );
   NodeAssert.match(timeline, /buddyDays: \[\.\.\.buddyDayLines\.keys\(\)\]\.join\(\),/);
   // Since v0.1.2 the rows live in their own files (pingdotgg/t3code#22674, pingdotgg/t3code#22677): the shared row state knows
