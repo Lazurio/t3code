@@ -343,23 +343,44 @@ const boxToolkitLayer = (thread: BoxThread) => {
               Effect.map(Option.getOrThrow),
             )
           : Effect.never;
-        const doneOrAsked = yield* Deferred.await(thread.finished).pipe(
-          Effect.as({ asked: undefined }),
-          Effect.raceFirst(asked.pipe(Effect.map((ids) => ({ asked: ids })))),
-          Effect.timeoutOption(input.timeoutMs),
-        );
-        if (Option.isSome(doneOrAsked) && doneOrAsked.value.asked !== undefined) {
+        // What it waits for, unless the thread's questions change first.
+        const unlessAsked = (until: Effect.Effect<void>) =>
+          until.pipe(
+            Effect.as({ asked: undefined }),
+            Effect.raceFirst(asked.pipe(Effect.map((ids) => ({ asked: ids })))),
+            Effect.timeoutOption(input.timeoutMs),
+          );
+        const answer = Effect.fnUntraced(function* (
+          waited: Option.Option<{ readonly asked: ReadonlyArray<RuntimeRequestId> | undefined }>,
+          result: Omit<ThreadManagement.ThreadManagementWaitResult, "threadId" | "timedOut">,
+        ) {
+          if (Option.isSome(waited) && waited.value.asked !== undefined) {
+            return {
+              threadId: input.threadId,
+              run: result.run,
+              timedOut: false,
+              pendingQuestionIds: waited.value.asked,
+              returnedFor: "question" as const,
+            };
+          }
           return {
             threadId: input.threadId,
-            run: { id: runId, status: yield* Ref.get(thread.status) } as OrchestrationV2Run,
-            timedOut: false,
-            pendingQuestionIds: doneOrAsked.value.asked,
+            ...result,
+            timedOut: Option.isNone(waited),
+            ...(askedFor
+              ? {
+                  pendingQuestionIds: yield* SubscriptionRef.get(thread.questions),
+                  ...(Option.isSome(waited) ? { returnedFor: "settled" as const } : {}),
+                }
+              : {}),
           };
+        });
+        const done = yield* unlessAsked(Deferred.await(thread.finished));
+        if (Option.isSome(done) && done.value.asked !== undefined) {
+          return yield* answer(done, {
+            run: { id: runId, status: yield* Ref.get(thread.status) } as OrchestrationV2Run,
+          });
         }
-        const done = doneOrAsked;
-        const pendingQuestions = askedFor
-          ? { pendingQuestionIds: yield* SubscriptionRef.get(thread.questions) }
-          : {};
         // Only a waiter that asks waits past the run for the thread's own task.
         if (
           Option.isSome(done) &&
@@ -367,29 +388,28 @@ const boxToolkitLayer = (thread: BoxThread) => {
           (yield* Ref.get(thread.nested))
         ) {
           yield* Deferred.succeed(thread.nestedWaiting, undefined);
-          const settled = yield* Deferred.await(thread.nestedSettled).pipe(
-            Effect.timeoutOption(input.timeoutMs),
-          );
-          return {
-            threadId: input.threadId,
+          const settled = yield* unlessAsked(Deferred.await(thread.nestedSettled));
+          const result = {
             run: { id: runId, status: yield* Ref.get(thread.status) } as OrchestrationV2Run,
-            timedOut: Option.isNone(settled),
-            ...(Option.isSome(settled)
-              ? { resultRun: { id: boxLaterRunId, status: "completed" } as OrchestrationV2Run }
-              : {}),
           };
+          return yield* answer(
+            settled,
+            Option.isSome(settled)
+              ? {
+                  ...result,
+                  resultRun: { id: boxLaterRunId, status: "completed" } as OrchestrationV2Run,
+                }
+              : result,
+          );
         }
         // Unpinned, a wait reports the latest run: a later one once there is one.
         const later = input.runId === undefined && (yield* Ref.get(thread.laterReply)) !== null;
-        return {
-          threadId: input.threadId,
+        return yield* answer(done, {
           run: {
             id: later ? boxLaterRunId : runId,
             status: later ? "completed" : yield* Ref.get(thread.status),
           } as OrchestrationV2Run,
-          timedOut: Option.isNone(done),
-          ...pendingQuestions,
-        };
+        });
       }),
     getTimelinePage: (threadId, options) =>
       Effect.gen(function* () {
@@ -1532,6 +1552,56 @@ it.effect("follows an open task again after the laptop restarts", () =>
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
+it.effect("a question answered there while the laptop is down drops its wake after a restart", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const questionId = RuntimeRequestId.make("request:box-question-before-restart");
+      // The laptop before the restart is woken for a question, which waits behind the parent's run.
+      const { delegated, wakeId } = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const before = yield* makeLaptop(database, offers);
+          yield* linkTo(before.links, b, "full-access");
+          yield* seedParent(before);
+          const delegated = yield* delegateToBox(before);
+          yield* SubscriptionRef.set(thread.questions, [questionId]);
+          const wake = yield* questionWake(before);
+          return { delegated, wakeId: wake!.id };
+        }),
+      );
+      // Answered there while the laptop is down.
+      yield* SubscriptionRef.set(thread.questions, []);
+
+      const after = yield* makeLaptop(database, offers);
+      yield* linkTo(after.links, b, "full-access");
+      const queued = (yield* after.orchestrator.getThreadRecords(parentThreadId, [
+        "runs",
+      ])).runs.find((run) => run.status === "queued" && run.userMessageId === wakeId);
+      expect(queued).toBeDefined();
+      yield* after.remote.start();
+      expect(Option.isSome(yield* runCancelled(after, queued!.id))).toBe(true);
+      const answered = yield* after.call("task_status", { taskId: delegated.taskId });
+      expect(answered.structuredContent).toMatchObject({
+        status: "running",
+        hasPendingQuestion: false,
+      });
+
+      yield* Ref.set(thread.reply, "Done after the answer.");
+      yield* Ref.set(thread.status, "completed");
+      yield* Deferred.succeed(thread.finished, undefined);
+      expect(yield* taskResult(after, delegated.taskId)).toMatchObject({
+        status: "completed",
+        result: "Done after the answer.",
+      });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
 it.effect("fails the task when the box revokes the link, and cancel interrupts it there", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -1669,6 +1739,17 @@ it.effect("a task whose thread there waits on its own task ends with the answer 
         taskResult(a, delegated.taskId).pipe(Effect.as("completed here" as const)),
       );
       expect(first).toBe("waiting there");
+
+      // A question there meanwhile wakes the parent; the task here waits on, for the answer after.
+      const questionId = RuntimeRequestId.make("request:box-question-while-settling");
+      yield* SubscriptionRef.set(thread.questions, [questionId]);
+      expect((yield* questionWake(a))?.text).toContain(`requestId ${questionId}`);
+      const asking = yield* a.call("task_status", { taskId: delegated.taskId });
+      expect(asking.structuredContent).toMatchObject({
+        status: "running",
+        hasPendingQuestion: true,
+      });
+      yield* SubscriptionRef.set(thread.questions, []);
 
       // The review reports and wakes the thread there, whose next run answers.
       yield* Ref.set(thread.laterReply, "The review found two issues; both are fixed.");

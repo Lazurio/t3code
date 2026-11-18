@@ -201,6 +201,8 @@ export interface ThreadManagementWaitResult {
   readonly resultRun?: OrchestrationV2Run;
   /** With `untilQuestion`: the thread's pending questions, oldest first. */
   readonly pendingQuestionIds?: ReadonlyArray<RuntimeRequestId>;
+  /** With `untilQuestion`, unless timed out: whether the wait settled or the questions changed first. */
+  readonly returnedFor?: "settled" | "question";
 }
 
 export interface ThreadManagementInterruptInput {
@@ -1124,7 +1126,14 @@ const make = Effect.gen(function* () {
       ...(current.resultRun === undefined ? {} : { resultRun: current.resultRun }),
       ...(current.pendingQuestionIds === undefined
         ? {}
-        : { pendingQuestionIds: current.pendingQuestionIds }),
+        : {
+            pendingQuestionIds: current.pendingQuestionIds,
+            ...(current.settled
+              ? { returnedFor: "settled" as const }
+              : current.questionChanged
+                ? { returnedFor: "question" as const }
+                : {}),
+          }),
     });
     const initial = yield* evaluate(target.runs);
     if (ends(initial)) return settledResult(initial);

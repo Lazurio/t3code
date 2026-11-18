@@ -18,7 +18,7 @@ import {
   ProviderDriverKind,
   MessageId,
   type RunId,
-  type RuntimeRequestId,
+  RuntimeRequestId,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -748,15 +748,18 @@ const make = Effect.gen(function* () {
     });
 
   // In memory only: after a restart the first wait reports the questions again, and a wake
-  // already sent for one is the same command, so it is not sent twice.
+  // already sent for one is the same command, so it is not sent twice. Unread wakes the parent
+  // still queues are recovered first, so one answered meanwhile is dropped.
   const questions = new Map<
     NodeId,
     { pending: ReadonlyArray<RuntimeRequestId>; woken: Set<RuntimeRequestId> }
   >();
   const questionPubSub = yield* PubSub.unbounded<NodeId>();
 
+  const questionWakeTaskKey = (parentThreadId: ThreadId, taskId: NodeId) =>
+    `${parentThreadId}:${taskId}:`;
   const questionWakeKey = (parentThreadId: ThreadId, taskId: NodeId, requestId: RuntimeRequestId) =>
-    `${parentThreadId}:${taskId}:${requestId}`;
+    `${questionWakeTaskKey(parentThreadId, taskId)}${requestId}`;
 
   /** Mirrors a local child's question: a blocking `delegate_task` wait delivers it itself. */
   const wakeOwed = Effect.fnUntraced(function* (
@@ -878,6 +881,24 @@ const make = Effect.gen(function* () {
     }
   });
 
+  /** The questions the parent still has an unread wake for, as the follower last knew them. */
+  const recoverQuestionWakes = Effect.fn("RemoteDelegation.recoverQuestionWakes")(
+    function* (parentThreadId: ThreadId, taskId: NodeId) {
+      if (questions.has(taskId)) return;
+      const prefix = `message:remote-task-question:${questionWakeTaskKey(parentThreadId, taskId)}`;
+      const { runs } = yield* threads.getThreadRecords(parentThreadId, ["runs"]);
+      const unread = runs.flatMap((run) =>
+        run.status === "queued" && run.userMessageId.startsWith(prefix)
+          ? [RuntimeRequestId.make(run.userMessageId.slice(prefix.length))]
+          : [],
+      );
+      if (unread.length > 0) questions.set(taskId, { pending: unread, woken: new Set(unread) });
+    },
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Reading a remote task's unread question wakes failed", { cause }),
+    ),
+  );
+
   /** A settled task can no longer use an answer to its questions there. */
   const forgetQuestions = (parentThreadId: ThreadId, taskId: NodeId) =>
     Effect.suspend(() => {
@@ -983,7 +1004,8 @@ const make = Effect.gen(function* () {
     if (waited.pendingQuestionIds !== undefined && task.result === null) {
       yield* noteQuestions(parentThreadId, task, remote, waited.pendingQuestionIds);
     }
-    if (waited.timedOut) return false;
+    // Its questions changed there before the run and its own tasks settled.
+    if (waited.timedOut || waited.returnedFor === "question") return false;
     // A task recorded without its run waits on the thread's latest; a
     // thread there with none has nothing left to wait for.
     if (waited.runId === null) {
@@ -1063,7 +1085,8 @@ const make = Effect.gen(function* () {
       }
       const state = { again: false };
       following.set(taskId, state);
-      return follow(parentThreadId, taskId).pipe(
+      return recoverQuestionWakes(parentThreadId, taskId).pipe(
+        Effect.andThen(follow(parentThreadId, taskId)),
         Effect.andThen(forgetQuestions(parentThreadId, taskId)),
         // Checked and released in one step, so a request between them is never lost.
         Effect.repeat({

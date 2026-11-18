@@ -609,6 +609,8 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   resultRun: Schema.optional(Schema.Struct({ runId: RunId, status: OrchestrationV2RunStatus })),
   /** With untilQuestion: the thread's pending questions, oldest first. Absent from linked environments that predate it. */
   pendingQuestionIds: Schema.optional(Schema.Array(RuntimeRequestId)),
+  /** With untilQuestion, unless timed out: whether the wait settled or the questions changed first. Absent whenever `pendingQuestionIds` is. */
+  returnedFor: Schema.optional(Schema.Literals(["settled", "question"])),
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
