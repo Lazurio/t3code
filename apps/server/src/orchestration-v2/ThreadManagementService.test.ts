@@ -631,6 +631,7 @@ it.effect(
         timedOut: false,
         run: { id: runId, status: "running" },
         pendingQuestionIds: [questionId],
+        returnedFor: "question",
       });
 
       // A caller that knows of the question waits until it is answered.
@@ -644,6 +645,7 @@ it.effect(
         timedOut: false,
         run: { id: runId, status: "running" },
         pendingQuestionIds: [],
+        returnedFor: "question",
       });
 
       // With no question, the wait runs out and says so.
@@ -651,7 +653,9 @@ it.effect(
         .waitForThread({ ...wait, untilQuestion: true })
         .pipe(Effect.forkChild);
       yield* TestClock.adjust(Duration.minutes(1));
-      expect(yield* Fiber.join(quiet)).toMatchObject({ timedOut: true, pendingQuestionIds: [] });
+      const quietResult = yield* Fiber.join(quiet);
+      expect(quietResult).toMatchObject({ timedOut: true, pendingQuestionIds: [] });
+      expect(quietResult).not.toHaveProperty("returnedFor");
     }),
 );
 
