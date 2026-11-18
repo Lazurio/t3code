@@ -326,8 +326,8 @@ export const McpToolUseCase = Schema.Struct({
     /**
      * Canned tool results by bare name, T3 or native. `"default"` uses the runner's result. For a
      * device tool, a T3 `DeviceError` (`{"_tag": ..., "cause": null}`) fails it inside T3; for a
-     * preview tool, a `PreviewAutomationError` fails it with that error's message. A
-     * `{"$sequence": [...]}` mock answers its nth call with the nth result, then repeats the last.
+     * preview tool, a `PreviewAutomationError` fails it with that error's message. For
+     * `$sequence` and `$byArgs` mocks see `nextMock`.
      */
     mocks: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
     /** Regexes on one part of a shell command. A match wins over the shell simulator. */
@@ -929,12 +929,31 @@ export const makeSample = (testCase: McpToolUseCase, base: Base): Sample => {
   };
 };
 
-/** A `{"$sequence": [...]}` mock answers its nth call with the nth result, then repeats the last. */
-const nextMock = (sample: Sample, name: string, mock: unknown) => {
-  if (!isRecord(mock) || !Array.isArray(mock.$sequence) || mock.$sequence.length === 0) return mock;
-  const n = sample.mockCalls.get(name) ?? 0;
-  sample.mockCalls.set(name, n + 1);
-  return mock.$sequence[Math.min(n, mock.$sequence.length - 1)];
+/**
+ * `{"$sequence": [...]}` answers the nth call with the nth result, then repeats the last.
+ * `{"$byArgs": [{"args", "result"}]}`, alone or in a sequence, answers with the first entry whose
+ * `args` match the call as `expect` args do; no `args` matches any call, no match is the default.
+ */
+export const nextMock = (
+  sample: Pick<Sample, "mockCalls">,
+  name: string,
+  mock: unknown,
+  input: Readonly<Record<string, unknown>> = {},
+) => {
+  const sequenced =
+    !isRecord(mock) || !Array.isArray(mock.$sequence) || mock.$sequence.length === 0
+      ? mock
+      : (() => {
+          const n = sample.mockCalls.get(name) ?? 0;
+          sample.mockCalls.set(name, n + 1);
+          return mock.$sequence[Math.min(n, mock.$sequence.length - 1)];
+        })();
+  if (!isRecord(sequenced) || !Array.isArray(sequenced.$byArgs)) return sequenced;
+  const entry = sequenced.$byArgs.find(
+    (candidate: unknown) =>
+      isRecord(candidate) && (candidate.args === undefined || matches(candidate.args, input)),
+  );
+  return isRecord(entry) ? entry.result : undefined;
 };
 
 /**
@@ -1671,7 +1690,7 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
   if (isPageTool(name) && typeof input.path === "string" && !input.path.startsWith("/")) {
     return failed(`${input.path} is not a readable HTML document. Pass an absolute path.`);
   }
-  const mock = nextMock(sample, name, testCase.setup.mocks?.[name]);
+  const mock = nextMock(sample, name, testCase.setup.mocks?.[name], input);
   if (isT3Name(call.name) && PREVIEW_TOOLS.has(name)) {
     if (testCase.setup.world?.browserAgentAccess === false)
       return failed(
