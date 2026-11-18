@@ -68,11 +68,17 @@ export const makeFolderGuard = Effect.gen(function* () {
 export const managedFolderClientConfig = (config: {
   readonly lazurioFolder?: string;
   readonly lazurioBuddyFolder?: string;
+  readonly lazurioBuddyOrigin?: string;
   readonly lazurioToolsUrl?: string;
 }) => ({
   ...(config.lazurioFolder === undefined ? {} : { lazurioFolder: config.lazurioFolder }),
   ...(config.lazurioFolder === undefined || config.lazurioBuddyFolder === undefined
     ? {}
     : { lazurioBuddyFolder: config.lazurioBuddyFolder }),
+  ...(config.lazurioFolder === undefined ||
+  config.lazurioBuddyFolder === undefined ||
+  config.lazurioBuddyOrigin === undefined
+    ? {}
+    : { lazurioBuddyOrigin: config.lazurioBuddyOrigin }),
   ...(config.lazurioToolsUrl === undefined ? {} : { lazurioToolsUrl: config.lazurioToolsUrl }),
 });

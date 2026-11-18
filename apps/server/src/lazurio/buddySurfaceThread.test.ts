@@ -4,10 +4,14 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { assert, describe, it } from "@effect/vitest";
-import { CommandId, ProjectId } from "@t3tools/contracts";
+import { CommandId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+
+import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { BUDDY, addProject, layerBuddyServer } from "./buddySurface.testkit.ts";
@@ -203,4 +207,116 @@ describe("Buddy's thread", () => {
       );
     },
   );
+
+  describe("on the shared Chat server (GEN4, LZD-0033 R3)", () => {
+    /** A managed Folder and a Buddy folder beside it, as #214 declares them. */
+    const makeShared = () => {
+      const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "buddy-shared-home-"));
+      const folder = NodePath.join(home, "Lazurio");
+      const buddy = NodePath.join(home, "Buddy");
+      NodeFS.mkdirSync(folder);
+      NodeFS.mkdirSync(buddy);
+      return { home, folder, buddy };
+    };
+    const shared = (folder: string, buddy: string) =>
+      Effect.map(ServerConfig.ServerConfig, (config) => ({
+        ...config,
+        lazurioFolder: folder,
+        lazurioBuddyFolder: buddy,
+      }));
+    const withShared = <A, E, R>(effect: Effect.Effect<A, E, R>, folder: string, buddy: string) =>
+      Effect.flatMap(shared(folder, buddy), (config) =>
+        effect.pipe(Effect.provideService(ServerConfig.ServerConfig, config)),
+      );
+
+    it.live("makes one thread in Buddy's project on the Environment's default model", () => {
+      const { home, folder, buddy } = makeShared();
+      return Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const settings = yield* ServerSettings.ServerSettingsService;
+        // No Environment default yet: the Lazurio project's model (the Platform's recommendation).
+        const recommended = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" };
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [ProjectId.make("project:lazurio")]: { defaultModelSelection: recommended },
+          },
+        });
+        yield* addProject(ProjectId.make("project:lazurio"), folder);
+        yield* addProject(ProjectId.make("project:buddy"), buddy);
+        const [first, second] = yield* Effect.all(
+          [
+            withShared(resolveBuddyThread(), folder, buddy),
+            withShared(resolveBuddyThread(), folder, buddy),
+          ],
+          { concurrency: 2 },
+        );
+        assert.deepStrictEqual(second, first);
+        assert.strictEqual(first.projectId, "project:buddy");
+        const shell = yield* orchestrator.getThreadShell(first.threadId);
+        assert.deepStrictEqual(shell?.modelSelection, recommended);
+        assert.notStrictEqual(shell?.providerInstanceId, BUDDY);
+        const snapshot = yield* orchestrator.getShellSnapshot({
+          projectId: ProjectId.make("project:buddy"),
+        });
+        assert.lengthOf(snapshot.threads, 1);
+      }).pipe(
+        Effect.provide(Layer.merge(layerBuddyServer, ServerSettings.layerTest())),
+        Effect.scoped,
+        Effect.provideService(HostProcess.Environment, { HOME: home }),
+      );
+    });
+
+    it.live("adopts the thread the project already has, whatever its provider", () => {
+      const { home, folder, buddy } = makeShared();
+      return Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        yield* addProject(ProjectId.make("project:buddy"), buddy);
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("test:pilot-thread"),
+          threadId: ThreadId.make("pilot-thread"),
+          projectId: ProjectId.make("project:buddy"),
+          title: "Buddy",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("claudeAgent"),
+            model: "claude-model",
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        assert.deepStrictEqual(yield* withShared(resolveBuddyThread(), folder, buddy), {
+          threadId: ThreadId.make("pilot-thread"),
+          projectId: ProjectId.make("project:buddy"),
+        });
+      }).pipe(
+        Effect.provide(Layer.merge(layerBuddyServer, ServerSettings.layerTest())),
+        Effect.scoped,
+        Effect.provideService(HostProcess.Environment, { HOME: home }),
+      );
+    });
+
+    it.live(
+      "answers no-project before the startup made Buddy's project, and not-buddy without one",
+      () => {
+        const { home, folder, buddy } = makeShared();
+        return Effect.gen(function* () {
+          const reason = (exit: Exit.Exit<unknown, unknown>) =>
+            Exit.isFailure(exit) ? JSON.stringify(exit.cause) : "succeeded";
+          assert.include(
+            reason(yield* Effect.exit(withShared(resolveBuddyThread(), folder, buddy))),
+            "no-project",
+          );
+          assert.include(reason(yield* Effect.exit(resolveBuddyThread())), "not-buddy");
+        }).pipe(
+          Effect.provide(Layer.merge(layerBuddyServer, ServerSettings.layerTest())),
+          Effect.scoped,
+          Effect.provideService(HostProcess.Environment, { HOME: home }),
+        );
+      },
+    );
+  });
 });

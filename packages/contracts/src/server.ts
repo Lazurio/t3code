@@ -693,6 +693,8 @@ export const ServerConfig = Schema.Struct({
   lazurioFolder: Schema.optionalKey(TrimmedNonEmptyString),
   /** The Buddy folder beside it, the managed Environment's one other project. */
   lazurioBuddyFolder: Schema.optionalKey(TrimmedNonEmptyString),
+  /** The origin of Buddy's window on this server; a client there shows Buddy's thread. */
+  lazurioBuddyOrigin: Schema.optionalKey(TrimmedNonEmptyString),
   lazurioToolsUrl: Schema.optionalKey(TrimmedNonEmptyString),
   /** Buddy's own T3 Code (T3CODE_LAZURIO_BUDDY=1): the web shows Buddy's one conversation. */
   lazurioBuddy: Schema.optionalKey(Schema.Literal(true)),

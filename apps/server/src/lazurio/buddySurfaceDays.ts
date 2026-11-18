@@ -19,7 +19,9 @@ import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ActingSenders } from "./actingSenders.ts";
 import { type ActingSendersRecord, personSeesMessage } from "./actingSenderVisibility.ts";
 import { isBuddySurfaceEnvironment } from "./buddySurface.ts";
-import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
+import * as ServerConfig from "../config.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { BUDDY_THREAD_ID, findSharedBuddyThread, sharedBuddyFolder } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
 const BUDDY_DAYS_ROUTE = "/api/lazurio/buddy/days";
@@ -114,22 +116,39 @@ export const layer = HttpRouter.use((router) =>
     // A handler sees only the request's context, so it takes the orchestrator from the layer's.
     const orchestrator = yield* OrchestratorV2;
     const senders = yield* ActingSenders;
+    const config = yield* ServerConfig.ServerConfig;
+    const projects = yield* ProjectStoreV2;
     yield* router.add(
       "GET",
       BUDDY_DAYS_ROUTE,
       Effect.gen(function* () {
         yield* authenticateOverlayRoute(AuthOrchestrationReadScope);
-        if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment))
-          return HttpServerResponse.jsonUnsafe({ error: "not-buddy" }, { status: 404 });
+        // GEN3: the server's one thread; GEN4: Buddy's thread of the shared server.
+        let threadId = BUDDY_THREAD_ID;
+        if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment)) {
+          const buddyFolder = yield* sharedBuddyFolder.pipe(
+            Effect.provideService(ServerConfig.ServerConfig, config),
+          );
+          if (buddyFolder === undefined)
+            return HttpServerResponse.jsonUnsafe({ error: "not-buddy" }, { status: 404 });
+          const found = yield* findSharedBuddyThread(buddyFolder).pipe(
+            Effect.provideService(OrchestratorV2, orchestrator),
+            Effect.provideService(ProjectStoreV2, projects),
+            Effect.option,
+          );
+          const thread = Option.getOrUndefined(found)?.thread ?? null;
+          if (thread === null) return HttpServerResponse.jsonUnsafe({ days: [] });
+          threadId = thread.id;
+        }
         const request = yield* HttpServerRequest.HttpServerRequest;
         const timeZone = timeZoneOf(new URL(request.url, "http://local").searchParams.get("tz"));
-        const shell = yield* orchestrator.getThreadShell(BUDDY_THREAD_ID).pipe(Effect.orDie);
+        const shell = yield* orchestrator.getThreadShell(threadId).pipe(Effect.orDie);
         if (shell === null) return HttpServerResponse.jsonUnsafe({ days: [] });
         const records = yield* orchestrator
-          .getThreadRecords(BUDDY_THREAD_ID, ["messages"], { messageRoles: ["user"] })
+          .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
           .pipe(Effect.orDie);
         // As the web without the record: every message shows.
-        const answer = yield* senders.read(BUDDY_THREAD_ID).pipe(Effect.option);
+        const answer = yield* senders.read(threadId).pipe(Effect.option);
         const record = Option.match(answer, {
           onNone: () => null,
           onSome: ({ at, records }) => ({

@@ -189,22 +189,28 @@ describe("the projection a provider turn gets", () => {
     }).pipe(Effect.provideService(HostProcess.Environment, BUDDY_ENV)),
   );
 
-  it.effect("is upstream's for another instance of Buddy's T3 Code", () =>
-    Effect.gen(function* () {
-      const text = yield* projectComposerContextForProvider({
-        ...input,
-        instanceId: ProviderInstanceId.make("codex"),
-      });
-      assert.strictEqual(text, projectUpstream(input));
-      assert.include(text, "<t3_context");
-    }).pipe(Effect.provideService(HostProcess.Environment, BUDDY_ENV)),
+  // Only Buddy's window adds a page record, so its page block reaches any provider (GEN4).
+  it.effect(
+    "is Buddy's for a message with a page record on any instance, also without the switch",
+    () =>
+      Effect.gen(function* () {
+        for (const instanceId of [ProviderInstanceId.make("codex"), BUDDY]) {
+          const text = yield* projectComposerContextForProvider({ ...input, instanceId });
+          assert.strictEqual(text, buddyProviderText(input));
+          assert.include(text, "Kontext stránky");
+        }
+      }).pipe(Effect.provideService(HostProcess.Environment, { T3CODE_LAZURIO_BUDDY: "true" })),
   );
 
-  it.effect("is upstream's for an instance called buddy without the switch", () =>
+  it.effect("is upstream's for a message without a page record on any other instance", () =>
     Effect.gen(function* () {
-      const text = yield* projectComposerContextForProvider({ ...input, instanceId: BUDDY });
-      assert.strictEqual(text, projectUpstream(input));
-    }).pipe(Effect.provideService(HostProcess.Environment, { T3CODE_LAZURIO_BUDDY: "true" })),
+      const plain = { text: "Ahoj", records: [] };
+      const text = yield* projectComposerContextForProvider({
+        ...plain,
+        instanceId: ProviderInstanceId.make("codex"),
+      });
+      assert.strictEqual(text, projectUpstream(plain));
+    }).pipe(Effect.provideService(HostProcess.Environment, BUDDY_ENV)),
   );
 });
 
