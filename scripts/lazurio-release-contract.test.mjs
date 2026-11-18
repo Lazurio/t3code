@@ -1977,13 +1977,9 @@ NodeTest.test(
       /case "environment-browser":\n\s+return <Lazurio\.SurfaceIcon surface=\{surface\} \/>;/,
     );
     NodeAssert.match(tabs, /\n {2}const lazurio = Lazurio\.useRightPanel\(addSurfaceActions\);\n/);
-    // The empty panel's line on a draft: the Browser row's reason and one line under the list.
-    NodeAssert.match(tabs, /browserNote=\{lazurio\.browserNote\}/);
-    NodeAssert.match(
-      tabs,
-      /disabledReason: props\.browserNote \?\? SURFACE_UNAVAILABLE_HINTS\.browser,/,
-    );
-    NodeAssert.equal(tabs.match(/props\.browserNote/g)?.length, 3);
+    // A draft offers Nová karta as a thread does (Lazurio/t3code#53): upstream's empty panel
+    // carries no line of the overlay's.
+    NodeAssert.doesNotMatch(tabs, /browserNote/);
     // Each strip tab is upstream's compiled RightPanelTab: the overlay's tooltip is a component in
     // place of the title, so the tab's props stay upstream's.
     NodeAssert.match(
@@ -1993,9 +1989,10 @@ NodeTest.test(
     NodeAssert.doesNotMatch(tabs, /environmentBrowserTitles|previewBridge \? browserDefaults/);
     // ChatView: one hook call, and upstream's surface in view wrapped once beside the frames.
     NodeAssert.equal(chatView.match(/useLazurioThreadTabs\(/g)?.length, 1);
-    // A draft opens no stream until its first message makes it a thread (Lazurio/t3code#53), and
-    // Buddy's surface, which has no right panel, follows no thread's tabs (row 28), and neither
-    // does a side chat, which renders ChatView embedded (pingdotgg/t3code#26901).
+    // A draft opens no stream until its first message makes it a thread, which then holds the
+    // draft's tabs (Lazurio/t3code#53), and Buddy's surface, which has no right panel, follows no
+    // thread's tabs (row 28), and neither does a side chat, which renders ChatView embedded
+    // (pingdotgg/t3code#26901).
     NodeAssert.match(
       chatView,
       /useLazurioThreadTabs\(buddySurface \|\| embedded \? null : activeThreadRef, \{\n\s+inlinePanel: !shouldUsePlanSidebarSheet,\n\s+draft: !isServerThread,\n\s+\}\);/,

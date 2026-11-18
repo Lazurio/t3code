@@ -188,7 +188,8 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   sleduje spolu s ostatními, a když ho nejde vypsat, nepřevezme žádnou novou
   vazbu.
 - **Cesta pro web.** `GET /api/lazurio/thread-tabs?threadId=<id>` vrátí snímek
-  nebo `{"available": false}`, `GET …/events?threadId=<id>` je SSE se snímkem
+  nebo `{"available": false}` (s `&draft=1` i pro vlákno, které ještě není živé,
+  tedy pás konceptu), `GET …/events?threadId=<id>` je SSE se snímkem
   hned a při každé změně (a s událostmi `foreign`), `POST …/hold` a
   `POST …/release` s `{threadId, tabId}`. Cesta se ověřuje jako ostatní HTTP
   cesty T3 (cookie, bearer nebo DPoP; požadavek s cookie z cizího originu
@@ -261,16 +262,19 @@ k přestavbě na v0.1.0, Lazurio/t3code#70), a tak overlay dělá tohle:
   Bez elementu (starší Platforma) zůstává upstream nabídka, Mod+T i prázdný stav
   a Browser je ve webu nedostupný, protože server serverový prohlížeč
   neinzeruje.
-- **Rozepsané vlákno** (Lazurio/t3code#53, varianta, kterou Admin zvolil
-  2026-10-12). Koncept ještě není vlákno serveru: proud záložek by odpověděl
+- **Rozepsané vlákno** (Lazurio/t3code#53, varianta 1, kterou uživatel zvolil
+  2026-11-17). Koncept ještě není vlákno serveru: proud záložek by odpověděl
   404, který EventSource znovu nezkouší, a koncept si po první zprávě nechá
-  stejný ref vlákna. Proto koncept proud neotevře a jeho prázdný panel zůstane
-  upstream, jen místo „Only available in the desktop app.“ řekne pod seznamem
-  i jako důvod u řádku Browser „Prohlížeč Prostředí bude k dispozici po
-  první zprávě.“ Jakmile ho ChatView přestane označovat za koncept, proud se
-  otevře a panel ukáže Novou kartu. Kde server o jiném vlákně řekl, že
-  Environment prohlížeč nemá, zůstane upstream řádek. Menu „+“ při jiných
-  otevřených površích konceptu nechává u Browser upstream důvod.
+  stejný ref vlákna. Proto koncept proud neotevře; jednou přečte svůj pás
+  (`&draft=1`), takže Nová karta dostane `strip` a rámy origin pohledu, a „+“
+  i prázdný panel otevřou Novou kartu jako ve vlákně. Záložky, které se
+  v konceptu otevřou, patří jen zařízení (`local`): server je nedrží, takže
+  skončí 30 s po posledním divákovi (F39 bod 9). × nabídne Vrátit jako ve
+  vlákně, ale × ani konec záložky nic neposílá. Jakmile ho ChatView přestane označovat za koncept, vlákno podrží
+  záložky konceptu, které pás ještě má, dřív, než se otevře proud: čekající
+  podržení první snímek nezahodí. Odmítnuté podržení nechá záložku jen
+  zařízení jako jindy. Koncept opuštěný bez zprávy nedrží nic. Kde Environment
+  prohlížeč nemá, zůstane upstream prázdný stav.
 - **× pustí záložku jen pro toto vlákno.** ×, prostřední tlačítko i Zavřít,
   Zavřít ostatní, Zavřít vpravo a Zavřít vše pošlou release. Jeden toast (i pro
   Zavřít vše) řekne podle snímku, co se stane: pracuje-li v záložce agent,
@@ -402,8 +406,8 @@ Upstream soubory overlay mění jen ve švech: `rightPanelStore.ts` (druh
 povrchu, jeden člen povrchu, Nová karta jako jeho singleton, druh v
 `openProactive`, jedna obecná akce `lazurio` a přeskočení těchto povrchů
 v paměti zavřených záložek), `RightPanelTabs.tsx` (jedno volání háčku, „+“
-a prázdný stav za podmínkou Nové karty, jeden řádek pro Mod+T, řádek prázdného
-stavu na konceptu, název záložky s titulky rámů jako vstupem `surfaceTitle`,
+a prázdný stav za podmínkou Nové karty, jeden řádek pro Mod+T, název záložky
+s titulky rámů jako vstupem `surfaceTitle`,
 ikona, tooltip jako komponenta overlaye v `RightPanelTab` a menu záložky),
 `ChatView.tsx` (jedno volání háčku s příznakem konceptu a obal kolem
 `RightPanelSurfaceContent`, který drží rámy vedle povrchu v popředí; od v0.1.2

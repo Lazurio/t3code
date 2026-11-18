@@ -19,7 +19,6 @@ import {
   enterThreadTabs,
   holdTab,
   isNewTabSurface,
-  leaveDraft,
   leaveThreadTabs,
   letGoOfTabs,
   newTabSurface,
@@ -76,8 +75,9 @@ const answerWith =
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 /**
- * The page's own server for one test, from nothing: the stores start empty, and every POST is
- * recorded and gets the next queued answer, or an empty list.
+ * The page's own server for one test, from nothing: the stores start empty, and every request is
+ * recorded (a draft's read by its address, with no body) and gets the next queued answer, or an
+ * empty list.
  */
 function setup() {
   resetThreadTabs();
@@ -86,7 +86,8 @@ function setup() {
   const posted: Array<{ readonly action: string; readonly body: unknown }> = [];
   const answers: Array<() => Response | Promise<Response>> = [];
   const fetch = stubGlobal("fetch", async (url: string, init: RequestInit) => {
-    posted.push({ action: url.split("/").at(-1) ?? "", body: JSON.parse(String(init.body)) });
+    const body = init.body === undefined ? null : JSON.parse(String(init.body));
+    posted.push({ action: url.split("/").at(-1) ?? "", body });
     const next = answers.shift();
     return next === undefined ? answerWith(snapshot([]))() : next();
   });
@@ -113,9 +114,9 @@ function setup() {
   };
 }
 
-/** Waits for the thread's POSTs queued so far, and those they queue. */
-async function settled() {
-  const sync = syncOf(threadA);
+/** Waits for the thread's requests queued so far, and those they queue. */
+async function settled(threadRef = threadA) {
+  const sync = syncOf(threadRef);
   let queue: Promise<unknown>;
   do {
     queue = sync.queue;
@@ -190,13 +191,13 @@ describe("reveals", () => {
     });
   });
 
-  it("keep what the device saw while the route shows the thread, and start again once the person left it", () => {
+  it("keep what the device saw while the route shows the thread, and start again once the person left it", async () => {
     using _server = setup();
     syncOf(threadA).inlinePanel = true;
     // The person sends the first message of a draft: the route still shows the draft as its thread's
     // stream opens.
-    enterDraft(threadA);
-    leaveDraft(threadA, true);
+    await enterDraft(threadA);
+    leaveThreadTabs(threadA, true);
     enterThreadTabs(threadA);
     receiveSnapshot(threadA, snapshot([]));
     // The thread's view closes and opens again while the route still shows it (ChatView mounting
@@ -215,8 +216,8 @@ describe("reveals", () => {
     expect(panel().isOpen).toBe(false);
     // The same after another thread's draft.
     leaveThreadTabs(threadA, false);
-    enterDraft(threadB);
-    leaveDraft(threadB, false);
+    await enterDraft(threadB);
+    leaveThreadTabs(threadB, false);
     enterThreadTabs(threadA);
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:3" } }]));
     expect(panel().isOpen).toBe(false);
@@ -360,6 +361,56 @@ describe("holds", () => {
     expect(server.posted.map((entry) => entry.action)).toEqual(["hold", "release"]);
     expect(panel().surfaces).toEqual([]);
     expect(syncOf(threadA).pending.size).toBe(0);
+  });
+  it("keep a draft's tabs the device's own, and hold them for the thread its first message makes before any snapshot of its stream", async () => {
+    using server = setup();
+    const read = enterDraft(threadA);
+    // Tabs opened in the draft, before its read answers: shown, and nothing holds them on the server.
+    chooseTab(threadA, null, id(1));
+    showOwnTab(threadA, id(2), false);
+    await read;
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: tab(1).id,
+      surfaces: [tab(1), tab(2)],
+    });
+    expect(server.posted).toEqual([
+      { action: "thread-tabs?threadId=thread-A&draft=1", body: null },
+    ]);
+    // The person closes one; the first message makes the draft the thread, whose stream opens.
+    useRightPanelStore.getState().closeSurface(threadA, tab(2).id);
+    const hold = server.heldAnswer();
+    leaveThreadTabs(threadA, true);
+    enterThreadTabs(threadA);
+    expect([...syncOf(threadA).pending]).toEqual([id(1)]);
+    // The stream's first snapshot, from before the hold landed, keeps the tab.
+    receiveSnapshot(threadA, snapshot([], { revision: 2 }));
+    expect(panel().surfaces).toEqual([tab(1)]);
+    await hold.wasSent;
+    hold.answer(answerWith(snapshot([{ tabId: id(1) }], { revision: 3 }))());
+    await settled();
+    expect(server.posted.slice(1)).toEqual([
+      { action: "hold", body: { threadId: "thread-A", tabId: id(1) } },
+    ]);
+    expect(syncOf(threadA).pending.size).toBe(0);
+    expect(panel().surfaces).toEqual([tab(1)]);
+  });
+
+  it("hold nothing of a draft left without a message, also not for the next thread in view", async () => {
+    using server = setup();
+    const read = enterDraft(threadA);
+    showOwnTab(threadA, id(1), true);
+    await read;
+    // Its view ends while the draft shows it: nothing to let go of on the server.
+    tabEnded(threadA, tab(1).id);
+    showOwnTab(threadA, id(2), true);
+    leaveThreadTabs(threadA, false);
+    enterThreadTabs(threadB);
+    await settled();
+    await settled(threadB);
+    expect(server.posted).toEqual([
+      { action: "thread-tabs?threadId=thread-A&draft=1", body: null },
+    ]);
   });
 });
 

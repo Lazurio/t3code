@@ -25,6 +25,7 @@ import {
   reloadSurface,
   rememberTitle,
   resetThreadTabs,
+  showOwnTab,
   syncOf,
   tabSurfaceId,
   type ThreadTab,
@@ -105,7 +106,8 @@ const showRoute = (params: Record<string, string>) => {
 
 /**
  * One test's page, from nothing: the stores start empty, the route shows no thread, the server's
- * streams are fakes the test emits on, and its POSTs answer with thread A's holder file.
+ * streams are fakes the test emits on, and its POSTs and a draft's read (recorded by its address,
+ * with no body) answer with thread A's holder file.
  */
 function setup() {
   route.state.matches = [];
@@ -139,14 +141,17 @@ function setup() {
   stubs.use(
     stubGlobal("fetch", async (url: string, init: RequestInit) => {
       const action = url.split("/").at(-1) ?? "";
-      const body = JSON.parse(String(init.body)) as { readonly tabId: string };
+      const body =
+        init.body === undefined ? null : (JSON.parse(String(init.body)) as { tabId: string });
       posted.push({ action, body });
-      held =
-        action === "hold"
-          ? held.some((entry) => entry.tabId === body.tabId)
-            ? held
-            : [...held, { tabId: body.tabId, view: "", agent: false, alsoHeldBy: [] }]
-          : held.filter((entry) => entry.tabId !== body.tabId);
+      if (body !== null) {
+        held =
+          action === "hold"
+            ? held.some((entry) => entry.tabId === body.tabId)
+              ? held
+              : [...held, { tabId: body.tabId, view: "", agent: false, alsoHeldBy: [] }]
+            : held.filter((entry) => entry.tabId !== body.tabId);
+      }
       return new Response(JSON.stringify(snapshot(held)), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -706,19 +711,47 @@ describe("the chat's hook", () => {
     // The draft keeps its ref when it becomes a thread (ChatView's promotion is data-driven).
     await using screen = await renderUi(<Chat threadRef={threadA} draft />);
     expect(page.opened).toHaveLength(0);
-    expect(useThreadTabsStore.getState().draftInView).toEqual(threadA);
-    expect(useThreadTabsStore.getState().inView).toBeNull();
+    expect(useThreadTabsStore.getState().inView).toEqual(threadA);
+    // A tab opened in the draft is the device's own until the first message.
+    showOwnTab(threadA, id(1), true);
+    await settled();
+    expect(page.posted).toEqual([{ action: "thread-tabs?threadId=thread-A&draft=1", body: null }]);
     await screen.rerender(<Chat threadRef={threadA} draft={false} />);
     expect(page.stream().url).toBe("/api/lazurio/thread-tabs/events?threadId=thread-A");
-    expect(useThreadTabsStore.getState().draftInView).toBeNull();
     expect(useThreadTabsStore.getState().inView).toEqual(threadA);
-    await page.stream().emit("snapshot", snapshot([{ tabId: id(1) }]));
-    expect(panel().surfaces).toEqual([tab(1)]);
-    // Another draft in view takes the line; leaving it clears it.
+    await settled();
+    expect(page.posted.at(-1)).toEqual({
+      action: "hold",
+      body: { threadId: "thread-A", tabId: id(1) },
+    });
+    await page.stream().emit("snapshot", snapshot([{ tabId: id(1) }, { tabId: id(2) }]));
+    expect(panel().surfaces).toEqual([tab(1), tab(2)]);
+    // Another draft in view, and then none.
     await screen.rerender(<Chat threadRef={threadB} draft />);
-    expect(useThreadTabsStore.getState().draftInView).toEqual(threadB);
+    expect(useThreadTabsStore.getState().inView).toEqual(threadB);
+    await settled(threadB);
     await screen.rerender(<p>Elsewhere</p>);
-    expect(useThreadTabsStore.getState().draftInView).toBeNull();
+    expect(useThreadTabsStore.getState().inView).toBeNull();
+  });
+
+  it("holds a draft's tabs for its thread and opens the stream while the draft's read still stalls", async () => {
+    using page = setup();
+    const answer = window.fetch;
+    using _stalled = stubGlobal("fetch", (url: string, init: RequestInit) =>
+      init.body === undefined ? new Promise<Response>(() => undefined) : answer(url, init),
+    );
+    await using screen = await renderUi(<Chat threadRef={threadA} draft />);
+    showOwnTab(threadA, id(1), true);
+    await screen.rerender(<Chat threadRef={threadA} draft={false} />);
+    expect(page.stream().url).toBe("/api/lazurio/thread-tabs/events?threadId=thread-A");
+    await vi.waitFor(() =>
+      expect(page.posted.at(-1)).toEqual({
+        action: "hold",
+        body: { threadId: "thread-A", tabId: id(1) },
+      }),
+    );
+    await settled();
+    expect(panel().surfaces).toEqual([tab(1)]);
   });
 
   it("asks nothing for a thread of another environment, or in the desktop app", async () => {
@@ -853,6 +886,41 @@ describe("the chat's hook", () => {
     await act(() => undefined);
     expect(toasts).not.toHaveBeenCalled();
     expect(page.posted).toEqual([]);
+  });
+
+  it("offers Vrátit for a tab closed in a draft without a release, and the thread holds it once restored", async () => {
+    using page = setup();
+    await using screen = await renderUi(<Chat threadRef={threadA} draft />);
+    using toasts = vi.spyOn(toastManager, "add");
+    showOwnTab(threadA, id(1), true);
+    showOwnTab(threadA, id(2), false);
+    await settled();
+    await act(() => useRightPanelStore.getState().closeSurface(threadA, tab(1).id));
+    await settled();
+    expect(panel().surfaces).toEqual([tab(2)]);
+    expect(toasts).toHaveBeenCalledTimes(1);
+    expect(toasts.mock.calls[0]?.[0]).toMatchObject({
+      title: "The tab left this thread.",
+      description: "It closes in the Environment.",
+      actionProps: { children: "Undo" },
+    });
+    const undo = toasts.mock.calls[0]?.[0].actionProps as { onClick: () => void } | undefined;
+    await act(() => undo?.onClick());
+    expect(panel()).toMatchObject({ activeSurfaceId: tab(1).id, surfaces: [tab(1), tab(2)] });
+    await settled();
+    // Nothing is held or released while it is a draft; the thread its first message makes holds both.
+    expect(page.posted).toEqual([{ action: "thread-tabs?threadId=thread-A&draft=1", body: null }]);
+    await screen.rerender(<Chat threadRef={threadA} draft={false} />);
+    await settled();
+    expect(
+      page.posted
+        .slice(1)
+        .map((entry) => [entry.action, (entry.body as { tabId: string }).tabId])
+        .sort(),
+    ).toEqual([
+      ["hold", id(1)],
+      ["hold", id(2)],
+    ]);
   });
 
   it("opens a link to one remote tab in the panel on a plain click, held, and leaves other clicks alone", async () => {

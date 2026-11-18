@@ -37,8 +37,6 @@ const snapshot: ThreadTabsSnapshot = {
   viewOrigin: "https://browser.vm-01.example.lazurio.io",
   tabs: [],
 };
-/** The draft's line in English, the test browser's language. */
-const DRAFT_LINE = "The Environment browser comes with the first message.";
 const files: RightPanelSurface = { id: "files", kind: "files" };
 const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadA);
 const setPanel = (state: ThreadRightPanelState) =>
@@ -152,14 +150,5 @@ describe("without the shell's element", () => {
       ),
     );
     expect(panel().surfaces).toEqual([files]);
-  });
-
-  it("keeps upstream's empty panel on a draft, without the Environment browser's line", async () => {
-    setup();
-    useThreadTabsStore.setState({ draftInView: threadA });
-    setPanel({ isOpen: true, activeSurfaceId: null, surfaces: [] });
-    await using screen = await render(strip());
-    expect(screen.container.textContent).toContain("Open a surface");
-    expect(screen.container.textContent).not.toContain(DRAFT_LINE);
   });
 });
