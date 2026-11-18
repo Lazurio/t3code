@@ -504,7 +504,7 @@ Commity v pořadí na `main`:
   `feat(lazurio): a Personal Environment links out, and nothing links into it`. Server: `server.ts`\*
   (dekorátory registrace propojení a klienta MCP), `lazurio/buddySurfaceGuards.ts`\* a jeho test\*
   (bez vypnutých propojení), `apps/server/src/lazurio/inboundLinks.ts` a jeho test.
-- **39.** Commit Lazurio/t3code#PRNUM605 na `main`, předmět
+- **39.** Commit Lazurio/t3code#230 na `main`, předmět
   `feat(server): a thread waiting on a question wakes whoever waits on it`. Kontrakt:
   `packages/contracts/src/orchestratorMcp.ts`. Server: `orchestration-v2/ThreadManagementService.ts`,
   `orchestration-v2/Orchestrator.ts`, `mcp/OrchestratorMcpService.ts`, `peer/RemoteDelegation.ts`;
