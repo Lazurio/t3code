@@ -47,6 +47,7 @@ import * as LazurioAgentBrowserSession from "./lazurio/agentBrowserSession.ts";
 import * as LazurioAgentCliRequests from "./lazurio/agentCliRequests.ts";
 import * as LazurioBuddyGuards from "./lazurio/buddySurfaceGuards.ts";
 import * as LazurioBuddyPrompt from "./lazurio/buddyPrompt.ts";
+import * as LazurioInboundLinks from "./lazurio/inboundLinks.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as SpawnWorker from "./process/SpawnWorker.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
@@ -278,8 +279,7 @@ const layerProviderEventLoggers = Layer.effect(
 
 const layerPtyAdapter = NodePtyAdapter.layer;
 
-// Lazurio overlay (plan DEV-6676): no linked Environments in Buddy's T3 Code.
-const layerServerSettings = LazurioBuddyGuards.withoutLinkedEnvironments(ServerSettings.layer).pipe(
+const layerServerSettings = ServerSettings.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(ManagedPolicy.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
@@ -845,7 +845,12 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
       Layer.provide(AuthHttp.layer),
-      Layer.provide(McpOAuthHttp.layer.pipe(Layer.provide(McpOAuth.layer))),
+      // Lazurio overlay (decision 0246): nothing links into a Personal Environment.
+      Layer.provide(
+        McpOAuthHttp.layer.pipe(
+          Layer.provide(LazurioInboundLinks.refuseInboundLinkRegistration(McpOAuth.layer)),
+        ),
+      ),
       Layer.provide(CloudHttp.layer),
       Layer.provide(OrchestrationHttp.layer),
       Layer.provide(PullRequestHttp.layer),
@@ -870,7 +875,9 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     // Lazurio overlay (plan DEV-6676): an agent command's idempotency key holds across commands.
     Layer.provide(
-      LazurioAgentCliRequests.withAgentCliRequestNamespace(McpOAuth.layerMcpClientAuthenticator),
+      LazurioAgentCliRequests.withAgentCliRequestNamespace(
+        LazurioInboundLinks.refuseLinkedClients(McpOAuth.layerMcpClientAuthenticator),
+      ),
     ),
   ),
   // Follows delegated tasks running in linked environments, including after a restart.

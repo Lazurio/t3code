@@ -1,19 +1,16 @@
 /**
- * Lazurio overlay (root decision 0210, plan DEV-6676): Buddy's T3 Code has no fork, rollback, other
- * thread, fresh session or deleting Buddy's thread (each loses Hermes's session), no lower runtime
- * mode, no guest share or linked Environment (a Personalspace is never shared, 0091) and no
+ * Lazurio overlay (root decision 0210): Buddy's T3 Code has no fork, rollback, other thread, fresh
+ * session or deleting Buddy's thread, no lower runtime mode, no guest share (0091) and no
  * checkpoints in Buddy's project, for every client and agent; elsewhere upstream's services as is.
  */
-import type { OrchestrationV2ServerCommand, ServerSettings as Settings } from "@t3tools/contracts";
+import type { OrchestrationV2ServerCommand } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as Stream from "effect/Stream";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import { buddyProjectFolder, isBuddySurfaceEnvironment } from "./buddySurface.ts";
 import {
   BUDDY_THREAD_CREATE_COMMAND_ID,
@@ -109,68 +106,6 @@ export const withoutBuddyCheckpoints = <E, R>(
         isGitRepository: Effect.fn("LazurioBuddyGuards.isGitRepository")(function* (cwd) {
           return inBuddyProject(cwd) ? false : yield* store.isGitRepository(cwd);
         }),
-      });
-    }),
-  ).pipe(Layer.provide(live));
-
-/**
- * Every upstream gate of linked Environments (peer-link OAuth, a linked client's `/mcp`, outbound
- * links, link requests, remote tasks) reads this setting, so Buddy's reads it off whatever is stored
- * and every write stores it off.
- */
-export const withoutLinkedEnvironments = <E, R>(
-  live: Layer.Layer<ServerSettings.ServerSettingsService, E, R>,
-) =>
-  Layer.effect(
-    ServerSettings.ServerSettingsService,
-    Effect.gen(function* () {
-      const settings = yield* ServerSettings.ServerSettingsService;
-      if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment)) return settings;
-      const off = (current: Settings): Settings => ({
-        ...current,
-        linkedEnvironmentsEnabled: false,
-      });
-      const offPatch = <P extends object>(patch: P) => ({
-        ...patch,
-        linkedEnvironmentsEnabled: false,
-      });
-      const { updateSettingsWith } = settings;
-      return ServerSettings.ServerSettingsService.of({
-        start: settings.start,
-        ready: settings.ready,
-        managedPolicy: settings.managedPolicy,
-        getSettings: Effect.map(settings.getSettings, off),
-        updateSettings: Effect.fn("LazurioBuddyGuards.updateSettings")(function* (patch) {
-          return off(yield* settings.updateSettings(offPatch(patch)));
-        }),
-        updateProviderInstance: Effect.fn("LazurioBuddyGuards.updateProviderInstance")(
-          function* (mutation, patch) {
-            return off(yield* settings.updateProviderInstance(mutation, offPatch(patch ?? {})));
-          },
-        ),
-        ...(updateSettingsWith === undefined
-          ? {}
-          : {
-              updateSettingsWith: Effect.fn("LazurioBuddyGuards.updateSettingsWith")(
-                function* (apply) {
-                  return off(yield* updateSettingsWith((current) => off(apply(current))));
-                },
-              ),
-            }),
-        withSettingsSnapshot: Effect.fn("LazurioBuddyGuards.withSettingsSnapshot")(function* <
-          A,
-          E,
-          R,
-        >(use: (current: Settings) => Effect.Effect<A, E, R>) {
-          return yield* settings.withSettingsSnapshot((current) => use(off(current)));
-        }),
-        // Upstream's are getters that subscribe on each read.
-        get streamChanges() {
-          return Stream.map(settings.streamChanges, off);
-        },
-        get subscribeChanges() {
-          return Effect.map(settings.subscribeChanges, Stream.map(off));
-        },
       });
     }),
   ).pipe(Layer.provide(live));

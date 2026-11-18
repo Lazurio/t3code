@@ -16,7 +16,6 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as LazurioBuddyGuards from "../lazurio/buddySurfaceGuards.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { authLocationFlags, type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
@@ -45,7 +44,7 @@ const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A,
         ),
         Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
         Layer.provide(
-          LazurioBuddyGuards.withoutLinkedEnvironments(ServerSettings.layer).pipe(
+          ServerSettings.layer.pipe(
             Layer.provide(
               Layer.mergeAll(
                 ServerSecretStore.layer,

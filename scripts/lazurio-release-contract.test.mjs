@@ -2852,7 +2852,8 @@ NodeTest.test(
       );
     NodeAssert.match(
       server,
-      /Layer\.provide\(\n\s+LazurioAgentCliRequests\.withAgentCliRequestNamespace\(McpOAuth\.layerMcpClientAuthenticator\),\n\s+\),/,
+      // Row 38 refuses linked clients inside it, on a Personal Environment.
+      /Layer\.provide\(\n\s+LazurioAgentCliRequests\.withAgentCliRequestNamespace\(\n\s+LazurioInboundLinks\.refuseLinkedClients\(McpOAuth\.layerMcpClientAuthenticator\),\n\s+\),\n\s+\),/,
     );
     NodeAssert.equal(server.match(/McpOAuth\.layerMcpClientAuthenticator/g)?.length, 1);
     NodeAssert.match(connection, /export const AGENT_CLI_SESSION_LABEL = "t3 agent cli";/);
@@ -2964,9 +2965,34 @@ NodeTest.test(
   },
 );
 
+// Decisions 0246 and 0091 (row 38): nothing links into a Personal Environment. Its server refuses a
+// peer link's registration and a linked client on `/mcp`, through the one OAuth and the one MCP
+// client authenticator it builds; its links out stay upstream's, so no guard holds the settings.
+NodeTest.test(
+  "a Personal Environment links out, and nothing links into it, through its seams",
+  async () => {
+    const [server, environmentCli] = await Promise.all(
+      ["apps/server/src/server.ts", "apps/server/src/cli/environment.ts"].map(read),
+    );
+    NodeAssert.match(
+      server,
+      /Layer\.provide\(LazurioInboundLinks\.refuseInboundLinkRegistration\(McpOAuth\.layer\)\)/,
+    );
+    NodeAssert.equal(server.match(/\bMcpOAuth\.layer\b/g)?.length, 1);
+    NodeAssert.match(
+      server,
+      /LazurioInboundLinks\.refuseLinkedClients\(McpOAuth\.layerMcpClientAuthenticator\)/,
+    );
+    NodeAssert.equal(server.match(/\bMcpOAuth\.layerMcpClientAuthenticator\b/g)?.length, 1);
+    NodeAssert.match(server, /const layerServerSettings = ServerSettings\.layer\.pipe\(/);
+    NodeAssert.doesNotMatch(environmentCli, /Lazurio/);
+    NodeAssert.ok(!overlayMayChange("apps/server/src/cli/environment.ts"));
+  },
+);
+
 // Root decision 0210, plan DEV-6676 (row 25): Buddy's T3 Code is one conversation for every client:
-// decorators refuse forks, rollbacks, other threads and guest shares, keep linked Environments off
-// (a Personalspace is never shared, 0091) and take no checkpoints, defaults run before recovery,
+// decorators refuse forks, rollbacks, other threads and guest shares (a Personalspace is never
+// shared, 0091) and take no checkpoints, defaults run before recovery,
 // and the web shows Buddy's surface; the chat route's shortcuts (pingdotgg/t3code#25366) hold it.
 NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   const [
@@ -2984,7 +3010,6 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
     assistantRows,
     chatRouteCommands,
     guards,
-    environmentCli,
   ] = await Promise.all(
     [
       "apps/server/src/orchestration-v2/runtimeLayer.ts",
@@ -3001,7 +3026,6 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
       "apps/web/src/components/chat/TimelineAssistantRows.tsx",
       "apps/web/src/shortcuts/chatRouteCommands.ts",
       "apps/server/src/lazurio/buddySurfaceGuards.ts",
-      "apps/server/src/cli/environment.ts",
     ].map(read),
   );
   NodeAssert.match(
@@ -3021,17 +3045,6 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
     /const layerCheckpointStore = LazurioBuddyGuards\.withoutBuddyCheckpoints\(CheckpointStore\.layer\)\.pipe\(/,
   );
   NodeAssert.equal(server.match(/\bCheckpointStore\.layer\b/g)?.length, 1);
-  NodeAssert.match(
-    server,
-    /const layerServerSettings = LazurioBuddyGuards\.withoutLinkedEnvironments\(ServerSettings\.layer\)\.pipe\(/,
-  );
-  NodeAssert.equal(server.match(/\bServerSettings\.layer\b/g)?.length, 1);
-  // `t3 environment link` builds its own links on its own settings.
-  NodeAssert.match(
-    environmentCli,
-    /LazurioBuddyGuards\.withoutLinkedEnvironments\(ServerSettings\.layer\)\.pipe\(/,
-  );
-  NodeAssert.equal(environmentCli.match(/\bServerSettings\.layer\b/g)?.length, 1);
   const phase = startup.indexOf('runStartupPhase("lazurio.buddy", startBuddySurface);');
   NodeAssert.ok(
     phase >= 0 && phase < startup.indexOf('runStartupPhase("orchestration-v2.recovery"'),
