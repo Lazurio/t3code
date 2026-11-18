@@ -200,6 +200,8 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
+    // Lazurio overlay (plan LZD-0025 B9): the provider text reads where each message came from.
+    const projectForProvider = yield* LazurioBuddyPrompt.providerProjection;
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
     const makeRunControls = (input: {
@@ -845,11 +847,13 @@ export const layer: Layer.Layer<
       });
       let effectiveHandoffs = handoffs;
       let resumeFellBack = false;
-      // Lazurio overlay (plan DEV-6676): Buddy's Hermes gets the page context as a Czech block.
-      const userText = yield* LazurioBuddyPrompt.projectComposerContextForProvider({
+      // Lazurio overlay (plans DEV-6676, LZD-0025 B9): Buddy's Hermes gets the page context as a
+      // Czech block, every other agent a first line saying where the message came from.
+      const userText = yield* projectForProvider({
         instanceId: run.providerInstanceId,
         text: providerMessage.text,
         records: providerMessage.context?.records ?? [],
+        message: providerMessage,
       });
       // Native goal commands go verbatim; handoff history waits a turn.
       const goalDriver =

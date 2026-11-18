@@ -43,8 +43,10 @@ import {
   type LazurioPageContext,
   lazurioPageContextBlock,
   projectComposerContextForProvider,
+  providerProjection,
   withBuddyInstance,
 } from "./buddyPrompt.ts";
+import * as MessageClients from "./messageClients.ts";
 
 const BUDDY_ENV = { T3CODE_LAZURIO_BUDDY: "1" };
 const BUDDY = ProviderInstanceId.make("buddy");
@@ -211,6 +213,48 @@ describe("the projection a provider turn gets", () => {
       });
       assert.strictEqual(text, projectUpstream(plain));
     }).pipe(Effect.provideService(HostProcess.Environment, BUDDY_ENV)),
+  );
+
+  const message = { id: "message-1", role: "user", createdBy: "user", creationSource: "web" };
+  const web = { surface: "web", deviceType: "desktop" } as const;
+  const markedFromWeb = Effect.gen(function* () {
+    yield* (yield* MessageClients.MessageClients).record(message.id, web);
+    return yield* providerProjection;
+  });
+
+  it.effect("opens with where the message came from for another instance", () =>
+    Effect.gen(function* () {
+      const project = yield* markedFromWeb;
+      const codex = ProviderInstanceId.make("codex");
+      // Without a page record: one is only Buddy's window's, which gets the person's words alone.
+      const plain = { text: "Run the tests.", records: [] };
+      const text = yield* project({ ...plain, instanceId: codex, message });
+      assert.strictEqual(
+        text,
+        `${MessageClients.messageOriginLine(message, web)}\n\n${projectUpstream(plain)}`,
+      );
+      assert.strictEqual(
+        yield* project({ ...input, instanceId: codex, message }),
+        buddyProviderText(input),
+      );
+      // A native slash command works only at the start of the prompt.
+      const command = { instanceId: codex, text: "/compact", records: [], message };
+      assert.strictEqual(yield* project(command), "/compact");
+    }).pipe(
+      Effect.provide(MessageClients.layer),
+      Effect.provideService(HostProcess.Environment, BUDDY_ENV),
+    ),
+  );
+
+  it.effect("never opens with where the message came from for Buddy's instance", () =>
+    Effect.gen(function* () {
+      const project = yield* markedFromWeb;
+      const text = yield* project({ ...input, instanceId: BUDDY, message });
+      assert.strictEqual(text, buddyProviderText(input));
+    }).pipe(
+      Effect.provide(MessageClients.layer),
+      Effect.provideService(HostProcess.Environment, BUDDY_ENV),
+    ),
   );
 });
 
