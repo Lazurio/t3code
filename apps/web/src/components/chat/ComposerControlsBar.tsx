@@ -30,7 +30,7 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
-import { BuddyComposerControls, useBuddySurfaceMode } from "../../lazurio/BuddySurface";
+import { BuddyComposerControls, useBuddyHermesControls } from "../../lazurio/BuddySurface";
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -148,10 +148,10 @@ export function ComposerControlsBar(props: {
   const controlSize = composerControlsCollapsed ? "xs" : "sm";
   const applyThreadModelPick = useApplyThreadModelPick();
   const applyRouteThreadModelPick = useStableCallback(() => applyThreadModelPick(routeThreadRef));
-  // Lazurio overlay (plan DEV-6676): Buddy's chat offers no model, effort, access or mode, only
-  // Hermes's Normal / Fast switch (BuddySurface.tsx). It returns after the last hook.
-  const buddySurface = useBuddySurfaceMode(environmentId) === true;
-  if (buddySurface) return <BuddyComposerControls {...props} />;
+  // Lazurio overlay (plan DEV-6676): Hermes's chat (GEN3) offers no model, effort, access or mode,
+  // only Normal / Fast (BuddySurface.tsx); Buddy's window on the shared server keeps T3's picker.
+  const buddyHermes = useBuddyHermesControls(environmentId);
+  if (buddyHermes) return <BuddyComposerControls {...props} />;
   const traitsInput = resolveComposerTraitsInput({
     provider: selectedProvider,
     instanceId: selectedInstanceId,

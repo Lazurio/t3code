@@ -1254,6 +1254,36 @@ povrchu i s odkazy, `buddySurfaceTerminal.browser.test.tsx` skutečné kreslení
 rozhovorem, jen s náhradou za jeho emulátor, a `buddySurfaceRightPanel.browser.test.tsx` skutečný
 pravý panel T3.
 
+### Okno Buddyho na společném serveru (Buddy GEN4)
+
+**Plán LZD-0033, řez R3.** Pro převedeného člověka otevírá okno Buddyho jedno
+vlákno projektu Buddy ve společném serveru Chatu (viz Projekt Buddyho výše),
+ne druhý server. Okno má dál vlastní origin `buddy.<slug>`, který brána
+Prostředí u převedeného člověka vede na `t3code.service`. Server ho zná
+z `T3CODE_LAZURIO_BUDDY_ORIGIN`: holý HTTPS origin, při vývoji i loopback přes
+`http`, jen spolu s `T3CODE_LAZURIO_BUDDY_FOLDER`. Klientům ho posílá jako
+`lazurioBuddyOrigin`. Web je v okně Buddyho právě tehdy, když se origin
+stránky rovná `lazurioBuddyOrigin`; na originu Chatu je to Chat. Cookie
+relace `__Host-` patří jednomu hostu a kontrola originu porovnává host,
+takže okno má vlastní relaci a autentizace se nemění.
+
+- **Vlákno** je nejstarší kořenové vlákno projektu Buddy, které není
+  smazané (archivovat ho nejde). Když žádné není, trasa
+  `/api/lazurio/buddy/thread` ho založí na modelu projektu Buddy, jinak na
+  výchozím modelu Prostředí, jinak na modelu projektu Lazurio (doporučení
+  Platformy). Id i příkaz jsou odvozené z projektu, takže dvě první návštěvy
+  založí jedno vlákno. Dny čte trasa `/api/lazurio/buddy/days` z téhož vlákna.
+- **Model:** skladatel má plný výběr poskytovatele, modelu a úsilí jako
+  vlákno Chatu a volba drží ve vlákně. Normální / Rychlý zůstává jen Hermesovi
+  (GEN3, `useBuddyHermesControls`).
+- **Kontext stránky:** zpráva se záznamem stránky dostane český blok
+  stránky u kteréhokoli poskytovatele (`projectComposerContextForProvider`).
+  Záznam přidává jen okno Buddyho.
+- **Beze změny pro GEN3:** server s `T3CODE_LAZURIO_BUDDY=1` má dál svoje
+  vlákno `buddy` na instanci `buddy`, stráže a výchozí nastavení. Žádný
+  z jeho obalů celého serveru (výchozí nastavení, propojení, checkpointy)
+  na společném serveru neběží.
+
 ### Kdo jednal: Buddy a Delegace
 
 **Rozhodnutí 0210, večerní dodatek, bod 5 (řádek 27, plán DEV-6676).** Co Buddy napíše nebo

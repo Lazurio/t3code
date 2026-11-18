@@ -25,6 +25,10 @@ const ManagedFolderEnv = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  buddyOrigin: Config.URL("T3CODE_LAZURIO_BUDDY_ORIGIN").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   toolsUrl: Config.URL("T3CODE_LAZURIO_TOOLS_URL").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -117,6 +121,23 @@ export const resolveManagedFolderConfig = Effect.gen(function* () {
     env.buddyFolder === undefined
       ? undefined
       : yield* canonicalBuddyFolder(folder, env.buddyFolder);
+  // Buddy's window (LZD-0033 R3): its own HTTPS origin, which the gateway routes to this server.
+  if (env.buddyOrigin !== undefined) {
+    if (env.buddyFolder === undefined)
+      return yield* invalid("T3CODE_LAZURIO_BUDDY_ORIGIN needs T3CODE_LAZURIO_BUDDY_FOLDER.");
+    const url = env.buddyOrigin;
+    // HTTPS, or plain HTTP on a loopback host, where a developer runs both origins.
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (
+      (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+      url.username ||
+      url.password ||
+      url.origin !== url.href.replace(/\/$/, "")
+    )
+      return yield* invalid(
+        "T3CODE_LAZURIO_BUDDY_ORIGIN must be a bare HTTPS origin without credentials.",
+      );
+  }
   if (
     env.toolsUrl !== undefined &&
     (env.toolsUrl.protocol !== "https:" || env.toolsUrl.username || env.toolsUrl.password)
@@ -127,6 +148,7 @@ export const resolveManagedFolderConfig = Effect.gen(function* () {
       ? {}
       : { cwd: folder, lazurioFolder: folder, autoBootstrapProjectFromCwd: false }),
     ...(buddyFolder === undefined ? {} : { lazurioBuddyFolder: buddyFolder }),
+    ...(env.buddyOrigin === undefined ? {} : { lazurioBuddyOrigin: env.buddyOrigin.origin }),
     ...(env.toolsUrl === undefined ? {} : { lazurioToolsUrl: env.toolsUrl.toString() }),
   };
 });

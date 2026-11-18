@@ -13,6 +13,8 @@ export const BUDDY_PROJECT_TITLE = "Buddy";
 
 const turnOutsideFolder =
   "Agents in this Environment work in its Lazurio Folder. Start a new chat in the Lazurio project.";
+const repositoryAtBuddyFolder =
+  "Buddy's folder holds Buddy's instructions and notes, so it does not become a repository.";
 const repositoryAtFolder =
   "The Lazurio Folder holds separate repositories, so it cannot become a repository itself.";
 
@@ -49,7 +51,13 @@ export const makeFolderGuard = Effect.gen(function* () {
       folder === undefined
         ? Effect.succeed(null)
         : canonical(cwd).pipe(
-            Effect.map((path) => ((path ?? cwd) === folder ? repositoryAtFolder : null)),
+            Effect.map((path) =>
+              (path ?? cwd) === folder
+                ? repositoryAtFolder
+                : buddyFolder !== undefined && (path ?? cwd) === buddyFolder
+                  ? repositoryAtBuddyFolder
+                  : null,
+            ),
           ),
     /** Whether `path` is the Folder itself; never without a managed Folder. */
     isFolder: (path: string): Effect.Effect<boolean> =>
@@ -68,11 +76,17 @@ export const makeFolderGuard = Effect.gen(function* () {
 export const managedFolderClientConfig = (config: {
   readonly lazurioFolder?: string;
   readonly lazurioBuddyFolder?: string;
+  readonly lazurioBuddyOrigin?: string;
   readonly lazurioToolsUrl?: string;
 }) => ({
   ...(config.lazurioFolder === undefined ? {} : { lazurioFolder: config.lazurioFolder }),
   ...(config.lazurioFolder === undefined || config.lazurioBuddyFolder === undefined
     ? {}
     : { lazurioBuddyFolder: config.lazurioBuddyFolder }),
+  ...(config.lazurioFolder === undefined ||
+  config.lazurioBuddyFolder === undefined ||
+  config.lazurioBuddyOrigin === undefined
+    ? {}
+    : { lazurioBuddyOrigin: config.lazurioBuddyOrigin }),
   ...(config.lazurioToolsUrl === undefined ? {} : { lazurioToolsUrl: config.lazurioToolsUrl }),
 });

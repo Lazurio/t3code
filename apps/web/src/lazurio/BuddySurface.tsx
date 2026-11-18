@@ -19,7 +19,13 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useComposerDraftStore } from "~/composerDraftStore";
+import { useThreadShell } from "~/state/entities";
+import { useEnvironmentShellStatus } from "~/state/shell";
+import { useEnvironmentThread } from "~/state/threads";
+import { isThreadRouteSnapshotAuthoritative, resolveThreadRouteRenderState } from "~/threadRoutes";
 import type { ComposerControlsBar } from "~/components/chat/ComposerControlsBar";
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import { ThreadDetailsPanel } from "~/components/chat/ThreadDetailsPanel";
@@ -42,18 +48,27 @@ import {
   buddySpeedSelection,
   type ChatShortcutsInput,
   isBuddySpeed,
+  isBuddyWindowOrigin,
+  leadsToBuddysThread,
   personsQueuedRuns,
   type QueueMessage,
   withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
 import { isPlainPrimaryClick } from "./environmentBrowser";
 import { pageRecordOf } from "./buddySurfacePage";
+import { useLinkedUnlistedProjectIds } from "./unlistedRows";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
 import { useBuddyFrame } from "./useBuddyFrame";
 
+type BuddyConfig = { readonly lazurioBuddy?: true; readonly lazurioBuddyOrigin?: string } | null;
+
+/** Buddy's surface: Buddy's own T3 Code (GEN3), or Buddy's window on the shared server (GEN4). */
+const isBuddySurfaceConfig = (config: BuddyConfig) =>
+  config?.lazurioBuddy === true || isBuddyWindowOrigin(config);
+
 /**
- * Buddy's T3 Code; null until the primary server's config is known, false without one. With
+ * Buddy's surface; null until the primary server's config is known, false without one. With
  * `environmentId`, only for that Environment: another Environment's thread is never Buddy's.
  */
 export function useBuddySurfaceMode(environmentId?: string): boolean | null {
@@ -61,12 +76,21 @@ export function useBuddySurfaceMode(environmentId?: string): boolean | null {
   const config = useAtomValue(primaryServerConfigAtom);
   if (primaryEnvironmentId === null) return false;
   if (environmentId !== undefined && environmentId !== primaryEnvironmentId) return false;
-  return config === null ? null : config.lazurioBuddy === true;
+  return config === null ? null : isBuddySurfaceConfig(config);
 }
 
-/** Buddy's T3 Code, read outside React when a command runs: false until the config is known. */
+/**
+ * Hermes's chat (GEN3 only): Normal / Fast instead of T3's model, effort and mode. Buddy's window on
+ * the shared server keeps T3's whole picker, as a Chat thread has it (GEN4).
+ */
+export function useBuddyHermesControls(environmentId?: string): boolean {
+  const config = useAtomValue(primaryServerConfigAtom);
+  return useBuddySurfaceMode(environmentId) === true && config?.lazurioBuddy === true;
+}
+
+/** Buddy's surface, read outside React when a command runs: false until the config is known. */
 export const isBuddySurfaceNow = (): boolean =>
-  appAtomRegistry.get(primaryServerConfigAtom)?.lazurioBuddy === true;
+  isBuddySurfaceConfig(appAtomRegistry.get(primaryServerConfigAtom));
 
 const BUDDY_THREAD_ROUTE = "/api/lazurio/buddy/thread";
 const BUDDY_DAYS_ROUTE = "/api/lazurio/buddy/days";
@@ -84,9 +108,7 @@ interface BuddyDay {
  * surface has none, since Buddy's thread is a conversation, not work in a checkout.
  */
 export function BuddyThreadDetailsPanel(props: ComponentProps<typeof ThreadDetailsPanel>) {
-  return useBuddySurfaceMode(props.environmentId) === true ? null : (
-    <ThreadDetailsPanel {...props} />
-  );
+  return useBuddyHermesControls(props.environmentId) ? null : <ThreadDetailsPanel {...props} />;
 }
 
 /** The surface's language: the host page's when framed, else the browser's. */
@@ -321,7 +343,7 @@ export function BuddyThreadErrorBanner({
   environmentId,
   ...props
 }: ComponentProps<typeof ThreadErrorBanner> & { readonly environmentId: string }) {
-  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const buddy = useBuddyHermesControls(environmentId);
   const text = useCzech(buddy) ? TEXT.cs : TEXT.en;
   return buddy && props.error !== null ? (
     <ThreadErrorBanner {...props} error={text.somethingFailed} errorCode={null} />
@@ -433,7 +455,10 @@ export const buddyRightPanelState = (buddy: boolean, state: RightPanelState): Ri
 
 /** The chat's shortcuts, without those Buddy's surface has no use for there. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
-  useChatShortcuts(buddy ? withoutUnusedShortcuts(input) : input);
+  // Only Buddy's window on the shared server (GEN4) has a model and effort choice.
+  const surface = useBuddySurfaceMode() === true;
+  const hermes = useBuddyHermesControls();
+  useChatShortcuts(buddy ? withoutUnusedShortcuts(input, surface && !hermes) : input);
 }
 
 /**
@@ -446,7 +471,7 @@ export function useBuddyQueuedRuns<Queued extends { readonly messageId: string }
   queued: ReadonlyArray<Queued>,
   messages: ReadonlyArray<QueueMessage> | undefined,
 ): ReadonlyArray<Queued> {
-  return useBuddySurfaceMode(environmentId) === true ? personsQueuedRuns(queued, messages) : queued;
+  return useBuddyHermesControls(environmentId) ? personsQueuedRuns(queued, messages) : queued;
 }
 
 /**
@@ -458,7 +483,7 @@ export function useBuddyQueuedRunCount(
   runs: ReadonlyArray<{ readonly userMessageId: string }> | null,
   messages: ReadonlyArray<QueueMessage> | undefined,
 ): number {
-  const buddy = useBuddySurfaceMode(environmentId) === true;
+  const buddy = useBuddyHermesControls(environmentId);
   if (runs === null) return 0;
   if (!buddy) return runs.length;
   return personsQueuedRuns(
@@ -672,12 +697,54 @@ export function useLeadsToBuddysThread(
   threadRef: { readonly environmentId: string; readonly threadId: string } | null,
 ): boolean {
   const buddy = useBuddySurfaceMode(threadRef?.environmentId) === true;
+  const hermes = useBuddyHermesControls(threadRef?.environmentId);
   const known = useSyncExternalStore(subscribeBuddyThread, () => buddyThreadId, noTarget);
-  return threadRef !== null && buddy && threadRef.threadId !== known;
+  const shell = useThreadShell(
+    threadRef === null
+      ? null
+      : scopeThreadRef(threadRef.environmentId as EnvironmentId, threadRef.threadId as ThreadId),
+  );
+  const environmentId = (threadRef?.environmentId ?? null) as EnvironmentId | null;
+  // Buddy's project from the server's Buddy folder, known on a fresh load before `/` ever ran.
+  const buddyProjectIds = useLinkedUnlistedProjectIds(environmentId);
+  // Whether the server confirmed the thread missing, as ThreadRouteView decides it.
+  const shellStatus = useEnvironmentShellStatus(environmentId);
+  const asked = buddy && !hermes && shell === null && threadRef !== null;
+  const detail = useEnvironmentThread(
+    asked ? environmentId : null,
+    asked ? (threadRef.threadId as ThreadId) : null,
+  );
+  const draftThread = useComposerDraftStore((store) =>
+    asked
+      ? store.getDraftThreadByRef(
+          scopeThreadRef(threadRef.environmentId as EnvironmentId, threadRef.threadId as ThreadId),
+        )
+      : null,
+  );
+  if (threadRef === null || !buddy) return false;
+  const missing =
+    !hermes &&
+    resolveThreadRouteRenderState({
+      bootstrapComplete: isThreadRouteSnapshotAuthoritative(shellStatus),
+      serverThreadExists: shell !== null,
+      serverThreadDeleted: shell?.deletedAt != null,
+      unlistedThreadDetail: detail,
+      draftThreadExists: draftThread !== null,
+    }) === "missing";
+  return leadsToBuddysThread({
+    threadId: threadRef.threadId,
+    buddyThreadId: known,
+    hermes,
+    projectId: shell?.projectId,
+    missing,
+    buddyProjectIds,
+  });
 }
 
 /** Asks the server for Buddy's thread: its id, or why there is none. */
-async function openBuddyThread(): Promise<string | "not-ready" | "failed"> {
+async function openBuddyThread(): Promise<
+  { readonly threadId: string; readonly projectId: string } | "not-ready" | "failed"
+> {
   const response = await fetch(BUDDY_THREAD_ROUTE, {
     method: "POST",
     credentials: "same-origin",
@@ -686,9 +753,11 @@ async function openBuddyThread(): Promise<string | "not-ready" | "failed"> {
   }).catch(() => null);
   const body = (await response?.json().catch(() => null)) as {
     threadId?: string;
+    projectId?: string;
     error?: string;
   } | null;
-  if (response?.ok && typeof body?.threadId === "string") return body.threadId;
+  if (response?.ok && typeof body?.threadId === "string")
+    return { threadId: body.threadId, projectId: body.projectId ?? "" };
   return body?.error === "no-project" ? "not-ready" : "failed";
 }
 
@@ -709,11 +778,11 @@ export function BuddySurfaceIndex() {
         setFailure({ attempt, outcome });
         return;
       }
-      buddyThreadId = outcome;
+      buddyThreadId = outcome.threadId;
       for (const listener of buddyThreadListeners) listener();
       void navigate({
         to: "/$environmentId/$threadId",
-        params: { environmentId, threadId: outcome },
+        params: { environmentId, threadId: outcome.threadId },
         replace: true,
       });
     });

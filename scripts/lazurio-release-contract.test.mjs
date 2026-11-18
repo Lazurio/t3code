@@ -1170,7 +1170,7 @@ NodeTest.test("the managed Lazurio Folder keeps its seams", async () => {
   );
   NodeAssert.match(
     source.gitActions,
-    /if \(!gitCwd \|\| serverConfig\?\.lazurioFolder === gitCwd\) return null;/,
+    /if \(\n\s+!gitCwd \|\|\n\s+serverConfig\?\.lazurioFolder === gitCwd \|\|\n\s+serverConfig\?\.lazurioBuddyFolder === gitCwd\n\s+\)\n\s+return null;/,
   );
   before(
     source.welcome,
@@ -1417,7 +1417,7 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
   // width in a narrow window with the shell present.
   NodeAssert.match(
     narrow,
-    /:root:has\(lazurio-rail:defined\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\) \{\s*width: 100vw;\s*min-width: 0;\s*max-width: none;/,
+    /:root:has\(lazurio-rail:defined\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\),\n\s+:root:has\(\[data-lazurio-buddy-surface\]\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\) \{\s*width: 100vw;\s*min-width: 0;\s*max-width: none;/,
   );
   NodeAssert.ok(
     page.indexOf("@media (max-width: 767px)") > page.search(/#root \{\s*box-sizing: border-box;/),
@@ -3078,8 +3078,9 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
     layout,
     /\{toBuddysThread \? \(\n\s+<BuddySurfaceIndex \/>\n\s+\) : shownTarget \? \(/,
   );
-  NodeAssert.match(chat, /const buddySurface = useBuddySurfaceMode\(environmentId\) === true;/);
-  NodeAssert.doesNotMatch(chat, /useBuddySurfaceMode\(\)/);
+  // Hermes's one conversation (GEN3); Buddy's window on the shared server is a whole thread (GEN4).
+  NodeAssert.match(chat, /const buddySurface = useBuddyHermesControls\(environmentId\);/);
+  NodeAssert.doesNotMatch(chat, /useBuddyHermesControls\(\)/);
   NodeAssert.match(chat, /\? \{ \.\.\.environmentSettings, followUpBehavior: "steer" as const \}/);
   NodeAssert.match(chat, /const supportsConversationRollback =\n\s+!buddySurface &&/);
   // Buddy's thread keeps its provider session: upstream's /clear (a fresh session) is never offered there.
@@ -3103,13 +3104,13 @@ NodeTest.test("Buddy keeps one conversation through its seams", async () => {
   NodeAssert.equal(timeline.match(/\buseBuddySurfaceMode\(/g)?.length, 1);
   NodeAssert.match(
     timeline,
-    /const buddySurface = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n[^]*?\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddySurface\);/,
+    /const buddySurface = useBuddyHermesControls\(activeThreadEnvironmentId\);\n\s+const buddyDays = useBuddySurfaceMode\(activeThreadEnvironmentId\) === true;\n[^]*?\n\s+const buddyDayLines = useBuddyDayLines\(rows, buddyDays\);/,
   );
   NodeAssert.match(timeline, /\n\s+workGroupViewState,\n\s+buddySurface,\n\s+\};/);
   // Since v0.1.3 the timeline navigates itself (pingdotgg/t3code#25463): the jump takes its navigateTimeline.
   NodeAssert.match(
     timeline,
-    /const navigateTimeline = \(\) => viewportRef\.current\?\.navigate\(\{ releasesFollow: true \}\);\n\s+useBuddyDayJump\(\{\n\s+buddy: buddySurface,\n\s+rows,\n\s+listRef,\n\s+onManualNavigation: navigateTimeline,\n\s+history: historyControls,\n\s+\}\);/,
+    /const navigateTimeline = \(\) => viewportRef\.current\?\.navigate\(\{ releasesFollow: true \}\);\n\s+useBuddyDayJump\(\{\n\s+buddy: buddyDays,\n\s+rows,\n\s+listRef,\n\s+onManualNavigation: navigateTimeline,\n\s+history: historyControls,\n\s+\}\);/,
   );
   NodeAssert.match(timeline, /buddyDays: \[\.\.\.buddyDayLines\.keys\(\)\]\.join\(\),/);
   // Since v0.1.2 the rows live in their own files (pingdotgg/t3code#22674, pingdotgg/t3code#22677): the shared row state knows
@@ -3376,13 +3377,12 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   );
   NodeAssert.equal(timeline.match(/<TimelineRowContent\b/g)?.length, 1);
   NodeAssert.match(composer, /\n\s+const buddyComposer = useBuddyComposer\(environmentId\);\n/);
-  // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's controls stand in for all of T3's (model
-  // picker, options chip, access and mode, the overflow menu) before the bar builds any of them.
-  // Since v0.1.4 the resting composer has no strip of its own to hide. Since v0.1.8 the bar's
-  // hooks end with the model pick (pingdotgg/t3code#31739), and Buddy's return comes after them.
+  // Root decision 0210: Hermes's chat (GEN3) swaps all of T3's controls before the bar builds any,
+  // after the bar's last hook, the model pick. Buddy's window on the shared server keeps T3's
+  // picker (LZD-0033 R3).
   NodeAssert.match(
     controlsBar,
-    /\n\s+const applyRouteThreadModelPick = useStableCallback\(\(\) => applyThreadModelPick\(routeThreadRef\)\);\n(?:\s+\/\/[^\n]*\n)*\s+const buddySurface = useBuddySurfaceMode\(environmentId\) === true;\n\s+if \(buddySurface\) return <BuddyComposerControls \{\.\.\.props\} \/>;\n\s+const traitsInput = resolveComposerTraitsInput\(/,
+    /\n\s+const applyRouteThreadModelPick = useStableCallback\(\(\) => applyThreadModelPick\(routeThreadRef\)\);\n(?:\s+\/\/[^\n]*\n)*\s+const buddyHermes = useBuddyHermesControls\(environmentId\);\n\s+if \(buddyHermes\) return <BuddyComposerControls \{\.\.\.props\} \/>;\n\s+const traitsInput = resolveComposerTraitsInput\(/,
   );
   NodeAssert.doesNotMatch(composer, /buddyComposer\.hasControls/);
   // Buddy always works with full access: the web never asks Buddy's thread for another mode.

@@ -100,6 +100,8 @@ const UNUSED_SHORTCUTS: ReadonlySet<KeybindingCommand> = new Set([
   ...PANEL_SHORTCUTS,
   ...CHOICE_SHORTCUTS,
 ]);
+/** Buddy's window on the shared server keeps T3's picker, so only the panels go (GEN4). */
+const UNUSED_PANEL_SHORTCUTS: ReadonlySet<KeybindingCommand> = new Set(PANEL_SHORTCUTS);
 
 const NO_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 
@@ -111,10 +113,14 @@ export type ChatShortcutsInput = Parameters<typeof useChatShortcuts>[0];
  * them, not even the chat's guards that hold Mod+W for a closing terminal before any command runs,
  * so their keys reach the browser, as on any page that has no use for them.
  */
-export function withoutUnusedShortcuts(input: ChatShortcutsInput): ChatShortcutsInput {
+export function withoutUnusedShortcuts(
+  input: ChatShortcutsInput,
+  keepsChoices = false,
+): ChatShortcutsInput {
+  const unused = keepsChoices ? UNUSED_PANEL_SHORTCUTS : UNUSED_SHORTCUTS;
   return {
     ...input,
-    keybindings: input.keybindings.filter((binding) => !UNUSED_SHORTCUTS.has(binding.command)),
+    keybindings: input.keybindings.filter((binding) => !unused.has(binding.command)),
     scriptKeybindings: NO_KEYBINDINGS,
   };
 }
@@ -138,4 +144,34 @@ export function personsQueuedRuns<Queued extends { readonly messageId: string }>
   );
   if (!queued.some((run) => notThePersons.has(run.messageId))) return queued;
   return queued.filter((run) => !notThePersons.has(run.messageId));
+}
+
+/**
+ * Whether a thread route leads to Buddy's thread: in GEN4 only another project's thread, decided
+ * once it and Buddy's project are known, or one the server confirmed missing, also on a server
+ * with no thread, where Chat's redirect home does not run.
+ */
+export function leadsToBuddysThread(input: {
+  readonly threadId: string;
+  readonly buddyThreadId: string | null;
+  readonly hermes: boolean;
+  readonly projectId: string | undefined;
+  readonly missing: boolean;
+  readonly buddyProjectIds: ReadonlySet<string>;
+}): boolean {
+  if (input.threadId === input.buddyThreadId) return false;
+  if (input.hermes || input.missing) return true;
+  if (input.projectId === undefined || input.buddyProjectIds.size === 0) return false;
+  return !input.buddyProjectIds.has(input.projectId);
+}
+
+/**
+ * Whether this page is Buddy's window on the shared server (GEN4, plan LZD-0033 R3): the page's
+ * origin is the one the server names for Buddy's window. On Chat's origin it is Chat.
+ */
+export function isBuddyWindowOrigin(
+  config: { readonly lazurioBuddyOrigin?: string } | null | undefined,
+  origin: string = globalThis.location?.origin ?? "",
+): boolean {
+  return config?.lazurioBuddyOrigin !== undefined && config.lazurioBuddyOrigin === origin;
 }

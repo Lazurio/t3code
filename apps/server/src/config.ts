@@ -96,6 +96,8 @@ export class ServerConfig extends Context.Service<
     readonly lazurioFolder?: string;
     /** The Buddy folder beside the Folder, declared with it (`T3CODE_LAZURIO_BUDDY_FOLDER`). */
     readonly lazurioBuddyFolder?: string;
+    /** Buddy's window's own origin, routed to this server (`T3CODE_LAZURIO_BUDDY_ORIGIN`). */
+    readonly lazurioBuddyOrigin?: string;
     readonly lazurioToolsUrl?: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;

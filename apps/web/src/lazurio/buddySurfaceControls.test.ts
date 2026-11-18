@@ -10,7 +10,10 @@ import {
   buddySpeedOf,
   buddySpeedOption,
   buddySpeedSelection,
+  isBuddyWindowOrigin,
+  leadsToBuddysThread,
   personsQueuedRuns,
+  withoutUnusedShortcuts,
 } from "./buddySurfaceControls";
 
 const BUDDY = ProviderInstanceId.make("buddy");
@@ -96,5 +99,69 @@ describe("Buddy's queue", () => {
 
   it("hands back the same queue when all of it is the person's", () => {
     expect(personsQueuedRuns(queued, [{ id: "person", createdBy: "user" }])).toBe(queued);
+  });
+});
+
+describe("Buddy's window on the shared server", () => {
+  it("is the page whose origin the server names for it, and nothing else", () => {
+    const config = { lazurioBuddyOrigin: "https://buddy.example.test" };
+    expect(isBuddyWindowOrigin(config, "https://buddy.example.test")).toBe(true);
+    expect(isBuddyWindowOrigin(config, "https://t3code.example.test")).toBe(false);
+    expect(isBuddyWindowOrigin({}, "https://buddy.example.test")).toBe(false);
+    expect(isBuddyWindowOrigin(null, "https://buddy.example.test")).toBe(false);
+  });
+});
+
+describe("a thread route in Buddy's surface", () => {
+  const buddyProjectIds = new Set(["buddy-project"]);
+  const route = (over: Partial<Parameters<typeof leadsToBuddysThread>[0]>) =>
+    leadsToBuddysThread({
+      threadId: "fork",
+      buddyThreadId: null,
+      hermes: false,
+      projectId: "buddy-project",
+      missing: false,
+      buddyProjectIds,
+      ...over,
+    });
+
+  it("keeps a fork or subagent of Buddy's project open on a fresh load, before Buddy's thread is known", () => {
+    expect(route({})).toBe(false);
+    expect(route({ buddyThreadId: "root" })).toBe(false);
+  });
+
+  it("waits for the thread and Buddy's project before it leads anywhere", () => {
+    expect(route({ projectId: undefined })).toBe(false);
+    expect(route({ projectId: "other", buddyProjectIds: new Set() })).toBe(false);
+  });
+
+  it("leads a thread the server confirmed missing to Buddy's, also before any thread exists", () => {
+    expect(route({ projectId: undefined, missing: true })).toBe(true);
+    expect(route({ projectId: undefined, missing: true, buddyProjectIds: new Set() })).toBe(true);
+    // Still loading is not missing: the route waits.
+    expect(route({ projectId: undefined, missing: false, buddyProjectIds: new Set() })).toBe(false);
+  });
+
+  it("leads another project's thread to Buddy's, and every other thread of Hermes's chat", () => {
+    expect(route({ projectId: "other" })).toBe(true);
+    expect(route({ hermes: true })).toBe(true);
+    expect(route({ hermes: true, threadId: "buddy", buddyThreadId: "buddy" })).toBe(false);
+  });
+});
+
+describe("the chat's shortcuts in Buddy's surface", () => {
+  const binding = (command: string) => ({ command, shortcut: { key: "k" } }) as never;
+  const input = {
+    keybindings: [binding("modelPicker.toggle"), binding("terminal.toggle"), binding("chat.new")],
+  } as unknown as Parameters<typeof withoutUnusedShortcuts>[0];
+  const commands = (result: ReturnType<typeof withoutUnusedShortcuts>) =>
+    result.keybindings.map((entry) => entry.command);
+
+  it("drop the model choice only in Hermes's chat, the panels in both", () => {
+    expect(commands(withoutUnusedShortcuts(input))).toEqual(["chat.new"]);
+    expect(commands(withoutUnusedShortcuts(input, true))).toEqual([
+      "modelPicker.toggle",
+      "chat.new",
+    ]);
   });
 });

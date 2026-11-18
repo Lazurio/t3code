@@ -110,6 +110,48 @@ it.effect("declares the Buddy folder beside the Folder by its canonical path", (
   }),
 );
 
+it.effect("declares Buddy's window origin only beside a Buddy folder, as a bare HTTPS origin", () =>
+  Effect.gen(function* () {
+    const { folder, buddy } = makeFolder();
+    const config = yield* resolveManagedFolderConfig.pipe(
+      withEnv({
+        T3CODE_LAZURIO_FOLDER: folder,
+        T3CODE_LAZURIO_BUDDY_FOLDER: buddy,
+        T3CODE_LAZURIO_BUDDY_ORIGIN: "https://buddy.example.test",
+      }),
+    );
+    assert.strictEqual(config.lazurioBuddyOrigin, "https://buddy.example.test");
+    for (const [env, expected] of [
+      [
+        {
+          T3CODE_LAZURIO_FOLDER: folder,
+          T3CODE_LAZURIO_BUDDY_ORIGIN: "https://buddy.example.test",
+        },
+        "T3CODE_LAZURIO_BUDDY_ORIGIN needs T3CODE_LAZURIO_BUDDY_FOLDER",
+      ],
+      [
+        {
+          T3CODE_LAZURIO_FOLDER: folder,
+          T3CODE_LAZURIO_BUDDY_FOLDER: buddy,
+          T3CODE_LAZURIO_BUDDY_ORIGIN: "http://buddy.example.test",
+        },
+        "must be a bare HTTPS origin",
+      ],
+      [
+        {
+          T3CODE_LAZURIO_FOLDER: folder,
+          T3CODE_LAZURIO_BUDDY_FOLDER: buddy,
+          T3CODE_LAZURIO_BUDDY_ORIGIN: "https://buddy.example.test/chat",
+        },
+        "must be a bare HTTPS origin",
+      ],
+    ] as const) {
+      const error = yield* resolveManagedFolderConfig.pipe(withEnv(env), Effect.flip);
+      assert.include(String(error), expected);
+    }
+  }),
+);
+
 it.effect("refuses a relative path, a file, an insecure or credentialed tools URL", () =>
   Effect.gen(function* () {
     const { parent, folder, buddy } = makeFolder();

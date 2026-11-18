@@ -748,7 +748,8 @@
         }
         /* The right panel (RightPanelSheet.tsx, the one other sheet) takes the whole screen: no
            sliver of the conversation beside it. Its own toggle closes it, back to the conversation. */
-        :root:has(lazurio-rail:defined) [data-slot="sheet-popup"]:not([data-mobile]) {
+        :root:has(lazurio-rail:defined) [data-slot="sheet-popup"]:not([data-mobile]),
+        :root:has([data-lazurio-buddy-surface]) [data-slot="sheet-popup"]:not([data-mobile]) {
           width: 100vw;
           min-width: 0;
           max-width: none;

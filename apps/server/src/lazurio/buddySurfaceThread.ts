@@ -9,11 +9,16 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+
+import * as ServerConfig from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import {
   BUDDY_PROVIDER_INSTANCE_ID,
   buddyProjectFolder,
@@ -96,13 +101,123 @@ const conflict = () =>
     detail: `A thread with Buddy's id "${BUDDY_THREAD_ID}" is not in Buddy's project on the instance "${BUDDY_PROVIDER_INSTANCE_ID}".`,
   });
 
+/**
+ * Buddy GEN4 (plan LZD-0033, R3): on the shared Chat server Buddy's project is the one over the
+ * declared Buddy folder, and Buddy's thread is its oldest root thread. Archiving one is
+ * refused and the startup brings archived ones back, so this is the conversation the person had.
+ */
+const sharedBuddyProject = Effect.fn("LazurioBuddySurface.sharedBuddyProject")(function* (
+  buddyFolder: string,
+) {
+  const projects = yield* (yield* ProjectStoreV2).list().pipe(Effect.mapError(unavailable));
+  const project = projects.find((candidate) => candidate.workspaceRoot === buddyFolder);
+  if (project === undefined)
+    return yield* new BuddyThreadUnavailable({
+      reason: "no-project",
+      detail: `Buddy's project ${buddyFolder} is not in this T3 Code yet.`,
+    });
+  return project;
+});
+
+/** Buddy's thread on the shared server: the oldest root thread of Buddy's project, if any. */
+export const findSharedBuddyThread = Effect.fn("LazurioBuddySurface.findSharedThread")(function* (
+  buddyFolder: string,
+) {
+  const project = yield* sharedBuddyProject(buddyFolder);
+  const { threads } = yield* (yield* OrchestratorV2)
+    .getShellSnapshot({ projectId: project.projectId })
+    .pipe(Effect.mapError(unavailable));
+  const roots = threads.filter(
+    (thread) =>
+      thread.projectId === project.projectId &&
+      thread.lineage.parentThreadId === null &&
+      thread.delegatedFrom === undefined,
+  );
+  const oldest = roots.toSorted(
+    (left, right) =>
+      DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
+  )[0];
+  return { project, thread: oldest ?? null };
+});
+
+/**
+ * Buddy's thread on the shared server, made on the project's default model the first time anyone
+ * asks. Its id and command derive from the project, so two first visits make one thread.
+ */
+const resolveSharedBuddyThread = Effect.fn("LazurioBuddySurface.resolveSharedThread")(function* (
+  buddyFolder: string,
+) {
+  const { project, thread } = yield* findSharedBuddyThread(buddyFolder);
+  if (thread !== null)
+    return { threadId: thread.id, projectId: project.projectId } satisfies BuddyThread;
+  const settingsService = yield* Effect.serviceOption(ServerSettingsService);
+  if (Option.isNone(settingsService))
+    return yield* new BuddyThreadUnavailable({
+      reason: "unavailable",
+      detail: "This T3 Code cannot read its settings for Buddy's first thread.",
+    });
+  const settings = yield* settingsService.value.getSettings.pipe(Effect.mapError(unavailable));
+  // Buddy's project's own model, else the Environment's default, else the Lazurio project's, where
+  // a hosted Environment keeps the Platform's recommended model (modelRecommendation.ts).
+  const folder = (yield* ServerConfig.ServerConfig).lazurioFolder;
+  const folderProject = (yield* (yield* ProjectStoreV2)
+    .list()
+    .pipe(Effect.mapError(unavailable))).find((candidate) => candidate.workspaceRoot === folder);
+  const modelSelection =
+    resolveProjectSettings(settings, project.projectId).settings.defaultModelSelection ??
+    (folderProject === undefined
+      ? null
+      : resolveProjectSettings(settings, folderProject.projectId).settings.defaultModelSelection);
+  if (modelSelection === null)
+    return yield* new BuddyThreadUnavailable({
+      reason: "unavailable",
+      detail: "This Environment has no default model for Buddy's first thread.",
+    });
+  const threadId = ThreadId.make(`lazurio-buddy:${project.projectId}`);
+  const orchestrator = yield* OrchestratorV2;
+  yield* orchestrator
+    .dispatch({
+      type: "thread.create",
+      createdBy: "user",
+      creationSource: "server",
+      commandId: CommandId.make(`lazurio:buddy-thread:create:${project.projectId}`),
+      threadId,
+      projectId: project.projectId,
+      title: "Buddy",
+      modelSelection,
+      // Buddy works with the Osobní Prostředí's full rights (root decision 0210).
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+    })
+    .pipe(Effect.mapError(unavailable));
+  const created = yield* orchestrator.getThreadShell(threadId).pipe(Effect.mapError(unavailable));
+  if (created === null)
+    return yield* new BuddyThreadUnavailable({
+      reason: "unavailable",
+      detail: "Buddy's thread was deleted.",
+    });
+  return { threadId, projectId: project.projectId } satisfies BuddyThread;
+});
+
+/** The Buddy folder of a shared server that declares one (GEN4), or undefined. */
+export const sharedBuddyFolder = Effect.map(ServerConfig.ServerConfig, (config) =>
+  typeof config.lazurioFolder === "string" && typeof config.lazurioBuddyFolder === "string"
+    ? config.lazurioBuddyFolder
+    : undefined,
+);
+
 /** Buddy's thread, made in Buddy's project the first time anyone asks. */
 export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")(function* () {
-  if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment))
+  if (!isBuddySurfaceEnvironment(yield* HostProcess.Environment)) {
+    const buddyFolder = yield* sharedBuddyFolder;
+    if (buddyFolder !== undefined) return yield* resolveSharedBuddyThread(buddyFolder);
     return yield* new BuddyThreadUnavailable({
       reason: "not-buddy",
       detail: "This T3 Code is not Buddy's.",
     });
+  }
   const orchestrator = yield* OrchestratorV2;
   const project = yield* buddyProject();
   const existing = yield* orchestrator

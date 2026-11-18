@@ -131,7 +131,8 @@ export function buddyProviderText(input: {
 }
 
 /**
- * The text a provider turn gets for a message: Buddy's projection for Buddy's instance, upstream's
+ * The text a provider turn gets for a message: Buddy's projection for Buddy's instance and for any
+ * message with a page record, which only Buddy's window adds (GEN4 on any provider); upstream's
  * for every other.
  */
 export const projectComposerContextForProvider = Effect.fn(
@@ -142,7 +143,7 @@ export const projectComposerContextForProvider = Effect.fn(
   readonly records: ReadonlyArray<ComposerContextRecord>;
 }) {
   const environment = yield* HostProcess.Environment;
-  return isBuddyInstance(environment, input.instanceId)
+  return isBuddyInstance(environment, input.instanceId) || input.records.some(isPageRecord)
     ? buddyProviderText(input)
     : projectUpstream(input);
 });
