@@ -1417,7 +1417,7 @@ NodeTest.test("the Lazurio shell slot survives a rebuild on a new upstream tag",
   // width in a narrow window with the shell present.
   NodeAssert.match(
     narrow,
-    /:root:has\(lazurio-rail:defined\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\) \{\s*width: 100vw;\s*min-width: 0;\s*max-width: none;/,
+    /:root:has\(lazurio-rail:defined\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\),\n\s+:root:has\(\[data-lazurio-buddy-surface\]\) \[data-slot="sheet-popup"\]:not\(\[data-mobile\]\) \{\s*width: 100vw;\s*min-width: 0;\s*max-width: none;/,
   );
   NodeAssert.ok(
     page.indexOf("@media (max-width: 767px)") > page.search(/#root \{\s*box-sizing: border-box;/),
