@@ -2990,6 +2990,40 @@ NodeTest.test(
   },
 );
 
+// Row 39: a thread that asks a question wakes whoever waits on it. t3_thread_wait returns on one
+// only when asked to, since older followers and `t3 thread wait` read a return as the run's end;
+// the remote delegation follower always asks, and the orchestrator keeps its wakes.
+NodeTest.test(
+  "a thread waiting on a question wakes whoever waits on it through its seams",
+  async () => {
+    const [contract, threads, follower, orchestrator] = await Promise.all(
+      [
+        "packages/contracts/src/orchestratorMcp.ts",
+        "apps/server/src/orchestration-v2/ThreadManagementService.ts",
+        "apps/server/src/peer/RemoteDelegation.ts",
+        "apps/server/src/orchestration-v2/Orchestrator.ts",
+      ].map(read),
+    );
+    NodeAssert.match(contract, /untilQuestion: Schema\.optional\(/);
+    NodeAssert.match(
+      contract,
+      /pendingQuestionIds: Schema\.optional\(Schema\.Array\(RuntimeRequestId\)\)/,
+    );
+    NodeAssert.match(
+      threads,
+      /\.\.\.\(untilQuestion \? \(\["runtime-request\.updated"\] as const\) : \[\]\)/,
+    );
+    NodeAssert.match(
+      follower,
+      /untilQuestion: true,\n\s+knownQuestionIds: questions\.get\(taskId\)\?\.pending \?\? \[\],/,
+    );
+    NodeAssert.match(
+      orchestrator,
+      /if \(childThreadId === null\) return task\.remoteChild === undefined;/,
+    );
+  },
+);
+
 // Root decision 0210, plan DEV-6676 (row 25): Buddy's T3 Code is one conversation for every client:
 // decorators refuse forks, rollbacks, other threads and guest shares (a Personalspace is never
 // shared, 0091) and take no checkpoints, defaults run before recovery,
