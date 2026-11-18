@@ -120,6 +120,7 @@ describe("a thread route in Buddy's surface", () => {
       buddyThreadId: null,
       hermes: false,
       projectId: "buddy-project",
+      missing: false,
       buddyProjectIds,
       ...over,
     });
@@ -132,6 +133,13 @@ describe("a thread route in Buddy's surface", () => {
   it("waits for the thread and Buddy's project before it leads anywhere", () => {
     expect(route({ projectId: undefined })).toBe(false);
     expect(route({ projectId: "other", buddyProjectIds: new Set() })).toBe(false);
+  });
+
+  it("leads a thread the server confirmed missing to Buddy's, also before any thread exists", () => {
+    expect(route({ projectId: undefined, missing: true })).toBe(true);
+    expect(route({ projectId: undefined, missing: true, buddyProjectIds: new Set() })).toBe(true);
+    // Still loading is not missing: the route waits.
+    expect(route({ projectId: undefined, missing: false, buddyProjectIds: new Set() })).toBe(false);
   });
 
   it("leads another project's thread to Buddy's, and every other thread of Hermes's chat", () => {

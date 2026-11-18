@@ -23,6 +23,9 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useThreadShell } from "~/state/entities";
+import { useEnvironmentShellStatus } from "~/state/shell";
+import { useEnvironmentThread } from "~/state/threads";
+import { isThreadRouteSnapshotAuthoritative, resolveThreadRouteRenderState } from "~/threadRoutes";
 import type { ComposerControlsBar } from "~/components/chat/ComposerControlsBar";
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
 import { ThreadDetailsPanel } from "~/components/chat/ThreadDetailsPanel";
@@ -701,16 +704,39 @@ export function useLeadsToBuddysThread(
       ? null
       : scopeThreadRef(threadRef.environmentId as EnvironmentId, threadRef.threadId as ThreadId),
   );
+  const environmentId = (threadRef?.environmentId ?? null) as EnvironmentId | null;
   // Buddy's project from the server's Buddy folder, known on a fresh load before `/` ever ran.
-  const buddyProjectIds = useLinkedUnlistedProjectIds(
-    (threadRef?.environmentId ?? null) as EnvironmentId | null,
+  const buddyProjectIds = useLinkedUnlistedProjectIds(environmentId);
+  // Whether the server confirmed the thread missing, as ThreadRouteView decides it.
+  const shellStatus = useEnvironmentShellStatus(environmentId);
+  const asked = buddy && !hermes && shell === null && threadRef !== null;
+  const detail = useEnvironmentThread(
+    asked ? environmentId : null,
+    asked ? (threadRef.threadId as ThreadId) : null,
+  );
+  const draftThread = useComposerDraftStore((store) =>
+    asked
+      ? store.getDraftThreadByRef(
+          scopeThreadRef(threadRef.environmentId as EnvironmentId, threadRef.threadId as ThreadId),
+        )
+      : null,
   );
   if (threadRef === null || !buddy) return false;
+  const missing =
+    !hermes &&
+    resolveThreadRouteRenderState({
+      bootstrapComplete: isThreadRouteSnapshotAuthoritative(shellStatus),
+      serverThreadExists: shell !== null,
+      serverThreadDeleted: shell?.deletedAt != null,
+      unlistedThreadDetail: detail,
+      draftThreadExists: draftThread !== null,
+    }) === "missing";
   return leadsToBuddysThread({
     threadId: threadRef.threadId,
     buddyThreadId: known,
     hermes,
     projectId: shell?.projectId,
+    missing,
     buddyProjectIds,
   });
 }
