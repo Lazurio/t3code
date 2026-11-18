@@ -440,6 +440,7 @@ jobs:
             packages/contracts/src/orchestratorMcp.ts
             apps/server/src/peer/RemoteDelegation.ts
             apps/server/src/peer/RemoteDelegation.test.ts
+            apps/server/src/mcp/OrchestratorMcpService.test.ts
             # The tool list grows by the two optional parameters and the wait result's field.
             apps/server/src/provider/agentContextBudget.json
           )
