@@ -192,6 +192,10 @@ export interface AgentCliConnection {
     route: string,
     body: unknown,
   ) => Effect.Effect<{ readonly status: number; readonly body: unknown }, AgentCliFailure>;
+  /** GET one of the overlay's routes as the person's client surface; every status comes back. */
+  readonly getRoute: (
+    route: string,
+  ) => Effect.Effect<{ readonly status: number; readonly body: unknown }, AgentCliFailure>;
   /** The live thread list, as the sidebar follows it. */
   readonly subscribeShell: (
     input: OrchestrationV2SubscribeShellInput,
@@ -388,6 +392,27 @@ export const withAgentCliConnection = Effect.fn("LazurioAgentCli.withConnection"
                 HttpClientRequest.post(new URL(route, origin)).pipe(
                   HttpClientRequest.bearerToken(token),
                   HttpClientRequest.bodyJsonUnsafe(body),
+                ),
+              )
+              .pipe(
+                Effect.flatMap((response) =>
+                  Effect.map(response.text, (text) => ({ status: response.status, text })),
+                ),
+                Effect.mapError(requestFailed),
+              ),
+          ),
+          Effect.map(({ status, text }) => ({
+            status,
+            body: Option.getOrUndefined(decodeJson(text)),
+          })),
+        ),
+      getRoute: (route) =>
+        ownerToken.pipe(
+          Effect.flatMap((token) =>
+            httpClient
+              .execute(
+                HttpClientRequest.get(new URL(route, origin)).pipe(
+                  HttpClientRequest.bearerToken(token),
                 ),
               )
               .pipe(
