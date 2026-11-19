@@ -55,6 +55,7 @@ import {
   MCP_HTTP_PATH,
 } from "./httpCors.ts";
 import { requestUrl } from "./requestUrl.ts";
+import { framedByGateway } from "./lazurio/buddyFraming.ts";
 
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -660,6 +661,10 @@ const handleStaticAndDevRequest = Effect.fn("handleStaticAndDevRequest")(
     const fileInfo = opened.info;
     const mimeType = Option.getOrElse(Mime.getType(filePath), () => "application/octet-stream");
     const isHtml = mimeType === "text/html";
+    const frameHeaders =
+      isHtml && !(yield* framedByGateway(config.lazurioBuddyOrigin, url.value))
+        ? SPA_FRAME_HEADERS
+        : {};
 
     // A hash-like name is not enough: custom static files can use the same naming pattern.
     const relativePath = path.relative(staticRoot, filePath).replaceAll("\\", "/");
@@ -680,7 +685,7 @@ const handleStaticAndDevRequest = Effect.fn("handleStaticAndDevRequest")(
     };
     const headers: Record<string, string> = {
       "Cache-Control": cacheControl,
-      ...(isHtml ? SPA_FRAME_HEADERS : {}),
+      ...frameHeaders,
       ...validators(fileInfo),
     };
     const etag = headers.ETag;
@@ -717,7 +722,7 @@ const handleStaticAndDevRequest = Effect.fn("handleStaticAndDevRequest")(
       return HttpServerResponse.uint8Array(bytes, {
         headers: {
           "Cache-Control": cacheControl,
-          ...(isHtml ? SPA_FRAME_HEADERS : {}),
+          ...frameHeaders,
           ...validators({ ...info, size: ByteSize.bytes(bytes.byteLength) }),
         },
         contentType,

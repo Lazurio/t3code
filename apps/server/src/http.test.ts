@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { describe, vi } from "vite-plus/test";
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -14,7 +15,13 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Queue from "effect/Queue";
 import * as Tracer from "effect/Tracer";
-import { HttpClient, HttpClientRequest, HttpRouter, HttpServerResponse } from "effect/http";
+import {
+  HttpClient,
+  HttpClientRequest,
+  HttpRouter,
+  HttpServer,
+  HttpServerResponse,
+} from "effect/http";
 import { ASSET_ROUTE_PREFIX } from "./assets/AssetAccess.ts";
 import { ATTACHMENT_UPLOAD_ROUTE_PREFIX } from "./assets/AttachmentUpload.ts";
 import { openMediaFile } from "./assets/MediaFile.ts";
@@ -26,6 +33,7 @@ import {
   MCP_APP_MAX_HTML_BYTES,
 } from "@t3tools/shared/mcpApp";
 import { ORCHESTRATION_PROTOCOL_HEADER } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "./config.ts";
 
@@ -204,7 +212,10 @@ describe("untraced requests", () => {
 
 const layerFileResponse = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
 
-const makeStaticRequest = Effect.fn("HttpTest.makeStaticRequest")(function* (staticDir: string) {
+const buildStaticServer = Effect.fn("HttpTest.buildStaticServer")(function* (
+  staticDir: string,
+  lazurio: { readonly buddyOrigin?: string; readonly environment?: NodeJS.ProcessEnv } = {},
+) {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const layerApp = Layer.merge(
@@ -214,14 +225,39 @@ const makeStaticRequest = Effect.fn("HttpTest.makeStaticRequest")(function* (sta
   // HttpRouter.serve prefers outer services; inject the test FileSystem between it and NodeHttpServer.layerTest.
   const services = yield* Layer.build(
     HttpRouter.serve(layerApp, { disableListenLog: true }).pipe(
-      Layer.provideMerge(ServerConfig.layer({ ...config, staticDir })),
+      Layer.provideMerge(
+        ServerConfig.layer({
+          ...config,
+          staticDir,
+          ...(lazurio.buddyOrigin === undefined ? {} : { lazurioBuddyOrigin: lazurio.buddyOrigin }),
+        }),
+      ),
+      Layer.provideMerge(Layer.succeed(HostProcess.Environment, lazurio.environment ?? {})),
       Layer.provideMerge(Layer.succeed(FileSystem.FileSystem, fileSystem)),
       Layer.provideMerge(NodeHttpServer.layerTest),
     ),
   );
-  const client = Context.get(services, HttpClient.HttpClient);
+  return services;
+});
+
+const makeStaticRequest = Effect.fn("HttpTest.makeStaticRequest")(function* (staticDir: string) {
+  const client = Context.get(yield* buildStaticServer(staticDir), HttpClient.HttpClient);
   return (resource: string, options?: HttpClientRequest.Options) =>
     client.execute(HttpClientRequest.make(options?.method ?? "GET")(resource, options));
+});
+
+// Fetch drops a request's own Host, which the gateway passes on; Node's client sends it.
+const makeHostRequest = Effect.fn("HttpTest.makeHostRequest")(function* (
+  ...server: Parameters<typeof buildStaticServer>
+) {
+  const { address } = Context.get(yield* buildStaticServer(...server), HttpServer.HttpServer);
+  const origin = new URL(HttpServer.formatAddress(address));
+  origin.hostname = "127.0.0.1";
+  const client = yield* HttpClient.HttpClient.pipe(Effect.provide(NodeHttpClient.layerNodeHttp));
+  return (resource: string, host: string) =>
+    client
+      .execute(HttpClientRequest.get(new URL(resource, origin), { headers: { host } }))
+      .pipe(Effect.map((response) => response.headers));
 });
 
 it.layer(
@@ -411,6 +447,38 @@ it.layer(
       expect(head.status).toBe(200);
       expect(head.headers["content-length"]).toBe(String(Buffer.byteLength(nextHtml)));
       expect(yield* head.text).toBe("");
+    }),
+  );
+
+  it.effect("leaves framing Buddy's pages to the gateway, and Chat's refused", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const staticDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-static-frame-" });
+      yield* fs.writeFileString(path.join(staticDir, "index.html"), "<html>app</html>");
+      const framing = (headers: Readonly<Record<string, string | undefined>>) => [
+        headers["content-security-policy"],
+        headers["x-frame-options"],
+      ];
+      const refused = ["frame-ancestors 'none'", "DENY"];
+      const gateway = [undefined, undefined];
+
+      const shared = yield* makeHostRequest(staticDir, {
+        buddyOrigin: "https://buddy.bob.lazurio.io",
+      });
+      for (const [host, expected] of [
+        ["buddy.bob.lazurio.io", gateway],
+        ["t3code.bob.lazurio.io", refused],
+        ["127.0.0.1", refused],
+      ] as const) {
+        for (const resource of ["/", "/threads/example"]) {
+          expect(framing(yield* shared(resource, host))).toEqual(expected);
+        }
+      }
+      const buddysOwn = yield* makeHostRequest(staticDir, {
+        environment: { T3CODE_LAZURIO_BUDDY: "1" },
+      });
+      expect(framing(yield* buddysOwn("/", "buddy.bob.lazurio.io"))).toEqual(gateway);
     }),
   );
 
