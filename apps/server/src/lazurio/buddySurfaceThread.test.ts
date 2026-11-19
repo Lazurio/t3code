@@ -49,6 +49,8 @@ describe("Buddy's thread", () => {
       assert.strictEqual(shell?.providerInstanceId, BUDDY);
       assert.deepStrictEqual(shell?.modelSelection, { instanceId: BUDDY, model: "default" });
       assert.strictEqual(shell?.runtimeMode, "full-access");
+      // One endless conversation: never settled by upstream's sweep.
+      assert.isNotNull(shell?.autoSettleDisabledAt);
       const snapshot = yield* orchestrator.getShellSnapshot({
         projectId: ProjectId.make("project:buddy"),
         location: "active",
@@ -255,6 +257,7 @@ describe("Buddy's thread", () => {
         const shell = yield* orchestrator.getThreadShell(first.threadId);
         assert.deepStrictEqual(shell?.modelSelection, recommended);
         assert.notStrictEqual(shell?.providerInstanceId, BUDDY);
+        assert.isNotNull(shell?.autoSettleDisabledAt);
         const snapshot = yield* orchestrator.getShellSnapshot({
           projectId: ProjectId.make("project:buddy"),
         });
@@ -266,7 +269,7 @@ describe("Buddy's thread", () => {
       );
     });
 
-    it.live("adopts the thread the project already has, whatever its provider", () => {
+    it.live("adopts the thread the project already has, reopened once if it settled", () => {
       const { home, folder, buddy } = makeShared();
       return Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -288,10 +291,28 @@ describe("Buddy's thread", () => {
           branch: null,
           worktreePath: null,
         });
+        const pilot = ThreadId.make("pilot-thread");
+        // Upstream's sweep settled it while nobody wrote to it.
+        yield* orchestrator.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("test:swept"),
+          threadId: pilot,
+        });
         assert.deepStrictEqual(yield* withShared(resolveBuddyThread(), folder, buddy), {
-          threadId: ThreadId.make("pilot-thread"),
+          threadId: pilot,
           projectId: ProjectId.make("project:buddy"),
         });
+        const reopened = yield* orchestrator.getThreadShell(pilot);
+        assert.strictEqual(reopened?.settledOverride, "active");
+        assert.isNotNull(reopened?.autoSettleDisabledAt);
+        // A Settle by hand afterwards stays.
+        yield* orchestrator.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("test:by-hand"),
+          threadId: pilot,
+        });
+        yield* withShared(resolveBuddyThread(), folder, buddy);
+        assert.strictEqual((yield* orchestrator.getThreadShell(pilot))?.settledOverride, "settled");
       }).pipe(
         Effect.provide(Layer.merge(layerBuddyServer, ServerSettings.layerTest())),
         Effect.scoped,

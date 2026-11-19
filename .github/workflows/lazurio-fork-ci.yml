@@ -289,6 +289,12 @@ jobs:
             # with it; the Default mode's text no longer asks for a plain-text question. Its code
             # and its tests live in apps/server/src/lazurio/questionTool*.ts.
             apps/server/src/provider/CodexDeveloperInstructions.ts
+            # Buddy's window opens in a frame on the Environment's own pages (root decision 0210,
+            # plan LZD-0033): the gateway's frame-ancestors on Buddy's origin names them, so the
+            # static HTML of Buddy's own server and of the shared server's Buddy origin leaves out
+            # upstream's frame refusal (lazurio/buddyFraming.ts); every other origin keeps it.
+            apps/server/src/http.test.ts
+            apps/server/src/http.ts
             # Buddy's Hermes gets only the person's words (root decision 0210, plan DEV-6676): in
             # Buddy's own T3 Code (T3CODE_LAZURIO_BUDDY=1) the ACP instance `buddy` runs Hermes,
             # which keeps every prompt in Buddy's memory. The ACP adapter leaves T3's instructions

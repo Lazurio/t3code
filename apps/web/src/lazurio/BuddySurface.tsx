@@ -8,9 +8,10 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
 import type { RuntimeMode } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
+import { CalendarDays, CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
 import {
   type ComponentProps,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
   useEffect,
@@ -32,6 +33,7 @@ import { ThreadDetailsPanel } from "~/components/chat/ThreadDetailsPanel";
 import { ThreadErrorBanner } from "~/components/chat/ThreadErrorBanner";
 import { useChatShortcuts } from "~/components/chat/useChatShortcuts";
 import { Button } from "~/components/ui/button";
+import { Sheet, SheetHeader, SheetPopup, SheetTitle } from "~/components/ui/sheet";
 import { Spinner } from "~/components/ui/spinner";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -492,13 +494,16 @@ export function useBuddyQueuedRunCount(
   ).length;
 }
 
-function BuddyHeader() {
+type DaySheet = { readonly open: boolean; readonly setOpen: (open: boolean) => void };
+
+function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
   const text = useCzech(true) ? TEXT.cs : TEXT.en;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />
       <span className="min-w-0 flex-1 truncate font-medium text-sm">Buddy</span>
+      {daySheet === null ? null : <BuddyDaySheet {...daySheet} />}
       {framed ? (
         <>
           <Button
@@ -564,32 +569,73 @@ function subscribeDays(listener: () => void) {
   };
 }
 
-function BuddyDayPane() {
-  const czech = useCzech(true);
-  const shown = useSyncExternalStore(
+function useBuddyDays() {
+  return useSyncExternalStore(
     subscribeDays,
     () => days,
     () => NO_DAYS,
   );
-  const text = czech ? TEXT.cs : TEXT.en;
+}
+
+function BuddyDayList({ onPick }: { readonly onPick?: () => void }) {
+  const czech = useCzech(true);
+  const shown = useBuddyDays();
+  return (
+    <ul className="flex flex-col gap-0.5 px-1.5 pb-3">
+      {shown.map((day) => (
+        <li key={day.day}>
+          <button
+            className="flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => {
+              onPick?.();
+              requestJump(day.firstMessageId);
+            }}
+            type="button"
+          >
+            <span className="text-sm first-letter:uppercase">{dayLabel(day.day, czech)}</span>
+            <span className="w-full truncate text-muted-foreground text-xs">{day.preview}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function BuddyDayPane() {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
   return (
     <nav aria-label={text.days} className="flex w-56 shrink-0 flex-col overflow-y-auto border-r">
       <h2 className="px-3 pt-3 pb-1 font-medium text-muted-foreground text-xs">{text.days}</h2>
-      <ul className="flex flex-col gap-0.5 px-1.5 pb-3">
-        {shown.map((day) => (
-          <li key={day.day}>
-            <button
-              className="flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-              onClick={() => requestJump(day.firstMessageId)}
-              type="button"
-            >
-              <span className="text-sm first-letter:uppercase">{dayLabel(day.day, czech)}</span>
-              <span className="w-full truncate text-muted-foreground text-xs">{day.preview}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <BuddyDayList />
     </nav>
+  );
+}
+
+/** Where the conversation has no room beside it, the days open from the header over it. */
+function BuddyDaySheet({ open, setOpen }: DaySheet) {
+  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  return (
+    <>
+      <Button
+        aria-label={text.days}
+        onClick={() => setOpen(true)}
+        size="icon-sm"
+        title={text.days}
+        variant="ghost"
+      >
+        <CalendarDays />
+      </Button>
+      <Sheet onOpenChange={setOpen} open={open}>
+        <SheetPopup side="left">
+          <nav aria-label={text.days} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>{text.days}</SheetTitle>
+            </SheetHeader>
+            <BuddyDayList onPick={() => setOpen(false)} />
+          </nav>
+        </SheetPopup>
+      </Sheet>
+    </>
   );
 }
 
@@ -661,16 +707,27 @@ function useLinksInNewTab() {
 
 /**
  * The app around Buddy's thread, in place of T3's sidebar and command palette. The day pane is
- * there only where the window has room for it beside the conversation, as in full screen. A link
- * in the conversation opens in a new tab.
+ * beside the conversation where the window has room for it, as in full screen, and opens from the
+ * header elsewhere. A link in the conversation opens in a new tab.
  */
 export function BuddySurfaceLayout({ children }: { readonly children: ReactNode }) {
   useHostTheme();
   useLinksInNewTab();
   const roomForDays = useMediaQuery("sm");
+  const { framed } = useBuddyFrame(true);
+  // T3's thread controls sit fixed at the window's top right, in Buddy's header: they move left of
+  // Buddy's own buttons there (an icon-sm button and the header's gap each), and the open day sheet
+  // covers them.
+  const ownControls = (roomForDays ? 0 : 1) + (framed ? 2 : 0);
+  const [daysOpen, setDaysOpen] = useState(false);
   return (
-    <div className="flex h-dvh w-full min-w-0 flex-col bg-background" data-lazurio-buddy-surface>
-      <BuddyHeader />
+    <div
+      className="flex h-dvh w-full min-w-0 flex-col bg-background [--workspace-controls-right:calc(env(safe-area-inset-right)+0.75rem+var(--buddy-own-controls)*2.5rem)] sm:[--workspace-controls-right:calc(env(safe-area-inset-right)+0.75rem+var(--buddy-own-controls)*2.25rem)] [&[data-buddy-days-open]_[data-workspace-titlebar-controls]]:hidden"
+      data-buddy-days-open={daysOpen && !roomForDays ? "" : undefined}
+      data-lazurio-buddy-surface
+      style={{ "--buddy-own-controls": ownControls } as CSSProperties}
+    >
+      <BuddyHeader daySheet={roomForDays ? null : { open: daysOpen, setOpen: setDaysOpen }} />
       <div className="flex min-h-0 flex-1">
         {roomForDays ? <BuddyDayPane /> : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>

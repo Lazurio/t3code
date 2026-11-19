@@ -949,6 +949,21 @@ NodeTest.test("the prompt hand-off overlay keeps its seam and never sends", asyn
   }
 });
 
+// Buddy's window in the avatar's frame (plan LZD-0033): the gateway alone says who frames Buddy's
+// origin. The seam is the static handler's frame headers; the overlay's test is http.test.ts's.
+NodeTest.test("Buddy's pages leave framing to the gateway through their seam", async () => {
+  const http = await read("apps/server/src/http.ts");
+  NodeAssert.match(http, /import \{ framedByGateway \} from "\.\/lazurio\/buddyFraming\.ts";/);
+  NodeAssert.match(
+    http,
+    /isHtml && !\(yield\* framedByGateway\(config\.lazurioBuddyOrigin, url\.value\)\)\s*\? SPA_FRAME_HEADERS/,
+  );
+  NodeAssert.equal(http.match(/\.\.\.frameHeaders,/g)?.length, 2);
+  NodeAssert.doesNotMatch(http, /isHtml \? SPA_FRAME_HEADERS/);
+  for (const file of ["apps/server/src/http.ts", "apps/server/src/http.test.ts"])
+    NodeAssert.ok(overlayMayChange(file), file);
+});
+
 // LazurioPlatform F51: with T3CODE_LAZURIO_FOLDER, Chat starts in the Environment's Lazurio Folder.
 // Its code lives in apps/*/src/lazurio/; the upstream files keep only the hooks below, each a few
 // lines, so a rebuild on a new upstream tag that loses or moves one fails here. Without the
