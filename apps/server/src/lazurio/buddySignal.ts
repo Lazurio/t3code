@@ -21,6 +21,7 @@ import { HttpRouter, HttpServerResponse } from "effect/http";
 import * as ServerConfig from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import type { ProjectionRecords } from "../orchestration-v2/ProjectionStore.ts";
 import { isBuddySurfaceEnvironment } from "./buddySurface.ts";
 import { BuddyTaskFailures } from "./buddyTaskFailures.ts";
 import { BUDDY_THREAD_ID, findSharedBuddyThread, sharedBuddyFolder } from "./buddySurfaceThread.ts";
@@ -183,17 +184,33 @@ export function buddySignalOf(input: BuddySignalInput): BuddySignal {
   return { ...base, state: "quiet", since: null, request: null, startedBy: null };
 }
 
-/** Buddy's thread on this server: GEN3's one thread, GEN4's thread of the shared server. */
+const noThread = { kind: "absent", error: "no-thread" } as const;
+// A reading that failed: never the same answer as a thread that is not there.
+const unavailable = { kind: "absent", error: "unavailable" } as const;
+
+/**
+ * Buddy's thread on this server: GEN3's one thread, GEN4's thread of the shared server. No thread
+ * only where the server knows there is none; a store it could not read is `unavailable`.
+ */
 const buddyThreadId = Effect.fn("LazurioBuddySignal.threadId")(function* () {
-  if (isBuddySurfaceEnvironment(yield* HostProcess.Environment))
-    return { kind: "found", threadId: BUDDY_THREAD_ID } as const;
+  if (isBuddySurfaceEnvironment(yield* HostProcess.Environment)) {
+    const shell = yield* (yield* OrchestratorV2)
+      .getThreadShell(BUDDY_THREAD_ID)
+      .pipe(Effect.option);
+    if (Option.isNone(shell)) return unavailable;
+    return shell.value === null
+      ? noThread
+      : ({ kind: "found", threadId: BUDDY_THREAD_ID } as const);
+  }
   const buddyFolder = yield* sharedBuddyFolder;
   if (buddyFolder === undefined) return { kind: "absent", error: "not-buddy" } as const;
-  const found = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.option);
-  const thread = Option.getOrUndefined(found)?.thread ?? null;
-  return thread === null
-    ? ({ kind: "absent", error: "no-thread" } as const)
-    : ({ kind: "found", threadId: thread.id } as const);
+  const found = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.result);
+  if (found._tag === "Failure")
+    // Before the startup makes Buddy's project there is no thread either.
+    return found.failure.reason === "no-project" ? noThread : unavailable;
+  return found.success.thread === null
+    ? noThread
+    : ({ kind: "found", threadId: found.success.thread.id } as const);
 });
 
 /** The signal as the route answers it, or why there is none. */
@@ -206,29 +223,33 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
       runtimeRequestStatuses: ["pending"],
     })
     .pipe(Effect.option);
-  if (Option.isNone(records) || records.value.thread.deletedAt !== null)
-    return { kind: "absent", error: "no-thread" } as const;
+  if (Option.isNone(records)) return unavailable;
+  if (records.value.thread.deletedAt !== null) return noThread;
   const { thread, runs, runtimeRequests } = records.value;
   const pending = runtimeRequests.filter((request) => request.status === "pending");
-  const { nodes } =
-    pending.length === 0
-      ? { nodes: [] }
-      : yield* orchestrator
-          .getThreadRecords(target.threadId, ["nodes"], {
-            nodeIds: pending.map((request) => request.nodeId),
-          })
-          .pipe(Effect.orDie);
+  let nodes: ProjectionRecords<"nodes">["nodes"] = [];
+  if (pending.length > 0) {
+    const read = yield* orchestrator
+      .getThreadRecords(target.threadId, ["nodes"], {
+        nodeIds: pending.map((request) => request.nodeId),
+      })
+      .pipe(Effect.option);
+    if (Option.isNone(read)) return unavailable;
+    nodes = read.value.nodes;
+  }
   const runOfNode = new Map(nodes.map((node) => [node.id, node.runId]));
   const interrupted = runs.filter((run) => run.status === "interrupted").map((run) => run.id);
-  const { turnItems } =
-    interrupted.length === 0
-      ? { turnItems: [] }
-      : yield* orchestrator
-          .getThreadRecords(target.threadId, ["turnItems"], {
-            turnItemTypes: ["run_interrupt_request"],
-            turnItemRunIds: interrupted,
-          })
-          .pipe(Effect.orDie);
+  let turnItems: ProjectionRecords<"turnItems">["turnItems"] = [];
+  if (interrupted.length > 0) {
+    const read = yield* orchestrator
+      .getThreadRecords(target.threadId, ["turnItems"], {
+        turnItemTypes: ["run_interrupt_request"],
+        turnItemRunIds: interrupted,
+      })
+      .pipe(Effect.option);
+    if (Option.isNone(read)) return unavailable;
+    turnItems = read.value.turnItems;
+  }
   const failures = yield* Effect.serviceOption(BuddyTaskFailures);
   const failedTaskRuns = Option.isNone(failures)
     ? []
@@ -245,10 +266,14 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
     failedTaskRuns,
   };
   const messageIds = buddySignalMessageIds(input);
-  const messages =
-    messageIds.length === 0
-      ? new Map()
-      : yield* orchestrator.getMessagesById(target.threadId, messageIds).pipe(Effect.orDie);
+  let messages: BuddySignalInput["messages"] = new Map();
+  if (messageIds.length > 0) {
+    const read = yield* orchestrator
+      .getMessagesById(target.threadId, messageIds)
+      .pipe(Effect.option);
+    if (Option.isNone(read)) return unavailable;
+    messages = read.value;
+  }
   return {
     kind: "signal",
     signal: buddySignalOf({ ...input, threadId: target.threadId, messages }),
@@ -276,7 +301,10 @@ export const layer = HttpRouter.use((router) =>
             : (effect) => effect,
         );
         return answer.kind === "absent"
-          ? HttpServerResponse.jsonUnsafe({ error: answer.error }, { status: 404 })
+          ? HttpServerResponse.jsonUnsafe(
+              { error: answer.error },
+              { status: answer.error === "unavailable" ? 503 : 404 },
+            )
           : HttpServerResponse.jsonUnsafe(answer.signal, {
               headers: { "cache-control": "no-store" },
             });
