@@ -2834,9 +2834,24 @@ describe("t3 lazurio buddy thread", () => {
               projectId: "project-buddy",
             });
           }
+          // Made once; the server's receipts replay the fixed command that keeps it unsettled.
+          const dispatched = world.buddyDispatched as ReadonlyArray<{
+            readonly type: string;
+            readonly commandId: string;
+          }>;
           assert.deepStrictEqual(
-            world.buddyDispatched.map((command) => (command as { type: string }).type),
-            ["thread.create"],
+            dispatched.filter((command) => command.type === "thread.create").length,
+            1,
+          );
+          assert.deepStrictEqual(
+            [
+              ...new Set(
+                dispatched
+                  .filter((command) => command.type !== "thread.create")
+                  .map((command) => `${command.type} ${command.commandId}`),
+              ),
+            ],
+            [`thread.auto-settle.set lazurio:buddy-thread:endless:${BUDDY_THREAD_ID}`],
           );
           assert.deepStrictEqual(yield* agentCliSessions, []);
         }),
