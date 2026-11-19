@@ -853,15 +853,22 @@ const runCodex = async (
         failed: item.exit_code !== 0,
         output: valueText(item.aggregated_output),
       });
-    if (event.type === "turn.completed") {
-      completed = true;
-      const u = isRecord(event.usage) ? event.usage : {};
-      raw.push(u);
-      const cached = Number(u.cached_input_tokens ?? 0);
-      usage.input += Number(u.input_tokens ?? 0) - cached;
-      usage.cacheRead += cached;
-      usage.output += Number(u.output_tokens ?? 0);
-    }
+    if (event.type === "turn.completed") completed = true;
+  }
+  // Codex records each response's usage in the rollout, also when the runner stops it mid-turn.
+  for (const line of NodeFS.readFileSync(rollout.file, "utf8").split("\n")) {
+    if (!line.includes('"token_usage_record"')) continue;
+    const record: unknown = JSON.parse(line);
+    const u =
+      isRecord(record) && isRecord(record.payload) && isRecord(record.payload.usage)
+        ? record.payload.usage
+        : {};
+    raw.push(u);
+    const cached = Number(u.cached_input_tokens ?? 0);
+    usage.input += Number(u.input_tokens ?? 0) - cached;
+    usage.cacheRead += cached;
+    usage.cacheWrite += Number(u.cache_write_input_tokens ?? 0);
+    usage.output += Number(u.output_tokens ?? 0);
   }
   const calls = [...native, ...server.calls.map(({ server: _server, ...call }) => call)]
     .toSorted((a, b) => a.at - b.at)
@@ -877,7 +884,7 @@ const runCodex = async (
       finalText: completed ? (said.at(-1) ?? "") : "",
     },
     usage,
-    cli: { usage: raw },
+    cli: { responses: raw.length, usage: raw },
   };
 };
 
