@@ -196,6 +196,50 @@ describe("a reading that fails", () => {
         ),
         { kind: "absent", error: "unavailable" },
       );
+      // His records read, but a later reading fails: the pending request's node, or the
+      // messages of an answer not read yet.
+      const at = DateTime.makeUnsafe("2026-11-18T20:01:00.000Z");
+      const found = {
+        getShellSnapshot: () =>
+          Effect.succeed({ threads: [shellOf("buddy-thread", "project:buddy")] }),
+      };
+      const records = (runs: unknown[], runtimeRequests: unknown[]) =>
+        Effect.succeed({
+          thread: { deletedAt: null, lastVisitedAt: null },
+          runs,
+          runtimeRequests,
+        });
+      for (const later of [
+        {
+          getThreadRecords: (_id: string, fields: ReadonlyArray<string>) =>
+            fields.includes("nodes")
+              ? failing
+              : records(
+                  [],
+                  [{ status: "pending", nodeId: "node-1", kind: "user_input", createdAt: at }],
+                ),
+        },
+        {
+          getThreadRecords: () =>
+            records(
+              [
+                {
+                  id: "run-1",
+                  ordinal: 1,
+                  status: "completed",
+                  userMessageId: "message-1",
+                  completedAt: at,
+                },
+              ],
+              [],
+            ),
+          getMessagesById: () => failing,
+        },
+      ])
+        assert.deepStrictEqual(
+          yield* read({ ...found, ...later }, { list: () => Effect.succeed([project]) }, {}, true),
+          { kind: "absent", error: "unavailable" },
+        );
     }).pipe(
       Effect.provide(
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-signal-fail-" }).pipe(

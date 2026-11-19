@@ -21,6 +21,7 @@ import { HttpRouter, HttpServerResponse } from "effect/http";
 import * as ServerConfig from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import type { ProjectionRecords } from "../orchestration-v2/ProjectionStore.ts";
 import { isBuddySurfaceEnvironment } from "./buddySurface.ts";
 import { BuddyTaskFailures } from "./buddyTaskFailures.ts";
 import { BUDDY_THREAD_ID, findSharedBuddyThread, sharedBuddyFolder } from "./buddySurfaceThread.ts";
@@ -226,25 +227,29 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
   if (records.value.thread.deletedAt !== null) return noThread;
   const { thread, runs, runtimeRequests } = records.value;
   const pending = runtimeRequests.filter((request) => request.status === "pending");
-  const { nodes } =
-    pending.length === 0
-      ? { nodes: [] }
-      : yield* orchestrator
-          .getThreadRecords(target.threadId, ["nodes"], {
-            nodeIds: pending.map((request) => request.nodeId),
-          })
-          .pipe(Effect.orDie);
+  let nodes: ProjectionRecords<"nodes">["nodes"] = [];
+  if (pending.length > 0) {
+    const read = yield* orchestrator
+      .getThreadRecords(target.threadId, ["nodes"], {
+        nodeIds: pending.map((request) => request.nodeId),
+      })
+      .pipe(Effect.option);
+    if (Option.isNone(read)) return unavailable;
+    nodes = read.value.nodes;
+  }
   const runOfNode = new Map(nodes.map((node) => [node.id, node.runId]));
   const interrupted = runs.filter((run) => run.status === "interrupted").map((run) => run.id);
-  const { turnItems } =
-    interrupted.length === 0
-      ? { turnItems: [] }
-      : yield* orchestrator
-          .getThreadRecords(target.threadId, ["turnItems"], {
-            turnItemTypes: ["run_interrupt_request"],
-            turnItemRunIds: interrupted,
-          })
-          .pipe(Effect.orDie);
+  let turnItems: ProjectionRecords<"turnItems">["turnItems"] = [];
+  if (interrupted.length > 0) {
+    const read = yield* orchestrator
+      .getThreadRecords(target.threadId, ["turnItems"], {
+        turnItemTypes: ["run_interrupt_request"],
+        turnItemRunIds: interrupted,
+      })
+      .pipe(Effect.option);
+    if (Option.isNone(read)) return unavailable;
+    turnItems = read.value.turnItems;
+  }
   const failures = yield* Effect.serviceOption(BuddyTaskFailures);
   const failedTaskRuns = Option.isNone(failures)
     ? []
@@ -261,10 +266,14 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
     failedTaskRuns,
   };
   const messageIds = buddySignalMessageIds(input);
-  const messages =
-    messageIds.length === 0
-      ? new Map()
-      : yield* orchestrator.getMessagesById(target.threadId, messageIds).pipe(Effect.orDie);
+  let messages: BuddySignalInput["messages"] = new Map();
+  if (messageIds.length > 0) {
+    const read = yield* orchestrator
+      .getMessagesById(target.threadId, messageIds)
+      .pipe(Effect.option);
+    if (Option.isNone(read)) return unavailable;
+    messages = read.value;
+  }
   return {
     kind: "signal",
     signal: buddySignalOf({ ...input, threadId: target.threadId, messages }),
