@@ -183,17 +183,33 @@ export function buddySignalOf(input: BuddySignalInput): BuddySignal {
   return { ...base, state: "quiet", since: null, request: null, startedBy: null };
 }
 
-/** Buddy's thread on this server: GEN3's one thread, GEN4's thread of the shared server. */
+const noThread = { kind: "absent", error: "no-thread" } as const;
+// A reading that failed: never the same answer as a thread that is not there.
+const unavailable = { kind: "absent", error: "unavailable" } as const;
+
+/**
+ * Buddy's thread on this server: GEN3's one thread, GEN4's thread of the shared server. No thread
+ * only where the server knows there is none; a store it could not read is `unavailable`.
+ */
 const buddyThreadId = Effect.fn("LazurioBuddySignal.threadId")(function* () {
-  if (isBuddySurfaceEnvironment(yield* HostProcess.Environment))
-    return { kind: "found", threadId: BUDDY_THREAD_ID } as const;
+  if (isBuddySurfaceEnvironment(yield* HostProcess.Environment)) {
+    const shell = yield* (yield* OrchestratorV2)
+      .getThreadShell(BUDDY_THREAD_ID)
+      .pipe(Effect.option);
+    if (Option.isNone(shell)) return unavailable;
+    return shell.value === null
+      ? noThread
+      : ({ kind: "found", threadId: BUDDY_THREAD_ID } as const);
+  }
   const buddyFolder = yield* sharedBuddyFolder;
   if (buddyFolder === undefined) return { kind: "absent", error: "not-buddy" } as const;
-  const found = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.option);
-  const thread = Option.getOrUndefined(found)?.thread ?? null;
-  return thread === null
-    ? ({ kind: "absent", error: "no-thread" } as const)
-    : ({ kind: "found", threadId: thread.id } as const);
+  const found = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.result);
+  if (found._tag === "Failure")
+    // Before the startup makes Buddy's project there is no thread either.
+    return found.failure.reason === "no-project" ? noThread : unavailable;
+  return found.success.thread === null
+    ? noThread
+    : ({ kind: "found", threadId: found.success.thread.id } as const);
 });
 
 /** The signal as the route answers it, or why there is none. */
@@ -206,8 +222,8 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
       runtimeRequestStatuses: ["pending"],
     })
     .pipe(Effect.option);
-  if (Option.isNone(records) || records.value.thread.deletedAt !== null)
-    return { kind: "absent", error: "no-thread" } as const;
+  if (Option.isNone(records)) return unavailable;
+  if (records.value.thread.deletedAt !== null) return noThread;
   const { thread, runs, runtimeRequests } = records.value;
   const pending = runtimeRequests.filter((request) => request.status === "pending");
   const { nodes } =
@@ -276,7 +292,10 @@ export const layer = HttpRouter.use((router) =>
             : (effect) => effect,
         );
         return answer.kind === "absent"
-          ? HttpServerResponse.jsonUnsafe({ error: answer.error }, { status: 404 })
+          ? HttpServerResponse.jsonUnsafe(
+              { error: answer.error },
+              { status: answer.error === "unavailable" ? 503 : 404 },
+            )
           : HttpServerResponse.jsonUnsafe(answer.signal, {
               headers: { "cache-control": "no-store" },
             });

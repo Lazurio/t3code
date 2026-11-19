@@ -15,9 +15,11 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpRouter } from "effect/http";
@@ -111,6 +113,98 @@ describe("reading the sign by Buddy's avatar", () => {
       Effect.provideService(HostProcess.Environment, { HOME: home, T3CODE_LAZURIO_BUDDY: "1" }),
     );
   });
+});
+
+/** A store that cannot be read. */
+class StoreUnreadable extends Schema.TaggedError<StoreUnreadable>()("StoreUnreadable", {}) {}
+
+describe("a reading that fails", () => {
+  // The stores answer with an error: the sign is unavailable, never "no thread", which a reader
+  // may take for an idle Buddy.
+  const failing = Effect.fail(new StoreUnreadable()) as never;
+  const shellOf = (threadId: string, projectId: string) =>
+    ({
+      id: ThreadId.make(threadId),
+      projectId: ProjectId.make(projectId),
+      lineage: { parentThreadId: null },
+      createdAt: DateTime.makeUnsafe("2026-11-18T20:00:00.000Z"),
+    }) as never;
+
+  it.effect("is unavailable where a store fails, and no-thread only where none is", () =>
+    Effect.gen(function* () {
+      const read = (
+        orchestrator: Partial<Record<string, unknown>>,
+        projects: Partial<Record<string, unknown>>,
+        environment: NodeJS.ProcessEnv,
+        shared: boolean,
+      ) =>
+        BuddySignal.readBuddySignal().pipe(
+          (effect) =>
+            shared
+              ? Effect.flatMap(ServerConfig.ServerConfig, (config) =>
+                  effect.pipe(
+                    Effect.provideService(ServerConfig.ServerConfig, {
+                      ...config,
+                      lazurioFolder: "/home/person/Lazurio",
+                      lazurioBuddyFolder: "/home/person/Buddy",
+                    }),
+                  ),
+                )
+              : effect,
+          Effect.provide(
+            Layer.merge(
+              Layer.mock(OrchestratorV2)(orchestrator),
+              Layer.mock(ProjectStoreV2)(projects),
+            ),
+          ),
+          Effect.provideService(HostProcess.Environment, environment),
+        );
+      const buddysOwn = { T3CODE_LAZURIO_BUDDY: "1" };
+      // Buddy's own server (GEN3): his thread's shell cannot be read, or is not there.
+      assert.deepStrictEqual(yield* read({ getThreadShell: () => failing }, {}, buddysOwn, false), {
+        kind: "absent",
+        error: "unavailable",
+      });
+      assert.deepStrictEqual(
+        yield* read({ getThreadShell: () => Effect.succeed(null) }, {}, buddysOwn, false),
+        { kind: "absent", error: "no-thread" },
+      );
+      // The shared server (GEN4): its projects cannot be read; Buddy's project is not there yet.
+      assert.deepStrictEqual(yield* read({}, { list: () => failing }, {}, true), {
+        kind: "absent",
+        error: "unavailable",
+      });
+      assert.deepStrictEqual(yield* read({}, { list: () => Effect.succeed([]) }, {}, true), {
+        kind: "absent",
+        error: "no-thread",
+      });
+      // His thread is found, but its records cannot be read.
+      const project = {
+        projectId: ProjectId.make("project:buddy"),
+        workspaceRoot: "/home/person/Buddy",
+      };
+      assert.deepStrictEqual(
+        yield* read(
+          {
+            getShellSnapshot: () =>
+              Effect.succeed({ threads: [shellOf("buddy-thread", "project:buddy")] }),
+            getThreadRecords: () => failing,
+          },
+          { list: () => Effect.succeed([project]) },
+          {},
+          true,
+        ),
+        { kind: "absent", error: "unavailable" },
+      );
+    }).pipe(
+      Effect.provide(
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-signal-fail-" }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+      Effect.scoped,
+    ),
+  );
 });
 
 describe("following the sign", () => {
@@ -247,6 +341,46 @@ it.layer(layerAuth.pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, No
         const answer = await get(reader.token);
         assert.strictEqual(answer.status, 404);
         assert.deepStrictEqual(await answer.json(), { error: "not-buddy" });
+      });
+    }),
+  );
+
+  it.effect("answers a reading that failed as unavailable, never as no thread", () =>
+    Effect.gen(function* () {
+      const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const config = yield* ServerConfig.ServerConfig;
+      const handler = HttpRouter.toWebHandler(
+        BuddySignal.layer.pipe(
+          Layer.provideMerge(Layer.succeed(EnvironmentAuth.EnvironmentAuth, auth)),
+          Layer.provideMerge(Layer.mock(OrchestratorV2)({})),
+          // Buddy's projects cannot be read.
+          Layer.provideMerge(
+            Layer.mock(ProjectStoreV2)({
+              list: () => Effect.fail(new StoreUnreadable()) as never,
+            }),
+          ),
+          Layer.provideMerge(
+            ServerConfig.layer({
+              ...config,
+              lazurioFolder: "/home/person/Lazurio",
+              lazurioBuddyFolder: "/home/person/Buddy",
+            }),
+          ),
+          Layer.provideMerge(NodeHttpPlatform.layer),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+        { disableLogger: true },
+      );
+      yield* Effect.addFinalizer(() => Effect.promise(() => handler.dispose()));
+      const reader = yield* auth.issueSession({ scopes: [AuthOrchestrationReadScope], label: "t" });
+      yield* Effect.promise(async () => {
+        const answer = await handler.handler(
+          new Request(`http://localhost${BuddySignal.BUDDY_SIGNAL_ROUTE}`, {
+            headers: { authorization: `Bearer ${reader.token}` },
+          }),
+        );
+        assert.strictEqual(answer.status, 503);
+        assert.deepStrictEqual(await answer.json(), { error: "unavailable" });
       });
     }),
   );
