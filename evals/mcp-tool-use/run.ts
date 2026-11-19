@@ -415,7 +415,7 @@ export const McpToolUseCase = Schema.Struct({
      * Canned tool results by bare name, T3 or native. `"default"` uses the runner's result. For a
      * device tool, a T3 `DeviceError` (`{"_tag": ..., "cause": null}`) fails it inside T3; for a
      * preview tool, a `PreviewAutomationError` fails it with that error's message. For
-     * `$sequence` and `$byArgs` mocks see `nextMock`.
+     * `$after`, `$sequence` and `$byArgs` mocks see `nextMock`.
      */
     mocks: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
     /** Regexes on one part of a shell command. A match wins over the shell simulator. */
@@ -973,6 +973,8 @@ type Sample = {
   backgroundWait?: BackgroundWait;
   /** Calls so far per mocked tool, for mocks that answer in sequence. */
   readonly mockCalls: Map<string, number>;
+  /** Tool calls answered so far in this sample, for `$after` mocks. */
+  readonly answered: Array<{ readonly tool: string; readonly input: unknown }>;
 };
 
 const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
@@ -1019,20 +1021,36 @@ export const makeSample = (testCase: McpToolUseCase, base: Base): Sample => {
     priorResults: new Map(),
     priorErrors: new Set(),
     mockCalls: new Map(),
+    answered: [],
   };
 };
 
 /**
- * `{"$sequence": [...]}` answers the nth call with the nth result, then repeats the last.
- * `{"$byArgs": [{"args", "result"}]}`, alone or in a sequence, answers with the first entry whose
- * `args` match the call as `expect` args do; no `args` matches any call, no match is the default.
+ * In this order: `$after` takes the first entry whose `call` the sample already made, `$sequence`
+ * the nth result for the nth call (then the last), `$byArgs` the first entry whose `args` match
+ * the call. Args match as `expect` args do; an entry without `call` or `args` always matches.
  */
 export const nextMock = (
-  sample: Pick<Sample, "mockCalls">,
+  sample: Pick<Sample, "mockCalls"> & Partial<Pick<Sample, "answered">>,
   name: string,
-  mock: unknown,
+  given: unknown,
   input: Readonly<Record<string, unknown>> = {},
 ) => {
+  const made = (call: unknown) =>
+    isRecord(call) &&
+    (sample.answered ?? []).some(
+      (done) => done.tool === call.tool && matches(call.args ?? {}, done.input),
+    );
+  const mock =
+    !isRecord(given) || !Array.isArray(given.$after)
+      ? given
+      : (() => {
+          const entry = given.$after.find(
+            (candidate: unknown) =>
+              isRecord(candidate) && (candidate.call === undefined || made(candidate.call)),
+          );
+          return isRecord(entry) ? entry.result : undefined;
+        })();
   const sequenced =
     !isRecord(mock) || !Array.isArray(mock.$sequence) || mock.$sequence.length === 0
       ? mock
@@ -1782,6 +1800,7 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
     return failed(`${input.path} is not a readable HTML document. Pass an absolute path.`);
   }
   const mock = nextMock(sample, name, testCase.setup.mocks?.[name], input);
+  sample.answered.push({ tool: name, input });
   if (isT3Name(call.name) && PREVIEW_TOOLS.has(name)) {
     if (testCase.setup.world?.browserAgentAccess === false)
       return failed(

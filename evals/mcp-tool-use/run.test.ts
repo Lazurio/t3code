@@ -4699,7 +4699,7 @@ const pendingQuestionCases = () =>
     .split("\n")
     .map((line) => decodeDeviceCase(line));
 
-it.effect("answers a $byArgs mock by the call's arguments, also inside a $sequence", () =>
+it.effect("answers $byArgs mocks by the call's arguments and $after mocks by earlier calls", () =>
   Effect.gen(function* () {
     const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
     const config = {
@@ -4710,29 +4710,52 @@ it.effect("answers a $byArgs mock by the call's arguments, also inside a $sequen
       shellModel: "claude-haiku-5-5",
     } as const;
     const testCase = pendingQuestionCases().find((c) => c.id === "pq-wait-until-question")!;
-    const wait = (sample: ReturnType<typeof makeSample>, input: Record<string, unknown>) =>
+    const call = (
+      sample: ReturnType<typeof makeSample>,
+      tool: string,
+      input: Record<string, unknown>,
+    ) =>
       answerToolCall(sample, config, {
         type: "tool_use",
-        id: "wait",
-        name: "mcp__t3-code__t3_thread_wait",
+        id: tool,
+        name: `mcp__t3-code__${tool}`,
         input,
       }).pipe(Effect.map((block) => JSON.parse(String(block.content))));
+    const wait = (sample: ReturnType<typeof makeSample>, input: Record<string, unknown>) =>
+      call(sample, "t3_thread_wait", input);
     const threadId = "11111111-1111-4111-8111-111111111111";
-    const asks = makeSample(testCase, base);
-    asks.tools.push({ name: "mcp__t3-code__t3_thread_wait" });
-    // With untilQuestion the first wait names the question; the next one settles.
-    assert.deepInclude(yield* wait(asks, { threadId, untilQuestion: true }), {
-      timedOut: false,
-      returnedFor: "question",
-      pendingQuestionIds: ["request-batch-1"],
+    const loaded = (sample: ReturnType<typeof makeSample>) => {
+      for (const tool of ["t3_thread_wait", "t3_thread_read", "t3_pending_request"])
+        sample.tools.push({ name: `mcp__t3-code__${tool}` });
+      return sample;
+    };
+    const asks = loaded(makeSample(testCase, base));
+    // With untilQuestion a wait names the question until the agent answers it; then it settles.
+    for (let i = 0; i < 2; i++)
+      assert.deepInclude(yield* wait(asks, { threadId, untilQuestion: true }), {
+        timedOut: false,
+        returnedFor: "question",
+        pendingQuestionIds: ["request-batch-1"],
+      });
+    assert.equal((yield* call(asks, "t3_thread_read", { threadId })).thread.status, "running");
+    yield* call(asks, "t3_pending_request", {
+      action: "respond",
+      threadId,
+      requestId: "request-batch-1",
+      answers: { batch: "5,000" },
     });
     assert.deepInclude(yield* wait(asks, { threadId, untilQuestion: true }), {
       status: "completed",
       returnedFor: "settled",
     });
-    // Without it every wait times out, as one on a blocked thread does.
-    const plain = makeSample(testCase, base);
-    plain.tools.push({ name: "mcp__t3-code__t3_thread_wait" });
+    assert.deepInclude(yield* wait(asks, { threadId }), { status: "completed", timedOut: false });
+    assert.equal((yield* call(asks, "t3_thread_read", { threadId })).thread.status, "idle");
+    assert.deepEqual(
+      (yield* call(asks, "t3_pending_request", { action: "list", threadId })).requestIds,
+      [],
+    );
+    // Without untilQuestion every wait times out, as one on a blocked thread does.
+    const plain = loaded(makeSample(testCase, base));
     for (let i = 0; i < 3; i++) {
       const result = yield* wait(plain, { threadId });
       assert.isTrue(result.timedOut);
