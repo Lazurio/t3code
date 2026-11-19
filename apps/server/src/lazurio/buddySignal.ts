@@ -9,6 +9,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2RuntimeRequest,
   type RunId,
+  type ScheduledTask,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -119,6 +120,21 @@ function starterOf(
 }
 
 /**
+ * When each scheduled task bound to the thread last failed: the run's completion, which
+ * `ScheduledTaskService` records as `updatedAt` (`lastRunAt` is when it started). A later edit
+ * of the task moves `updatedAt` too.
+ */
+export const failedTaskRunsOf = (
+  tasks: ReadonlyArray<Pick<ScheduledTask, "threadId" | "lastRunStatus" | "updatedAt">>,
+  threadId: ThreadId,
+): ReadonlyArray<DateTime.Utc> =>
+  tasks.flatMap((task) =>
+    task.threadId === threadId && task.lastRunStatus === "failed"
+      ? [DateTime.makeUnsafe(task.updatedAt)]
+      : [],
+  );
+
+/**
  * Waiting on a pending request, else failed (the last settled turn failed or was interrupted
  * without a stop request, or a bound task failed after it), else answered (completed after
  * `lastVisitedAt`), else quiet. `since` is the oldest cause; `startedBy` is the person's if any.
@@ -144,10 +160,13 @@ export function buddySignalOf(input: BuddySignalInput): BuddySignal {
     };
 
   const settled = lastSettledRun(input.runs);
-  const lastCompleted =
-    settled?.status === "completed" && settled.completedAt !== null
-      ? millis(settled.completedAt)
-      : Number.NEGATIVE_INFINITY;
+  // The latest completed turn clears a task's failure, also when a later turn was stopped.
+  const lastCompleted = Math.max(
+    Number.NEGATIVE_INFINITY,
+    ...input.runs.flatMap((run) =>
+      run.status === "completed" && run.completedAt !== null ? [millis(run.completedAt)] : [],
+    ),
+  );
   const taskFailure = input.failedTaskRuns
     .filter((at) => millis(at) > lastCompleted)
     .toSorted((left, right) => millis(left) - millis(right))[0];
@@ -229,13 +248,7 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
   const tasks = yield* Effect.serviceOption(ScheduledTaskService);
   const failedTaskRuns = Option.isNone(tasks)
     ? []
-    : (yield* tasks.value.list().pipe(Effect.orDie)).tasks.flatMap((task) =>
-        task.threadId === target.threadId &&
-        task.lastRunStatus === "failed" &&
-        task.lastRunAt !== null
-          ? [DateTime.makeUnsafe(task.lastRunAt)]
-          : [],
-      );
+    : failedTaskRunsOf((yield* tasks.value.list().pipe(Effect.orDie)).tasks, target.threadId);
   const input = {
     lastVisitedAt: thread.lastVisitedAt,
     runs,
