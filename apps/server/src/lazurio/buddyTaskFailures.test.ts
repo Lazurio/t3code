@@ -4,15 +4,17 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ScheduledTaskId, ThreadId } from "@t3tools/contracts";
+import { MessageId, RunId, ScheduledTaskId, ThreadId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
+import { buddySignalOf } from "./buddySignal.ts";
 import {
   BuddyTaskFailures,
   failuresOf,
@@ -53,15 +55,35 @@ describe("when a task bound to Buddy's thread last failed", () => {
     assert.deepStrictEqual(recordTaskFailures(again, [], at(15)), {});
   });
 
-  it("dates a failure from before the record by the run's start on the first reading after a start", () => {
-    const seen = recordTaskFailures({}, [task(1, "failed", at(3))], at(30), true);
-    assert.deepStrictEqual(failuresOf(seen, THREAD), [DateTime.makeUnsafe(at(3))]);
+  it("dates a failure the record does not know by the reading that finds it, also after a start", () => {
+    // Started at :04, a Buddy turn completed at :05, failed at :07; the server starts at :30
+    // with no record: the failure is dated :30, after the turn, so the sign shows it.
+    const seen = recordTaskFailures({}, [task(1, "failed", at(4))], at(30));
+    const failedTaskRuns = failuresOf(seen, THREAD);
+    assert.deepStrictEqual(failedTaskRuns, [DateTime.makeUnsafe(at(30))]);
+    const sign = buddySignalOf({
+      threadId: THREAD,
+      lastVisitedAt: DateTime.makeUnsafe(at(6)),
+      runs: [
+        {
+          id: RunId.make("run-1"),
+          ordinal: 1,
+          status: "completed",
+          userMessageId: MessageId.make("m1"),
+          completedAt: DateTime.makeUnsafe(at(5)),
+        },
+      ],
+      pendingRequests: [],
+      stopRequested: new Set(),
+      failedTaskRuns,
+      messages: new Map(),
+    });
+    assert.strictEqual(sign.state, "failed");
     // A failure the file already holds keeps its time across the restart.
     const kept = recordTaskFailures(
       { "task-1": { threadId: THREAD, runCount: 1, failedAt: at(7) } },
-      [task(1, "failed", at(3))],
+      [task(1, "failed", at(4))],
       at(30),
-      true,
     );
     assert.deepStrictEqual(failuresOf(kept, THREAD), [DateTime.makeUnsafe(at(7))]);
   });
@@ -112,17 +134,19 @@ describe("the record of a Buddy server's failed tasks", () => {
         Effect.scoped,
       );
     return Effect.gen(function* () {
-      // The start finds a failure the record does not know: dated by its run's start.
+      // The start at :30 finds a failure the record does not know: dated by that reading.
+      yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe(at(30))));
       assert.deepStrictEqual(yield* failedAt([task(1, "failed", at(3))]), [
-        DateTime.makeUnsafe(at(3)),
+        DateTime.makeUnsafe(at(30)),
       ]);
       const file = NodeFS.readdirSync(base, { recursive: true }).find((entry) =>
         String(entry).endsWith("buddy-task-failures.json"),
       );
       assert.isDefined(file);
-      // A restart keeps the recorded time, whatever the task's start says now.
-      assert.deepStrictEqual(yield* failedAt([task(1, "failed", at(1))]), [
-        DateTime.makeUnsafe(at(3)),
+      // A restart at :40 keeps the recorded time.
+      yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe(at(40))));
+      assert.deepStrictEqual(yield* failedAt([task(1, "failed", at(3))]), [
+        DateTime.makeUnsafe(at(30)),
       ]);
     }).pipe(
       Effect.ensuring(Effect.sync(() => NodeFS.rmSync(base, { recursive: true, force: true }))),

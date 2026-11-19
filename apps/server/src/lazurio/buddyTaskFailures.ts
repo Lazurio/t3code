@@ -32,19 +32,17 @@ const TaskFailure = Schema.Struct({
 const TaskFailuresFile = Schema.Record(Schema.String, TaskFailure);
 export type TaskFailures = typeof TaskFailuresFile.Type;
 
-type TaskRow = Pick<ScheduledTask, "id" | "threadId" | "lastRunStatus" | "lastRunAt" | "runCount">;
+type TaskRow = Pick<ScheduledTask, "id" | "threadId" | "lastRunStatus" | "runCount">;
 
 /**
- * The failures after one reading of the task list at `now`: a failed run not seen before is dated
- * `now`, one already recorded keeps its time, any other task has none. On the first reading after
- * a start (`firstSight`), a failure the file does not know predates this record and is dated by
- * the run's start, the best the task keeps.
+ * The failures after one reading of the task list at `now`: a failed run not recorded before is
+ * dated `now`, also on the first reading after a start, since its completion is not kept anywhere
+ * (a stale failure then shows until the next completed turn, never a fresh one as quiet).
  */
 export function recordTaskFailures(
   recorded: TaskFailures,
   tasks: ReadonlyArray<TaskRow>,
   now: string,
-  firstSight = false,
 ): TaskFailures {
   const next: Record<string, typeof TaskFailure.Type> = {};
   for (const task of tasks) {
@@ -53,11 +51,7 @@ export function recordTaskFailures(
     next[task.id] =
       known !== undefined && known.runCount === task.runCount
         ? { ...known, threadId: task.threadId }
-        : {
-            threadId: task.threadId,
-            runCount: task.runCount,
-            failedAt: firstSight && known === undefined ? (task.lastRunAt ?? now) : now,
-          };
+        : { threadId: task.threadId, runCount: task.runCount, failedAt: now };
   }
   return next;
 }
@@ -107,10 +101,10 @@ const make = Effect.gen(function* () {
     (yield* sharedBuddyFolder) !== undefined;
   if (Option.isSome(tasks) && buddy) {
     const record = Effect.fn("BuddyTaskFailures.record")(
-      function* (list: { readonly tasks: ReadonlyArray<TaskRow> }, firstSight: boolean) {
+      function* (list: { readonly tasks: ReadonlyArray<TaskRow> }) {
         const now = DateTime.formatIso(yield* DateTime.now);
         const before = yield* Ref.get(state);
-        const after = recordTaskFailures(before, list.tasks, now, firstSight);
+        const after = recordTaskFailures(before, list.tasks, now);
         yield* Ref.set(state, after);
         if (sameFailures(before, after)) return;
         yield* fs.makeDirectory(path.dirname(filePath), { recursive: true, mode: 0o700 });
@@ -119,15 +113,10 @@ const make = Effect.gen(function* () {
       Effect.ignoreCause({ log: true }),
     );
     // The first reading is the start's, before any change is reported.
-    yield* tasks.value.list().pipe(
-      Effect.flatMap((list) => record(list, true)),
-      Effect.ignoreCause({ log: true }),
-    );
-    yield* tasks.value.subscribeList().pipe(
-      Stream.runForEach((list) => record(list, false)),
-      Effect.ignoreCause({ log: true }),
-      Effect.forkScoped,
-    );
+    yield* tasks.value.list().pipe(Effect.flatMap(record), Effect.ignoreCause({ log: true }));
+    yield* tasks.value
+      .subscribeList()
+      .pipe(Stream.runForEach(record), Effect.ignoreCause({ log: true }), Effect.forkScoped);
   }
   return BuddyTaskFailures.of({
     failedAt: Effect.fn("BuddyTaskFailures.failedAt")(function* (threadId) {
