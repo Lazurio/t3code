@@ -124,7 +124,7 @@ import {
 import * as AgentCliSendState from "./agentCliSendState.ts";
 import { addProject, buddyModel, layerBuddyServer } from "./buddySurface.testkit.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
-import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
+import { BUDDY_THREAD_CREATE_COMMAND_ID, BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
 // These run the real `t3` CLI against a server on 127.0.0.1 over this T3 home's own auth: the real
@@ -765,6 +765,16 @@ const buddyThreadRoute = (world: World) =>
                     providerInstanceId: command.modelSelection.instanceId,
                   }),
                 );
+              if (command.type === "thread.auto-settle.set") {
+                const shell = world.shells.get(command.threadId);
+                if (shell !== undefined)
+                  world.shells.set(command.threadId, {
+                    ...shell,
+                    autoSettleDisabledAt: command.enabled
+                      ? null
+                      : (shell.autoSettleDisabledAt ?? DateTime.makeUnsafe("2026-10-22T00:00:00Z")),
+                  });
+              }
               return { sequence: world.buddyDispatched.length, storedEvents: [] };
             }),
         }),
@@ -2834,24 +2844,16 @@ describe("t3 lazurio buddy thread", () => {
               projectId: "project-buddy",
             });
           }
-          // Made once; the server's receipts replay the fixed command that keeps it unsettled.
-          const dispatched = world.buddyDispatched as ReadonlyArray<{
-            readonly type: string;
-            readonly commandId: string;
-          }>;
+          // Made once with auto-settlement off; the second ask finds both and sends nothing.
           assert.deepStrictEqual(
-            dispatched.filter((command) => command.type === "thread.create").length,
-            1,
-          );
-          assert.deepStrictEqual(
+            world.buddyDispatched.map((command) => {
+              const { type, commandId } = command as { type: string; commandId: string };
+              return `${type} ${commandId}`;
+            }),
             [
-              ...new Set(
-                dispatched
-                  .filter((command) => command.type !== "thread.create")
-                  .map((command) => `${command.type} ${command.commandId}`),
-              ),
+              `thread.create ${BUDDY_THREAD_CREATE_COMMAND_ID}`,
+              `thread.auto-settle.set lazurio:buddy-thread:endless:${BUDDY_THREAD_ID}`,
             ],
-            [`thread.auto-settle.set lazurio:buddy-thread:endless:${BUDDY_THREAD_ID}`],
           );
           assert.deepStrictEqual(yield* agentCliSessions, []);
         }),
