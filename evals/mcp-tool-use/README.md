@@ -318,6 +318,23 @@ cp .env ../t3code-pq-base/.env
 
 Repeat both with `--model claude-opus-5-5`. Dry runs (`--dry-run`) cost $0.
 
+## Real CLIs
+
+`cli.ts` runs the same cases through the installed `claude -p` and `codex exec` instead of the API replay, on the account and channel those CLIs already use. It needs no API key and starts no new login. Results are not API-replay results: keep them apart, and compare a base and a candidate only within one harness, model and CLI version.
+
+```sh
+cd evals
+pnpm mcp-tool-use:cli --cases mcp-tool-use/cases/pending-questions.ndjson --case pq-wait-until-question --model claude-sonnet-5-5 --out runs/cli-check
+pnpm mcp-tool-use:cli --cases mcp-tool-use/cases/pending-questions.ndjson --model gpt-6.1-sol --samples 3 --concurrency 2 --out runs/cli-sol
+```
+
+- Each sample gets a loopback MCP server (streamable HTTP) that lists this checkout's T3 tools as `buildBase` shows them and answers them with run.ts's `answerToolCall`, mocks and `$byArgs` included. For Codex it serves `t3-code` and `t3-code-direct`, split as CodexAdapterV2 splits them.
+- The case's prior turns, built by run.ts's `buildMessages`, become a session file the CLI resumes: a Claude Code session under `~/.claude/projects` or a Codex rollout under `~/.codex/sessions`. Codex's history starts with T3's developer context (`buildCodexAdditionalContext`). After the sample the file moves to `--out`.
+- The system prompt is the CLI's own. Claude gets T3's append through `--append-system-prompt`. User settings, user instructions, skills and the station's other MCP servers stay out.
+- The shell is real but confined. Claude's Bash and Monitor commands run in bubblewrap through a PreToolUse hook: no network, home directories hidden, writes only to the sample's temporary checkout. Codex runs with `sandbox_mode="read-only"` and `approval_policy="never"`, and T3's servers are set to `default_tools_approval_mode="approve"`, as under T3's full access. Shims first on PATH answer `gh`, `pnpm` and other programs from the case's `shellMocks`, else with no output. The checkout holds `world.files` and is not a git repository. No model plays the shell.
+- `--concurrency` is at most 2. The run stops at the first rate-limit or overload error. Flags: `--case`, `--cases`, `--samples` (default 1), `--effort` (default high for Claude, xhigh for Codex, as run.ts), `--max-steps`, `--timeout-min`, `--label`, `--dry-run` (writes the session and command, no model call).
+- Not supported: device and background-task worlds, native-subagent cases and empty prompts. `AskUserQuestion` and Codex's `request_user_input` are the CLI's own, not the case's mock. Codex has no turn limit, so the runner stops it after the case's steps plus 4 tool calls.
+
 ## Where T3's text lives
 
 - `packages/provider-core/src/server/runtimeInstructions.ts`
