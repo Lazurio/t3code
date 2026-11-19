@@ -88,6 +88,38 @@ describe("when a task bound to Buddy's thread last failed", () => {
     assert.deepStrictEqual(failuresOf(kept, THREAD), [DateTime.makeUnsafe(at(7))]);
   });
 
+  it("raises a stale failure once, on the first start without a record, until the next completed turn", () => {
+    // The known cost (Lazurio/t3code#232): failed at :04, cleared by a turn at :05, and this
+    // version first starts at :30 with no record. The failure is dated :30 and shows ...
+    const completed = (ordinal: number, minute: number) => ({
+      id: RunId.make(`run-${ordinal}`),
+      ordinal,
+      status: "completed" as const,
+      userMessageId: MessageId.make(`m${ordinal}`),
+      completedAt: DateTime.makeUnsafe(at(minute)),
+    });
+    const state = (runs: ReadonlyArray<ReturnType<typeof completed>>, recordedAt: number) =>
+      buddySignalOf({
+        threadId: THREAD,
+        lastVisitedAt: DateTime.makeUnsafe(at(59)),
+        runs,
+        pendingRequests: [],
+        stopRequested: new Set(),
+        failedTaskRuns: failuresOf(
+          recordTaskFailures({}, [task(1, "failed", at(3))], at(recordedAt)),
+          THREAD,
+        ),
+        messages: new Map(),
+      }).state;
+    assert.strictEqual(state([completed(1, 5)], 30), "failed");
+    // ... only until the next completed turn, at :31.
+    assert.strictEqual(state([completed(1, 5), completed(2, 31)], 30), "quiet");
+    // A later start reads the record back, so it raises nothing again.
+    const recorded = recordTaskFailures({}, [task(1, "failed", at(3))], at(30));
+    const restarted = recordTaskFailures(recorded, [task(1, "failed", at(3))], at(45));
+    assert.deepStrictEqual(failuresOf(restarted, THREAD), [DateTime.makeUnsafe(at(30))]);
+  });
+
   it("belongs only to the thread the task is bound to", () => {
     const other = recordTaskFailures(
       {},
