@@ -4,7 +4,13 @@
  * fixed, so two first visits make one thread; an archived one comes back (a new thread would fork
  * Hermes's session and Buddy's memory), and one in a lower runtime mode goes back to full access.
  */
-import { CommandId, type ModelSelection, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  type ModelSelection,
+  type OrchestrationV2ThreadShell,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -141,6 +147,31 @@ export const findSharedBuddyThread = Effect.fn("LazurioBuddySurface.findSharedTh
 });
 
 /**
+ * Buddy's thread is one endless conversation, never done: the first time the overlay finds it
+ * still under upstream's auto-settlement, it turns that off and reopens a thread it settled. A
+ * Settle by hand later stays, since these fixed commands replay once they ran.
+ */
+const keepBuddysThreadOpen = Effect.fn("LazurioBuddySurface.keepThreadOpen")(function* (
+  thread: Pick<OrchestrationV2ThreadShell, "id" | "autoSettleDisabledAt" | "settledOverride">,
+) {
+  if (thread.autoSettleDisabledAt != null) return;
+  const orchestrator = yield* OrchestratorV2;
+  if (thread.settledOverride === "settled")
+    yield* orchestrator.dispatch({
+      type: "thread.unsettle",
+      commandId: CommandId.make(`lazurio:buddy-thread:reopen:${thread.id}`),
+      threadId: thread.id,
+      reason: "user",
+    });
+  yield* orchestrator.dispatch({
+    type: "thread.auto-settle.set",
+    commandId: CommandId.make(`lazurio:buddy-thread:endless:${thread.id}`),
+    threadId: thread.id,
+    enabled: false,
+  });
+}, Effect.mapError(unavailable));
+
+/**
  * Buddy's thread on the shared server, made on the project's default model the first time anyone
  * asks. Its id and command derive from the project, so two first visits make one thread.
  */
@@ -148,8 +179,10 @@ const resolveSharedBuddyThread = Effect.fn("LazurioBuddySurface.resolveSharedThr
   buddyFolder: string,
 ) {
   const { project, thread } = yield* findSharedBuddyThread(buddyFolder);
-  if (thread !== null)
+  if (thread !== null) {
+    yield* keepBuddysThreadOpen(thread);
     return { threadId: thread.id, projectId: project.projectId } satisfies BuddyThread;
+  }
   const settingsService = yield* Effect.serviceOption(ServerSettingsService);
   if (Option.isNone(settingsService))
     return yield* new BuddyThreadUnavailable({
@@ -198,6 +231,7 @@ const resolveSharedBuddyThread = Effect.fn("LazurioBuddySurface.resolveSharedThr
       reason: "unavailable",
       detail: "Buddy's thread was deleted.",
     });
+  yield* keepBuddysThreadOpen(created);
   return { threadId, projectId: project.projectId } satisfies BuddyThread;
 });
 
@@ -248,6 +282,7 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
           runtimeMode: "full-access",
         })
         .pipe(Effect.mapError(unavailable));
+    yield* keepBuddysThreadOpen(existing);
     return { threadId: BUDDY_THREAD_ID, projectId: existing.projectId } satisfies BuddyThread;
   }
   yield* orchestrator
@@ -277,5 +312,6 @@ export const resolveBuddyThread = Effect.fn("LazurioBuddySurface.resolveThread")
       detail: "Buddy's thread was deleted.",
     });
   if (!isBuddysThread(created, project)) return yield* conflict();
+  yield* keepBuddysThreadOpen(created);
   return { threadId: BUDDY_THREAD_ID, projectId: created.projectId } satisfies BuddyThread;
 });
