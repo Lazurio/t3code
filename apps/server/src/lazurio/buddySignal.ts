@@ -9,7 +9,6 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2RuntimeRequest,
   type RunId,
-  type ScheduledTask,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -22,8 +21,8 @@ import { HttpRouter, HttpServerResponse } from "effect/http";
 import * as ServerConfig from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
-import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { isBuddySurfaceEnvironment } from "./buddySurface.ts";
+import { BuddyTaskFailures } from "./buddyTaskFailures.ts";
 import { BUDDY_THREAD_ID, findSharedBuddyThread, sharedBuddyFolder } from "./buddySurfaceThread.ts";
 import { authenticateOverlayRoute } from "./routeAuth.ts";
 
@@ -118,21 +117,6 @@ function starterOf(
     ? "person"
     : "other";
 }
-
-/**
- * When each scheduled task bound to the thread last failed: the run's completion, which
- * `ScheduledTaskService` records as `updatedAt` (`lastRunAt` is when it started). A later edit
- * of the task moves `updatedAt` too.
- */
-export const failedTaskRunsOf = (
-  tasks: ReadonlyArray<Pick<ScheduledTask, "threadId" | "lastRunStatus" | "updatedAt">>,
-  threadId: ThreadId,
-): ReadonlyArray<DateTime.Utc> =>
-  tasks.flatMap((task) =>
-    task.threadId === threadId && task.lastRunStatus === "failed"
-      ? [DateTime.makeUnsafe(task.updatedAt)]
-      : [],
-  );
 
 /**
  * Waiting on a pending request, else failed (the last settled turn failed or was interrupted
@@ -245,10 +229,10 @@ export const readBuddySignal = Effect.fn("LazurioBuddySignal.read")(function* ()
             turnItemRunIds: interrupted,
           })
           .pipe(Effect.orDie);
-  const tasks = yield* Effect.serviceOption(ScheduledTaskService);
-  const failedTaskRuns = Option.isNone(tasks)
+  const failures = yield* Effect.serviceOption(BuddyTaskFailures);
+  const failedTaskRuns = Option.isNone(failures)
     ? []
-    : failedTaskRunsOf((yield* tasks.value.list().pipe(Effect.orDie)).tasks, target.threadId);
+    : yield* failures.value.failedAt(target.threadId);
   const input = {
     lastVisitedAt: thread.lastVisitedAt,
     runs,
@@ -277,7 +261,7 @@ export const layer = HttpRouter.use((router) =>
     const orchestrator = yield* OrchestratorV2;
     const config = yield* ServerConfig.ServerConfig;
     const projects = yield* ProjectStoreV2;
-    const tasks = yield* Effect.serviceOption(ScheduledTaskService);
+    const failures = yield* Effect.serviceOption(BuddyTaskFailures);
     yield* router.add(
       "GET",
       BUDDY_SIGNAL_ROUTE,
@@ -287,8 +271,8 @@ export const layer = HttpRouter.use((router) =>
           Effect.provideService(OrchestratorV2, orchestrator),
           Effect.provideService(ServerConfig.ServerConfig, config),
           Effect.provideService(ProjectStoreV2, projects),
-          Option.isSome(tasks)
-            ? Effect.provideService(ScheduledTaskService, tasks.value)
+          Option.isSome(failures)
+            ? Effect.provideService(BuddyTaskFailures, failures.value)
             : (effect) => effect,
         );
         return answer.kind === "absent"

@@ -2222,7 +2222,7 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
   );
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*ThreadTabsRoute\.layer\.pipe\(Layer\.provide\(environmentBrowser\)\),\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*BuddySignal\.layer,\s*AgentCliSendState\.layer,\s*Layer\.mergeAll\(BuddySurfaceDays\.layer, ActingSendersRoute\.layer\)\.pipe\(\s*Layer\.provide\(ActingSenders\.layer\),?\s*\),?\s*\)\.pipe\(Layer\.provide\(threadTabs\)\);/,
+    /\nexport const layer = Layer\.mergeAll\(\s*ThreadTabsRoute\.layer\.pipe\(Layer\.provide\(environmentBrowser\)\),\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*BuddySignal\.layer\.pipe\(Layer\.provide\(BuddyTaskFailures\.layer\)\),\s*AgentCliSendState\.layer,\s*Layer\.mergeAll\(BuddySurfaceDays\.layer, ActingSendersRoute\.layer\)\.pipe\(\s*Layer\.provide\(ActingSenders\.layer\),?\s*\),?\s*\)\.pipe\(Layer\.provide\(threadTabs\)\);/,
   );
   NodeAssert.match(
     overlay,

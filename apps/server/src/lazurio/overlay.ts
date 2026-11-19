@@ -11,6 +11,7 @@ import * as AgentCliSendState from "./agentCliSendState.ts";
 import * as BuddySignal from "./buddySignal.ts";
 import * as BuddySurfaceDays from "./buddySurfaceDays.ts";
 import * as BuddySurfaceThreadRoute from "./buddySurfaceThreadRoute.ts";
+import * as BuddyTaskFailures from "./buddyTaskFailures.ts";
 import * as EnvironmentBrowser from "./environmentBrowser.ts";
 import * as ModelRecommendationRoute from "./modelRecommendationRoute.ts";
 import * as ProviderRefresh from "./providerRefresh.ts";
@@ -28,7 +29,7 @@ export const layer = Layer.mergeAll(
   ModelRecommendationRoute.layer,
   ProviderRefreshRoute.layer.pipe(Layer.provide(ProviderRefresh.layer)),
   BuddySurfaceThreadRoute.layer,
-  BuddySignal.layer,
+  BuddySignal.layer.pipe(Layer.provide(BuddyTaskFailures.layer)),
   AgentCliSendState.layer,
   Layer.mergeAll(BuddySurfaceDays.layer, ActingSendersRoute.layer).pipe(
     Layer.provide(ActingSenders.layer),

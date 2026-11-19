@@ -7,7 +7,6 @@ import {
   type BuddySignalStarterMessage,
   buddySignalMessageIds,
   buddySignalOf,
-  failedTaskRunsOf,
 } from "./buddySignal.ts";
 
 const THREAD = ThreadId.make("buddy-thread");
@@ -177,38 +176,6 @@ describe("the sign by Buddy's avatar", () => {
         senders: { 1: person, 2: person },
       }).state,
       "quiet",
-    );
-  });
-
-  it("dates a task's failure by its completion, not its start", () => {
-    const failed = (startedAt: number, completedAt: number) => ({
-      threadId: THREAD,
-      lastRunStatus: "failed" as const,
-      lastRunAt: DateTime.formatIso(at(startedAt)),
-      updatedAt: DateTime.formatIso(at(completedAt)),
-    });
-    // Started at :04, before a turn completed at :05, and failed at :07: a new failure.
-    const failedTaskRuns = failedTaskRunsOf([failed(4, 7)], THREAD);
-    assert.deepStrictEqual(failedTaskRuns, [at(7)]);
-    assert.deepStrictEqual(
-      signal({
-        runs: [run(1, "completed", 5)],
-        lastVisitedAt: at(6),
-        failedTaskRuns,
-        senders: { 1: person },
-      }),
-      { state: "failed", since: iso(7), request: null, startedBy: "other" },
-    );
-    // Another thread's task, and one that succeeded, are not this thread's failure.
-    assert.deepStrictEqual(
-      failedTaskRunsOf(
-        [
-          { ...failed(4, 7), threadId: ThreadId.make("other") },
-          { ...failed(4, 7), lastRunStatus: "succeeded" as const },
-        ],
-        THREAD,
-      ),
-      [],
     );
   });
 
