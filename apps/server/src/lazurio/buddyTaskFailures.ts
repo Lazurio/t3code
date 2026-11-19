@@ -36,8 +36,9 @@ type TaskRow = Pick<ScheduledTask, "id" | "threadId" | "lastRunStatus" | "runCou
 
 /**
  * The failures after one reading of the task list at `now`: a failed run not recorded before is
- * dated `now`, also on the first reading after a start, since its completion is not kept anywhere
- * (a stale failure then shows until the next completed turn, never a fresh one as quiet).
+ * dated `now`, also on the first reading after a start; a recorded one stays through a later
+ * start or success, since only a completed Buddy turn clears it (the signal compares the times).
+ * A deleted task's failure goes with it.
  */
 export function recordTaskFailures(
   recorded: TaskFailures,
@@ -46,12 +47,10 @@ export function recordTaskFailures(
 ): TaskFailures {
   const next: Record<string, typeof TaskFailure.Type> = {};
   for (const task of tasks) {
-    if (task.lastRunStatus !== "failed") continue;
     const known = recorded[task.id];
-    next[task.id] =
-      known !== undefined && known.runCount === task.runCount
-        ? { ...known, threadId: task.threadId }
-        : { threadId: task.threadId, runCount: task.runCount, failedAt: now };
+    if (task.lastRunStatus === "failed" && known?.runCount !== task.runCount)
+      next[task.id] = { threadId: task.threadId, runCount: task.runCount, failedAt: now };
+    else if (known !== undefined) next[task.id] = { ...known, threadId: task.threadId };
   }
   return next;
 }

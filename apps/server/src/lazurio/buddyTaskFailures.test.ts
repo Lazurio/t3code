@@ -46,12 +46,39 @@ describe("when a task bound to Buddy's thread last failed", () => {
     assert.deepStrictEqual(failuresOf(edited, THREAD), [DateTime.makeUnsafe(at(7))]);
   });
 
-  it("dates a later failed run anew, and forgets a task once it no longer failed", () => {
+  it("keeps a failure through a later start and success until a completed turn clears it", () => {
+    // Failed at :05; the next occurrence starts at :10 (running) and succeeds at :12.
+    const failed = recordTaskFailures({}, [task(1, "failed")], at(5));
+    const running = recordTaskFailures(failed, [task(1, "running")], at(10));
+    const succeeded = recordTaskFailures(running, [task(2, "succeeded")], at(12));
+    assert.deepStrictEqual(failuresOf(succeeded, THREAD), [DateTime.makeUnsafe(at(5))]);
+    const completed = (minute: number) => ({
+      id: RunId.make(`run-${minute}`),
+      ordinal: minute,
+      status: "completed" as const,
+      userMessageId: MessageId.make(`m${minute}`),
+      completedAt: DateTime.makeUnsafe(at(minute)),
+    });
+    const state = (runs: ReadonlyArray<ReturnType<typeof completed>>) =>
+      buddySignalOf({
+        threadId: THREAD,
+        lastVisitedAt: DateTime.makeUnsafe(at(59)),
+        runs,
+        pendingRequests: [],
+        stopRequested: new Set(),
+        failedTaskRuns: failuresOf(succeeded, THREAD),
+        messages: new Map(),
+      }).state;
+    // No Buddy turn completed after :05: still failed.
+    assert.strictEqual(state([completed(3)]), "failed");
+    // A Buddy turn completed at :15 clears it.
+    assert.strictEqual(state([completed(3), completed(15)]), "quiet");
+  });
+
+  it("dates a later failed run anew, and drops a deleted task's failure", () => {
     const first = recordTaskFailures({}, [task(1, "failed")], at(5));
     const again = recordTaskFailures(first, [task(2, "failed", at(10))], at(12));
     assert.deepStrictEqual(failuresOf(again, THREAD), [DateTime.makeUnsafe(at(12))]);
-    assert.deepStrictEqual(recordTaskFailures(again, [task(3, "running")], at(13)), {});
-    assert.deepStrictEqual(recordTaskFailures(again, [task(3, "succeeded")], at(14)), {});
     assert.deepStrictEqual(recordTaskFailures(again, [], at(15)), {});
   });
 
