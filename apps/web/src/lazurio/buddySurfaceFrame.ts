@@ -28,12 +28,15 @@ export interface BuddyFrame {
 }
 
 /**
- * Whether the frame's thread counts as seen: always outside a frame, and in one until the host says
- * its window is hidden. T3 Code marks a thread visited while it is mounted, so a hidden frame would
- * read Buddy's answers before the person does.
+ * Whether the frame's thread counts as seen. In a host's frame only once the host says it shows the
+ * window: a hidden frame, also one loaded anew, would otherwise read Buddy's answers first. A host
+ * that sends a context without `shown` first (an older Lazurio) never says, so then as before.
  */
-export const buddyWindowInView = (framed: boolean, shown: boolean | null): boolean =>
-  !framed || shown !== false;
+export const buddyWindowInView = (
+  framed: boolean,
+  shown: boolean | null,
+  heardContext: boolean,
+): boolean => !framed || shown === true || (shown === null && heardContext);
 
 /** An open menu, dialog or list inside the surface takes Escape before the frame does. */
 const ESCAPE_TAKERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
