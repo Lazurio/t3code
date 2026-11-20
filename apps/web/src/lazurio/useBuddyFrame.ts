@@ -20,6 +20,7 @@ const NO_FRAME: Omit<BuddyFrame, "stop"> = {
   hostOrigin: null,
   context: () => null,
   layout: () => "panel",
+  shown: () => null,
   subscribe: () => () => {},
   requestLayout: () => {},
 };
@@ -29,10 +30,12 @@ export function useBuddyFrame(buddy: boolean) {
   const current = buddy ? buddyFrame() : NO_FRAME;
   const context = useSyncExternalStore(current.subscribe, current.context, () => null);
   const layout = useSyncExternalStore(current.subscribe, current.layout, () => "panel" as const);
+  const shown = useSyncExternalStore(current.subscribe, current.shown, () => null);
   return {
     framed: current.hostOrigin !== null,
     context,
     layout,
+    shown,
     requestLayout: current.requestLayout,
   };
 }

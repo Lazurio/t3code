@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   acceptBuddyContext,
+  acceptBuddyShown,
   buddyHostOriginOf,
   buddyLayoutRequest,
   buddyReady,
@@ -114,6 +115,30 @@ describe("a context from the host", () => {
       "lazurio.buddy.context",
     ])
       expect(acceptBuddyContext(event(data), host)).toBeNull();
+  });
+});
+
+describe("whether the host's window shows the frame", () => {
+  const shown = (value: unknown, overrides: Record<string, unknown> = {}) => ({
+    type: "lazurio.buddy.shown",
+    v: 1,
+    shown: value,
+    ...overrides,
+  });
+
+  it("is taken from the parent on the host's origin, and dropped whole for any defect", () => {
+    expect(acceptBuddyShown(event(shown(false)), host)).toBe(false);
+    expect(acceptBuddyShown(event(shown(true)), host)).toBe(true);
+    for (const [data, origin, fromParent, hostOrigin] of [
+      [shown(false), host, false, host],
+      [shown(false), "https://launchpad.vm-01.example.lazurio.io", true, host],
+      [shown(false), host, true, null],
+      [shown("false"), host, true, host],
+      [shown(false, { v: 2 }), host, true, host],
+      [shown(false, { extra: true }), host, true, host],
+      [context(), host, true, host],
+    ] as const)
+      expect(acceptBuddyShown(event(data, origin, fromParent), hostOrigin)).toBeNull();
   });
 });
 
