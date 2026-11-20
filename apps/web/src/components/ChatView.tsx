@@ -190,6 +190,7 @@ import {
   buddyTerminalUiState,
   useBuddyChatShortcuts,
   useBuddyPage,
+  useBuddyPanelsOffered,
   useBuddyQueuedRunCount,
   useBuddyWindowInView,
   useBuddyHermesControls,
@@ -604,6 +605,8 @@ export default function ChatView(props: ChatViewProps) {
   // default and the chat is only the conversation; Buddy's window on the shared server is a whole
   // T3 thread (GEN4).
   const buddySurface = useBuddyHermesControls(environmentId);
+  // Lazurio overlay: Buddy's small window offers neither the right panel nor the terminal.
+  const buddyPanels = useBuddyPanelsOffered();
   // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
   const buddyPage = useBuddyPage(environmentId);
   const buddyInView = useBuddyWindowInView(environmentId);
@@ -799,7 +802,7 @@ export default function ChatView(props: ChatViewProps) {
   // (BuddySurface.tsx). Read inside the selector, as the right panel's state below is.
   const terminalUiState = useTerminalUiStateStore((state) =>
     buddyTerminalUiState(
-      buddySurface,
+      buddySurface || !buddyPanels,
       selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
     ),
   );
@@ -1112,7 +1115,7 @@ export default function ChatView(props: ChatViewProps) {
   // changed on every render and looped as soon as the panel opened.
   const rightPanelState = useRightPanelStore((state) =>
     buddyRightPanelState(
-      buddySurface,
+      buddySurface || !buddyPanels,
       selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
     ),
   );
@@ -3383,6 +3386,8 @@ export default function ChatView(props: ChatViewProps) {
     onToggleTerminal: toggleTerminalVisibilityStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
+    showTerminalControl: buddyPanels,
+    showRightPanelControl: buddyPanels,
   } satisfies PanelLayoutControlsProps;
   const panelToggleControls = (
     <PanelLayoutControls
