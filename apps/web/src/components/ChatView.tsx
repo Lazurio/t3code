@@ -2797,9 +2797,9 @@ export default function ChatView(props: ChatViewProps) {
     }
   });
 
-  // Lazurio overlay (plan DEV-6676): Buddy's surface has no terminal or right panel, so their keys
-  // stay the browser's there (buddySurfaceControls.ts).
-  useBuddyChatShortcuts(buddySurface, {
+  // Lazurio overlay (plan DEV-6676): Buddy's surface, and his small window, have no terminal or right
+  // panel, so their keys stay the browser's there (buddySurfaceControls.ts).
+  useBuddyChatShortcuts(buddySurface || !buddyPanels, {
     enabled: activeThreadId !== null && !backgroundThread,
     embedded,
     composerElement: composerOverlayElement,
