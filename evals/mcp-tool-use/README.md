@@ -28,7 +28,7 @@ Cases are JSON lines in `cases/`, one file per area. The case schema in `run.ts`
 - `experience`: the real mistake, in a sentence. `source`: where it happened.
 - `setup`: the fake thread, its `world` (repo, branch, files, PRs, pages), `priorTurns`, and `mocks` for tool results. With `world.backgroundTasks`, `t3_background_wait` answers from T3's own handler and ThreadManagementService, so its result and errors are the checkout's; a prior wait with `"result": "default"` gets that result too.
 - `setup.priorTurns[].toolCalls[].resultFile`: load a repository-relative file as the tool result instead of copying its contents into the case. An empty `prompt` resumes a top-level thread after its last prior tool result without adding a user message. Side-chat and subagent setups require a nonempty prompt.
-- `setup.message`: who sent `prompt` (`createdBy`, `creationSource`, `senderThreadId`, `linkedSender`, `notification`, and `client`, the T3 Code client the user typed it in). The prompt then goes through the Lazurio projection in `apps/server/src/lazurio/buddyPrompt.ts`, which puts the `<message_origin>` line ahead of it on checkouts that have one.
+- `setup.message`: who sent `prompt` (`createdBy`, `creationSource`, `senderThreadId`, `linkedSender`, `notification`, and `client`, the T3 Code client the user typed it in). The prompt then goes through the Lazurio projection in `apps/server/src/lazurio/buddyPrompt.ts`, which puts the `<message_origin>` line ahead of it on checkouts that have one. `setup.priorTurns[].message` does the same for an earlier user turn.
 - `expect`: the checks, such as `calls`, `callsMustNot`, `maxCalls`, `order`, `shellMust`, `textMust`, `finalTextMust` (the last text, once the turn ended), and `linked`. A call's `args` match partially: `~text` is a case-insensitive substring, `"<=N"` / `">=N"` bound a number, `null` matches a missing key, and keys may be dotted paths. Device cases also use `device` to check every child brief, forbid raw UI commands, bound failed device actions per user turn, and require artifact paths in completed final answers. Secrets cases use `secret` (see [Secrets cases](#secrets-cases)).
 
 Check that the case builds with `--dry-run --case <id>`. Then run it on the text before your fix, where it must fail, and on the text after, where it must pass.
@@ -320,6 +320,17 @@ done
 ```
 
 Repeat with `--model claude-opus-5-5`. Dry runs (`--dry-run`) cost $0 and print each prompt with its line.
+
+`cases/message-origin-routing.ndjson` checks what #231 adds over #212: the line names a linked sender's thread and environment, so the agent can send its answer there. On #212 a linked message gets only the line for an agent outside T3 threads; a local sender's thread id is on both.
+
+| Case                         | Kind    | What it checks                                                                                                             |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| mo-route-linked-reply        | bad     | A linked environment's agent asks for the test result in its thread: one `t3_thread_send` with its environment and thread. |
+| mo-route-local-reply-control | control | The same request from a thread in this environment: the send goes to that thread, not to a linked environment.             |
+| mo-route-two-links-by-label  | bad     | Two linked environments' agents asked; the user names Build Mac: the send goes only to the Build Mac sender.               |
+| mo-route-two-local-control   | control | The same flow with two local threads, picked by what each asked: the send goes only to the right one.                      |
+
+The mocks list Build Mac's threads, with the sender among other billing threads, so on #212 a lookup can still find it by title. They answer every environment alike.
 
 ## Where T3's text lives
 
