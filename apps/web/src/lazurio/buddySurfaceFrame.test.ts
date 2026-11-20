@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buddyHostOfWindow, buddyWindowInView, startBuddyFrame } from "./buddySurfaceFrame";
+import {
+  buddyHostOfWindow,
+  buddyPanelsOffered,
+  buddyWindowInView,
+  startBuddyFrame,
+} from "./buddySurfaceFrame";
 
 const HOST = "https://launchpad.example-person.lazurio.io";
 // What the host sends after the frame's ready, about its own Environment.
@@ -134,6 +139,17 @@ describe("Buddy's frame", () => {
     expect(
       buddyWindowInView(frame.hostOrigin !== null, frame.shown(), frame.context() !== null),
     ).toBe(true);
+  });
+
+  it("offers the right panel and the terminal in the full window and in neither in the small one", () => {
+    const { win } = frameWindow();
+    const framed = buddyHostOfWindow(win) !== null;
+    // The small window the person moves about: too narrow, so neither panel.
+    expect(buddyPanelsOffered(framed, true)).toBe(false);
+    // Full screen on a computer: both.
+    expect(buddyPanelsOffered(framed, false)).toBe(true);
+    // Chat on its own page, also a narrow one, keeps T3's own layout.
+    expect(buddyPanelsOffered(false, true)).toBe(true);
   });
 
   it("talks to nobody outside a host's frame", () => {

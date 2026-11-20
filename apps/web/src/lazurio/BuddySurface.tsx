@@ -61,7 +61,8 @@ import { pageRecordOf } from "./buddySurfacePage";
 import { useLinkedUnlistedProjectIds } from "./unlistedRows";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
-import { buddyHostOfWindow, buddyWindowInView } from "./buddySurfaceFrame";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
+import { buddyHostOfWindow, buddyPanelsOffered, buddyWindowInView } from "./buddySurfaceFrame";
 import { useBuddyFrame } from "./useBuddyFrame";
 
 type BuddyConfig = { readonly lazurioBuddy?: true; readonly lazurioBuddyOrigin?: string } | null;
@@ -99,6 +100,12 @@ export function useBuddyWindowInView(environmentId: string): boolean {
   const framed = buddyHostOfWindow(window) !== null;
   const { shown, context } = useBuddyFrame(useBuddySurfaceMode(environmentId) === true || framed);
   return buddyWindowInView(framed, shown, context !== null);
+}
+
+/** Whether the right panel and the terminal are offered here: not in Buddy's small window. */
+export function useBuddyPanelsOffered(): boolean {
+  const narrow = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  return buddyPanelsOffered(buddyHostOfWindow(window) !== null, narrow);
 }
 
 /** Buddy's surface, read outside React when a command runs: false until the config is known. */
