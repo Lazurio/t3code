@@ -519,6 +519,11 @@ const makeWorkspace = (testCase: McpToolUseCase) => {
   for (const [path, content] of Object.entries(isRecord(files) ? files : {})) {
     if (NodePath.isAbsolute(path)) continue;
     const target = NodePath.join(app, path);
+    // A key ending in a slash is a directory; its value only describes it to the shell model.
+    if (path.endsWith("/")) {
+      NodeFS.mkdirSync(target, { recursive: true });
+      continue;
+    }
     NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
     NodeFS.writeFileSync(target, valueText(content));
   }
@@ -910,17 +915,14 @@ const runSample = async (testCase: McpToolUseCase, n: number, flags: Flags, out:
     if (outcome.sessionFile && NodeFS.existsSync(outcome.sessionFile)) {
       NodeFS.copyFileSync(outcome.sessionFile, NodePath.join(dir, "session.jsonl"));
       NodeFS.rmSync(outcome.sessionFile);
+      // Claude Code keeps the sample's subagent transcripts and auto-memory beside it, in a
+      // project folder named after the sample's checkout; the rest of it moves out too.
       const parent = NodePath.dirname(outcome.sessionFile);
-      // Claude Code leaves an empty auto-memory folder in the project dir it made for the sample.
-      const memory = NodePath.join(parent, "memory");
-      if (
-        parent.includes("t3cli") &&
-        NodeFS.existsSync(memory) &&
-        NodeFS.readdirSync(memory).length === 0
-      )
-        NodeFS.rmdirSync(memory);
-      if (parent.includes("t3cli") && NodeFS.readdirSync(parent).length === 0)
-        NodeFS.rmdirSync(parent);
+      if (parent.includes("t3cli")) {
+        if (NodeFS.readdirSync(parent).length > 0)
+          NodeFS.cpSync(parent, NodePath.join(dir, "claude-project"), { recursive: true });
+        NodeFS.rmSync(parent, { recursive: true, force: true });
+      }
     }
     if (outcome.stream === undefined || !("run" in outcome)) return undefined;
     const { stream } = outcome;
@@ -1077,7 +1079,27 @@ const main = async () => {
           process.stdout.write(
             `${testCase.id}-${n}: LIMIT, stopping: ${error.message.slice(0, 200)}\n`,
           );
-        } else throw error;
+        } else {
+          // One sample's failure is that sample's error, not the run's end.
+          const row = {
+            id: testCase.id,
+            kind: testCase.kind,
+            pattern: testCase.pattern,
+            role: testCase.setup.role,
+            label: flags.label,
+            model: flags.model,
+            pass: false,
+            error: `runner: ${String(error)}`.slice(0, 1000),
+            checks: [],
+            durationMs: 0,
+            usage: emptyUsage(),
+          } as unknown as Row;
+          rows.push(row);
+          const dir = NodePath.join(out, "samples", `${testCase.id}-${n}`);
+          NodeFS.mkdirSync(dir, { recursive: true });
+          NodeFS.writeFileSync(NodePath.join(dir, "row.json"), JSON.stringify(row, null, 2));
+          process.stdout.write(`${testCase.id}-${n}: ERROR ${String(error).slice(0, 160)}\n`);
+        }
       }
     }
   };
