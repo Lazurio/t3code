@@ -191,6 +191,7 @@ import {
   useBuddyChatShortcuts,
   useBuddyPage,
   useBuddyQueuedRunCount,
+  useBuddyWindowInView,
   useBuddyHermesControls,
 } from "../lazurio/BuddySurface";
 import { BuddyPageChip } from "../lazurio/BuddySurfacePageChip";
@@ -605,6 +606,7 @@ export default function ChatView(props: ChatViewProps) {
   const buddySurface = useBuddyHermesControls(environmentId);
   // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
   const buddyPage = useBuddyPage(environmentId);
+  const buddyInView = useBuddyWindowInView(environmentId);
   const environmentSettings = useEnvironmentSettings(environmentId);
   const settings = buddySurface
     ? { ...environmentSettings, followUpBehavior: "steer" as const }
@@ -4157,7 +4159,7 @@ export default function ChatView(props: ChatViewProps) {
         onConfirm={onConfirmRevertStable}
       />
       {embedded ? null : <LinkPullRequestDialogHost />}
-      <ThreadVisitWatermark threadRef={routeThreadRef} />
+      {buddyInView ? <ThreadVisitWatermark threadRef={routeThreadRef} /> : null}
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>
   );

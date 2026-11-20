@@ -6,6 +6,7 @@
  */
 import {
   acceptBuddyContext,
+  acceptBuddyShown,
   type BuddyContext,
   type BuddyLayout,
   buddyHostOriginOf,
@@ -19,10 +20,20 @@ export interface BuddyFrame {
   readonly context: () => BuddyContext | null;
   /** The size the frame asked for last; the panel until it asks. */
   readonly layout: () => Exclude<BuddyLayout, "closed">;
+  /** Whether the host's window shows the frame; null until the host says (an older Lazurio never does). */
+  readonly shown: () => boolean | null;
   readonly subscribe: (listener: () => void) => () => void;
   readonly requestLayout: (mode: BuddyLayout) => void;
   readonly stop: () => void;
 }
+
+/**
+ * Whether the frame's thread counts as seen: always outside a frame, and in one until the host says
+ * its window is hidden. T3 Code marks a thread visited while it is mounted, so a hidden frame would
+ * read Buddy's answers before the person does.
+ */
+export const buddyWindowInView = (framed: boolean, shown: boolean | null): boolean =>
+  !framed || shown !== false;
 
 /** An open menu, dialog or list inside the surface takes Escape before the frame does. */
 const ESCAPE_TAKERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
@@ -34,6 +45,7 @@ export function startBuddyFrame(win: Window): BuddyFrame {
       : buddyHostOriginOf(win.location.ancestorOrigins?.[0], win.document.referrer);
   let context: BuddyContext | null = null;
   let layout: Exclude<BuddyLayout, "closed"> = "panel";
+  let shown: boolean | null = null;
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) listener();
@@ -49,12 +61,20 @@ export function startBuddyFrame(win: Window): BuddyFrame {
     notify();
   };
   const onMessage = (event: MessageEvent) => {
-    const accepted = acceptBuddyContext(
-      { data: event.data, origin: event.origin, fromParent: event.source === win.parent },
-      hostOrigin,
-    );
-    if (accepted === null) return;
-    context = accepted;
+    const received = {
+      data: event.data,
+      origin: event.origin,
+      fromParent: event.source === win.parent,
+    };
+    const accepted = acceptBuddyContext(received, hostOrigin);
+    if (accepted !== null) {
+      context = accepted;
+      notify();
+      return;
+    }
+    const nowShown = acceptBuddyShown(received, hostOrigin);
+    if (nowShown === null || nowShown === shown) return;
+    shown = nowShown;
     notify();
   };
   const onKeyDown = (event: KeyboardEvent) => {
@@ -79,6 +99,7 @@ export function startBuddyFrame(win: Window): BuddyFrame {
     hostOrigin,
     context: () => context,
     layout: () => layout,
+    shown: () => shown,
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

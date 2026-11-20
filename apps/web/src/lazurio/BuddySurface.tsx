@@ -61,6 +61,7 @@ import { pageRecordOf } from "./buddySurfacePage";
 import { useLinkedUnlistedProjectIds } from "./unlistedRows";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
+import { buddyWindowInView } from "./buddySurfaceFrame";
 import { useBuddyFrame } from "./useBuddyFrame";
 
 type BuddyConfig = { readonly lazurioBuddy?: true; readonly lazurioBuddyOrigin?: string } | null;
@@ -88,6 +89,12 @@ export function useBuddySurfaceMode(environmentId?: string): boolean | null {
 export function useBuddyHermesControls(environmentId?: string): boolean {
   const config = useAtomValue(primaryServerConfigAtom);
   return useBuddySurfaceMode(environmentId) === true && config?.lazurioBuddy === true;
+}
+
+/** Whether the thread view counts as the person looking: not in Buddy's hidden window. */
+export function useBuddyWindowInView(environmentId: string): boolean {
+  const { framed, shown } = useBuddyFrame(useBuddySurfaceMode(environmentId) === true);
+  return buddyWindowInView(framed, shown);
 }
 
 /** Buddy's surface, read outside React when a command runs: false until the config is known. */

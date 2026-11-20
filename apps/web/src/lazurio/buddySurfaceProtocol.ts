@@ -9,6 +9,7 @@ const BUDDY_MESSAGE = {
   ready: "lazurio.buddy.ready",
   layout: "lazurio.buddy.layout",
   context: "lazurio.buddy.context",
+  shown: "lazurio.buddy.shown",
 } as const;
 
 const BUDDY_PROTOCOL_VERSION = 1;
@@ -268,6 +269,28 @@ export function acceptBuddyContext(
   const { id, kind } = context.environment;
   if (id !== hostEnvironment || (kind === "personal") !== !id.includes(".")) return null;
   return context;
+}
+
+/**
+ * The frame's side of `lazurio.buddy.shown`: whether the host's window shows the frame, from the
+ * same parent and origin as a context; null to drop the message.
+ */
+export function acceptBuddyShown(
+  event: { readonly data: unknown; readonly origin: string; readonly fromParent: boolean },
+  hostOrigin: string | null,
+): boolean | null {
+  if (event.fromParent !== true) return null;
+  if (buddyHostEnvironment(hostOrigin) === null || event.origin !== hostOrigin) return null;
+  const data = event.data;
+  if (
+    !isPlain(data) ||
+    !hasOnly(data, ["type", "v", "shown"]) ||
+    data.type !== BUDDY_MESSAGE.shown ||
+    data.v !== BUDDY_PROTOCOL_VERSION ||
+    typeof data.shown !== "boolean"
+  )
+    return null;
+  return data.shown;
 }
 
 export const buddyReady = () => ({ type: BUDDY_MESSAGE.ready, v: BUDDY_PROTOCOL_VERSION });

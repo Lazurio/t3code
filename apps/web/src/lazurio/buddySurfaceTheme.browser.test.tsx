@@ -20,6 +20,7 @@ vi.mock(import("./useBuddyFrame"), async (original) => ({
     framed: frame.context !== null,
     context: frame.context,
     layout: "panel" as const,
+    shown: null,
     requestLayout: () => {},
   }),
 }));

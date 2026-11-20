@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { startBuddyFrame } from "./buddySurfaceFrame";
+import { buddyWindowInView, startBuddyFrame } from "./buddySurfaceFrame";
 
 const HOST = "https://launchpad.example-person.lazurio.io";
 
@@ -33,7 +33,9 @@ function frameWindow(options: { readonly host?: string; readonly openMenu?: bool
       shiftKey: false,
       ...overrides,
     });
-  return { win: win as unknown as Window, posted, key };
+  const receive = (data: unknown, origin = options.host ?? HOST, source: unknown = parent) =>
+    listeners.get("message")?.({ data, origin, source });
+  return { win: win as unknown as Window, posted, key, receive };
 }
 
 const layouts = (posted: ReadonlyArray<{ readonly message: unknown }>) =>
@@ -67,6 +69,25 @@ describe("Buddy's frame", () => {
     key({ isComposing: true });
     key({ key: "Enter" });
     expect(layouts(posted)).toEqual([]);
+  });
+
+  it("counts its thread as seen until the host says the window is hidden, and again once shown", () => {
+    const { win, receive } = frameWindow();
+    const frame = startBuddyFrame(win);
+    const inView = () => buddyWindowInView(frame.hostOrigin !== null, frame.shown());
+    // An older Lazurio never says: the frame behaves as before.
+    expect(frame.shown()).toBeNull();
+    expect(inView()).toBe(true);
+    // The person closes the window; an answer that comes now stays unseen.
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: false });
+    expect(inView()).toBe(false);
+    // Only the parent on the host's origin says so.
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: true }, "https://example.com");
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: true }, HOST, {});
+    expect(inView()).toBe(false);
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: true });
+    expect(inView()).toBe(true);
+    expect(buddyWindowInView(false, false)).toBe(true);
   });
 
   it("talks to nobody outside a host's frame", () => {
