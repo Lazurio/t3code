@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buddyWindowInView, startBuddyFrame } from "./buddySurfaceFrame";
+import { buddyHostOfWindow, buddyWindowInView, startBuddyFrame } from "./buddySurfaceFrame";
 
 const HOST = "https://launchpad.example-person.lazurio.io";
 // What the host sends after the frame's ready, about its own Environment.
@@ -104,6 +104,26 @@ describe("Buddy's frame", () => {
     expect(inView()).toBe(true);
     // Outside a host's frame the thread counts as seen, as before.
     expect(buddyWindowInView(false, null, false)).toBe(true);
+  });
+
+  it("counts nothing in a host's frame before the config is known, then only once the host shows it", () => {
+    // Loaded anew at Buddy's thread behind a closed window; the config is still loading, so no
+    // frame has started yet. The window alone says a host frames it.
+    const { win, receive, posted } = frameWindow();
+    const framed = buddyHostOfWindow(win) !== null;
+    expect(framed).toBe(true);
+    expect(posted).toEqual([]);
+    expect(buddyWindowInView(framed, null, false)).toBe(false);
+    // The config arrives and the frame starts; the host answers its ready, hidden.
+    const frame = startBuddyFrame(win);
+    const inView = () => buddyWindowInView(framed, frame.shown(), frame.context() !== null);
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: false });
+    receive(personalContext);
+    expect(inView()).toBe(false);
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: true });
+    expect(inView()).toBe(true);
+    // A page no host frames counts as before.
+    expect(buddyHostOfWindow(frameWindow({ host: "https://example.com" }).win)).toBeNull();
   });
 
   it("behaves as before with an older host, which sends its context and never says shown", () => {
