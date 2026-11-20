@@ -38,6 +38,13 @@ export const buddyWindowInView = (
   heardContext: boolean,
 ): boolean => !framed || shown === true || (shown === null && heardContext);
 
+/**
+ * Whether Buddy's window offers the right panel and the terminal: not in a host's frame too narrow
+ * for them, where the right panel would only cover the conversation (the small window). The full
+ * window offers both (LazurioPlatform F47, addendum of 2026-11-20).
+ */
+export const buddyPanelsOffered = (framed: boolean, narrow: boolean): boolean => !framed || !narrow;
+
 /** An open menu, dialog or list inside the surface takes Escape before the frame does. */
 const ESCAPE_TAKERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 
