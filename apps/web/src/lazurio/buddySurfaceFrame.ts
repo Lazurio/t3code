@@ -41,11 +41,14 @@ export const buddyWindowInView = (
 /** An open menu, dialog or list inside the surface takes Escape before the frame does. */
 const ESCAPE_TAKERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 
+/** The host page around this one, if a host of the bubble frames it; read without side effects. */
+export const buddyHostOfWindow = (win: Window): string | null =>
+  win.parent === win
+    ? null
+    : buddyHostOriginOf(win.location.ancestorOrigins?.[0], win.document.referrer);
+
 export function startBuddyFrame(win: Window): BuddyFrame {
-  const hostOrigin =
-    win.parent === win
-      ? null
-      : buddyHostOriginOf(win.location.ancestorOrigins?.[0], win.document.referrer);
+  const hostOrigin = buddyHostOfWindow(win);
   let context: BuddyContext | null = null;
   let layout: Exclude<BuddyLayout, "closed"> = "panel";
   let shown: boolean | null = null;

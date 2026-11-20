@@ -61,7 +61,7 @@ import { pageRecordOf } from "./buddySurfacePage";
 import { useLinkedUnlistedProjectIds } from "./unlistedRows";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
-import { buddyWindowInView } from "./buddySurfaceFrame";
+import { buddyHostOfWindow, buddyWindowInView } from "./buddySurfaceFrame";
 import { useBuddyFrame } from "./useBuddyFrame";
 
 type BuddyConfig = { readonly lazurioBuddy?: true; readonly lazurioBuddyOrigin?: string } | null;
@@ -91,9 +91,13 @@ export function useBuddyHermesControls(environmentId?: string): boolean {
   return useBuddySurfaceMode(environmentId) === true && config?.lazurioBuddy === true;
 }
 
-/** Whether the thread view counts as the person looking: not in Buddy's hidden window. */
+/**
+ * Whether the thread view counts as the person looking: not in Buddy's hidden window. A page a host
+ * of the bubble frames waits for the host's word from its first render, before the config is known.
+ */
 export function useBuddyWindowInView(environmentId: string): boolean {
-  const { framed, shown, context } = useBuddyFrame(useBuddySurfaceMode(environmentId) === true);
+  const framed = buddyHostOfWindow(window) !== null;
+  const { shown, context } = useBuddyFrame(useBuddySurfaceMode(environmentId) === true || framed);
   return buddyWindowInView(framed, shown, context !== null);
 }
 
