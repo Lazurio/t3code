@@ -563,6 +563,14 @@ type Stream = {
   killedFor?: string;
 };
 
+// A stopped runner stops its CLIs too; otherwise they keep running against a dead MCP server.
+const children = new Set<NodeChildProcess.ChildProcess>();
+for (const signal of ["SIGTERM", "SIGINT"] as const)
+  process.once(signal, () => {
+    for (const child of children) child.kill("SIGTERM");
+    process.exit(signal === "SIGTERM" ? 143 : 130);
+  });
+
 const runCli = (
   command: string,
   args: ReadonlyArray<string>,
@@ -579,6 +587,7 @@ const runCli = (
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    children.add(child);
     const stream: Stream = { events: [], stderr: [], exitCode: null };
     const kill = (reason: string) => {
       if (stream.killedFor !== undefined) return;
@@ -599,6 +608,7 @@ const runCli = (
     });
     child.stderr.on("data", (chunk: Buffer) => stream.stderr.push(chunk.toString("utf8")));
     child.on("close", (code) => {
+      children.delete(child);
       clearTimeout(timer);
       stream.exitCode = code;
       resolve(stream);
