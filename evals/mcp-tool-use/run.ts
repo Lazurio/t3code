@@ -336,17 +336,16 @@ const messageClients = await import("../../apps/server/src/lazurio/messageClient
   },
 );
 
-/** The text a provider turn gets for the case's prompt, through T3's own projection. */
-export const promptText = ({ prompt, promptContext, setup }: McpToolUseCase): string => {
-  const records = promptContext?.records ?? [];
-  if (setup.message === undefined)
-    return promptContext === undefined
-      ? prompt
-      : projectComposerContextForProvider({ text: prompt, records });
-  const { client, ...sender } = setup.message;
+/** A user message's text through T3's own projection, with its sender's line where it has one. */
+const originText = (
+  text: string,
+  origin: typeof MessageOrigin.Type,
+  records: ReadonlyArray<ComposerContextRecord> = [],
+): string => {
+  const { client, ...sender } = origin;
   const projected = LazurioBuddyPrompt.projectComposerContextForProvider({
     instanceId: ProviderInstanceId.make(CLAUDE_PROVIDER),
-    text: prompt,
+    text,
     records,
     message: { id: "message-eval-prompt", role: "user", ...sender },
   }).pipe(Effect.provideService(HostProcess.Environment, {}));
@@ -362,6 +361,25 @@ export const promptText = ({ prompt, promptContext, setup }: McpToolUseCase): st
         ),
   );
 };
+
+/** The text a provider turn gets for the case's prompt, through T3's own projection. */
+export const promptText = ({ prompt, promptContext, setup }: McpToolUseCase): string => {
+  const records = promptContext?.records ?? [];
+  if (setup.message !== undefined) return originText(prompt, setup.message, records);
+  return promptContext === undefined
+    ? prompt
+    : projectComposerContextForProvider({ text: prompt, records });
+};
+
+/** A prior turn's text as the provider got it: a user turn with a sender gets that sender's line. */
+export const priorTurnText = (turn: {
+  readonly role: "user" | "assistant";
+  readonly text?: string | undefined;
+  readonly message?: typeof MessageOrigin.Type | undefined;
+}): string | undefined =>
+  turn.text === undefined || turn.role !== "user" || turn.message === undefined
+    ? turn.text
+    : originText(turn.text, turn.message);
 
 /** One fake thread, one JSON object per line in a case file. */
 export const McpToolUseCase = Schema.Struct({
@@ -387,6 +405,8 @@ export const McpToolUseCase = Schema.Struct({
           role: Schema.Literals(["user", "assistant"]),
           text: Schema.optional(Schema.String),
           toolCalls: Schema.optional(Schema.Array(PriorToolCall)),
+          /** Who sent a user turn, as `setup.message` says for `prompt`. */
+          message: Schema.optional(MessageOrigin),
         }),
       ),
     ),
@@ -1166,7 +1186,8 @@ export const buildMessages = (sample: Sample) => {
       const answer = toolResult(id, replayed);
       push("user", sample.priorErrors.has(prior) ? { ...answer, is_error: true } : answer);
     }
-    if (turn.text) push(turn.role, text(turn.text));
+    const turnText = priorTurnText(turn);
+    if (turnText) push(turn.role, text(turnText));
   }
   const userText = promptText(testCase);
   const prompt =
