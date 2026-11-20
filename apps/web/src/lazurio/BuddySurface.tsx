@@ -93,8 +93,8 @@ export function useBuddyHermesControls(environmentId?: string): boolean {
 
 /** Whether the thread view counts as the person looking: not in Buddy's hidden window. */
 export function useBuddyWindowInView(environmentId: string): boolean {
-  const { framed, shown } = useBuddyFrame(useBuddySurfaceMode(environmentId) === true);
-  return buddyWindowInView(framed, shown);
+  const { framed, shown, context } = useBuddyFrame(useBuddySurfaceMode(environmentId) === true);
+  return buddyWindowInView(framed, shown, context !== null);
 }
 
 /** Buddy's surface, read outside React when a command runs: false until the config is known. */

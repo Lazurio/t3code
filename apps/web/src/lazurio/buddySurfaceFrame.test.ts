@@ -3,6 +3,18 @@ import { describe, expect, it } from "vite-plus/test";
 import { buddyWindowInView, startBuddyFrame } from "./buddySurfaceFrame";
 
 const HOST = "https://launchpad.example-person.lazurio.io";
+// What the host sends after the frame's ready, about its own Environment.
+const personalContext = {
+  type: "lazurio.buddy.context",
+  v: 1,
+  lang: "cs",
+  theme: "light",
+  environment: { id: "example-person", kind: "personal", name: "Osobní" },
+  organization: null,
+  app: null,
+  page: { path: "/" },
+  guide: null,
+};
 
 /** A frame's window as far as the frame uses it: its parent, its ancestors and its listeners. */
 function frameWindow(options: { readonly host?: string; readonly openMenu?: boolean } = {}) {
@@ -71,23 +83,37 @@ describe("Buddy's frame", () => {
     expect(layouts(posted)).toEqual([]);
   });
 
-  it("counts its thread as seen until the host says the window is hidden, and again once shown", () => {
+  it("counts its thread as seen only once the host shows the window, also when loaded anew while hidden", () => {
     const { win, receive } = frameWindow();
     const frame = startBuddyFrame(win);
-    const inView = () => buddyWindowInView(frame.hostOrigin !== null, frame.shown());
-    // An older Lazurio never says: the frame behaves as before.
+    const inView = () =>
+      buddyWindowInView(frame.hostOrigin !== null, frame.shown(), frame.context() !== null);
+    // A frame loaded anew behind a closed window: until the host answers, an unread answer stays
+    // unread.
     expect(frame.shown()).toBeNull();
-    expect(inView()).toBe(true);
-    // The person closes the window; an answer that comes now stays unseen.
-    receive({ type: "lazurio.buddy.shown", v: 1, shown: false });
     expect(inView()).toBe(false);
-    // Only the parent on the host's origin says so.
+    // The host answers its ready: hidden first, then the context.
+    receive({ type: "lazurio.buddy.shown", v: 1, shown: false });
+    receive(personalContext);
+    expect(inView()).toBe(false);
+    // Only the parent on the host's origin says it is shown.
     receive({ type: "lazurio.buddy.shown", v: 1, shown: true }, "https://example.com");
     receive({ type: "lazurio.buddy.shown", v: 1, shown: true }, HOST, {});
     expect(inView()).toBe(false);
     receive({ type: "lazurio.buddy.shown", v: 1, shown: true });
     expect(inView()).toBe(true);
-    expect(buddyWindowInView(false, false)).toBe(true);
+    // Outside a host's frame the thread counts as seen, as before.
+    expect(buddyWindowInView(false, null, false)).toBe(true);
+  });
+
+  it("behaves as before with an older host, which sends its context and never says shown", () => {
+    const { win, receive } = frameWindow();
+    const frame = startBuddyFrame(win);
+    receive(personalContext);
+    expect(frame.shown()).toBeNull();
+    expect(
+      buddyWindowInView(frame.hostOrigin !== null, frame.shown(), frame.context() !== null),
+    ).toBe(true);
   });
 
   it("talks to nobody outside a host's frame", () => {
