@@ -21,9 +21,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import type { MessageSenderFields } from "./actingSenderVisibility.ts";
 import { isBuddyInstance } from "./buddySurface.ts";
-import { MessageClients, messageOriginLine } from "./messageClients.ts";
+import { MessageClients, type MessageOriginFields, messageOriginLine } from "./messageClients.ts";
 
 /** The composer record of the page Buddy is asked from. */
 const LAZURIO_PAGE_CONTEXT_KIND = "lazurio-page";
@@ -137,7 +136,7 @@ interface ProviderProjectionInput {
   readonly text: string;
   readonly records: ReadonlyArray<ComposerContextRecord>;
   /** The message the text is, for the line saying where it came from (plan LZD-0025 B9). */
-  readonly message?: MessageSenderFields;
+  readonly message?: MessageOriginFields;
 }
 
 /**
