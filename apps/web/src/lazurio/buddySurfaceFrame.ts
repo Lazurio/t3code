@@ -1,11 +1,12 @@
 /**
  * Lazurio overlay (root decision 0210, plan DEV-6676): Buddy's surface as the frame of the bubble
- * (buddySurfaceProtocol.ts). The host draws no controls over the frame and sees no keys inside it,
- * so Escape asks for the panel unless something in the surface took it (the composer's editor marks
- * every Escape handled, so that alone does not count). The frame keeps the size it asked for last.
+ * (buddySurfaceProtocol.ts). The host sees no keys inside the frame, so Escape asks for the panel
+ * unless something in the surface took it (the composer's editor marks every Escape handled, so that
+ * alone does not count). The frame keeps the size it asked for or the host said last.
  */
 import {
   acceptBuddyContext,
+  acceptBuddyLayout,
   acceptBuddyShown,
   type BuddyContext,
   type BuddyLayout,
@@ -18,10 +19,12 @@ export interface BuddyFrame {
   /** The page around the frame, a host of the bubble; null outside a frame or another page. */
   readonly hostOrigin: string | null;
   readonly context: () => BuddyContext | null;
-  /** The size the frame asked for last; the panel until it asks. */
+  /** The size the frame asked for or the host said last; the panel until either. */
   readonly layout: () => Exclude<BuddyLayout, "closed">;
   /** Whether the host's window shows the frame; null until the host says (an older Lazurio never does). */
   readonly shown: () => boolean | null;
+  /** The size the host's window shows; null until the host says (an older Lazurio never does). */
+  readonly mode: () => BuddyLayout | null;
   readonly subscribe: (listener: () => void) => () => void;
   readonly requestLayout: (mode: BuddyLayout) => void;
   readonly stop: () => void;
@@ -39,14 +42,37 @@ export const buddyWindowInView = (
 ): boolean => !framed || shown === true || (shown === null && heardContext);
 
 /**
- * Whether Buddy's window offers the right panel and the terminal: not in a host's frame too narrow
- * for them (the small window). Interim: the decision offers them full screen on a phone too, which
- * width cannot tell; Lazurio/LazurioPlatform#1139 has the host send the window's mode.
+ * Whether Buddy's window offers the right panel and the terminal: in his full-screen window, never in
+ * the small one (LazurioPlatform F47, addendum of 2026-11-20). Before the host says its size (an older
+ * Lazurio), a frame too narrow for the panels reads as the small window.
  */
-export const buddyPanelsOffered = (framed: boolean, narrow: boolean): boolean => !framed || !narrow;
+export const buddyPanelsOffered = (
+  framed: boolean,
+  mode: BuddyLayout | null,
+  narrow: boolean,
+): boolean => !framed || (mode === null ? !narrow : mode === "fullscreen");
+
+const overWholeWindow = new WeakMap<object, object>();
+
+/**
+ * A thread's right panel read as covering the whole window, its stored size untouched; the same
+ * object for the same state, since the chat reads it inside a store selector.
+ */
+export function buddyPanelOverWholeWindow<T extends { readonly maximized?: true }>(state: T): T {
+  if (state.maximized === true) return state;
+  let whole = overWholeWindow.get(state) as T | undefined;
+  if (whole === undefined) {
+    whole = { ...state, maximized: true };
+    overWholeWindow.set(state, whole);
+  }
+  return whole;
+}
 
 /** An open menu, dialog or list inside the surface takes Escape before the frame does. */
-const ESCAPE_TAKERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+export const BUDDY_ESCAPE_TAKERS =
+  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+/** So does a right panel over the whole window: Escape there goes back to the conversation. */
+const ESCAPE_TAKERS = `${BUDDY_ESCAPE_TAKERS}, [data-chat-column-maximized-away="true"]`;
 
 /** The host page around this one, if a host of the bubble frames it; read without side effects. */
 export const buddyHostOfWindow = (win: Window): string | null =>
@@ -59,6 +85,7 @@ export function startBuddyFrame(win: Window): BuddyFrame {
   let context: BuddyContext | null = null;
   let layout: Exclude<BuddyLayout, "closed"> = "panel";
   let shown: boolean | null = null;
+  let mode: BuddyLayout | null = null;
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) listener();
@@ -82,6 +109,15 @@ export function startBuddyFrame(win: Window): BuddyFrame {
     const accepted = acceptBuddyContext(received, hostOrigin);
     if (accepted !== null) {
       context = accepted;
+      notify();
+      return;
+    }
+    const nowMode = acceptBuddyLayout(received, hostOrigin);
+    if (nowMode !== null) {
+      if (nowMode === mode) return;
+      mode = nowMode;
+      // The host's size is the one to leave from, also after it changed the size by itself.
+      if (nowMode !== "closed") layout = nowMode;
       notify();
       return;
     }
@@ -113,6 +149,7 @@ export function startBuddyFrame(win: Window): BuddyFrame {
     context: () => context,
     layout: () => layout,
     shown: () => shown,
+    mode: () => mode,
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

@@ -293,6 +293,28 @@ export function acceptBuddyShown(
   return data.shown;
 }
 
+/**
+ * The frame's side of the host's `lazurio.buddy.layout` (LazurioPlatform#1139): the size the host's
+ * window shows, which the host also changes by itself; from the same parent and origin as a context.
+ */
+export function acceptBuddyLayout(
+  event: { readonly data: unknown; readonly origin: string; readonly fromParent: boolean },
+  hostOrigin: string | null,
+): BuddyLayout | null {
+  if (event.fromParent !== true) return null;
+  if (buddyHostEnvironment(hostOrigin) === null || event.origin !== hostOrigin) return null;
+  const data = event.data;
+  if (
+    !isPlain(data) ||
+    !hasOnly(data, ["type", "v", "mode"]) ||
+    data.type !== BUDDY_MESSAGE.layout ||
+    data.v !== BUDDY_PROTOCOL_VERSION ||
+    !isOneOf(BUDDY_LAYOUTS, data.mode)
+  )
+    return null;
+  return data.mode;
+}
+
 export const buddyReady = () => ({ type: BUDDY_MESSAGE.ready, v: BUDDY_PROTOCOL_VERSION });
 
 /** A request for the window's size; null for a size there is none of. */

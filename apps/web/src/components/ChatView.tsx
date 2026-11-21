@@ -190,7 +190,8 @@ import {
   buddyTerminalUiState,
   useBuddyChatShortcuts,
   useBuddyPage,
-  useBuddyPanelsOffered,
+  useBuddyPanelEscape,
+  useBuddyPanels,
   useBuddyQueuedRunCount,
   useBuddyWindowInView,
   useBuddyHermesControls,
@@ -605,8 +606,9 @@ export default function ChatView(props: ChatViewProps) {
   // default and the chat is only the conversation; Buddy's window on the shared server is a whole
   // T3 thread (GEN4).
   const buddySurface = useBuddyHermesControls(environmentId);
-  // Lazurio overlay: Buddy's small window offers neither the right panel nor the terminal.
-  const buddyPanels = useBuddyPanelsOffered();
+  // Lazurio overlay: Buddy's small window offers neither the right panel nor the terminal, and in his
+  // full-screen window the right panel opens over the whole window (BuddySurface.tsx).
+  const buddyPanels = useBuddyPanels();
   // The page Buddy is asked from travels with the person's next message (buddySurfacePage.ts).
   const buddyPage = useBuddyPage(environmentId);
   const buddyInView = useBuddyWindowInView(environmentId);
@@ -802,7 +804,7 @@ export default function ChatView(props: ChatViewProps) {
   // (BuddySurface.tsx). Read inside the selector, as the right panel's state below is.
   const terminalUiState = useTerminalUiStateStore((state) =>
     buddyTerminalUiState(
-      buddySurface || !buddyPanels,
+      buddySurface || !buddyPanels.offered,
       selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
     ),
   );
@@ -1115,8 +1117,9 @@ export default function ChatView(props: ChatViewProps) {
   // changed on every render and looped as soon as the panel opened.
   const rightPanelState = useRightPanelStore((state) =>
     buddyRightPanelState(
-      buddySurface || !buddyPanels,
+      buddySurface || !buddyPanels.offered,
       selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
+      buddyPanels.wholeWindow,
     ),
   );
   const shouldUsePlanSidebarSheet = prefersPlanSidebarSheet && rightPanelState.maximized !== true;
@@ -2084,7 +2087,12 @@ export default function ChatView(props: ChatViewProps) {
   const activeRunningTurnId = activeRuntime?.activeRunId ?? null;
   useProactivePanels({
     threadRef: isServerThread && !embedded ? activeThreadRef : null,
-    enabled: settings.proactivePanelsEnabled && !shouldUsePlanSidebarSheet && !embedded,
+    // Lazurio overlay: nothing opens by itself over Buddy's conversation in his window.
+    enabled:
+      settings.proactivePanelsEnabled &&
+      !shouldUsePlanSidebarSheet &&
+      !embedded &&
+      !buddyPanels.framed,
     settingsHydrated: clientSettingsHydrated,
     threadDetailLoading,
     runningTurnId: activeRunningTurnId,
@@ -2483,6 +2491,7 @@ export default function ChatView(props: ChatViewProps) {
     onDiffPanelOpen,
     closeRightPanelSurface,
   });
+  useBuddyPanelEscape(buddyPanels.wholeWindow && rightPanelOpen, toggleRightPanelStable);
   const pullRequestSurfaceAvailable = supportsPullRequests && pullRequestPanelTarget !== null;
   const {
     acknowledgeActiveThreadWoke,
@@ -2799,7 +2808,7 @@ export default function ChatView(props: ChatViewProps) {
 
   // Lazurio overlay (plan DEV-6676): Buddy's surface, and his small window, have no terminal or right
   // panel, so their keys stay the browser's there (buddySurfaceControls.ts).
-  useBuddyChatShortcuts(buddySurface || !buddyPanels, {
+  useBuddyChatShortcuts(buddySurface || !buddyPanels.offered, {
     enabled: activeThreadId !== null && !backgroundThread,
     embedded,
     composerElement: composerOverlayElement,
@@ -3386,8 +3395,8 @@ export default function ChatView(props: ChatViewProps) {
     onToggleTerminal: toggleTerminalVisibilityStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
-    showTerminalControl: buddyPanels,
-    showRightPanelControl: buddyPanels,
+    showTerminalControl: buddyPanels.offered,
+    showRightPanelControl: buddyPanels.offered,
   } satisfies PanelLayoutControlsProps;
   const panelToggleControls = (
     <PanelLayoutControls
@@ -3402,7 +3411,10 @@ export default function ChatView(props: ChatViewProps) {
       rightPanelOpen={rightPanelOpen}
       animationsActive={panelAnimationsActive}
       maximized={rightPanelMaximized}
-      onToggleMaximized={toggleRightPanelMaximizedStable}
+      onToggleMaximized={
+        buddyPanels.wholeWindow ? toggleRightPanelStable : toggleRightPanelMaximizedStable
+      }
+      restoreLabel={buddyPanels.wholeWindow ? buddyPanels.backLabel : undefined}
     >
       {panelToggleControls}
     </WorkspaceTitlebarControls>

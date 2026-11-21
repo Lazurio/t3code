@@ -62,7 +62,13 @@ import { useLinkedUnlistedProjectIds } from "./unlistedRows";
 import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./buddySurfaceTimeline";
 import { prefersCzech } from "./threadTabs";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
-import { buddyHostOfWindow, buddyPanelsOffered, buddyWindowInView } from "./buddySurfaceFrame";
+import {
+  BUDDY_ESCAPE_TAKERS,
+  buddyHostOfWindow,
+  buddyPanelOverWholeWindow,
+  buddyPanelsOffered,
+  buddyWindowInView,
+} from "./buddySurfaceFrame";
 import { useBuddyFrame } from "./useBuddyFrame";
 
 type BuddyConfig = { readonly lazurioBuddy?: true; readonly lazurioBuddyOrigin?: string } | null;
@@ -102,10 +108,44 @@ export function useBuddyWindowInView(environmentId: string): boolean {
   return buddyWindowInView(framed, shown, context !== null);
 }
 
-/** Whether the right panel and the terminal are offered here: not in Buddy's small window. */
-export function useBuddyPanelsOffered(): boolean {
+/**
+ * Buddy's window's panels: `offered` the right panel and the terminal, never in his small window;
+ * `wholeWindow` the right panel opens over the whole window, as Matěj decided on 2026-11-21, with
+ * `backLabel` on its control back to the conversation. Elsewhere T3's own layout.
+ */
+export function useBuddyPanels() {
+  const framed = buddyHostOfWindow(window) !== null;
   const narrow = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
-  return buddyPanelsOffered(buddyHostOfWindow(window) !== null, narrow);
+  const { mode } = useBuddyFrame(framed);
+  const czech = useCzech(framed);
+  const offered = buddyPanelsOffered(framed, mode, narrow);
+  return {
+    framed,
+    offered,
+    wholeWindow: framed && offered,
+    backLabel: TEXT[czech ? "cs" : "en"].backToConversation,
+  };
+}
+
+/**
+ * Escape over the right panel that covers Buddy's window goes back to the conversation, before the
+ * frame would make the window small (buddySurfaceFrame.ts). A field or a dialog keeps its own.
+ */
+export function useBuddyPanelEscape(active: boolean, back: () => void) {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens to the window's keys while the panel covers it.
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (document.querySelector(BUDDY_ESCAPE_TAKERS) !== null) return;
+      back();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, back]);
 }
 
 /** Buddy's surface, read outside React when a command runs: false until the config is known. */
@@ -140,6 +180,7 @@ function useCzech(buddy: boolean): boolean {
 const TEXT = {
   cs: {
     fullscreen: "Na celou obrazovku",
+    backToConversation: "Zpět k rozhovoru",
     panel: "Zmenšit do panelu",
     close: "Zavřít",
     days: "Dny",
@@ -160,6 +201,7 @@ const TEXT = {
   },
   en: {
     fullscreen: "Full screen",
+    backToConversation: "Back to the conversation",
     panel: "Back to the panel",
     close: "Close",
     days: "Days",
@@ -465,13 +507,18 @@ export const buddyTerminalUiState = (buddy: boolean, state: TerminalUiState): Te
 type RightPanelState = ReturnType<typeof selectThreadRightPanelState>;
 
 /**
- * The thread's right panel as the chat reads it: in Buddy's surface closed and empty, whatever the
- * thread holds (a panel opened on it earlier, a link followed into it, a page an agent showed),
- * since Buddy's chat is only the conversation (root decision 0210, addendum of
- * HumanAndMachines/Lazurio#648). The stored panel stays as it is. As T3's elsewhere.
+ * The thread's right panel as the chat reads it: closed and empty in Buddy's surface, which is only
+ * the conversation (root decision 0210, addendum of HumanAndMachines/Lazurio#648); maximized over
+ * his whole window (`wholeWindow`). The stored panel stays as it is. As T3's elsewhere.
  */
-export const buddyRightPanelState = (buddy: boolean, state: RightPanelState): RightPanelState =>
-  buddy ? selectThreadRightPanelState({}, null) : state;
+export const buddyRightPanelState = (
+  buddy: boolean,
+  state: RightPanelState,
+  wholeWindow = false,
+): RightPanelState => {
+  if (buddy) return selectThreadRightPanelState({}, null);
+  return wholeWindow ? buddyPanelOverWholeWindow(state) : state;
+};
 
 /** The chat's shortcuts, without those Buddy's surface has no use for there. */
 export function useBuddyChatShortcuts(buddy: boolean, input: ChatShortcutsInput) {
