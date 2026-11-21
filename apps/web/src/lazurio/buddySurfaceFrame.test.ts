@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buddyHostOfWindow,
+  buddyPanelOpensItself,
   buddyPanelOverWholeWindow,
   buddyPanelsOffered,
   buddyWindowInView,
@@ -210,6 +211,10 @@ describe("Buddy's frame", () => {
     expect(stored).toEqual({ isOpen: true, surfaces: [] });
     const maximized = { isOpen: true, maximized: true as const };
     expect(buddyPanelOverWholeWindow(maximized)).toBe(maximized);
+    // A page an agent reveals never opens the panel by itself in Buddy's window.
+    expect(buddyPanelOpensItself(true, false)).toBe(true);
+    expect(buddyPanelOpensItself(true, true)).toBe(false);
+    expect(buddyPanelOpensItself(false, false)).toBe(false);
   });
 
   it("talks to nobody outside a host's frame", () => {

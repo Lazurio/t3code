@@ -197,6 +197,7 @@ import {
   useBuddyWindowInView,
   useBuddyHermesControls,
 } from "../lazurio/BuddySurface";
+import { buddyPanelOpensItself } from "../lazurio/buddySurfaceFrame";
 import { BuddyPageChip } from "../lazurio/BuddySurfacePageChip";
 import {
   ThreadPreviewMiniPlayer,
@@ -1153,7 +1154,7 @@ export default function ChatView(props: ChatViewProps) {
   // A side chat has no panel of its own (upstream's `embedded`); its parent's strip serves it.
   // Buddy's surface, with no panel, does not follow them either (plan DEV-6676).
   useLazurioThreadTabs(buddySurface || embedded ? null : activeThreadRef, {
-    inlinePanel: !shouldUsePlanSidebarSheet,
+    inlinePanel: buddyPanelOpensItself(!shouldUsePlanSidebarSheet, buddyFramed),
     draft: !isServerThread,
   });
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =

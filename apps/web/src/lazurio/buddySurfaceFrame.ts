@@ -52,6 +52,13 @@ export const buddyPanelsOffered = (
   narrow: boolean,
 ): boolean => !framed || (mode === null ? !narrow : mode === "fullscreen");
 
+/**
+ * Whether a page an agent reveals may open the right panel by itself: never in Buddy's window,
+ * where nothing opens over his conversation (F60); its tab still joins the strip.
+ */
+export const buddyPanelOpensItself = (inlinePanel: boolean, framed: boolean): boolean =>
+  inlinePanel && !framed;
+
 const overWholeWindow = new WeakMap<object, object>();
 
 /**
