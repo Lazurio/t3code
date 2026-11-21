@@ -40,8 +40,8 @@ export const buddyWindowInView = (
 
 /**
  * Whether Buddy's window offers the right panel and the terminal: not in a host's frame too narrow
- * for them, where the right panel would only cover the conversation (the small window). The full
- * window offers both (LazurioPlatform F47, addendum of 2026-11-20).
+ * for them (the small window). Interim: the decision offers them full screen on a phone too, which
+ * width cannot tell; Lazurio/LazurioPlatform#1139 has the host send the window's mode.
  */
 export const buddyPanelsOffered = (framed: boolean, narrow: boolean): boolean => !framed || !narrow;
 
