@@ -1996,7 +1996,7 @@ NodeTest.test(
     // (pingdotgg/t3code#26901).
     NodeAssert.match(
       chatView,
-      /useLazurioThreadTabs\(buddySurface \|\| embedded \? null : activeThreadRef, \{\n\s+inlinePanel: !shouldUsePlanSidebarSheet,\n\s+draft: !isServerThread,\n\s+\}\);/,
+      /useLazurioThreadTabs\(buddySurface \|\| embedded \? null : activeThreadRef, \{\n\s+inlinePanel: buddyPanelOpensItself\(!shouldUsePlanSidebarSheet, buddyFramed\),\n\s+draft: !isServerThread,\n\s+\}\);/,
     );
     NodeAssert.match(chatView, /const rightPanelActiveContent = activeThreadRef \? \(/);
     NodeAssert.match(
@@ -3467,6 +3467,10 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
     /\n\s+useBuddyPanelEscape\(buddyWholeWindow && rightPanelOpen, toggleRightPanelStable\);\n/,
   );
   NodeAssert.match(chat, /&& !embedded && !buddyFramed,\n/);
+  NodeAssert.match(
+    chat,
+    /inlinePanel: buddyPanelOpensItself\(!shouldUsePlanSidebarSheet, buddyFramed\),/,
+  );
   NodeAssert.match(
     chat,
     /showMaximizeControl=\{!shouldUsePlanSidebarSheet && !buddyWholeWindow\}[\s\S]{0,400}\{buddyWholeWindow && rightPanelOpen \? \(\n\s+<BuddyBackToConversation label=\{buddyBackLabel\} onBack=\{toggleRightPanelStable\} \/>/,

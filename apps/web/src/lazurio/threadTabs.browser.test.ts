@@ -157,9 +157,21 @@ describe("reveals", () => {
     receiveSnapshot(threadA, snapshot([]));
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:1" } }]));
     expect(panel()).toMatchObject({ isOpen: false, surfaces: [tab(1)] });
+    // Another Environment's tab an agent reveals joins the strip and opens nothing either (Buddy's
+    // window, where nothing opens over the conversation by itself).
+    receiveForeign(threadA, {
+      tabId: "AB".repeat(16),
+      view: foreign.view,
+      revealRequest: { id: "e:0" },
+    });
+    expect(panel()).toMatchObject({ isOpen: false, surfaces: [tab(1), foreign] });
     syncOf(threadA).inlinePanel = true;
     receiveSnapshot(threadA, snapshot([{ tabId: id(1), revealRequest: { id: "epoch-1:2" } }]));
-    expect(panel()).toEqual({ isOpen: true, activeSurfaceId: tab(1).id, surfaces: [tab(1)] });
+    expect(panel()).toEqual({
+      isOpen: true,
+      activeSurfaceId: tab(1).id,
+      surfaces: [tab(1), foreign],
+    });
   });
 
   it("bring a tab the strip already has to the front, behind another surface in view", () => {
