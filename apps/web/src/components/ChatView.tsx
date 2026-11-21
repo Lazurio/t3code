@@ -184,6 +184,7 @@ import {
   useLazurioThreadTabs,
 } from "../lazurio/LazurioEnvironmentBrowser";
 import {
+  BuddyBackToConversation,
   BuddyThreadDetailsPanel,
   buddyRightPanelState,
   buddyRuntimeMode,
@@ -3407,15 +3408,15 @@ export default function ChatView(props: ChatViewProps) {
   const threadPanelHeaderControl = <ThreadPanelHeaderControl {...panelToggleControlProps} />;
   const panelLayoutControls = (
     <WorkspaceTitlebarControls
-      showMaximizeControl={!shouldUsePlanSidebarSheet}
+      showMaximizeControl={!shouldUsePlanSidebarSheet && !buddyPanels.wholeWindow}
       rightPanelOpen={rightPanelOpen}
       animationsActive={panelAnimationsActive}
       maximized={rightPanelMaximized}
-      onToggleMaximized={
-        buddyPanels.wholeWindow ? toggleRightPanelStable : toggleRightPanelMaximizedStable
-      }
-      restoreLabel={buddyPanels.wholeWindow ? buddyPanels.backLabel : undefined}
+      onToggleMaximized={toggleRightPanelMaximizedStable}
     >
+      {buddyPanels.wholeWindow && rightPanelOpen ? (
+        <BuddyBackToConversation label={buddyPanels.backLabel} onBack={toggleRightPanelStable} />
+      ) : null}
       {panelToggleControls}
     </WorkspaceTitlebarControls>
   );

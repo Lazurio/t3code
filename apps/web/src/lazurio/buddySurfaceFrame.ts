@@ -68,11 +68,19 @@ export function buddyPanelOverWholeWindow<T extends { readonly maximized?: true 
   return whole;
 }
 
-/** An open menu, dialog or list inside the surface takes Escape before the frame does. */
-export const BUDDY_ESCAPE_TAKERS =
-  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
-/** So does a right panel over the whole window: Escape there goes back to the conversation. */
-const ESCAPE_TAKERS = `${BUDDY_ESCAPE_TAKERS}, [data-chat-column-maximized-away="true"]`;
+const OPEN_TAKERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+
+/**
+ * Whether an open menu, dialog or list the person sees takes Escape: a narrow window keeps T3's
+ * closed sheets mounted as hidden dialogs, which take nothing.
+ */
+export const buddyEscapeTaken = (doc: Pick<Document, "querySelectorAll">): boolean =>
+  [...doc.querySelectorAll(OPEN_TAKERS)].some(
+    (element) => typeof element.checkVisibility !== "function" || element.checkVisibility(),
+  );
+
+/** A right panel over the whole window takes it too: Escape there goes back to the conversation. */
+const PANEL_OVER_WINDOW = '[data-chat-column-maximized-away="true"]';
 
 /** The host page around this one, if a host of the bubble frames it; read without side effects. */
 export const buddyHostOfWindow = (win: Window): string | null =>
@@ -134,7 +142,8 @@ export function startBuddyFrame(win: Window): BuddyFrame {
       event.ctrlKey ||
       event.altKey ||
       event.shiftKey ||
-      win.document.querySelector(ESCAPE_TAKERS) !== null
+      buddyEscapeTaken(win.document) ||
+      win.document.querySelector(PANEL_OVER_WINDOW) !== null
     )
       return;
     requestLayout("panel");

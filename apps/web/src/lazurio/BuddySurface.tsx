@@ -63,7 +63,7 @@ import { BUDDY_WORKING_ROW, buddyConversationRows, buddyFailureOf } from "./budd
 import { prefersCzech } from "./threadTabs";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
-  BUDDY_ESCAPE_TAKERS,
+  buddyEscapeTaken,
   buddyHostOfWindow,
   buddyPanelOverWholeWindow,
   buddyPanelsOffered,
@@ -127,6 +127,24 @@ export function useBuddyPanels() {
   };
 }
 
+/** In Buddy's window, the way from the right panel over the whole window back to the conversation. */
+export function BuddyBackToConversation(props: {
+  readonly label: string;
+  readonly onBack: () => void;
+}) {
+  return (
+    <Button
+      aria-label={props.label}
+      onClick={props.onBack}
+      size="icon-sm"
+      title={props.label}
+      variant="ghost"
+    >
+      <Minimize2 />
+    </Button>
+  );
+}
+
 /**
  * Escape over the right panel that covers Buddy's window goes back to the conversation, before the
  * frame would make the window small (buddySurfaceFrame.ts). A field or a dialog keeps its own.
@@ -140,7 +158,7 @@ export function useBuddyPanelEscape(active: boolean, back: () => void) {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
-      if (document.querySelector(BUDDY_ESCAPE_TAKERS) !== null) return;
+      if (buddyEscapeTaken(document)) return;
       back();
     };
     window.addEventListener("keydown", onKeyDown);

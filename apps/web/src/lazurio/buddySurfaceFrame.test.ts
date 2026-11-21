@@ -40,11 +40,14 @@ function frameWindow(
     location: { ancestorOrigins: [options.host ?? HOST] },
     document: {
       referrer: "",
+      // As the DOM does, it also finds the hidden dialog below.
       querySelector: (selector: string) =>
-        options.openMenu === true ||
-        (options.panelOverWindow === true && selector.includes("maximized-away"))
-          ? {}
-          : null,
+        selector.includes("maximized-away") ? (options.panelOverWindow === true ? {} : null) : {},
+      // A narrow window keeps a closed sheet mounted as a hidden dialog.
+      querySelectorAll: () => [
+        { checkVisibility: () => false },
+        ...(options.openMenu === true ? [{ checkVisibility: () => true }] : []),
+      ],
     },
     addEventListener: (type: string, listener: (event: unknown) => void) =>
       listeners.set(type, listener),
