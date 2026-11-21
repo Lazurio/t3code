@@ -3466,7 +3466,7 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   NodeAssert.match(chat, /\n\s+!embedded &&\n\s+!buddyPanels\.framed,\n/);
   NodeAssert.match(
     chat,
-    /onToggleMaximized=\{\n\s+buddyPanels\.wholeWindow \? toggleRightPanelStable : toggleRightPanelMaximizedStable\n\s+\}\n\s+restoreLabel=\{buddyPanels\.wholeWindow \? buddyPanels\.backLabel : undefined\}/,
+    /showMaximizeControl=\{!shouldUsePlanSidebarSheet && !buddyPanels\.wholeWindow\}[\s\S]{0,400}\{buddyPanels\.wholeWindow && rightPanelOpen \? \(\n\s+<BuddyBackToConversation label=\{buddyPanels\.backLabel\} onBack=\{toggleRightPanelStable\} \/>/,
   );
   // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's surface shows neither T3's
   // terminal nor its right panel. Their states are read closed inside the stores' selectors (outside,
