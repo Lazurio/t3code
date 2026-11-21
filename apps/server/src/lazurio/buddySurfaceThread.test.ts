@@ -14,8 +14,10 @@ import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import { BUDDY, addProject, layerBuddyServer } from "./buddySurface.testkit.ts";
 import { BUDDY_THREAD_ID, resolveBuddyThread } from "./buddySurfaceThread.ts";
+import { ensureManagedFolderProject } from "./managedFolderStartup.ts";
 
 /** A home with Buddy's layer, `~/Lazurio/.agents/buddy`, in it. */
 const makeHome = () => {
@@ -321,9 +323,10 @@ describe("Buddy's thread", () => {
     });
 
     it.live(
-      "answers no-project before the startup made Buddy's project, and not-buddy without one",
+      "answers no-project while the Buddy folder is absent, and not-buddy without one declared",
       () => {
         const { home, folder, buddy } = makeShared();
+        NodeFS.rmSync(buddy, { recursive: true });
         return Effect.gen(function* () {
           const reason = (exit: Exit.Exit<unknown, unknown>) =>
             Exit.isFailure(exit) ? JSON.stringify(exit.cause) : "succeeded";
@@ -332,6 +335,57 @@ describe("Buddy's thread", () => {
             "no-project",
           );
           assert.include(reason(yield* Effect.exit(resolveBuddyThread())), "not-buddy");
+          assert.lengthOf((yield* (yield* ProjectService.ProjectService).snapshot).projects, 0);
+        }).pipe(
+          Effect.provide(Layer.merge(layerBuddyServer, ServerSettings.layerTest())),
+          Effect.scoped,
+          Effect.provideService(HostProcess.Environment, { HOME: home }),
+        );
+      },
+    );
+
+    it.live(
+      "makes Buddy's project on the first visit when the Buddy folder appeared after the startup",
+      () => {
+        const { home, folder, buddy } = makeShared();
+        NodeFS.rmSync(buddy, { recursive: true });
+        return Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const projects = yield* ProjectService.ProjectService;
+          const { bootstrapProjectId } = yield* withShared(
+            ensureManagedFolderProject,
+            folder,
+            buddy,
+          );
+          const model = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1-sol" };
+          yield* (yield* ServerSettings.ServerSettingsService).updateSettings({
+            projectSettingsOverrides: {
+              [bootstrapProjectId!]: { defaultModelSelection: model },
+            },
+          });
+          NodeFS.mkdirSync(buddy);
+          const [first, second] = yield* Effect.all(
+            [
+              withShared(resolveBuddyThread(), folder, buddy),
+              withShared(resolveBuddyThread(), folder, buddy),
+            ],
+            { concurrency: 2 },
+          );
+          assert.deepStrictEqual(second, first);
+          const buddysProjects = (yield* projects.snapshot).projects.filter(
+            (project) => project.workspaceRoot === buddy,
+          );
+          assert.deepStrictEqual(
+            buddysProjects.map((project) => [project.id, project.title, project.archivedAt]),
+            [[first.projectId, "Buddy", null]],
+          );
+          const shell = yield* orchestrator.getThreadShell(first.threadId);
+          assert.strictEqual(shell?.projectId, first.projectId);
+          assert.deepStrictEqual(shell?.modelSelection, model);
+          assert.lengthOf(
+            (yield* orchestrator.getShellSnapshot({ projectId: first.projectId })).threads,
+            1,
+          );
         }).pipe(
           Effect.provide(Layer.merge(layerBuddyServer, ServerSettings.layerTest())),
           Effect.scoped,

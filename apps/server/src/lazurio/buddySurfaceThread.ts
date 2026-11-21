@@ -17,6 +17,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -30,6 +31,7 @@ import {
   buddyProjectFolder,
   isBuddySurfaceEnvironment,
 } from "./buddySurface.ts";
+import { ensureBuddyProjectIfPresent } from "./managedFolderStartup.ts";
 
 export const BUDDY_THREAD_ROUTE = "/api/lazurio/buddy/thread";
 
@@ -110,7 +112,8 @@ const conflict = () =>
 /**
  * Buddy GEN4 (plan LZD-0033, R3): on the shared Chat server Buddy's project is the one over the
  * declared Buddy folder, and Buddy's thread is its oldest root thread. Archiving one is
- * refused and the startup brings archived ones back, so this is the conversation the person had.
+ * refused and making the project brings archived ones back, so this is the conversation the person
+ * had.
  */
 const sharedBuddyProject = Effect.fn("LazurioBuddySurface.sharedBuddyProject")(function* (
   buddyFolder: string,
@@ -172,13 +175,31 @@ const keepBuddysThreadOpen = Effect.fn("LazurioBuddySurface.keepThreadOpen")(fun
 }, Effect.mapError(unavailable));
 
 /**
+ * `findSharedBuddyThread`, which first makes Buddy's project as the startup does when the Buddy
+ * folder appeared only after the startup ran. Of two first visits at once, one bootstrap loses to
+ * the other's on the folder's lock; that visit finds the other's project.
+ */
+const findSharedBuddyThreadMakingProject = Effect.fn(
+  "LazurioBuddySurface.findSharedThreadMakingProject",
+)(function* (buddyFolder: string) {
+  const found = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.result);
+  if (Result.isSuccess(found)) return found.success;
+  if (found.failure.reason !== "no-project") return yield* found.failure;
+  const made = yield* ensureBuddyProjectIfPresent(buddyFolder).pipe(Effect.result);
+  if (Result.isSuccess(made) && !made.success) return yield* found.failure;
+  const again = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.result);
+  if (Result.isSuccess(again)) return again.success;
+  return yield* Result.isFailure(made) ? unavailable(made.failure) : again.failure;
+});
+
+/**
  * Buddy's thread on the shared server, made on the project's default model the first time anyone
  * asks. Its id and command derive from the project, so two first visits make one thread.
  */
 const resolveSharedBuddyThread = Effect.fn("LazurioBuddySurface.resolveSharedThread")(function* (
   buddyFolder: string,
 ) {
-  const { project, thread } = yield* findSharedBuddyThread(buddyFolder);
+  const { project, thread } = yield* findSharedBuddyThreadMakingProject(buddyFolder);
   if (thread !== null) {
     yield* keepBuddysThreadOpen(thread);
     return { threadId: thread.id, projectId: project.projectId } satisfies BuddyThread;

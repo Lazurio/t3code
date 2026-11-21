@@ -206,7 +206,7 @@ const buddyThreadId = Effect.fn("LazurioBuddySignal.threadId")(function* () {
   if (buddyFolder === undefined) return { kind: "absent", error: "not-buddy" } as const;
   const found = yield* findSharedBuddyThread(buddyFolder).pipe(Effect.result);
   if (found._tag === "Failure")
-    // Before the startup makes Buddy's project there is no thread either.
+    // Before the startup or the first window open makes Buddy's project there is no thread either.
     return found.failure.reason === "no-project" ? noThread : unavailable;
   return found.success.thread === null
     ? noThread
