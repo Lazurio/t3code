@@ -121,92 +121,12 @@ export const start = Effect.fn("startApp.start")(function* (input: {
   return child;
 });
 
-const devRunner = (home: string, mode: string, args: ReadonlyArray<string>) => [
-  "scripts/dev-runner.ts",
-  mode,
-  "--home-dir",
-  home,
-  "--no-seed",
-  ...args,
-];
-
-/**
- * The web dev stack of `checkout` on a prepared `home`, with `env` as its whole environment: its
- * server and Vite at `http://<host>:<webPort>`. The startup pairing link goes to
- * `home/pairing-path`. Ends with the exit code of whichever stops first.
- */
-export const startWebStack = Effect.fn("startApp.webStack")(function* (input: {
-  readonly checkout: string;
-  readonly home: string;
-  readonly host: string;
-  readonly webPort: string;
-  readonly env: NodeJS.ProcessEnv;
-  readonly onLine?: (line: string) => Effect.Effect<void>;
-}) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const net = yield* NetService.NetService;
-  const node = yield* HostProcess.ExecutablePath;
-  const { checkout, host, webPort } = input;
-  const onLine = input.onLine ?? Console.log;
-  const origin = `http://${host}:${webPort}`;
-  const serverPort = String(yield* net.reserveLoopbackPort());
-  const token = yield* (yield* SecureRandom.SecureRandom).uuidV4();
-  const ports = ["--port", serverPort, "--dev-url", origin];
-  const webEnv = { ...input.env, T3CODE_PORT_OFFSET: String(Number(webPort) - BASE_WEB_PORT) };
-  const server = yield* start({
-    cwd: checkout,
-    command: node,
-    args: devRunner(input.home, "dev:server", ports),
-    env: {
-      ...webEnv,
-      T3CODE_DEV_ALLOWED_ORIGINS: origin,
-      // Makes the startup pairing link reusable, so every test can sign in with it.
-      T3CODE_DEV_AUTH_TOKEN: `${token}${token}`.replaceAll("-", ""),
-    },
-    onLine: (line) => {
-      const url = /pairingUrl:\s*(\S+)/.exec(line)?.[1];
-      if (url === undefined) return onLine(line);
-      // The link is a credential: it goes to a file the tests read, never to the log.
-      const { pathname, search, hash } = new URL(url);
-      return fs
-        .writeFileString(path.join(input.home, "pairing-path"), `${pathname}${search}${hash}`)
-        .pipe(Effect.ignore);
-    },
-  });
-  const web = yield* start({
-    cwd: checkout,
-    command: node,
-    args: devRunner(input.home, "dev:web", [...ports, "--", "--host", host]),
-    env: webEnv,
-    onLine,
-  });
-  // A web server that came up on another loopback address would leave e2e waiting out its
-  // whole startup timeout; say so at once instead.
-  const boundElsewhere = Effect.gen(function* () {
-    const elsewhere = host === "::1" ? "127.0.0.1" : "::1";
-    if (yield* net.hasListenerOnHost(Number(webPort), host)) return yield* Effect.never;
-    if (!(yield* net.hasListenerOnHost(Number(webPort), elsewhere))) {
-      return yield* new ScenarioError({ message: "The web server is not listening yet." });
-    }
-    yield* Console.error(
-      `The web server listens on ${elsewhere}:${webPort}, not on ${host}: it ignored --host.`,
-    );
-    return 1;
-  }).pipe(
-    Effect.retry({
-      schedule: Schedule.spaced("1 second"),
-      while: (error) => error._tag === "ScenarioError",
-    }),
-  );
-  return yield* Effect.raceAll([server.exitCode, web.exitCode, boundElsewhere]);
-});
-
 const startApp = Effect.fn("startApp")(function* (input: {
   readonly surface: "web" | "mobile";
   readonly home: string;
   readonly ports: ReadonlyArray<string>;
 }) {
+  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const net = yield* NetService.NetService;
   const node = yield* HostProcess.ExecutablePath;
@@ -218,12 +138,70 @@ const startApp = Effect.fn("startApp")(function* (input: {
     PATH: `${path.join(input.home, "bin")}:${hostEnvironment.PATH ?? ""}`,
     T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "0",
   };
+  const devRunner = (mode: string, args: ReadonlyArray<string>) => [
+    "scripts/dev-runner.ts",
+    mode,
+    "--home-dir",
+    input.home,
+    "--no-seed",
+    ...args,
+  ];
 
   if (input.surface === "web") {
     // e2e opens the app at this host, so the web server is told to bind exactly it. Left to its
     // default, `localhost`, it binds ::1 alone on machines that resolve the name to IPv6 first.
     const [host = "", webPort = ""] = input.ports;
-    return yield* startWebStack({ checkout, home: input.home, host, webPort, env });
+    const origin = `http://${host}:${webPort}`;
+    const serverPort = String(yield* net.reserveLoopbackPort());
+    const token = yield* (yield* SecureRandom.SecureRandom).uuidV4();
+    const ports = ["--port", serverPort, "--dev-url", origin];
+    const webEnv = { ...env, T3CODE_PORT_OFFSET: String(Number(webPort) - BASE_WEB_PORT) };
+    const server = yield* start({
+      cwd: checkout,
+      command: node,
+      args: devRunner("dev:server", ports),
+      env: {
+        ...webEnv,
+        T3CODE_DEV_ALLOWED_ORIGINS: origin,
+        // Makes the startup pairing link reusable, so every test can sign in with it.
+        T3CODE_DEV_AUTH_TOKEN: `${token}${token}`.replaceAll("-", ""),
+      },
+      onLine: (line) => {
+        const url = /pairingUrl:\s*(\S+)/.exec(line)?.[1];
+        if (url === undefined) return Console.log(line);
+        // The link is a credential: it goes to a file the tests read, never to the log.
+        const { pathname, search, hash } = new URL(url);
+        return fs
+          .writeFileString(path.join(input.home, "pairing-path"), `${pathname}${search}${hash}`)
+          .pipe(Effect.ignore);
+      },
+    });
+    const web = yield* start({
+      cwd: checkout,
+      command: node,
+      args: devRunner("dev:web", [...ports, "--", "--host", host]),
+      env: webEnv,
+      onLine: Console.log,
+    });
+    // A web server that came up on another loopback address would leave e2e waiting out its
+    // whole startup timeout; say so at once instead.
+    const boundElsewhere = Effect.gen(function* () {
+      const elsewhere = host === "::1" ? "127.0.0.1" : "::1";
+      if (yield* net.hasListenerOnHost(Number(webPort), host)) return yield* Effect.never;
+      if (!(yield* net.hasListenerOnHost(Number(webPort), elsewhere))) {
+        return yield* new ScenarioError({ message: "The web server is not listening yet." });
+      }
+      yield* Console.error(
+        `The web server listens on ${elsewhere}:${webPort}, not on ${host}: it ignored --host.`,
+      );
+      return 1;
+    }).pipe(
+      Effect.retry({
+        schedule: Schedule.spaced("1 second"),
+        while: (error) => error._tag === "ScenarioError",
+      }),
+    );
+    return yield* Effect.raceAll([server.exitCode, web.exitCode, boundElsewhere]);
   }
 
   // The device is another machine: the server listens on every interface, and Metro serves the
@@ -232,7 +210,7 @@ const startApp = Effect.fn("startApp")(function* (input: {
   const server = yield* start({
     cwd: checkout,
     command: node,
-    args: devRunner(input.home, "dev:server", ["--host", "0.0.0.0", "--port", serverPort]),
+    args: devRunner("dev:server", ["--host", "0.0.0.0", "--port", serverPort]),
     env,
     onLine: (line) => (line.includes("pairingUrl:") ? Effect.void : Console.log(line)),
   });

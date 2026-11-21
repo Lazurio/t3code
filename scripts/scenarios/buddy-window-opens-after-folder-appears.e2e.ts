@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
 import { expect } from "e2e";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -15,64 +16,94 @@ import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 
 import { APP_DIR, T3_HOME } from "../e2e.config.ts";
 import { ScenarioError } from "./shell.ts";
-import { prepareHome, startWebStack } from "./start-app.ts";
+import { prepareHome, start } from "./start-app.ts";
 import { runPromise, test, WEB } from "./t3.ts";
 
 const HOME = `${T3_HOME}-buddy-window`;
 const FOLDERS = `${T3_HOME}-buddy-window-folders`;
 const FOLDER = `${FOLDERS}/Lazurio`;
 const BUDDY_FOLDER = `${FOLDERS}/Buddy`;
+// Mirror of BASE_WEB_PORT in dev-runner.ts, as start-app.ts mirrors it.
+const BASE_WEB_PORT = 5733;
 
-/** The managed stack, running until interrupted; `ready` gets its origin and pairing path. */
+/**
+ * The managed stack, running until interrupted: the app's server and Vite, started as start-app.ts
+ * starts them with its own `start` and `prepareHome`. `ready` gets the origin and pairing path.
+ */
 const runManagedStack = Effect.fn("scenario.buddyWindow.stack")(function* (
   ready: (stack: { readonly origin: string; readonly pairingPath: string }) => void,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const net = yield* NetService.NetService;
+  const node = yield* HostProcess.ExecutablePath;
   const hostEnvironment = yield* HostProcess.Environment;
   yield* prepareHome(HOME);
   yield* fs.remove(FOLDERS, { recursive: true, force: true });
   yield* fs.makeDirectory(FOLDER, { recursive: true });
-  const webPort = String(yield* (yield* NetService.NetService).reserveLoopbackPort());
+  const webPort = yield* net.reserveLoopbackPort();
   const origin = `http://127.0.0.1:${webPort}`;
-  const stack = yield* startWebStack({
-    checkout: APP_DIR,
-    home: HOME,
-    host: "127.0.0.1",
-    webPort,
-    // Named in full: the shell that runs the scenario may be a managed Environment itself.
-    env: {
-      PATH: `${path.join(HOME, "bin")}:${hostEnvironment.PATH ?? ""}`,
-      HOME: hostEnvironment.HOME,
-      ...(hostEnvironment.TMPDIR === undefined ? {} : { TMPDIR: hostEnvironment.TMPDIR }),
-      T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "0",
-      T3CODE_LAZURIO_FOLDER: FOLDER,
-      T3CODE_LAZURIO_BUDDY_FOLDER: BUDDY_FOLDER,
-      // This origin is Buddy's window, so the whole page is Buddy's surface.
-      T3CODE_LAZURIO_BUDDY_ORIGIN: origin,
+  const ports = ["--port", String(yield* net.reserveLoopbackPort()), "--dev-url", origin];
+  const devRunner = (mode: string, args: ReadonlyArray<string>) => [
+    "scripts/dev-runner.ts",
+    mode,
+    "--home-dir",
+    HOME,
+    "--no-seed",
+    ...args,
+  ];
+  // Named in full: the shell that runs the scenario may be a managed Environment itself.
+  const env = {
+    PATH: `${path.join(HOME, "bin")}:${hostEnvironment.PATH ?? ""}`,
+    HOME: hostEnvironment.HOME,
+    ...(hostEnvironment.TMPDIR === undefined ? {} : { TMPDIR: hostEnvironment.TMPDIR }),
+    T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "0",
+    T3CODE_PORT_OFFSET: String(webPort - BASE_WEB_PORT),
+    T3CODE_LAZURIO_FOLDER: FOLDER,
+    T3CODE_LAZURIO_BUDDY_FOLDER: BUDDY_FOLDER,
+    // This origin is Buddy's window, so the whole page is Buddy's surface.
+    T3CODE_LAZURIO_BUDDY_ORIGIN: origin,
+  };
+  // The server prints its pairing link after the startup made the Folder's project.
+  const pairing = yield* Deferred.make<string>();
+  const server = yield* start({
+    cwd: APP_DIR,
+    command: node,
+    args: devRunner("dev:server", ports),
+    env: { ...env, T3CODE_DEV_ALLOWED_ORIGINS: origin },
+    onLine: (line) => {
+      const url = /pairingUrl:\s*(\S+)/.exec(line)?.[1];
+      if (url === undefined) return Effect.void;
+      const { pathname, search, hash } = new URL(url);
+      return Deferred.succeed(pairing, `${pathname}${search}${hash}`).pipe(Effect.asVoid);
     },
+  });
+  const web = yield* start({
+    cwd: APP_DIR,
+    command: node,
+    args: devRunner("dev:web", [...ports, "--", "--host", "127.0.0.1"]),
+    env,
     onLine: () => Effect.void,
-  }).pipe(Effect.forkScoped);
-  // The pairing link is printed after the startup made the Folder's project, and the environment
-  // answers through Vite once both servers are up.
+  });
+  const exited = Effect.raceFirst(server.exitCode, web.exitCode);
+  // The environment answers through Vite once both servers are up.
   const up = Effect.gen(function* () {
-    const pairingPath = yield* fs.readFileString(path.join(HOME, "pairing-path"));
+    const pairingPath = yield* Deferred.await(pairing);
     yield* HttpClient.get(`${origin}/.well-known/t3/environment`).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.mapError(() => new ScenarioError({ message: "The managed stack is not up yet." })),
+      Effect.retry({ schedule: Schedule.spaced("1 second"), times: 300 }),
+      Effect.provide(FetchHttpClient.layer),
     );
     return pairingPath;
-  }).pipe(
-    Effect.mapError(() => new ScenarioError({ message: "The managed stack is not up yet." })),
-    Effect.retry({ schedule: Schedule.spaced("1 second"), times: 300 }),
-    Effect.provide(FetchHttpClient.layer),
-  );
-  const stopped = Fiber.join(stack).pipe(
+  });
+  const stopped = exited.pipe(
     Effect.flatMap((code) =>
       Effect.fail(new ScenarioError({ message: `The managed stack exited with ${code}.` })),
     ),
   );
   ready({ origin, pairingPath: yield* Effect.raceFirst(up, stopped) });
-  return yield* Fiber.join(stack);
+  return yield* exited;
 });
 
 function startManagedStack() {
