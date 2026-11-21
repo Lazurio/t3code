@@ -3450,7 +3450,7 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   );
   NodeAssert.match(
     chat,
-    /\n\s+useBuddyChatShortcuts\(buddySurface \|\| !buddyPanels\.offered, \{\n\s+enabled: activeThreadId !== null && !backgroundThread,/,
+    /\n\s+useBuddyChatShortcuts\(buddySurface \|\| !buddyPanelsOffered, \{\n\s+enabled: activeThreadId !== null && !backgroundThread,/,
   );
   NodeAssert.doesNotMatch(chat, /\buseChatShortcuts\(/);
   NodeAssert.doesNotMatch(chat, /activeTasksProgress|activeComposerTask/);
@@ -3458,15 +3458,18 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   // Buddy GEN4's small window offers neither panel either (LazurioPlatform F47, addendum of
   // 2026-11-20), and in his full-screen window the right panel covers the whole window, Escape goes
   // back to the conversation and nothing opens by itself (LazurioPlatform#1139): `useBuddyPanels`.
-  NodeAssert.match(chat, /\n\s+const buddyPanels = useBuddyPanels\(\);\n/);
   NodeAssert.match(
     chat,
-    /\n\s+useBuddyPanelEscape\(buddyPanels\.wholeWindow && rightPanelOpen, toggleRightPanelStable\);\n/,
+    /\n\s+wholeWindow: buddyWholeWindow,[\s\S]{0,80}\} = useBuddyPanels\(\);\n/,
   );
-  NodeAssert.match(chat, /\n\s+!embedded &&\n\s+!buddyPanels\.framed,\n/);
   NodeAssert.match(
     chat,
-    /showMaximizeControl=\{!shouldUsePlanSidebarSheet && !buddyPanels\.wholeWindow\}[\s\S]{0,400}\{buddyPanels\.wholeWindow && rightPanelOpen \? \(\n\s+<BuddyBackToConversation label=\{buddyPanels\.backLabel\} onBack=\{toggleRightPanelStable\} \/>/,
+    /\n\s+useBuddyPanelEscape\(buddyWholeWindow && rightPanelOpen, toggleRightPanelStable\);\n/,
+  );
+  NodeAssert.match(chat, /&& !embedded && !buddyFramed,\n/);
+  NodeAssert.match(
+    chat,
+    /showMaximizeControl=\{!shouldUsePlanSidebarSheet && !buddyWholeWindow\}[\s\S]{0,400}\{buddyWholeWindow && rightPanelOpen \? \(\n\s+<BuddyBackToConversation label=\{buddyBackLabel\} onBack=\{toggleRightPanelStable\} \/>/,
   );
   // Root decision 0210, addendum of HumanAndMachines/Lazurio#648: Buddy's surface shows neither T3's
   // terminal nor its right panel. Their states are read closed inside the stores' selectors (outside,
@@ -3474,14 +3477,14 @@ NodeTest.test("Buddy's chat reads like a chat with a friend through its seams", 
   // 301), no thread tabs are followed, code blocks get no Run in terminal, links open in a new tab.
   NodeAssert.match(
     chat,
-    /\n\s+const terminalUiState = useTerminalUiStateStore\(\(state\) =>\n\s+buddyTerminalUiState\(\n\s+buddySurface \|\| !buddyPanels\.offered,\n\s+selectThreadTerminalUiState\(state\.terminalUiStateByThreadKey, routeThreadRef\),\n/,
+    /\n\s+const terminalUiState = useTerminalUiStateStore\(\(state\) =>\n\s+buddyTerminalUiState\(\n\s+buddySurface \|\| !buddyPanelsOffered,\n\s+selectThreadTerminalUiState\(state\.terminalUiStateByThreadKey, routeThreadRef\),\n/,
   );
   NodeAssert.equal(chat.match(/\bselectThreadTerminalUiState\(/g)?.length, 1);
   NodeAssert.match(chat, /\{embedded \|\| buddySurface \? null : \(\n\s+<ChatTerminalDrawers\n/);
   NodeAssert.equal(chat.match(/<ChatTerminalDrawers\b/g)?.length, 1);
   NodeAssert.match(
     chat,
-    /\n\s+const rightPanelState = useRightPanelStore\(\(state\) =>\n\s+buddyRightPanelState\(\n\s+buddySurface \|\| !buddyPanels\.offered,\n\s+selectThreadRightPanelState\(state\.byThreadKey, activeThreadRef\),\n\s+buddyPanels\.wholeWindow,\n/,
+    /\n\s+const rightPanelState = useRightPanelStore\(\(state\) =>\n\s+buddyRightPanelState\(\n\s+buddySurface \|\| !buddyPanelsOffered,\n\s+selectThreadRightPanelState\(state\.byThreadKey, activeThreadRef\),\n\s+buddyWholeWindow,\n/,
   );
   NodeAssert.equal(chat.match(/\bselectThreadRightPanelState\(/g)?.length, 1);
   NodeAssert.match(chat, /\n\s+const rightPanelOpen = rightPanelState\.isOpen;\n/);
