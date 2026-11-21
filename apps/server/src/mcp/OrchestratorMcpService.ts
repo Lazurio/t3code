@@ -2032,8 +2032,9 @@ const make = Effect.gen(function* () {
         : null,
       latestTerminalSummary: terminal ? task.result : null,
       latestTerminalResultContextTransferId: null,
-      // Its questions and approvals are answered in the environment it runs in.
-      hasPendingQuestion: false,
+      // Answered in the environment it runs in; its approvals are not seen from here.
+      hasPendingQuestion:
+        !terminal && (yield* remoteDelegation.pendingQuestionIds(task.id)).length > 0,
       pendingApproval: null,
       waitTimedOut,
     } satisfies OrchestratorMcpDelegateTaskResult;
@@ -2061,36 +2062,56 @@ const make = Effect.gen(function* () {
         childThreadId === null
           ? TASK_WAKE_EVENTS.filter(({ thread }) => thread === "parent")
           : TASK_WAKE_EVENTS;
+      // A remote task's questions are seen by its follower, not by any event here; one it saw
+      // before this subscribed is read below.
+      const remoteQuestions: Array<Stream.Stream<unknown, OrchestratorMcpFailure>> = [];
+      if (childThreadId === null) {
+        const questionChanges = yield* remoteDelegation.subscribeQuestionChanges;
+        if ((yield* remoteDelegation.pendingQuestionIds(taskId)).length > 0) {
+          const asked = yield* readTask(scope, taskId, false, true);
+          if (endsTaskWait(asked)) return Option.some(asked);
+        }
+        remoteQuestions.push(
+          questionChanges.pipe(Stream.filter((changedTaskId) => changedTaskId === taskId)),
+        );
+      }
       return yield* Stream.mergeAll(
-        wakeEvents.map(({ thread, eventType }) =>
-          threadManagement
-            .streamStoredEventsFrom({
-              threadId:
-                thread === "parent" || childThreadId === null
-                  ? scope.thread.threadId
-                  : childThreadId,
-              afterSequence,
-              eventType,
-            })
-            .pipe(
-              Stream.filter(
-                ({ event }) =>
-                  thread === "child" ||
-                  event.type !== "subagent.updated" ||
-                  event.payload.id === taskId,
+        [
+          ...wakeEvents.map(({ thread, eventType }) =>
+            threadManagement
+              .streamStoredEventsFrom({
+                threadId:
+                  thread === "parent" || childThreadId === null
+                    ? scope.thread.threadId
+                    : childThreadId,
+                afterSequence,
+                eventType,
+              })
+              .pipe(
+                Stream.filter(
+                  ({ event }) =>
+                    thread === "child" ||
+                    event.type !== "subagent.updated" ||
+                    event.payload.id === taskId,
+                ),
+                Stream.mapError(streamError),
               ),
-            ),
-        ),
+          ),
+          ...remoteQuestions,
+        ],
         { concurrency: "unbounded" },
       ).pipe(
-        Stream.mapError(streamError),
         Stream.mapEffect(() => readTask(scope, taskId, false, true)),
         Stream.filter(endsTaskWait),
         Stream.runHead,
       );
     },
     (effect, _scope, _taskId, timeoutMs) =>
-      effect.pipe(Effect.timeoutOption(Duration.millis(timeoutMs)), Effect.map(Option.flatten)),
+      effect.pipe(
+        Effect.scoped,
+        Effect.timeoutOption(Duration.millis(timeoutMs)),
+        Effect.map(Option.flatten),
+      ),
   );
 
   const refExists = (cwd: string, revision: string) =>
@@ -3472,6 +3493,9 @@ const make = Effect.gen(function* () {
             Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
           ),
           ...(input.untilDelegatedWorkSettled === true ? { untilDelegatedWorkSettled: true } : {}),
+          ...(input.untilQuestion === true
+            ? { untilQuestion: true, knownQuestionIds: input.knownQuestionIds ?? [] }
+            : {}),
         })
         .pipe(Effect.mapError(threadManagementFailure));
       const status = result.run === null ? "idle" : runOutcome(result.run);
@@ -3508,6 +3532,10 @@ const make = Effect.gen(function* () {
           : {
               resultRun: { runId: result.resultRun.id, status: runOutcome(result.resultRun) },
             }),
+        ...(result.pendingQuestionIds === undefined
+          ? {}
+          : { pendingQuestionIds: result.pendingQuestionIds }),
+        ...(result.returnedFor === undefined ? {} : { returnedFor: result.returnedFor }),
       } satisfies OrchestratorMcpThreadWaitResult;
     }),
     interruptThread: Effect.fn("OrchestratorMcpService.interruptThread")(function* (scope, input) {

@@ -240,7 +240,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   resultContextTransferId: Schema.NullOr(ContextTransferId),
   hasPendingQuestion: Schema.Boolean.annotate({
     description:
-      "A question blocks the child and ends a wait. Answer via `t3_pending_request` on `childThreadId`, or the user does.",
+      "A question blocks the child and ends a wait. Answer via `t3_pending_request` on `childThreadId` (a remote task: `remoteChild`'s thread and environment), or the user does.",
   }),
   pendingApproval: Schema.NullOr(
     Schema.Struct({ requestId: RuntimeRequestId, kind: ProviderRequestKind, runId: RunId }),
@@ -584,6 +584,18 @@ export const OrchestratorMcpThreadWaitInput = Schema.Struct({
         "Also wait for its delegated and background tasks and their completions to settle. `resultRun` then names the run with its final answer.",
     }),
   ),
+  untilQuestion: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Also return once the thread asks a question; `pendingQuestionIds` names it for `t3_pending_request`.",
+    }),
+  ),
+  knownQuestionIds: Schema.optional(
+    Schema.Array(RuntimeRequestId).annotate({
+      description:
+        "With untilQuestion: the questions you already know of. Returns when that set changes instead.",
+    }),
+  ),
 });
 export type OrchestratorMcpThreadWaitInput = typeof OrchestratorMcpThreadWaitInput.Type;
 
@@ -595,6 +607,10 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
   /** With untilDelegatedWorkSettled, once settled: the run whose reply is the thread's result. */
   resultRun: Schema.optional(Schema.Struct({ runId: RunId, status: OrchestrationV2RunStatus })),
+  /** With untilQuestion: the thread's pending questions, oldest first. Absent from linked environments that predate it. */
+  pendingQuestionIds: Schema.optional(Schema.Array(RuntimeRequestId)),
+  /** With untilQuestion, unless timed out: whether the wait settled or the questions changed first. Absent whenever `pendingQuestionIds` is. */
+  returnedFor: Schema.optional(Schema.Literals(["settled", "question"])),
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 

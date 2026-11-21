@@ -28,6 +28,7 @@ Cases are JSON lines in `cases/`, one file per area. The case schema in `run.ts`
 - `experience`: the real mistake, in a sentence. `source`: where it happened.
 - `setup`: the fake thread, its `world` (repo, branch, files, PRs, pages), `priorTurns`, and `mocks` for tool results. With `world.backgroundTasks`, `t3_background_wait` answers from T3's own handler and ThreadManagementService, so its result and errors are the checkout's; a prior wait with `"result": "default"` gets that result too.
 - `setup.priorTurns[].toolCalls[].resultFile`: load a repository-relative file as the tool result instead of copying its contents into the case. An empty `prompt` resumes a top-level thread after its last prior tool result without adding a user message. Side-chat and subagent setups require a nonempty prompt.
+- `setup.mocks`: a `{"$byArgs": [{"args": {...}, "result": ...}]}` mock answers with the first entry whose `args` match the call, as `expect` args match; an entry without `args` matches any call. It may be a `$sequence` entry, so a wait can time out without an option and settle on its second call with it. A `{"$after": [{"call": {"tool", "args"}, "result"}]}` mock answers with the first entry whose `call` the sample already made, or that has no `call`, so the world can change when the agent acts: once it answers a question, the thread's wait, read and question list show it finished. Prior turns don't count.
 - `setup.message`: who sent `prompt` (`createdBy`, `creationSource`, `senderThreadId`, `linkedSender`, `notification`, and `client`, the T3 Code client the user typed it in). The prompt then goes through the Lazurio projection in `apps/server/src/lazurio/buddyPrompt.ts`, which puts the `<message_origin>` line ahead of it on checkouts that have one. `setup.priorTurns[].message` does the same for an earlier user turn.
 - `expect`: the checks, such as `calls`, `callsMustNot`, `maxCalls`, `order`, `shellMust`, `textMust`, `finalTextMust` (the last text, once the turn ended), and `linked`. A call's `args` match partially: `~text` is a case-insensitive substring, `"<=N"` / `">=N"` bound a number, `null` matches a missing key, and keys may be dotted paths. Device cases also use `device` to check every child brief, forbid raw UI commands, bound failed device actions per user turn, and require artifact paths in completed final answers. Secrets cases use `secret` (see [Secrets cases](#secrets-cases)).
 
@@ -289,6 +290,34 @@ Passes per case, main's runtime text (3 samples) → this branch's "Link every o
 | file-links-no-files-control   | 3/3 → 6/6 | 3/3 → 6/6  |
 
 After the change, the first reference to a file is an absolute link. The remaining failures come from two other kinds of span. Some repeat the file later as relative inline code (Sonnet's other-checkout failures). Others quote values rather than cite files, such as `main` set to `src/index.ts` or the import `./ws`. Chat still turns those spans into pills.
+
+## Pending questions cases
+
+`cases/pending-questions.ndjson` checks how a coordinator learns that a thread it waits on, or a task it delegated to a linked environment, asked a question, and what it does then. The cases come from [#230](https://github.com/Lazurio/t3code/pull/230) (`t3_thread_wait` `untilQuestion` and `knownQuestionIds`, the remote delegation follower's question wake) and its review. Prompts, files, ids and prior turns are authored Acme data.
+
+| Case                                 | Kind    | What it checks                                                                                                                                 |
+| ------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| pq-wait-until-question               | bad     | Asked to wait for a thread and answer what the doc answers: `t3_thread_wait` with `untilQuestion`, then `t3_pending_request` read and respond. |
+| pq-wait-past-known-question          | bad     | A question the user keeps for themselves stays pending: the next wait passes it in `knownQuestionIds` and the agent never answers it.          |
+| pq-remote-wake-answers-from-task     | guard   | A remote task's question wake: read and answer it with the wake's `environmentId` and remote thread, from the user's instructions; no wait.    |
+| pq-remote-wake-asks-user             | guard   | The same wake for a question only the user can answer: read it, ask the user, and answer nothing when the user gives no answer.                |
+| pq-blocking-remote-delegate-question | guard   | A blocking remote `delegate_task` returns `hasPendingQuestion` with `childThreadId` null: read and answer it on `remoteChild`'s environment.   |
+| pq-control-no-question-wait          | control | An ordinary wait on a thread that asks nothing: no `t3_pending_request` and an answer from the result.                                         |
+
+`t3_thread_wait` answers by its arguments (`$byArgs`): without `untilQuestion` it times out, as a wait on a blocked thread does. Once the agent answers a question (`$after`), the waits, `t3_thread_read`, `t3_pending_request` list and `task_status` show the world after it: the migration finishes with its result, the remote task no longer has a pending question. Main's `t3_thread_wait` has neither option, so the two wait cases are expected to fail there. Finding the question with `t3_pending_request` list after a timeout still fails them: they measure the choice of the option. The two wake cases use the wake text copied from `RemoteDelegation.ts` (`wakeForQuestion`); main never sends that wake, so they guard the new wording rather than discriminate. `pq-blocking-remote-delegate-question` mocks `delegate_task` with the new behavior (main reports `hasPendingQuestion: false` for every remote task). The `hasPendingQuestion` description #230 changes is in the result schema, which T3 does not show the model, so that case guards routing from the result alone. Cases that use `AskUserQuestion` are graded on Claude; on Codex its question tool is graded the same way.
+
+Baseline on main's text with this checkout's `evals/`, then the candidate on this checkout compared with it, 3 samples each, from the repo root:
+
+```sh
+git worktree add ../t3code-pq-base origin/main
+git -C ../t3code-pq-base checkout "$(git rev-parse HEAD)" -- evals
+cp .env ../t3code-pq-base/.env
+(cd ../t3code-pq-base && pnpm install --frozen-lockfile --prefer-offline)
+(cd ../t3code-pq-base/evals && pnpm mcp-tool-use --cases mcp-tool-use/cases/pending-questions.ndjson --model claude-sonnet-5-5 --samples 3 --out runs/pq-sonnet-main)
+(cd evals && pnpm mcp-tool-use --cases mcp-tool-use/cases/pending-questions.ndjson --model claude-sonnet-5-5 --samples 3 --baseline ../../t3code-pq-base/evals/runs/pq-sonnet-main/results.jsonl --out runs/pq-sonnet)
+```
+
+Repeat both with `--model claude-opus-5-5`. Dry runs (`--dry-run`) cost $0.
 
 ## Message origin cases
 

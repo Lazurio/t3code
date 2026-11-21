@@ -29,6 +29,7 @@ import {
   type OrchestrationV2CreationSource,
   type OrchestrationV2LinkedSender,
   type OrchestrationV2Run,
+  type OrchestrationV2RuntimeRequest,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadTranscript,
@@ -39,6 +40,7 @@ import {
   type ProviderSessionId,
   resolveProjectProviderInstanceEnabled,
   RunId,
+  type RuntimeRequestId,
   type ScheduledTaskId,
   ThreadId,
   type TurnItemId,
@@ -186,6 +188,9 @@ export interface ThreadManagementWaitInput {
    * completion delivery will wake it again, as a delegated task's result does.
    */
   readonly untilDelegatedWorkSettled?: boolean;
+  /** Also return once the thread's pending questions differ from `knownQuestionIds` (default none). */
+  readonly untilQuestion?: boolean;
+  readonly knownQuestionIds?: ReadonlyArray<RuntimeRequestId>;
 }
 
 export interface ThreadManagementWaitResult {
@@ -194,6 +199,10 @@ export interface ThreadManagementWaitResult {
   readonly timedOut: boolean;
   /** With `untilDelegatedWorkSettled`, once settled: the run with the thread's final answer. */
   readonly resultRun?: OrchestrationV2Run;
+  /** With `untilQuestion`: the thread's pending questions, oldest first. */
+  readonly pendingQuestionIds?: ReadonlyArray<RuntimeRequestId>;
+  /** With `untilQuestion`, unless timed out: whether the wait settled or the questions changed first. */
+  readonly returnedFor?: "settled" | "question";
 }
 
 export interface ThreadManagementInterruptInput {
@@ -554,6 +563,15 @@ export function isTerminalRunStatus(
     status === "cancelled" ||
     status === "interrupted" ||
     status === "rolled_back"
+  );
+}
+
+/** A question its thread waits on that an answer can still reach. */
+function isAnswerableQuestion(request: OrchestrationV2RuntimeRequest): boolean {
+  return (
+    request.kind === "user_input" &&
+    request.status === "pending" &&
+    request.responseCapability.type !== "not_resumable"
   );
 }
 
@@ -1071,24 +1089,54 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(loadError));
       return pending ? undefined : progress.resultRun;
     });
+    const untilQuestion = input.untilQuestion === true;
+    const knownQuestionIds = new Set(input.knownQuestionIds ?? []);
+    const questions = Effect.gen(function* () {
+      if (!untilQuestion) return { pendingQuestionIds: undefined, questionChanged: false };
+      const { runtimeRequests } = yield* getProjectThreadRecords(input, ["runtimeRequests"]);
+      const pendingQuestionIds = runtimeRequests
+        .filter(isAnswerableQuestion)
+        .toSorted(
+          (left, right) =>
+            DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
+        )
+        .map((request) => request.id);
+      const questionChanged =
+        pendingQuestionIds.length !== knownQuestionIds.size ||
+        pendingQuestionIds.some((id) => !knownQuestionIds.has(id));
+      return { pendingQuestionIds, questionChanged };
+    });
     const evaluate = Effect.fn("orchestrationV2.threadManagement.evaluate")(function* (
       runs: ReadonlyArray<OrchestrationV2Run>,
     ) {
       const current = yield* outcome(runs);
+      const asked = yield* questions;
       if (!current.settled || !untilDelegatedWorkSettled) {
-        return { ...current, resultRun: undefined };
+        return { ...current, ...asked, resultRun: undefined };
       }
       const resultRun = yield* delegatedWorkResult;
-      return { ...current, settled: resultRun !== undefined, resultRun };
+      return { ...current, ...asked, settled: resultRun !== undefined, resultRun };
     });
+    const ends = (current: Effect.Success<ReturnType<typeof evaluate>>) =>
+      current.settled || current.questionChanged;
     const settledResult = (current: Effect.Success<ReturnType<typeof evaluate>>) => ({
       threadId: input.threadId,
       run: current.run,
-      timedOut: !current.settled,
+      timedOut: !ends(current),
       ...(current.resultRun === undefined ? {} : { resultRun: current.resultRun }),
+      ...(current.pendingQuestionIds === undefined
+        ? {}
+        : {
+            pendingQuestionIds: current.pendingQuestionIds,
+            ...(current.settled
+              ? { returnedFor: "settled" as const }
+              : current.questionChanged
+                ? { returnedFor: "question" as const }
+                : {}),
+          }),
     });
     const initial = yield* evaluate(target.runs);
-    if (initial.settled) return settledResult(initial);
+    if (ends(initial)) return settledResult(initial);
 
     // A declined continuation records no event, so its effect settling wakes
     // the wait too.
@@ -1103,6 +1151,7 @@ const make = Effect.gen(function* () {
             ...(untilDelegatedWorkSettled
               ? (["subagent.updated", "provider-thread.updated"] as const)
               : []),
+            ...(untilQuestion ? (["runtime-request.updated"] as const) : []),
           ] as const
         ).map((eventType) =>
           orchestrator.streamStoredEventsFrom({
@@ -1133,7 +1182,7 @@ const make = Effect.gen(function* () {
           Effect.flatMap((current) => evaluate(current.runs)),
         ),
       ),
-      Stream.filter((current) => current.settled),
+      Stream.filter(ends),
       Stream.runHead,
       Effect.timeoutOption(Duration.millis(Math.max(1, input.timeoutMs))),
     );
