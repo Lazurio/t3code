@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buddyHostOfWindow,
+  buddyPanelOverWholeWindow,
   buddyPanelsOffered,
   buddyWindowInView,
   startBuddyFrame,
@@ -22,7 +23,13 @@ const personalContext = {
 };
 
 /** A frame's window as far as the frame uses it: its parent, its ancestors and its listeners. */
-function frameWindow(options: { readonly host?: string; readonly openMenu?: boolean } = {}) {
+function frameWindow(
+  options: {
+    readonly host?: string;
+    readonly openMenu?: boolean;
+    readonly panelOverWindow?: boolean;
+  } = {},
+) {
   const posted: Array<{ readonly message: unknown; readonly origin: string }> = [];
   const listeners = new Map<string, (event: unknown) => void>();
   const parent = {
@@ -33,7 +40,11 @@ function frameWindow(options: { readonly host?: string; readonly openMenu?: bool
     location: { ancestorOrigins: [options.host ?? HOST] },
     document: {
       referrer: "",
-      querySelector: () => (options.openMenu === true ? {} : null),
+      querySelector: (selector: string) =>
+        options.openMenu === true ||
+        (options.panelOverWindow === true && selector.includes("maximized-away"))
+          ? {}
+          : null,
     },
     addEventListener: (type: string, listener: (event: unknown) => void) =>
       listeners.set(type, listener),
@@ -74,11 +85,17 @@ describe("Buddy's frame", () => {
     expect(frame.layout()).toBe("panel");
   });
 
-  it("leaves Escape to an open menu, a modifier or an input method", () => {
+  it("leaves Escape to an open menu, a panel over the window, a modifier or an input method", () => {
     const menu = frameWindow({ openMenu: true });
     startBuddyFrame(menu.win);
     menu.key();
     expect(layouts(menu.posted)).toEqual([]);
+
+    // Escape over the panel goes back to the conversation first (BuddySurface.tsx).
+    const panel = frameWindow({ panelOverWindow: true });
+    startBuddyFrame(panel.win).requestLayout("fullscreen");
+    panel.key();
+    expect(layouts(panel.posted)).toEqual(["fullscreen"]);
 
     const { win, posted, key } = frameWindow();
     startBuddyFrame(win);
@@ -141,15 +158,55 @@ describe("Buddy's frame", () => {
     ).toBe(true);
   });
 
-  it("offers the right panel and the terminal in the full window and in neither in the small one", () => {
+  it("takes the size the host's window shows, also one the host chose itself, and drops a defect", () => {
+    const { win, posted, key, receive } = frameWindow();
+    const frame = startBuddyFrame(win);
+    expect(frame.mode()).toBeNull();
+    // The launcher opened the remembered full screen: one Escape leaves it.
+    receive({ type: "lazurio.buddy.layout", v: 1, mode: "fullscreen" });
+    expect(frame.mode()).toBe("fullscreen");
+    key();
+    expect(layouts(posted)).toEqual(["panel"]);
+    for (const defect of [
+      { type: "lazurio.buddy.layout", v: 2, mode: "panel" },
+      { type: "lazurio.buddy.layout", v: 1, mode: "huge" },
+      { type: "lazurio.buddy.layout", v: 1, mode: "panel", extra: true },
+    ])
+      receive(defect);
+    receive({ type: "lazurio.buddy.layout", v: 1, mode: "panel" }, "https://example.com");
+    receive({ type: "lazurio.buddy.layout", v: 1, mode: "panel" }, HOST, {});
+    expect(frame.mode()).toBe("fullscreen");
+    receive({ type: "lazurio.buddy.layout", v: 1, mode: "closed" });
+    expect(frame.mode()).toBe("closed");
+    expect(frame.layout()).toBe("panel");
+  });
+
+  it("offers the panels in the full-screen window, also a phone's, and never in the small one", () => {
     const { win } = frameWindow();
     const framed = buddyHostOfWindow(win) !== null;
-    // The small window the person moves about: too narrow, so neither panel.
-    expect(buddyPanelsOffered(framed, true)).toBe(false);
-    // Full screen on a computer: both.
-    expect(buddyPanelsOffered(framed, false)).toBe(true);
+    // As the host says: full screen on a phone or a computer offers both, the small window neither.
+    expect(buddyPanelsOffered(framed, "fullscreen", true)).toBe(true);
+    expect(buddyPanelsOffered(framed, "fullscreen", false)).toBe(true);
+    expect(buddyPanelsOffered(framed, "panel", true)).toBe(false);
+    expect(buddyPanelsOffered(framed, "closed", false)).toBe(false);
+    // An older host never says: a frame too narrow for the panels reads as the small window.
+    expect(buddyPanelsOffered(framed, null, true)).toBe(false);
+    expect(buddyPanelsOffered(framed, null, false)).toBe(true);
     // Chat on its own page, also a narrow one, keeps T3's own layout.
-    expect(buddyPanelsOffered(false, true)).toBe(true);
+    expect(buddyPanelsOffered(false, null, true)).toBe(true);
+  });
+
+  it("reads the right panel over the whole window as maximized, the same object for the same state", () => {
+    const stored: { isOpen: boolean; surfaces: string[]; maximized?: true } = {
+      isOpen: true,
+      surfaces: [],
+    };
+    const whole = buddyPanelOverWholeWindow(stored);
+    expect(whole).toEqual({ isOpen: true, surfaces: [], maximized: true });
+    expect(buddyPanelOverWholeWindow(stored)).toBe(whole);
+    expect(stored).toEqual({ isOpen: true, surfaces: [] });
+    const maximized = { isOpen: true, maximized: true as const };
+    expect(buddyPanelOverWholeWindow(maximized)).toBe(maximized);
   });
 
   it("talks to nobody outside a host's frame", () => {

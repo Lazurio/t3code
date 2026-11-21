@@ -143,11 +143,13 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
 export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl({
   maximized,
   onToggle,
+  restoreLabel,
 }: {
   maximized: boolean;
   onToggle: () => void;
+  restoreLabel?: string | undefined;
 }) {
-  const label = maximized ? "Restore panel size" : "Maximize panel";
+  const label = maximized ? (restoreLabel ?? "Restore panel size") : "Maximize panel";
   return (
     <Tooltip>
       <TooltipTrigger
@@ -196,6 +198,8 @@ export function WorkspaceTitlebarControls(props: {
   readonly animationsActive: boolean;
   readonly maximized: boolean;
   readonly onToggleMaximized: () => void;
+  /** Lazurio overlay: what restoring the maximized panel means where it differs (Buddy's window). */
+  readonly restoreLabel?: string | undefined;
   readonly children: ReactNode;
 }) {
   const { rightPanelOpen, maximized } = props;
@@ -248,6 +252,7 @@ export function WorkspaceTitlebarControls(props: {
           <RightPanelMaximizeControl
             maximized={props.maximized}
             onToggle={props.onToggleMaximized}
+            restoreLabel={props.restoreLabel}
           />
         </span>
       ) : null}
