@@ -46,7 +46,8 @@ const threadInWorktree =
 /**
  * Upstream's project service from `live`, which in a managed Environment creates a project only for
  * the Folder, keeps it named Lazurio, in place and not archived, and moves no project. Buddy's project
- * comes only from the startup's `bootstrap`, which no client, agent or CLI reaches, and stays as made.
+ * comes only from the `bootstrap` of the startup or of Buddy's thread route, which make it over the
+ * declared Buddy folder alone, and stays as made.
  */
 export const guardProjects = <E, R>(live: Layer.Layer<ProjectService.ProjectService, E, R>) =>
   Layer.effect(

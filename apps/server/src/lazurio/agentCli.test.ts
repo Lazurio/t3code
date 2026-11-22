@@ -781,6 +781,7 @@ const buddyThreadRoute = (world: World) =>
         Layer.mock(ProjectStore.ProjectStoreV2)({
           list: () => Effect.succeed(world.buddyProjects),
         }),
+        Layer.mock(ProjectService.ProjectService)({}),
         NodeServices.layer,
         NodeCrypto.layer,
       ),

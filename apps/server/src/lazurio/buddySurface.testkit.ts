@@ -38,6 +38,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProviderTurnStartServiceTestkit from "../orchestration-v2/ProviderTurnStartService.testkit.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as AntigravityInstallation from "../provider/AntigravityInstallation.ts";
 import * as CodexInstallation from "../provider/CodexInstallation.ts";
 import * as CodexManagedTokenBroker from "../provider/CodexManagedTokenBroker.ts";
@@ -51,6 +52,7 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import { withBuddyInstance } from "./buddyPrompt.ts";
+import { layerMetadata, layerWorkspacePaths } from "./managedFolder.testkit.ts";
 
 export const BUDDY = ProviderInstanceId.make("buddy");
 export const buddyModel = { instanceId: BUDDY, model: "default" } satisfies ModelSelection;
@@ -136,6 +138,13 @@ export const layerBuddyServer = Layer.mergeAll(
   ProjectStore.layer,
   RuntimeLayer.layerEventInfrastructure,
 ).pipe(
+  Layer.provideMerge(
+    RuntimeLayer.layerProjectService.pipe(
+      Layer.provide(ProjectEnrichmentService.layer),
+      Layer.provide(layerWorkspacePaths),
+      Layer.provide(layerMetadata),
+    ),
+  ),
   Layer.provide(McpSessionRegistryTestkit.layer),
   // Above the database, settings and gate, which instance hydration shares with the runtime.
   Layer.provide(layerProviderInstanceRegistry),

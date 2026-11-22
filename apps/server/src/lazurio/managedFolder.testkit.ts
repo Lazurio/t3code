@@ -63,13 +63,15 @@ export const layerManagedConfig = (lazurioFolder?: string, lazurioBuddyFolder?: 
     })),
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-lazurio-folder-" })));
 
-const layerWorkspacePaths = Layer.succeed(WorkspacePaths.WorkspacePaths, {
+/** Workspace roots as given, without the file system's say. */
+export const layerWorkspacePaths = Layer.succeed(WorkspacePaths.WorkspacePaths, {
   normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot.replace(/\/$/, "")),
   resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
     Effect.succeed({ absolutePath: `${workspaceRoot}/${relativePath}`, relativePath }),
 });
 
-const layerMetadata = Layer.merge(
+/** No repository identity and no favicon for any project. */
+export const layerMetadata = Layer.merge(
   Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
     resolve: () => Effect.succeed(null),
   }),

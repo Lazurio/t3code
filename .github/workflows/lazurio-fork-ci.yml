@@ -440,6 +440,11 @@ jobs:
             apps/web/src/components/ThreadNotificationCoordinator.tsx
             apps/web/src/state/entities.ts
             apps/web/src/hooks/useActiveProjectTarget.ts
+            # Buddy's window opens Buddy's thread when the Buddy folder appeared after the server
+            # started (LazurioPlatform#1179), proven in the real app. e2e finds scenarios only in
+            # scripts/scenarios/, beside the fixtures and the dependencies they import, so this new
+            # file is there; it starts its own stack with start-app.ts's exports, unchanged.
+            scripts/scenarios/buddy-window-opens-after-folder-appears.e2e.ts
             # A thread waiting on a question wakes whoever waits on it (row 39): t3_thread_wait's
             # untilQuestion in the contract and ThreadManagementService (listed above), and the
             # remote delegation follower that wakes the parent here, which the orchestrator keeps.

@@ -1,7 +1,8 @@
 /**
  * Lazurio overlay (LazurioPlatform F51): before the server takes commands, a managed Environment
  * adopts or creates the Folder's project (Lazurio), recorded for `t3 lazurio model`, and with a Buddy
- * folder also Buddy's project, which only this path makes. Nothing edits state offline.
+ * folder also Buddy's project, which only this path and Buddy's thread route make (Buddy's folder can
+ * appear after the startup). Nothing edits state offline.
  */
 import { CommandId, ProjectId } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -41,14 +42,7 @@ export const ensureManagedFolderProject = Effect.gen(function* () {
     // Buddy's part never stops the Folder's Chat: a failure here is logged and the startup goes on.
     yield* Effect.gen(function* () {
       // A missing Buddy folder gets no project; one made earlier keeps its threads unarchived.
-      const fileSystemForBuddy = yield* Effect.serviceOption(FileSystem.FileSystem);
-      const exists =
-        Option.isNone(fileSystemForBuddy) ||
-        (yield* fileSystemForBuddy.value
-          .exists(lazurioBuddyFolder)
-          .pipe(Effect.orElseSucceed(() => false)));
-      if (exists) yield* ensureBuddyProject(lazurioBuddyFolder);
-      else {
+      if (!(yield* ensureBuddyProjectIfPresent(lazurioBuddyFolder))) {
         const earlier = (yield* projects.snapshot).projects.find(
           (candidate) => candidate.workspaceRoot === lazurioBuddyFolder,
         );
@@ -74,7 +68,21 @@ export const ensureManagedFolderProject = Effect.gen(function* () {
   return { bootstrapProjectId: project.id, bootstrapProjectCreated: created };
 });
 
-/** Buddy's project over the Buddy folder, adopted or created, keeping the name Buddy. */
+/**
+ * Buddy's project over the Buddy folder, adopted or created, keeping the name Buddy, when the folder
+ * exists; false when it does not. Without a file system (upstream's startup tests) it counts as there.
+ */
+export const ensureBuddyProjectIfPresent = Effect.fn(
+  "LazurioManagedFolder.ensureBuddyProjectIfPresent",
+)(function* (buddyFolder: string) {
+  const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+  const exists =
+    Option.isNone(fileSystem) ||
+    (yield* fileSystem.value.exists(buddyFolder).pipe(Effect.orElseSucceed(() => false)));
+  if (exists) yield* ensureBuddyProject(buddyFolder);
+  return exists;
+});
+
 const ensureBuddyProject = Effect.fn("LazurioManagedFolder.ensureBuddyProject")(function* (
   buddyFolder: string,
 ) {
