@@ -8,7 +8,7 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
 import type { RuntimeMode } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { CalendarDays, CircleAlert, Maximize2, Minimize2, X } from "lucide-react";
+import { CalendarDays, CircleAlert, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
 import {
   type ComponentProps,
   type CSSProperties,
@@ -140,7 +140,7 @@ export function BuddyBackToConversation(props: {
       title={props.label}
       variant="ghost"
     >
-      <Minimize2 />
+      <MessageSquare />
     </Button>
   );
 }
@@ -800,7 +800,7 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
   const { framed } = useBuddyFrame(true);
   // T3's thread controls sit fixed at the window's top right, in Buddy's header: they move left of
   // Buddy's own buttons there (an icon-sm button and the header's gap each), and the open day sheet
-  // covers them.
+  // covers them. Their row moves up to the header's centre line, so both sets sit at one height.
   const ownControls = (roomForDays ? 0 : 1) + (framed ? 2 : 0);
   const [daysOpen, setDaysOpen] = useState(false);
   return (
@@ -808,7 +808,13 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
       className="flex h-dvh w-full min-w-0 flex-col bg-background [--workspace-controls-right:calc(env(safe-area-inset-right)+0.75rem+var(--buddy-own-controls)*2.5rem)] sm:[--workspace-controls-right:calc(env(safe-area-inset-right)+0.75rem+var(--buddy-own-controls)*2.25rem)] [&[data-buddy-days-open]_[data-workspace-titlebar-controls]]:hidden"
       data-buddy-days-open={daysOpen && !roomForDays ? "" : undefined}
       data-lazurio-buddy-surface
-      style={{ "--buddy-own-controls": ownControls } as CSSProperties}
+      style={
+        {
+          "--buddy-own-controls": ownControls,
+          // Centred on the header's content box: h-12 less its bottom border.
+          "--workspace-controls-top": "calc((3rem - 1px - var(--workspace-topbar-height)) / 2)",
+        } as CSSProperties
+      }
     >
       <BuddyHeader daySheet={roomForDays ? null : { open: daysOpen, setOpen: setDaysOpen }} />
       <div className="flex min-h-0 flex-1">
