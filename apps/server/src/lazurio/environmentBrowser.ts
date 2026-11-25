@@ -205,6 +205,18 @@ const ownBrowserPage = (address: string) =>
     "PreviewAutomationExecutionError",
     `${address} opens only in the person's own browser, never in this Environment's browser, which holds no Lazurio account. Give the person this link to open themselves.`,
   );
+/** An address as a refusal names it: without the credentials it may carry. */
+const shownAddress = (address: string) => {
+  try {
+    const url = new URL(address);
+    if (url.username === "" && url.password === "") return address;
+    url.username = "";
+    url.password = "";
+    return url.href;
+  } catch {
+    return address;
+  }
+};
 /** A host as the gateway routes it: the DNS root's trailing dot names the same host. */
 const bareHost = (hostname: string) => hostname.toLowerCase().replace(/\.+$/, "");
 /**
@@ -314,7 +326,8 @@ export const make = Effect.gen(function* () {
       if (host === undefined) continue;
       const own =
         ownViewOrigin === undefined ? undefined : bareHost(new URL(ownViewOrigin).hostname);
-      return host === own ? ownNavigation(address, host) : foreignNavigation(address, host);
+      const shown = shownAddress(address);
+      return host === own ? ownNavigation(shown, host) : foreignNavigation(shown, host);
     }
     return undefined;
   };

@@ -1,7 +1,7 @@
 /**
  * LazurioPlatform's C20 (F39 and F50, addenda of 2026-11-25): the pages the Environment browser
- * never opens, which belong in the person's own browser. `apps/web/src/lazurio/ownBrowser.ts` holds
- * a copy; the release contract test keeps the two equal, and the Platform's vectors run here.
+ * never opens, which belong in the person's own browser. The agents' preview tools refuse them;
+ * the Platform's vectors run against this copy.
  */
 
 const accountDomains = ["lazurio.io", "auth.lazurio.ai", "dashboard.lazurio.ai"];
