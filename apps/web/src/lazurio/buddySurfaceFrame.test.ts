@@ -4,6 +4,7 @@ import {
   buddyHostOfWindow,
   buddyPanelOpensItself,
   buddyPanelOverWholeWindow,
+  buddyFrameAllowsNativePdf,
   buddyPanelOverWindow,
   buddyPanelsOffered,
   buddyWindowInView,
@@ -194,6 +195,15 @@ describe("Buddy's frame", () => {
     // Not offered (his small window), or Chat on its own page: never.
     expect(buddyPanelOverWindow(true, false, true)).toBe(false);
     expect(buddyPanelOverWindow(false, true, true)).toBe(false);
+  });
+
+  it("leaves a PDF to PDF.js where a host frames the window, and to the browser elsewhere", () => {
+    // In Buddy's window the host's sandbox reaches a nested frame, and Chromium blocks its viewer.
+    expect(buddyFrameAllowsNativePdf(frameWindow().win)).toBe(false);
+    // Chat on its own page: the browser's viewer.
+    const top = { parent: undefined as unknown, location: {}, document: { referrer: "" } };
+    top.parent = top;
+    expect(buddyFrameAllowsNativePdf(top as unknown as Window)).toBe(true);
   });
 
   it("offers the panels in the full-screen window, also a phone's, and never in the small one", () => {

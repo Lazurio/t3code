@@ -102,6 +102,13 @@ export const buddyHostOfWindow = (win: Window): string | null =>
     ? null
     : buddyHostOriginOf(win.location.ancestorOrigins?.[0], win.document.referrer);
 
+/**
+ * Whether the browser's own PDF viewer can show a document in this window. Not where a host of the
+ * bubble frames it: the host's frame is sandboxed, a nested frame inherits that, and Chromium then
+ * shows its "blocked" placeholder in place of the PDF. The files viewer uses PDF.js there instead.
+ */
+export const buddyFrameAllowsNativePdf = (win: Window): boolean => buddyHostOfWindow(win) === null;
+
 export function startBuddyFrame(win: Window): BuddyFrame {
   const hostOrigin = buddyHostOfWindow(win);
   let context: BuddyContext | null = null;
