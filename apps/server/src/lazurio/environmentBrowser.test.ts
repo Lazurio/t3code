@@ -982,6 +982,40 @@ it.effect("takes a view's tab id in either case and hands on its upper-case form
   ),
 );
 
+// LazurioPlatform C20: a page of the person's Lazurio account never loads in this browser; the agent
+// is told to give the person the link, without the credentials an address may carry.
+it.effect("refuses a page only the person's own browser opens, before touching the browser", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const host = yield* startHost({
+        link: declaredOnLazurio,
+        window: () => windowAnswer(threadWindow, true),
+      });
+      yield* host.registered;
+      const launchpad = "https://launchpad.vm-01.acme.lazurio.io/integrations/app/neon";
+      for (const [given, address] of [
+        [launchpad, launchpad],
+        ["https://user:secret@Dashboard.lazurio.ai/x", "https://dashboard.lazurio.ai/x"],
+        ["https://vm-01.acme.lazurio.io/", "https://vm-01.acme.lazurio.io/"],
+        ["https://launchpad.vm-02.acme.lazurio.io/", "https://launchpad.vm-02.acme.lazurio.io/"],
+      ] as const) {
+        for (const [operation, input] of [
+          ["open", { url: given }],
+          ["navigate", { url: given }],
+          ["navigate", { target: { kind: "url", url: given } }],
+        ] as const) {
+          const refused = yield* invoke<void>(host.broker, operation, input).pipe(Effect.flip);
+          expect(refused).toMatchObject({
+            reason: `${address} opens only in the person's own browser, never in this Environment's browser, which holds no Lazurio account. Give the person this link to open themselves.`,
+          });
+        }
+      }
+      expect(host.browser.connections).toHaveLength(0);
+      expect(host.runs.filter((run) => run.args[1] === "window")).toEqual([]);
+    }),
+  ),
+);
+
 it.effect.each(contractCases)("takes $address as F50 point 2 does", ({ address, takes }) =>
   Effect.scoped(
     Effect.gen(function* () {

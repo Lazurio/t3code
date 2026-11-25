@@ -25,6 +25,7 @@ import {
   foreignEnvironmentBrowserTab,
   originOf,
 } from "./environmentBrowser";
+import { environmentOfView, ownBrowserAddress } from "./ownBrowser";
 
 export const THREAD_TABS_ROUTE = "/api/lazurio/thread-tabs";
 
@@ -858,6 +859,16 @@ export function showForeignTab(
 export function receiveForeign(threadRef: ScopedThreadRef, tab: ForeignTab): void {
   const reveal = tab.revealRequest !== undefined && syncOf(threadRef).inlinePanel;
   showForeignTab(threadRef, tab.view, false, reveal);
+}
+
+/**
+ * Where a link of the thread goes instead of the panel (LazurioPlatform C20): the address for the
+ * person's own browser when the thread's Environment has a browser and the link is a page of the
+ * person's Lazurio account, which that browser never opens. Null for everything else.
+ */
+export function ownBrowserLink(threadRef: ScopedThreadRef, href: string): string | null {
+  const viewOrigin = snapshotOf(threadRef)?.viewOrigin;
+  return viewOrigin === undefined ? null : ownBrowserAddress(href, environmentOfView(viewOrigin));
 }
 
 /** A plain click on a link in the chat to one remote tab, of this Environment's view (held) or of
