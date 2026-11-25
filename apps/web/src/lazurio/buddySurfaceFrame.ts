@@ -53,6 +53,14 @@ export const buddyPanelsOffered = (
 ): boolean => !framed || (mode === null ? !narrow : mode === "fullscreen");
 
 /**
+ * Whether the right panel covers Buddy's whole window: where the window offers it and is narrow, as
+ * a phone's, by the Owner's decision of 2026-11-25, which narrows that of 2026-11-21. A wide
+ * full-screen window keeps T3's own column beside the conversation, so the chat stays readable.
+ */
+export const buddyPanelOverWindow = (framed: boolean, offered: boolean, narrow: boolean): boolean =>
+  framed && offered && narrow;
+
+/**
  * Whether a page an agent reveals may open the right panel by itself: never in Buddy's window,
  * where nothing opens over his conversation (F60); its tab still joins the strip.
  */

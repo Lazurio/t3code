@@ -4,6 +4,7 @@ import {
   buddyHostOfWindow,
   buddyPanelOpensItself,
   buddyPanelOverWholeWindow,
+  buddyPanelOverWindow,
   buddyPanelsOffered,
   buddyWindowInView,
   startBuddyFrame,
@@ -183,6 +184,16 @@ describe("Buddy's frame", () => {
     receive({ type: "lazurio.buddy.layout", v: 1, mode: "closed" });
     expect(frame.mode()).toBe("closed");
     expect(frame.layout()).toBe("panel");
+  });
+
+  it("covers the whole window with the right panel on a narrow screen only", () => {
+    // Buddy's full-screen window on a phone or a narrow window: the panel over the whole window.
+    expect(buddyPanelOverWindow(true, true, true)).toBe(true);
+    // A wide full-screen window: T3's own column beside the conversation.
+    expect(buddyPanelOverWindow(true, true, false)).toBe(false);
+    // Not offered (his small window), or Chat on its own page: never.
+    expect(buddyPanelOverWindow(true, false, true)).toBe(false);
+    expect(buddyPanelOverWindow(false, true, true)).toBe(false);
   });
 
   it("offers the panels in the full-screen window, also a phone's, and never in the small one", () => {
