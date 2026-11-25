@@ -8,11 +8,12 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import * as holders from "./holders.ts";
+import * as ownBrowser from "./ownBrowser.ts";
 
 // LazurioPlatform's vectors of the Environment browser contract (F50 point 4), taken from its
 // release v0.1.22 (src/browser/contract/vectors/v1/, MIT, ./platform-browser-contract/LICENSE),
-// run against the copy in holders.ts as the vectors' README describes a case. This is a port of
-// the Platform's runner, tests/fixtures/browser-contract-vectors.ts, without the watch steps.
+// and own-browser.json (C20) from Lazurio/LazurioPlatform#1262, run against the copies in
+// holders.ts and ownBrowser.ts: a port of the Platform's runner without the watch steps.
 
 const vectorDirectory = NodePath.join(import.meta.dirname, "platform-browser-contract", "vectors");
 
@@ -24,6 +25,7 @@ const vectorContents: Readonly<Record<string, string>> = {
   "agent-browser.json": "b6eb4d24e16721b3400f30a2e18479b764ef80c1f04090124cc77ad473132319",
   "boot-clock.json": "ce8de282785f73b4794aaa6d566ae54a051eaf21973c6bb8278a68dc5e67bd59",
   "holder-files.json": "5d798ba533083e849608c850a676a91fd4805c810c45760b9f398fdcd95cbafe",
+  "own-browser.json": "e8e3773c2cabefae6456778511200f8bf3cd28aedbdce246b80580030a088901",
   "live-tabs.json": "e4a122ce084e5adff6d64740efa229b065adb97b1ff88921894622a2b4a924fb",
   "remote-tab-ids.json": "a05aa989e14812accee141b80045f0f0aef453b74a7a9390e39f0e4de5be11e6",
   "strips.json": "a734a73a07d4157a4d2d81862ca09c9d9828368c1a31d3064873eb2f2af46ce5",
@@ -87,7 +89,7 @@ const files: readonly VectorFile[] = NodeFS.readdirSync(NodePath.join(vectorDire
     return { file, ...(JSON.parse(text) as Omit<VectorFile, "file">) };
   });
 
-const exported: Readonly<Record<string, unknown>> = holders;
+const exported: Readonly<Record<string, unknown>> = { ...holders, ...ownBrowser };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
