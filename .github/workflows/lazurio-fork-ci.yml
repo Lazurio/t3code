@@ -458,6 +458,10 @@ jobs:
             apps/server/src/peer/PeerForwarding.test.ts
             # The tool list grows by the two optional parameters and the wait result's field.
             apps/server/src/provider/agentContextBudget.json
+            # LazurioPlatform C20 (plan LZD-0025 B11b): a page of the person's Lazurio account opens
+            # in their own browser, never in the Environment browser's panel. openFileInPreview.ts
+            # is the one door every link takes into the panel; the rule is apps/web/src/lazurio/ownBrowser.ts.
+            apps/web/src/browser/openFileInPreview.ts
           )
           unexpected="$(git diff --name-only "$UPSTREAM_SHA..HEAD" |
             grep -E '^(apps|packages|scripts)/' |

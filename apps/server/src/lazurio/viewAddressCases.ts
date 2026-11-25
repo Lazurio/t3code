@@ -149,10 +149,11 @@ export const contractCases: ReadonlyArray<{ readonly address: string; readonly t
   ...[`wss://${ownHost}/t/${personTab}`, `view-source:https://${ownHost}/t/${personTab}`].map(
     (address) => ({ address, takes: "invalid" as const }),
   ),
-  // Any other host loads, a Lazurio app or a look-alike of a view host.
+  // Any other host loads, an app of this Environment or a look-alike of a view host. Its shell
+  // origins and other Lazurio pages are LazurioPlatform C20's (ownBrowser.ts), never loaded either.
   ...[
     "https://xbrowser.vm-01.acme.lazurio.io/",
-    `https://t3code.vm-01.acme.lazurio.io/t/${personTab}`,
+    `https://forecast.vm-01.acme.lazurio.io/t/${personTab}`,
     `https://browser.vm-01.acme.lazurio.io.example.test/t/${personTab}`,
     "https://browser.example.test/",
     `https://${ownHost}@example.test/`,

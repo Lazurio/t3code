@@ -1,0 +1,267 @@
+{
+  "schema": "lazurio.browser-vectors.v1",
+  "contract": "own-browser",
+  "cases": [
+    {
+      "name": "this Environment's Launchpad, with a path, a query and a fragment",
+      "call": "ownBrowserAddress",
+      "args": [
+        "https://launchpad.vm-01.example.lazurio.io/integrations/app/neon?from=chat#card",
+        "vm-01.example"
+      ],
+      "expect": "https://launchpad.vm-01.example.lazurio.io/integrations/app/neon?from=chat#card"
+    },
+    {
+      "name": "this Environment's bare host on its root",
+      "call": "ownBrowserAddress",
+      "args": ["https://vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "this Environment's bare host on its sign-in",
+      "call": "ownBrowserAddress",
+      "args": ["https://vm-01.example.lazurio.io/oauth2/sign_in?rd=%2F", "vm-01.example"],
+      "expect": "https://vm-01.example.lazurio.io/oauth2/sign_in?rd=%2F"
+    },
+    {
+      "name": "this Environment's bare host on any other path",
+      "call": "ownBrowserAddress",
+      "args": ["https://vm-01.example.lazurio.io/anything", "vm-01.example"],
+      "expect": "https://vm-01.example.lazurio.io/anything"
+    },
+    {
+      "name": "this Environment's T3 Code",
+      "call": "ownBrowserAddress",
+      "args": ["https://t3code.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://t3code.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "this Environment's Lazurio MausBot",
+      "call": "ownBrowserAddress",
+      "args": ["https://mausbot.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://mausbot.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "this Environment's view",
+      "call": "ownBrowserAddress",
+      "args": [
+        "https://browser.vm-01.example.lazurio.io/t/0123456789ABCDEF0123456789ABCDEF",
+        "vm-01.example"
+      ],
+      "expect": "https://browser.vm-01.example.lazurio.io/t/0123456789ABCDEF0123456789ABCDEF"
+    },
+    {
+      "name": "this Environment's Buddy",
+      "call": "ownBrowserAddress",
+      "args": ["https://buddy.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://buddy.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "a name under one of its session labels",
+      "call": "ownBrowserAddress",
+      "args": ["https://x.launchpad.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://x.launchpad.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "the Dashboard",
+      "call": "ownBrowserAddress",
+      "args": ["https://dashboard.lazurio.ai/environments#current", "vm-01.example"],
+      "expect": "https://dashboard.lazurio.ai/environments#current"
+    },
+    {
+      "name": "the sign-in service",
+      "call": "ownBrowserAddress",
+      "args": [
+        "https://auth.lazurio.ai/realms/lazurio/protocol/openid-connect/auth?client_id=x",
+        "vm-01.example"
+      ],
+      "expect": "https://auth.lazurio.ai/realms/lazurio/protocol/openid-connect/auth?client_id=x"
+    },
+    {
+      "name": "another Environment's Launchpad",
+      "call": "ownBrowserAddress",
+      "args": ["https://launchpad.team-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://launchpad.team-01.example.lazurio.io/"
+    },
+    {
+      "name": "another Environment's module",
+      "call": "ownBrowserAddress",
+      "args": ["https://forecast.team-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://forecast.team-01.example.lazurio.io/"
+    },
+    {
+      "name": "a personal Environment's Launchpad",
+      "call": "ownBrowserAddress",
+      "args": ["https://launchpad.alena.lazurio.io/", "vm-01.example"],
+      "expect": "https://launchpad.alena.lazurio.io/"
+    },
+    {
+      "name": "lazurio.io itself",
+      "call": "ownBrowserAddress",
+      "args": ["https://lazurio.io/", "vm-01.example"],
+      "expect": "https://lazurio.io/"
+    },
+    {
+      "name": "over http",
+      "call": "ownBrowserAddress",
+      "args": ["http://launchpad.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "http://launchpad.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "with a port of its own",
+      "call": "ownBrowserAddress",
+      "args": ["https://launchpad.vm-01.example.lazurio.io:8443/a?b#c", "vm-01.example"],
+      "expect": "https://launchpad.vm-01.example.lazurio.io:8443/a?b#c"
+    },
+    {
+      "name": "credentials, upper case, the root's dot and the default port change nothing, and the address loses the credentials",
+      "call": "ownBrowserAddress",
+      "args": ["https://user:heslo@Dashboard.lazurio.ai.:443/x", "vm-01.example"],
+      "expect": "https://dashboard.lazurio.ai/x"
+    },
+    {
+      "name": "credentials on this Environment's Launchpad are dropped",
+      "call": "ownBrowserAddress",
+      "args": ["https://user@launchpad.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://launchpad.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "an escaped dot in the host is the host it spells",
+      "call": "ownBrowserAddress",
+      "args": ["https://LAUNCHPAD%2Evm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": "https://launchpad.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "the bare host with the root's dot",
+      "call": "ownBrowserAddress",
+      "args": ["https://vm-01.example.lazurio.io./oauth2/sign_in", "vm-01.example"],
+      "expect": "https://vm-01.example.lazurio.io/oauth2/sign_in"
+    },
+    {
+      "name": "this Environment's module is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://forecast.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a name under its module is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://a.forecast.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a session label under its module is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://launchpad.forecast.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "its module in upper case is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://Forecast.VM-01.example.lazurio.io/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "its module with the root's dot is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://forecast.vm-01.example.lazurio.io./", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a personal Environment's own module is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://forecast.alena.lazurio.io/", "alena"],
+      "expect": null
+    },
+    {
+      "name": "without a known Environment, every name under lazurio.io is",
+      "call": "ownBrowserAddress",
+      "args": ["https://forecast.vm-01.example.lazurio.io/", null],
+      "expect": "https://forecast.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "an id that is no Environment's counts as none",
+      "call": "ownBrowserAddress",
+      "args": ["https://forecast.vm-01.example.lazurio.io/", "Not An Id"],
+      "expect": "https://forecast.vm-01.example.lazurio.io/"
+    },
+    {
+      "name": "another web is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://github.com/login", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a name that only ends like lazurio.io is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://notlazurio.io/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "lazurio.io inside another domain is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://lazurio.io.evil.example/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "another name under lazurio.ai is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://www.lazurio.ai/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a name that only ends like the Dashboard is not",
+      "call": "ownBrowserAddress",
+      "args": ["https://evil-dashboard.lazurio.ai/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "localhost is not",
+      "call": "ownBrowserAddress",
+      "args": ["http://localhost:20000/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a loopback address is not",
+      "call": "ownBrowserAddress",
+      "args": ["http://127.0.0.1:20000/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "another scheme on a Lazurio name is not",
+      "call": "ownBrowserAddress",
+      "args": ["ftp://launchpad.vm-01.example.lazurio.io/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "javascript is not",
+      "call": "ownBrowserAddress",
+      "args": ["javascript:alert(1)", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "Chrome's error page is not",
+      "call": "ownBrowserAddress",
+      "args": ["chrome-error://chromewebdata/", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a host without a scheme is no address",
+      "call": "ownBrowserAddress",
+      "args": ["launchpad.vm-01.example.lazurio.io", "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "a number is no address",
+      "call": "ownBrowserAddress",
+      "args": [42, "vm-01.example"],
+      "expect": null
+    },
+    {
+      "name": "null is no address",
+      "call": "ownBrowserAddress",
+      "args": [null, "vm-01.example"],
+      "expect": null
+    }
+  ]
+}

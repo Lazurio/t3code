@@ -52,6 +52,7 @@ import {
   type EnvironmentBrowserStripTab,
 } from "./environmentBrowserTabs.ts";
 import { isLazurioEnvironment } from "./lazurioEnvironment.ts";
+import { environmentOfView, ownBrowserAddress } from "./ownBrowser.ts";
 import * as ThreadTabs from "./threadTabs.ts";
 
 /** Injectable so tests can substitute a fake browser; the default is the Environment's own. */
@@ -199,6 +200,11 @@ const ownNavigation = (url: string, host: string) =>
     "PreviewAutomationExecutionError",
     `${url} is this Environment's own browser view (${host}), which this browser does not load inside itself. Work in the tab it shows: call preview_open with its view link https://${host}/t/<tab id> or with tabId, or with https://${host}/ for a new tab.`,
   );
+const ownBrowserPage = (address: string) =>
+  failure(
+    "PreviewAutomationExecutionError",
+    `${address} opens only in the person's own browser, never in this Environment's browser, which holds no Lazurio account. Give the person this link to open themselves.`,
+  );
 /** A host as the gateway routes it: the DNS root's trailing dot names the same host. */
 const bareHost = (hostname: string) => hostname.toLowerCase().replace(/\.+$/, "");
 /**
@@ -309,6 +315,15 @@ export const make = Effect.gen(function* () {
       const own =
         ownViewOrigin === undefined ? undefined : bareHost(new URL(ownViewOrigin).hostname);
       return host === own ? ownNavigation(address, host) : foreignNavigation(address, host);
+    }
+    return undefined;
+  };
+  /** Why this browser does not load a page of the person's Lazurio account (LazurioPlatform C20). */
+  const accountRefusal = (written: string | undefined, url: string) => {
+    const environment = ownViewOrigin === undefined ? null : environmentOfView(ownViewOrigin);
+    for (const address of written === undefined ? [url] : [written, url]) {
+      const own = ownBrowserAddress(address, environment);
+      if (own !== null) return ownBrowserPage(own);
     }
     return undefined;
   };
@@ -674,7 +689,9 @@ export const make = Effect.gen(function* () {
     const fresh = input.url !== undefined && ownNewTab(input.url);
     const viewed = input.url === undefined ? undefined : ownTab(input.url);
     const refused =
-      url === undefined || viewed !== undefined || fresh ? undefined : viewRefusal(input.url, url);
+      url === undefined || viewed !== undefined || fresh
+        ? undefined
+        : (viewRefusal(input.url, url) ?? accountRefusal(input.url, url));
     if (refused !== undefined) return yield* refused;
     const load = viewed === undefined && !fresh ? url : undefined;
     // A named tab is handed over. Otherwise the current tab is reused while it is open, and a
@@ -771,7 +788,7 @@ export const make = Effect.gen(function* () {
         // A view host in this browser would sign it in to that gateway; said first, so that a
         // thread without a tab gets the same advice.
         const written = input.url ?? (input.target?.kind === "url" ? input.target.url : undefined);
-        const refused = viewRefusal(written, url);
+        const refused = viewRefusal(written, url) ?? accountRefusal(written, url);
         if (refused !== undefined) return yield* refused;
         const targetId = requestTab(request);
         if (targetId === undefined) return yield* noTab();
