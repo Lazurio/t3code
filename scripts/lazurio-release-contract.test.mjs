@@ -2376,22 +2376,6 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
   }
 });
 
-// LazurioPlatform C20 (plan LZD-0025 B11b): a page of the person's Lazurio account never opens in
-// the Environment browser. The server refuses it to the agents' preview tools and the web sends the
-// person's link to their own browser through the panel's one door, each with a copy of one rule.
-NodeTest.test("the server and the web hold one copy of LazurioPlatform C20", async () => {
-  const body = (source) => source.replace(/^\/\*\*[^]*?\*\/\n/, "");
-  NodeAssert.equal(
-    body(await read("apps/web/src/lazurio/ownBrowser.ts")),
-    body(await read("apps/server/src/lazurio/ownBrowser.ts")),
-  );
-  NodeAssert.match(
-    await read("apps/web/src/browser/openFileInPreview.ts"),
-    /const own = ownBrowserLink\(threadRef, input\.url\);\n\s+if \(own !== null\) \{\n\s+void readLocalApi\(\)\?\.shell\.openExternal\(own\);/,
-  );
-  NodeAssert.ok(overlayMayChange("apps/web/src/browser/openFileInPreview.ts"));
-});
-
 // Plan DEV-6646: another Lazurio Environment's view of a tab, where an agent works over SSH. The
 // server's Environment browser host answers preview_open of such a view without loading it, and
 // the web opens it as a marked tab of the right panel. Both read a view's address with one

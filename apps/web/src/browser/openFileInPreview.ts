@@ -30,9 +30,6 @@ import {
   useRightPanelStore,
 } from "~/rightPanelStore";
 
-import { readLocalApi } from "~/localApi";
-import { ownBrowserLink } from "~/lazurio/threadTabs";
-
 import { resolveBrowserDefaults } from "./browserDefaults";
 
 export const isBrowserPreviewFile = (path: string): boolean =>
@@ -68,12 +65,6 @@ export async function openUrlInPreview<E>(input: {
 }): Promise<AtomCommandResult<void, E | BrowserSettingsReadError>> {
   // Read before any await: a side chat pane that unmounts meanwhile drops its host mapping.
   const threadRef = rightPanelHostRef(input.threadRef);
-  // Opened before any await, so a click's user activation still lets the browser open a tab.
-  const own = ownBrowserLink(threadRef, input.url);
-  if (own !== null) {
-    void readLocalApi()?.shell.openExternal(own);
-    return AsyncResult.success(undefined);
-  }
   const defaults = await resolveBrowserDefaults().catch(
     (cause: unknown) => new BrowserSettingsReadError({ cause }),
   );

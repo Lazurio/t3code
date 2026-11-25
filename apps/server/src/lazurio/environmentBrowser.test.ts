@@ -1010,6 +1010,24 @@ it.effect("refuses a page only the person's own browser opens, before touching t
           });
         }
       }
+      // A view host's own refusal (F50 point 2) names the address without its credentials too.
+      for (const [given, shown] of [
+        [`https://user:secret@${ownHost}/t/${personTab}?x`, `https://${ownHost}/t/${personTab}?x`],
+        [
+          "https://user:secret@browser.vm-02.acme.lazurio.io/",
+          "https://browser.vm-02.acme.lazurio.io/",
+        ],
+      ] as const) {
+        for (const [operation, input] of [
+          ["open", { url: given }],
+          ["navigate", { url: given }],
+          ["navigate", { target: { kind: "url", url: given } }],
+        ] as const) {
+          const refused = yield* invoke<void>(host.broker, operation, input).pipe(Effect.flip);
+          expect(refused).toMatchObject({ reason: expect.stringContaining(`${shown} is`) });
+          expect(JSON.stringify(refused)).not.toContain("secret");
+        }
+      }
       expect(host.browser.connections).toHaveLength(0);
       expect(host.runs.filter((run) => run.args[1] === "window")).toEqual([]);
     }),
