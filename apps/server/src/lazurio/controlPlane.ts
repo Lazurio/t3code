@@ -225,7 +225,7 @@ const make = Effect.gen(function* () {
     read,
     forget,
     // Each notice only says that the page changed: what is sent is read from the record after
-    // it, so a follower never gets an older page after a newer one, and the same one only once.
+    // it, so a follower never gets an older page after a newer one, and the same page and title once.
     follow: (threadId) =>
       Stream.unwrap(
         Effect.map(PubSub.subscribe(published), (later) =>
@@ -239,7 +239,9 @@ const make = Effect.gen(function* () {
       ).pipe(
         Stream.mapEffect(() => read(threadId)),
         Stream.filter((snapshot): snapshot is ControlPlaneSnapshot => snapshot !== null),
-        Stream.changesWith((left, right) => left.revision === right.revision),
+        Stream.changesWith(
+          (left, right) => left.revision === right.revision && left.title === right.title,
+        ),
       ),
   });
 });
