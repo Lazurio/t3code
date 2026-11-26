@@ -871,7 +871,9 @@ const layerMakeRoutes = Layer.mergeAll(
     speechStreamRouteLayer,
   ),
   // Lazurio overlay (Lazurio/t3code#200): the preview list and close see the threads' strips.
-  LazurioOverlay.withEnvironmentBrowserTabs(McpHttpServer.layer).pipe(
+  LazurioOverlay.withEnvironmentBrowserTabs(
+    LazurioOverlay.withControlPlaneTool(McpHttpServer.layerTools),
+  ).pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     // Lazurio overlay (plan DEV-6676): an agent command's idempotency key holds across commands.
     Layer.provide(
