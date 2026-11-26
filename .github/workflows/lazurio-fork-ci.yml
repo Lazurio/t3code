@@ -98,6 +98,7 @@ jobs:
             apps/web/src/components/RightPanelTabs.tsx
             apps/web/src/components/chat/MessagesTimeline.tsx
             apps/web/src/components/chat/TimelineUserMessageRow.tsx
+            apps/web/src/components/files/BrowserDocumentFrame.tsx
             apps/web/src/components/sidebar/SidebarChrome.tsx
             apps/web/src/main.tsx
             apps/web/src/rightPanelStore.ts

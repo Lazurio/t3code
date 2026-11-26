@@ -32,6 +32,7 @@ import {
   useState,
 } from "react";
 import { isElectron } from "~/env";
+import { buddyFrameAllowsNativePdf } from "~/lazurio/buddySurfaceFrame";
 import { FileSurfaceLoading } from "./fileSurfaceChrome";
 import type { PdfViewState } from "./PdfViewer";
 
@@ -104,7 +105,8 @@ function PdfDocumentRevision(props: {
     !isElectron &&
     navigator.pdfViewerEnabled &&
     !/iPad|iPhone|iPod/.test(navigator.userAgent) &&
-    !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) &&
+    buddyFrameAllowsNativePdf(window);
   return native ? (
     // oxlint-disable-next-line react/iframe-missing-sandbox -- Chromium's PDF plugin requires an unsandboxed frame; src is an exact-file asset grant.
     <iframe
