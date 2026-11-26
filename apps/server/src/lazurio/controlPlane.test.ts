@@ -76,7 +76,7 @@ const pageOf = Effect.fn("test.controlPlane.pageOf")(function* (attachmentId: st
 });
 
 describe("Control Plane", () => {
-  it.live("a second publish becomes the thread's page and reaches a follower", () =>
+  it.effect("a second publish becomes the thread's page and reaches a follower", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
         const controlPlane = yield* ControlPlane.ControlPlane;
@@ -112,7 +112,7 @@ describe("Control Plane", () => {
     ),
   );
 
-  it.live("a revision's URL keeps its own page: A, B, A again, then C", () =>
+  it.effect("a revision's URL keeps its own page: A, B, A again, then C", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
         const controlPlane = yield* ControlPlane.ControlPlane;
@@ -144,7 +144,7 @@ describe("Control Plane", () => {
     ),
   );
 
-  it.live("a failed record write leaves the published page and its record as they were", () =>
+  it.effect("a failed record write leaves the published page and its record as they were", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
         const controlPlane = yield* ControlPlane.ControlPlane;
@@ -176,7 +176,7 @@ describe("Control Plane", () => {
     ),
   );
 
-  it.live("a reader during a publish gets the old page and record", () =>
+  it.effect("a reader during a publish gets the old page and record", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
         const controlPlane = yield* ControlPlane.ControlPlane;
@@ -208,7 +208,7 @@ describe("Control Plane", () => {
     ),
   );
 
-  it.live("only Buddy's thread has one", () =>
+  it.effect("only Buddy's thread has one", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
         const controlPlane = yield* ControlPlane.ControlPlane;
@@ -222,7 +222,7 @@ describe("Control Plane", () => {
     ),
   );
 
-  it.live("a forgotten thread's page and record go", () =>
+  it.effect("a forgotten thread's page and record go", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
         const controlPlane = yield* ControlPlane.ControlPlane;
