@@ -66,6 +66,7 @@ import {
   buddyEscapeTaken,
   buddyHostOfWindow,
   buddyPanelOverWholeWindow,
+  buddyPanelOverWindow,
   buddyPanelsOffered,
   buddyWindowInView,
 } from "./buddySurfaceFrame";
@@ -110,8 +111,9 @@ export function useBuddyWindowInView(environmentId: string): boolean {
 
 /**
  * Buddy's window's panels: `offered` the right panel and the terminal, never in his small window;
- * `wholeWindow` the right panel opens over the whole window, as Matěj decided on 2026-11-21, with
- * `backLabel` on its control back to the conversation. Elsewhere T3's own layout.
+ * `wholeWindow` the right panel opens over the whole window on a narrow screen only
+ * (`buddyPanelOverWindow`), with `backLabel` on its control back to the
+ * conversation. A wide window, and Chat elsewhere, keep T3's own layout.
  */
 export function useBuddyPanels() {
   const framed = buddyHostOfWindow(window) !== null;
@@ -122,7 +124,7 @@ export function useBuddyPanels() {
   return {
     framed,
     offered,
-    wholeWindow: framed && offered,
+    wholeWindow: buddyPanelOverWindow(framed, offered, narrow),
     backLabel: TEXT[czech ? "cs" : "en"].backToConversation,
   };
 }
