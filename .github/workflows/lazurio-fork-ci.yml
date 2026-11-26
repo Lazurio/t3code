@@ -64,7 +64,8 @@ jobs:
             # session in its config, and the question tool's feature on the app-server T3 starts),
             # orchestration-v2/runtimeLayer.ts (the managed Folder's guards, the sign-in guard,
             # Buddy's one conversation and the record of who acted, as decorators where it builds
-            # upstream's services), server.ts (the overlay's one route layer, the gate over
+            # upstream's services), server.ts (the overlay's one route layer, Buddy's Control Plane
+            # tool beside upstream's MCP tools, the gate over
             # upstream's server browser, no triage on a managed Environment, the agent scope that
             # gives a thread's agents its agent-browser session, the `t3` command following the
             # version the launcher activated, Buddy's instance without T3's instructions, model or

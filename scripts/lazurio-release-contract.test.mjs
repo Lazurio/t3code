@@ -2235,7 +2235,7 @@ NodeTest.test("a thread's tabs live in its holder file behind an overlay route",
   );
   NodeAssert.match(
     overlay,
-    /\nexport const layer = Layer\.mergeAll\(\s*ThreadTabsRoute\.layer\.pipe\(Layer\.provide\(environmentBrowser\)\),\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*BuddySignal\.layer\.pipe\(Layer\.provide\(BuddyTaskFailures\.layer\)\),\s*AgentCliSendState\.layer,\s*Layer\.mergeAll\(BuddySurfaceDays\.layer, ActingSendersRoute\.layer\)\.pipe\(\s*Layer\.provide\(ActingSenders\.layer\),?\s*\),?\s*\)\.pipe\(Layer\.provide\(threadTabs\)\);/,
+    /\nexport const layer = Layer\.mergeAll\(\s*ThreadTabsRoute\.layer\.pipe\(Layer\.provide\(environmentBrowser\)\),\s*ModelRecommendationRoute\.layer,\s*ProviderRefreshRoute\.layer\.pipe\(Layer\.provide\(ProviderRefresh\.layer\)\),\s*BuddySurfaceThreadRoute\.layer,\s*BuddySignal\.layer\.pipe\(Layer\.provide\(BuddyTaskFailures\.layer\)\),\s*AgentCliSendState\.layer,\s*ControlPlaneRoute\.layer\.pipe\(Layer\.provide\(controlPlane\), Layer\.provide\(ThreadLifecycle\.layer\)\),\s*Layer\.mergeAll\(BuddySurfaceDays\.layer, ActingSendersRoute\.layer\)\.pipe\(\s*Layer\.provide\(ActingSenders\.layer\),?\s*\),?\s*\)\.pipe\(Layer\.provide\(threadTabs\)\);/,
   );
   NodeAssert.match(
     overlay,
@@ -2278,12 +2278,13 @@ NodeTest.test("T3's browser tools reach the Environment browser through their se
   );
   const seam = routes.indexOf("\n  LazurioOverlay.layer,\n");
   NodeAssert.ok(seam > 0, "layerMakeRoutes must start the server overlay");
-  // /mcp, in the same routes, sees the threads' strips through the overlay (Lazurio/t3code#200).
+  // /mcp, in the same routes, sees the threads' strips through the overlay (Lazurio/t3code#200)
+  // and has Buddy's Control Plane tool beside upstream's tools (plan LZD-0051).
   const mcpSeam = routes.indexOf(
-    "\n  LazurioOverlay.withEnvironmentBrowserTabs(McpHttpServer.layer).pipe(\n",
+    "\n  LazurioOverlay.withEnvironmentBrowserTabs(\n    LazurioOverlay.withControlPlaneTool(McpHttpServer.layerTools),\n  ).pipe(\n",
   );
   NodeAssert.ok(mcpSeam > 0, "layerMakeRoutes must hand /mcp the threads' strips");
-  NodeAssert.equal(server.match(/LazurioOverlay/g)?.length, 3);
+  NodeAssert.equal(server.match(/LazurioOverlay/g)?.length, 4);
   NodeAssert.equal(server.match(/McpHttpServer\.layer/g)?.length, 1);
   NodeAssert.ok(seam < routes.indexOf("Layer.provide(PreviewAutomationBroker.layer)"));
   // One predicate, T3CODE_LAZURIO_FOLDER, decides where the Environment browser is the browser.
@@ -3801,3 +3802,30 @@ NodeTest.test(
     NodeAssert.ok(overlayMayChange("apps/web/src/components/files/BrowserDocumentFrame.tsx"));
   },
 );
+
+NodeTest.test("the Control Plane is an isolated page of Buddy's thread only", async () => {
+  const [service, tool, route, overlay] = await Promise.all(
+    [
+      "apps/server/src/lazurio/controlPlane.ts",
+      "apps/server/src/lazurio/controlPlaneTool.ts",
+      "apps/server/src/lazurio/controlPlaneRoute.ts",
+      "apps/server/src/lazurio/overlay.ts",
+    ].map(read),
+  );
+  // One stable id per thread, served by the asset route as a sandboxed HTML document.
+  NodeAssert.match(service, /createDeterministicAttachmentId\(threadId, STABLE_KEY\)/);
+  NodeAssert.match(service, /`\$\{id\}-html`/);
+  NodeAssert.match(service, /injectHtmlRenderBootstrap\(input\.html\)/);
+  // Never in the timeline, and only Buddy's thread publishes.
+  NodeAssert.doesNotMatch(service, /recordHtmlRender/);
+  NodeAssert.match(service, /refusal\("not-buddys-thread"/);
+  NodeAssert.match(tool, /McpToolAccess\.actsAsCaller/);
+  NodeAssert.match(tool, /McpInvocationContext\.hiddenFromOutsideClients/);
+  // The route reads with the scope of upstream's thread subscription; the tool and the route
+  // share one store by layer memoization.
+  NodeAssert.match(
+    route,
+    /requiredScopeForRpcMethod\(ORCHESTRATION_V2_WS_METHODS\.subscribeThread\)/,
+  );
+  NodeAssert.equal(overlay.match(/Layer\.provide\(controlPlane\)/g)?.length, 2);
+});
