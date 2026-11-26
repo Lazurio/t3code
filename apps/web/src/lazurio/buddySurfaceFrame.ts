@@ -53,9 +53,8 @@ export const buddyPanelsOffered = (
 ): boolean => !framed || (mode === null ? !narrow : mode === "fullscreen");
 
 /**
- * Whether the right panel covers Buddy's whole window: where the window offers it and is narrow, as
- * a phone's, by the Owner's decision of 2026-11-25, which narrows that of 2026-11-21. A wide
- * full-screen window keeps T3's own column beside the conversation, so the chat stays readable.
+ * Whether the right panel covers Buddy's whole window: only where the window offers it and is narrow,
+ * as a phone's (the Owner's decision of 2026-11-25). A wide window keeps T3's column beside the chat.
  */
 export const buddyPanelOverWindow = (framed: boolean, offered: boolean, narrow: boolean): boolean =>
   framed && offered && narrow;
