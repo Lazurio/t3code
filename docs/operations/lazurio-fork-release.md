@@ -1342,12 +1342,13 @@ v `TimelineUserMessageRow.tsx` a značku u žádosti v `TimelineWorkEntryRow.tsx
 
 ## Ring 0: LazurioExampleOrganization
 
-Canary Environmenty tohoto runbooku jsou Environmenty veřejné referenční
-Organizace `LazurioExampleOrganization` (GitHub id 325048785, fiktivní data,
-bez tailnetu). Každé preview i stable na ně jde jako první. Určuje to root
-rozhodnutí 0204 bod 7
+Canary Environmenty tohoto runbooku jsou Environmenty referenční Organizace
+`LazurioExampleOrganization` (GitHub id 325048785, fiktivní data). Každé
+preview i stable na ně jde jako první. Určuje to root rozhodnutí 0204 bod 7
 ([HumanAndMachines/Lazurio `manual/decision-register.md`](https://github.com/HumanAndMachines/Lazurio/blob/main/manual/decision-register.md),
-řádek 0204).
+řádek 0204). Od 2026-11-14 je Organizace zpátky ve svém tailnetu: její
+Environmenty nemají veřejné DNS a vstupuje se do nich přes Tailscale ze
+schváleného zařízení, jako v každé Organizaci.
 
 - **Bez souhlasu a okna.** Instalace preview, Update, restarty, reinstalace
   i nová nasazení jejích Environmentů nepotřebují souhlas lidí, kteří je
@@ -1361,11 +1362,12 @@ rozhodnutí 0204 bod 7
   Organizací, přijde až po akceptaci v prohlížeči na Environmentech této
   Organizace (root rozhodnutí 0178): Chat se otevře, spárování funguje a,
   jakmile tam je AI, projde neškodný agentní turn.
-- **Environmenty pro návštěvníky** (`try-*`) se vracejí do stavu posledního
-  reviewovaného nasazení, takže se na nich databáze před `t3 update`
-  nezálohuje.
-- **Mimo Ring 0** zůstává vstup přes tailnet, který tato Organizace nemá;
-  ověří ho až další vlna.
+- **Environmenty pro návštěvníky** (`try-*`) dnes neběží: sdílené `try-01`
+  bylo vyřazeno 2026-11-12. Kdyby takový Environment znovu vznikl, vrací se do
+  stavu posledního reviewovaného nasazení, takže se na něm databáze před
+  `t3 update` nezálohuje.
+- **Vstup přes tailnet** se ověřuje už na Ring 0: akceptace v prohlížeči na
+  Environmentech této Organizace jde přes její tailnet.
 
 ## Nové stabilní vydání upstreamu
 
