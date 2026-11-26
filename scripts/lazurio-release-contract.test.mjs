@@ -3785,16 +3785,19 @@ NodeTest.test("each message's origin reaches the agent through its seams", async
     NodeAssert.ok(overlayMayChange(file), file);
 });
 
-NodeTest.test("a PDF in Buddy's window opens in PDF.js, where the host's sandbox blocks the browser's viewer", async () => {
-  const frame = await read("apps/web/src/components/files/BrowserDocumentFrame.tsx");
-  // One condition beside upstream's own, through a Lazurio function.
-  NodeAssert.match(
-    frame,
-    /import \{ buddyFrameAllowsNativePdf \} from "~\/lazurio\/buddySurfaceFrame";/,
-  );
-  NodeAssert.match(
-    frame,
-    /!\(navigator\.platform === "MacIntel" && navigator\.maxTouchPoints > 1\) &&\n\s+buddyFrameAllowsNativePdf\(window\);/,
-  );
-  NodeAssert.ok(overlayMayChange("apps/web/src/components/files/BrowserDocumentFrame.tsx"));
-});
+NodeTest.test(
+  "a PDF in Buddy's window opens in PDF.js, where the host's sandbox blocks the browser's viewer",
+  async () => {
+    const frame = await read("apps/web/src/components/files/BrowserDocumentFrame.tsx");
+    // One condition beside upstream's own, through a Lazurio function.
+    NodeAssert.match(
+      frame,
+      /import \{ buddyFrameAllowsNativePdf \} from "~\/lazurio\/buddySurfaceFrame";/,
+    );
+    NodeAssert.match(
+      frame,
+      /!\(navigator\.platform === "MacIntel" && navigator\.maxTouchPoints > 1\) &&\n\s+buddyFrameAllowsNativePdf\(window\);/,
+    );
+    NodeAssert.ok(overlayMayChange("apps/web/src/components/files/BrowserDocumentFrame.tsx"));
+  },
+);
