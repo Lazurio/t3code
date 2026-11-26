@@ -13,14 +13,14 @@ import * as ServerConfig from "../config.ts";
 import { layerBuddyServer } from "./buddySurface.testkit.ts";
 import { BUDDY_THREAD_ID } from "./buddySurfaceThread.ts";
 import * as ControlPlane from "./controlPlane.ts";
-import { ThreadLifecycle, type ThreadLifecycleEvent } from "./threadLifecycle.ts";
+import * as ThreadLifecycle from "./threadLifecycle.ts";
 
 const withControlPlane = <A, E, R>(test: () => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
-    const events = yield* Queue.unbounded<ThreadLifecycleEvent>();
+    const events = yield* Queue.unbounded<ThreadLifecycle.ThreadLifecycleEvent>();
     const lifecycle = Layer.succeed(
-      ThreadLifecycle,
-      ThreadLifecycle.of({
+      ThreadLifecycle.ThreadLifecycle,
+      ThreadLifecycle.ThreadLifecycle.of({
         ready: Effect.void,
         events: Stream.fromQueue(events),
         liveThread: () => Effect.succeedNone,

@@ -13,9 +13,9 @@ import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { requiredScopeForRpcMethod } from "../auth/RpcAuthorization.ts";
-import { ControlPlane, type ControlPlaneSnapshot } from "./controlPlane.ts";
+import * as ControlPlane from "./controlPlane.ts";
 import { authenticateOverlayRoute as authenticate } from "./routeAuth.ts";
-import { ThreadLifecycle } from "./threadLifecycle.ts";
+import * as ThreadLifecycle from "./threadLifecycle.ts";
 
 const CONTROL_PLANE_ROUTE = "/api/lazurio/control-plane";
 const HEARTBEAT = Duration.seconds(25);
@@ -26,13 +26,13 @@ const refused = (error: "invalid-request" | "thread-not-found" | "none", status:
   HttpServerResponse.jsonUnsafe({ error }, { status });
 
 /** One server-sent event: the page as published now. */
-const controlPlaneEvent = (snapshot: ControlPlaneSnapshot) =>
+const controlPlaneEvent = (snapshot: ControlPlane.ControlPlaneSnapshot) =>
   `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`;
 
 export const layer = HttpRouter.use((router) =>
   Effect.gen(function* () {
-    const controlPlane = yield* ControlPlane;
-    const lifecycle = yield* ThreadLifecycle;
+    const controlPlane = yield* ControlPlane.ControlPlane;
+    const lifecycle = yield* ThreadLifecycle.ThreadLifecycle;
 
     const liveThreadOfQuery = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;

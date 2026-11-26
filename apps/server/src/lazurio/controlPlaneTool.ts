@@ -13,11 +13,7 @@ import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpToolAccess from "../mcp/McpToolAccess.ts";
-import {
-  CONTROL_PLANE_MAX_HTML_BYTES,
-  ControlPlane,
-  type ControlPlaneError,
-} from "./controlPlane.ts";
+import * as ControlPlane from "./controlPlane.ts";
 
 const CONTROL_PLANE_TOOL_NAME = "control_plane_publish";
 
@@ -27,7 +23,7 @@ const ControlPlanePublishTool = Tool.make(CONTROL_PLANE_TOOL_NAME, {
   parameters: Schema.Struct({
     html: Schema.String.check(
       Schema.isMinLength(1),
-      Schema.isMaxLength(CONTROL_PLANE_MAX_HTML_BYTES),
+      Schema.isMaxLength(ControlPlane.CONTROL_PLANE_MAX_HTML_BYTES),
     ).annotate({ description: "The whole page." }),
     title: Schema.String.check(
       Schema.isMinLength(1),
@@ -44,7 +40,7 @@ const ControlPlanePublishTool = Tool.make(CONTROL_PLANE_TOOL_NAME, {
   dependencies: [
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
-    ControlPlane,
+    ControlPlane.ControlPlane,
   ],
 })
   .annotate(Tool.Title, "Publish Control Plane")
@@ -56,7 +52,7 @@ const ControlPlanePublishTool = Tool.make(CONTROL_PLANE_TOOL_NAME, {
 
 export const ControlPlaneToolkit = Toolkit.make(ControlPlanePublishTool);
 
-const CODE: Record<ControlPlaneError["reason"], OrchestratorMcpFailure["code"]> = {
+const CODE: Record<ControlPlane.ControlPlaneError["reason"], OrchestratorMcpFailure["code"]> = {
   "not-buddys-thread": "capability_denied",
   "invalid-page": "invalid_request",
   "invalid-thread": "invalid_request",
@@ -71,7 +67,7 @@ export const handlersLayer = McpToolAccess.toLayer(ControlPlaneToolkit, {
         scope,
         CONTROL_PLANE_TOOL_NAME,
       );
-      const snapshot = yield* (yield* ControlPlane)
+      const snapshot = yield* (yield* ControlPlane.ControlPlane)
         .publish({ threadId: thread.threadId, html: input.html, title: input.title })
         .pipe(
           Effect.mapError(

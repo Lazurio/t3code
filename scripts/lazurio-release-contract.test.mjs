@@ -3818,7 +3818,10 @@ NodeTest.test("the Control Plane is an isolated page of Buddy's thread only", as
   NodeAssert.match(service, /injectHtmlRenderBootstrap\(input\.html\)/);
   // Never in the timeline, and only Buddy's thread publishes.
   NodeAssert.doesNotMatch(service, /recordHtmlRender/);
-  NodeAssert.match(service, /refusal\("not-buddys-thread"/);
+  NodeAssert.match(service, /reason: "not-buddys-thread"/);
+  // One publish at a time, and a follower reads the record after each notice.
+  NodeAssert.match(service, /writing\.withPermits\(1\)/);
+  NodeAssert.match(service, /Stream\.mapEffect\(\(\) => read\(threadId\)\)/);
   NodeAssert.match(tool, /McpToolAccess\.actsAsCaller/);
   NodeAssert.match(tool, /McpInvocationContext\.hiddenFromOutsideClients/);
   // The route reads with the scope of upstream's thread subscription; the tool and the route

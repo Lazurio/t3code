@@ -22,16 +22,17 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import { resolveAttachmentRelativePath } from "../attachmentPaths.ts";
 import { createDeterministicAttachmentId } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
-import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
-import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { isBuddySurfaceEnvironment } from "./buddySurface.ts";
 import { BUDDY_THREAD_ID, findSharedBuddyThread, sharedBuddyFolder } from "./buddySurfaceThread.ts";
-import { ThreadLifecycle } from "./threadLifecycle.ts";
+import * as ThreadLifecycle from "./threadLifecycle.ts";
 
 export const CONTROL_PLANE_MAX_HTML_BYTES = 512_000;
 const STABLE_KEY = "lazurio-control-plane";
@@ -45,12 +46,6 @@ export const ControlPlaneSnapshot = Schema.Struct({
 });
 export type ControlPlaneSnapshot = typeof ControlPlaneSnapshot.Type;
 
-export type ControlPlaneErrorReason =
-  | "not-buddys-thread"
-  | "invalid-page"
-  | "invalid-thread"
-  | "store-failed";
-
 export class ControlPlaneError extends Schema.TaggedError<ControlPlaneError>()(
   "ControlPlaneError",
   {
@@ -61,6 +56,7 @@ export class ControlPlaneError extends Schema.TaggedError<ControlPlaneError>()(
       "store-failed",
     ]),
     detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -81,7 +77,7 @@ export class ControlPlane extends Context.Service<
     readonly read: (threadId: ThreadId) => Effect.Effect<ControlPlaneSnapshot | null>;
     /** Removes the thread's page; a retired thread's goes this way. */
     readonly forget: (threadId: string) => Effect.Effect<void>;
-    /** The page as published now, if any, then each later publish; nothing between is lost. */
+    /** The page as published now, if any, then each newer one; never an older after a newer. */
     readonly follow: (threadId: ThreadId) => Stream.Stream<ControlPlaneSnapshot>;
   }
 >()("t3/lazurio/controlPlane") {}
@@ -95,9 +91,6 @@ const controlPlaneAttachmentId = (threadId: string): string | null => {
 /** Changes with every different page, so a reload is never served from the browser's cache. */
 const controlPlaneRevision = (html: string): string =>
   NodeCrypto.createHash("sha256").update(html).digest("hex").slice(0, 16);
-
-const refusal = (reason: ControlPlaneErrorReason, detail: string) =>
-  new ControlPlaneError({ reason, detail });
 
 /** Buddy's thread without making it: the fixed one of Buddy's T3 Code, or the shared server's. */
 const buddysThreadId = Effect.gen(function* () {
@@ -116,11 +109,17 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const lifecycle = yield* ThreadLifecycle;
+  const lifecycle = yield* ThreadLifecycle.ThreadLifecycle;
   const services = yield* Effect.context<
-    ServerConfig.ServerConfig | FileSystem.FileSystem | Path.Path | OrchestratorV2 | ProjectStoreV2
+    | ServerConfig.ServerConfig
+    | FileSystem.FileSystem
+    | Path.Path
+    | Orchestrator.OrchestratorV2
+    | ProjectStore.ProjectStoreV2
   >();
   const published = yield* PubSub.unbounded<ControlPlaneSnapshot>();
+  // One publish at a time, so a page and its record always belong to the same publish.
+  const writing = yield* Semaphore.make(1);
   const recordsDirectory = path.join(config.stateDir, "lazurio", "control-plane");
 
   const filesOf = (threadId: string) => {
@@ -143,16 +142,24 @@ const make = Effect.gen(function* () {
     readonly title: string;
   }) {
     if (Buffer.byteLength(input.html, "utf8") > CONTROL_PLANE_MAX_HTML_BYTES)
-      return yield* refusal(
-        "invalid-page",
-        `The page is larger than ${CONTROL_PLANE_MAX_HTML_BYTES} bytes.`,
-      );
-    if (input.html.trim().length === 0) return yield* refusal("invalid-page", "The page is empty.");
+      return yield* new ControlPlaneError({
+        reason: "invalid-page",
+        detail: `The page is larger than ${CONTROL_PLANE_MAX_HTML_BYTES} bytes.`,
+      });
+    if (input.html.trim().length === 0)
+      return yield* new ControlPlaneError({ reason: "invalid-page", detail: "The page is empty." });
     const buddys = yield* buddysThreadId;
     if (buddys === null || buddys !== input.threadId)
-      return yield* refusal("not-buddys-thread", "Only Buddy's thread has a Control Plane.");
+      return yield* new ControlPlaneError({
+        reason: "not-buddys-thread",
+        detail: "Only Buddy's thread has a Control Plane.",
+      });
     const files = filesOf(input.threadId);
-    if (files === null) return yield* refusal("invalid-thread", "Invalid thread id.");
+    if (files === null)
+      return yield* new ControlPlaneError({
+        reason: "invalid-thread",
+        detail: "Invalid thread id.",
+      });
     const html = injectHtmlRenderBootstrap(input.html);
     const snapshot: ControlPlaneSnapshot = {
       threadId: input.threadId,
@@ -167,12 +174,18 @@ const make = Effect.gen(function* () {
       Effect.flatMap((record) =>
         writeFileStringAtomically({ filePath: files.record, contents: record }),
       ),
-      Effect.mapError((cause) =>
-        refusal("store-failed", `The page could not be stored: ${String(cause)}`),
+      Effect.andThen(PubSub.publish(published, snapshot)),
+      Effect.mapError(
+        (cause) =>
+          new ControlPlaneError({
+            reason: "store-failed",
+            detail: "The page could not be stored.",
+            cause,
+          }),
       ),
       Effect.uninterruptible,
+      writing.withPermits(1),
     );
-    yield* PubSub.publish(published, snapshot);
     return snapshot;
   }, Effect.provideContext(services));
 
@@ -190,42 +203,43 @@ const make = Effect.gen(function* () {
     return yield* decodeSnapshot(text).pipe(Effect.orElseSucceed(() => null));
   });
 
-  const remove = (threadId: string) => {
+  const forget = Effect.fn("ControlPlane.forget")(function* (threadId: string) {
     const files = filesOf(threadId);
-    return files === null
-      ? Effect.void
-      : Effect.forEach(
-          [files.record, files.page],
-          (file) => fileSystem.remove(file, { force: true }),
-          {
-            discard: true,
-          },
-        ).pipe(Effect.ignore({ log: true }));
-  };
+    if (files === null) return;
+    yield* Effect.forEach(
+      [files.record, files.page],
+      (file) => fileSystem.remove(file, { force: true }),
+      { discard: true },
+    ).pipe(Effect.ignore({ log: true }), writing.withPermits(1));
+  });
 
   // A retired thread's page goes with it; nothing else knows its deterministic id.
   yield* lifecycle.events.pipe(
     Stream.filter((event) => event.type === "retired"),
-    Stream.runForEach((event) => remove(event.threadId)),
+    Stream.runForEach((event) => forget(event.threadId)),
     Effect.forkScoped,
   );
 
   return ControlPlane.of({
     publish,
     read,
-    forget: remove,
+    forget,
+    // Each notice only says that the page changed: what is sent is read from the record after
+    // it, so a follower never gets an older page after a newer one, and the same one only once.
     follow: (threadId) =>
       Stream.unwrap(
-        Effect.gen(function* () {
-          const later = yield* PubSub.subscribe(published);
-          const now = yield* read(threadId);
-          return Stream.concat(
-            Stream.fromIterable(now === null ? [] : [now]),
+        Effect.map(PubSub.subscribe(published), (later) =>
+          Stream.concat(
+            Stream.make(undefined),
             Stream.fromSubscription(later).pipe(
               Stream.filter((snapshot) => snapshot.threadId === threadId),
             ),
-          );
-        }),
+          ),
+        ),
+      ).pipe(
+        Stream.mapEffect(() => read(threadId)),
+        Stream.filter((snapshot): snapshot is ControlPlaneSnapshot => snapshot !== null),
+        Stream.changesWith((left, right) => left.revision === right.revision),
       ),
   });
 });
