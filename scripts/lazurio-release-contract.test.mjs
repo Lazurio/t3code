@@ -3812,8 +3812,10 @@ NodeTest.test("the Control Plane is an isolated page of Buddy's thread only", as
       "apps/server/src/lazurio/overlay.ts",
     ].map(read),
   );
-  // One stable id per thread, served by the asset route as a sandboxed HTML document.
+  // One record per thread names the current revision; each revision is its own page id, served
+  // by the asset route as a sandboxed HTML document, so a revision's URL never shows another's.
   NodeAssert.match(service, /createDeterministicAttachmentId\(threadId, STABLE_KEY\)/);
+  NodeAssert.match(service, /createDeterministicAttachmentId\(threadId, `\$\{STABLE_KEY\}:\$\{revision\}`\)/);
   NodeAssert.match(service, /`\$\{id\}-html`/);
   NodeAssert.match(service, /injectHtmlRenderBootstrap\(input\.html\)/);
   // Never in the timeline, and only Buddy's thread publishes.

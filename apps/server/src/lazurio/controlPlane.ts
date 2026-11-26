@@ -1,9 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off -- the revision is a synchronous SHA-256 of the page.
 /**
- * Lazurio overlay (plan LZD-0051, C1): the Control Plane, one HTML page per Buddy thread at one
- * stable attachment id that each publish overwrites. It is isolated like an `html_render` page
- * (the `-html` id makes the asset route serve it sandboxed) but never enters the timeline; a
- * client learns of a new revision from `follow` and loads it as `?v=<revision>`.
+ * Lazurio overlay (plan LZD-0051, C1): the Control Plane, one place per Buddy thread whose page
+ * each publish replaces. Every revision is an immutable page under its own `-html` attachment id,
+ * isolated like an `html_render` page but never in the timeline; the thread's one record names the
+ * current revision and is the commit. A client learns of a new revision from `follow`.
  */
 
 import { ThreadId } from "@t3tools/contracts";
@@ -82,13 +82,17 @@ export class ControlPlane extends Context.Service<
   }
 >()("t3/lazurio/controlPlane") {}
 
-/** The page's one attachment id; the `-html` suffix makes the asset route serve it as HTML. */
-const controlPlaneAttachmentId = (threadId: string): string | null => {
-  const id = createDeterministicAttachmentId(threadId, STABLE_KEY);
+/**
+ * A revision's page: its own attachment id, derived from the thread and the revision, so the asset
+ * route never serves one revision's URL with another revision's content. The `-html` suffix makes
+ * the route serve it as a sandboxed HTML document.
+ */
+const pageAttachmentId = (threadId: string, revision: string): string | null => {
+  const id = createDeterministicAttachmentId(threadId, `${STABLE_KEY}:${revision}`);
   return id === null ? null : `${id}-html`;
 };
 
-/** Changes with every different page, so a reload is never served from the browser's cache. */
+/** Changes with every different page. */
 const controlPlaneRevision = (html: string): string =>
   NodeCrypto.createHash("sha256").update(html).digest("hex").slice(0, 16);
 
@@ -101,9 +105,17 @@ const buddysThreadId = Effect.gen(function* () {
   return found?.thread?.id ?? null;
 });
 
-const SnapshotJson = Schema.fromJsonString(ControlPlaneSnapshot);
-const decodeSnapshot = Schema.decodeUnknownEffect(SnapshotJson);
-const encodeSnapshot = Schema.encodeEffect(SnapshotJson);
+/** The thread's one record: the page as published now, and the one before it. */
+const ControlPlaneRecord = Schema.Struct({
+  ...ControlPlaneSnapshot.fields,
+  previousAttachmentId: Schema.optional(Schema.String),
+});
+type ControlPlaneRecord = typeof ControlPlaneRecord.Type;
+const RecordJson = Schema.fromJsonString(ControlPlaneRecord);
+const decodeRecord = Schema.decodeUnknownEffect(RecordJson);
+const encodeRecord = Schema.encodeEffect(RecordJson);
+
+const snapshotOf = ({ previousAttachmentId: _, ...snapshot }: ControlPlaneRecord) => snapshot;
 
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
@@ -118,23 +130,32 @@ const make = Effect.gen(function* () {
     | ProjectStore.ProjectStoreV2
   >();
   const published = yield* PubSub.unbounded<ControlPlaneSnapshot>();
-  // One publish at a time, so a page and its record always belong to the same publish.
+  // One publish or removal at a time per server, so the record moves from one whole version to the next.
   const writing = yield* Semaphore.make(1);
   const recordsDirectory = path.join(config.stateDir, "lazurio", "control-plane");
 
-  const filesOf = (threadId: string) => {
-    const attachmentId = controlPlaneAttachmentId(threadId);
-    const page =
-      attachmentId === null
-        ? null
-        : resolveAttachmentRelativePath({
-            attachmentsDir: config.attachmentsDir,
-            relativePath: `${attachmentId}.html`,
-          });
-    return attachmentId === null || page === null
-      ? null
-      : { attachmentId, page, record: path.join(recordsDirectory, `${attachmentId}.json`) };
+  const recordOf = (threadId: string) => {
+    const name = createDeterministicAttachmentId(threadId, STABLE_KEY);
+    return name === null ? null : path.join(recordsDirectory, `${name}.json`);
   };
+  const pageOf = (attachmentId: string) =>
+    resolveAttachmentRelativePath({
+      attachmentsDir: config.attachmentsDir,
+      relativePath: `${attachmentId}.html`,
+    });
+  const removePage = (attachmentId: string | undefined) => {
+    const page = attachmentId === undefined ? null : pageOf(attachmentId);
+    return page === null
+      ? Effect.void
+      : fileSystem.remove(page, { force: true }).pipe(Effect.ignore({ log: true }));
+  };
+
+  const readRecord = Effect.fn("ControlPlane.readRecord")(function* (threadId: string) {
+    const record = recordOf(threadId);
+    if (record === null) return null;
+    const text = yield* fileSystem.readFileString(record).pipe(Effect.orElseSucceed(() => null));
+    return text === null ? null : yield* decodeRecord(text).pipe(Effect.orElseSucceed(() => null));
+  });
 
   const publish = Effect.fn("ControlPlane.publish")(function* (input: {
     readonly threadId: ThreadId;
@@ -154,66 +175,88 @@ const make = Effect.gen(function* () {
         reason: "not-buddys-thread",
         detail: "Only Buddy's thread has a Control Plane.",
       });
-    const files = filesOf(input.threadId);
-    if (files === null)
+    const html = injectHtmlRenderBootstrap(input.html);
+    const revision = controlPlaneRevision(html);
+    const attachmentId = pageAttachmentId(input.threadId, revision);
+    const page = attachmentId === null ? null : pageOf(attachmentId);
+    const record = recordOf(input.threadId);
+    if (attachmentId === null || page === null || record === null)
       return yield* new ControlPlaneError({
         reason: "invalid-thread",
         detail: "Invalid thread id.",
       });
-    const html = injectHtmlRenderBootstrap(input.html);
-    const snapshot: ControlPlaneSnapshot = {
-      threadId: input.threadId,
-      attachmentId: files.attachmentId,
-      title: input.title.trim().slice(0, HTML_RENDER_MAX_TITLE_LENGTH) || "Control Plane",
-      revision: controlPlaneRevision(html),
-      publishedAt: DateTime.formatIso(yield* DateTime.now),
-    };
-    // The page first, then its record: a reader never gets a revision whose page is not there yet.
-    yield* writeFileStringAtomically({ filePath: files.page, contents: html }).pipe(
-      Effect.andThen(encodeSnapshot(snapshot)),
-      Effect.flatMap((record) =>
-        writeFileStringAtomically({ filePath: files.record, contents: record }),
-      ),
-      Effect.andThen(PubSub.publish(published, snapshot)),
-      Effect.mapError(
-        (cause) =>
-          new ControlPlaneError({
-            reason: "store-failed",
-            detail: "The page could not be stored.",
-            cause,
+    const title = input.title.trim().slice(0, HTML_RENDER_MAX_TITLE_LENGTH) || "Control Plane";
+    const stored = (cause: unknown) =>
+      new ControlPlaneError({
+        reason: "store-failed",
+        detail: "The page could not be stored.",
+        cause,
+      });
+
+    return yield* Effect.gen(function* () {
+      const before = yield* readRecord(input.threadId);
+      const snapshot: ControlPlaneSnapshot = {
+        threadId: input.threadId,
+        attachmentId,
+        title,
+        revision,
+        publishedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+      const previousAttachmentId =
+        before === null || before.attachmentId === attachmentId
+          ? before?.previousAttachmentId
+          : before.attachmentId;
+      // The new revision's page first, under its own id: it replaces nothing a reader relies on.
+      // The record is the commit; until it is replaced, the old record and its page stay a pair.
+      yield* writeFileStringAtomically({ filePath: page, contents: html }).pipe(
+        Effect.andThen(
+          encodeRecord({
+            ...snapshot,
+            ...(previousAttachmentId === undefined || previousAttachmentId === attachmentId
+              ? {}
+              : { previousAttachmentId }),
           }),
-      ),
-      Effect.uninterruptible,
-      writing.withPermits(1),
-    );
-    return snapshot;
+        ),
+        Effect.flatMap((text) => writeFileStringAtomically({ filePath: record, contents: text })),
+        Effect.mapError(stored),
+        Effect.onError(() =>
+          before !== null &&
+          (before.attachmentId === attachmentId || before.previousAttachmentId === attachmentId)
+            ? Effect.void
+            : removePage(attachmentId),
+        ),
+      );
+      // A page two revisions back is no longer named by the record; a client may still be loading
+      // the previous one, so that one stays until the next publish.
+      const dropped = before?.previousAttachmentId;
+      if (dropped !== undefined && dropped !== attachmentId && dropped !== previousAttachmentId)
+        yield* removePage(dropped);
+      yield* PubSub.publish(published, snapshot);
+      return snapshot;
+    }).pipe(Effect.uninterruptible, writing.withPermits(1));
   }, Effect.provideContext(services));
 
   const read = Effect.fn("ControlPlane.read")(function* (threadId: ThreadId) {
-    const files = filesOf(threadId);
-    if (files === null) return null;
-    const text = yield* fileSystem
-      .readFileString(files.record)
-      .pipe(Effect.orElseSucceed(() => null));
-    if (
-      text === null ||
-      !(yield* fileSystem.exists(files.page).pipe(Effect.orElseSucceed(() => false)))
-    )
-      return null;
-    return yield* decodeSnapshot(text).pipe(Effect.orElseSucceed(() => null));
+    const record = yield* readRecord(threadId);
+    if (record === null) return null;
+    const page = pageOf(record.attachmentId);
+    const there =
+      page !== null && (yield* fileSystem.exists(page).pipe(Effect.orElseSucceed(() => false)));
+    return there ? snapshotOf(record) : null;
   });
 
   const forget = Effect.fn("ControlPlane.forget")(function* (threadId: string) {
-    const files = filesOf(threadId);
-    if (files === null) return;
-    yield* Effect.forEach(
-      [files.record, files.page],
-      (file) => fileSystem.remove(file, { force: true }),
-      { discard: true },
-    ).pipe(Effect.ignore({ log: true }), writing.withPermits(1));
+    const record = recordOf(threadId);
+    if (record === null) return;
+    yield* Effect.gen(function* () {
+      const current = yield* readRecord(threadId);
+      yield* fileSystem.remove(record, { force: true }).pipe(Effect.ignore({ log: true }));
+      yield* removePage(current?.attachmentId);
+      yield* removePage(current?.previousAttachmentId);
+    }).pipe(writing.withPermits(1));
   });
 
-  // A retired thread's page goes with it; nothing else knows its deterministic id.
+  // A retired thread's pages go with it; nothing else knows their deterministic ids.
   yield* lifecycle.events.pipe(
     Stream.filter((event) => event.type === "retired"),
     Stream.runForEach((event) => forget(event.threadId)),
