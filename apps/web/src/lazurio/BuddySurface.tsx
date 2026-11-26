@@ -43,6 +43,7 @@ import { applyThemePalette } from "~/themePalette";
 import { selectThreadRightPanelState } from "~/rightPanelStore";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
+import { ControlPlaneButton, useControlPlane } from "./LazurioControlPlane";
 import { selectThreadTerminalUiState } from "~/terminalUiStateStore";
 import {
   buddySpeedOf,
@@ -583,12 +584,28 @@ type DaySheet = { readonly open: boolean; readonly setOpen: (open: boolean) => v
 
 function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
+  const { offered } = useBuddyPanels();
   const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  const environmentId = usePrimaryEnvironmentId();
+  const threadId = useSyncExternalStore(subscribeBuddyThread, () => buddyThreadId, noTarget);
+  const threadRef =
+    environmentId === null || threadId === null
+      ? null
+      : scopeThreadRef(environmentId, threadId as ThreadId);
+  const controlPlane = useControlPlane(threadRef);
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />
       <span className="min-w-0 flex-1 truncate font-medium text-sm">Buddy</span>
       {daySheet === null ? null : <BuddyDaySheet {...daySheet} />}
+      {threadRef === null ? null : (
+        <ControlPlaneButton
+          panelsOffered={offered}
+          requestFullscreen={() => requestLayout("fullscreen")}
+          snapshot={controlPlane}
+          threadRef={threadRef}
+        />
+      )}
       {framed ? (
         <>
           <Button
@@ -801,9 +818,10 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
   const roomForDays = useMediaQuery("sm");
   const { framed } = useBuddyFrame(true);
   // T3's thread controls sit fixed at the window's top right, in Buddy's header: they move left of
-  // Buddy's own buttons there (an icon-sm button and the header's gap each), and the open day sheet
+  // Buddy's own buttons there (Control Plane, days, size, close: an icon-sm button and the header's
+  // gap each), and the open day sheet
   // covers them. Their row moves up to the header's centre line, so both sets sit at one height.
-  const ownControls = (roomForDays ? 0 : 1) + (framed ? 2 : 0);
+  const ownControls = 1 + (roomForDays ? 0 : 1) + (framed ? 2 : 0);
   const [daysOpen, setDaysOpen] = useState(false);
   return (
     <div
