@@ -44,6 +44,13 @@ import { selectThreadRightPanelState } from "~/rightPanelStore";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import { ControlPlaneButton, useControlPlane } from "./LazurioControlPlane";
+import {
+  knowBuddysThread,
+  knownBuddysThread,
+  openBuddyThread,
+  setBuddysThread,
+  subscribeBuddysThread,
+} from "./buddysThread";
 import { selectThreadTerminalUiState } from "~/terminalUiStateStore";
 import {
   buddySpeedOf,
@@ -173,7 +180,6 @@ export function useBuddyPanelEscape(active: boolean, back: () => void) {
 export const isBuddySurfaceNow = (): boolean =>
   isBuddySurfaceConfig(appAtomRegistry.get(primaryServerConfigAtom));
 
-const BUDDY_THREAD_ROUTE = "/api/lazurio/buddy/thread";
 const BUDDY_DAYS_ROUTE = "/api/lazurio/buddy/days";
 const AVATAR = "/assets/avatar.webp";
 
@@ -587,9 +593,15 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   const { offered } = useBuddyPanels();
   const text = useCzech(true) ? TEXT.cs : TEXT.en;
   const environmentId = usePrimaryEnvironmentId();
-  const threadId = useSyncExternalStore(subscribeBuddyThread, () => buddyThreadId, noTarget);
+  // Buddy's own T3 Code (GEN3) keeps the right panel closed, so the Control Plane is GEN4's only.
+  const panelsKept = useBuddyHermesControls(environmentId ?? undefined);
+  const threadId = useSyncExternalStore(subscribeBuddysThread, knownBuddysThread, noTarget);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server for Buddy's thread when the window opened on it directly
+  useEffect(() => {
+    if (environmentId !== null && threadId === null && !panelsKept) void knowBuddysThread();
+  }, [environmentId, threadId, panelsKept]);
   const threadRef =
-    environmentId === null || threadId === null
+    environmentId === null || threadId === null || panelsKept
       ? null
       : scopeThreadRef(environmentId, threadId as ThreadId);
   const controlPlane = useControlPlane(threadRef);
@@ -598,7 +610,7 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
       <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />
       <span className="min-w-0 flex-1 truncate font-medium text-sm">Buddy</span>
       {daySheet === null ? null : <BuddyDaySheet {...daySheet} />}
-      {threadRef === null ? null : (
+      {panelsKept ? null : (
         <ControlPlaneButton
           panelsOffered={offered}
           requestFullscreen={() => requestLayout("fullscreen")}
@@ -821,7 +833,8 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
   // Buddy's own buttons there (Control Plane, days, size, close: an icon-sm button and the header's
   // gap each), and the open day sheet
   // covers them. Their row moves up to the header's centre line, so both sets sit at one height.
-  const ownControls = 1 + (roomForDays ? 0 : 1) + (framed ? 2 : 0);
+  const controlPlane = useBuddyHermesControls(usePrimaryEnvironmentId() ?? undefined) ? 0 : 1;
+  const ownControls = controlPlane + (roomForDays ? 0 : 1) + (framed ? 2 : 0);
   const [daysOpen, setDaysOpen] = useState(false);
   return (
     <div
@@ -847,13 +860,6 @@ export function BuddySurfaceLayout({ children }: { readonly children: ReactNode 
 
 type Opening = { readonly attempt: number; readonly outcome: "not-ready" | "failed" };
 
-let buddyThreadId: string | null = null;
-const buddyThreadListeners = new Set<() => void>();
-const subscribeBuddyThread = (listener: () => void) => {
-  buddyThreadListeners.add(listener);
-  return () => buddyThreadListeners.delete(listener);
-};
-
 /**
  * Whether a thread route leads to Buddy's thread instead (BuddySurfaceIndex, as `/` does): in
  * Buddy's T3 Code every thread of its Environment but the one the server named Buddy's. A thread of
@@ -864,7 +870,7 @@ export function useLeadsToBuddysThread(
 ): boolean {
   const buddy = useBuddySurfaceMode(threadRef?.environmentId) === true;
   const hermes = useBuddyHermesControls(threadRef?.environmentId);
-  const known = useSyncExternalStore(subscribeBuddyThread, () => buddyThreadId, noTarget);
+  const known = useSyncExternalStore(subscribeBuddysThread, knownBuddysThread, noTarget);
   const shell = useThreadShell(
     threadRef === null
       ? null
@@ -907,26 +913,6 @@ export function useLeadsToBuddysThread(
   });
 }
 
-/** Asks the server for Buddy's thread: its id, or why there is none. */
-async function openBuddyThread(): Promise<
-  { readonly threadId: string; readonly projectId: string } | "not-ready" | "failed"
-> {
-  const response = await fetch(BUDDY_THREAD_ROUTE, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-    body: "{}",
-  }).catch(() => null);
-  const body = (await response?.json().catch(() => null)) as {
-    threadId?: string;
-    projectId?: string;
-    error?: string;
-  } | null;
-  if (response?.ok && typeof body?.threadId === "string")
-    return { threadId: body.threadId, projectId: body.projectId ?? "" };
-  return body?.error === "no-project" ? "not-ready" : "failed";
-}
-
 /** `/` and every other thread in Buddy's T3 Code: Buddy's thread, found or made by the server. */
 export function BuddySurfaceIndex() {
   const environmentId = usePrimaryEnvironmentId();
@@ -944,8 +930,7 @@ export function BuddySurfaceIndex() {
         setFailure({ attempt, outcome });
         return;
       }
-      buddyThreadId = outcome.threadId;
-      for (const listener of buddyThreadListeners) listener();
+      setBuddysThread(outcome.threadId);
       void navigate({
         to: "/$environmentId/$threadId",
         params: { environmentId, threadId: outcome.threadId },

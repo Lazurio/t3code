@@ -55,22 +55,22 @@ export function useControlPlane(threadRef: ScopedThreadRef | null): ControlPlane
 
 /** Opens the Control Plane in the right panel; in Buddy's small window it first asks for the full one. */
 export function ControlPlaneButton(props: {
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: ScopedThreadRef | null;
   readonly snapshot: ControlPlaneSnapshot | null;
   readonly panelsOffered: boolean;
   readonly requestFullscreen: () => void;
 }) {
-  const { snapshot } = props;
+  const { snapshot, threadRef } = props;
   return (
     <Button
       aria-label={CONTROL_PLANE_NAME}
-      disabled={snapshot === null}
+      disabled={snapshot === null || threadRef === null}
       onClick={() => {
-        if (snapshot === null) return;
+        if (snapshot === null || threadRef === null) return;
         if (!props.panelsOffered) props.requestFullscreen();
         useRightPanelStore
           .getState()
-          .lazurio(props.threadRef, false, (current) =>
+          .lazurio(threadRef, false, (current) =>
             withControlPlaneOpen(current, controlPlaneAttachment(snapshot)),
           );
       }}
