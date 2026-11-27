@@ -5,11 +5,14 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { useComposerDraftStore } from "~/composerDraftStore";
+import { isConfirmDialogActive, requestConfirmDialog } from "~/confirmDialog";
 import { useRightPanelStore } from "~/rightPanelStore";
 
 import {
   acceptsControlPlaneDraft,
   CONTROL_PLANE_NAME,
+  type ControlPlaneInsertion,
+  needsParentConfirmation,
   CONTROL_PLANE_ROUTE,
   type ControlPlaneSnapshot,
   controlPlaneAttachment,
@@ -99,8 +102,8 @@ const controlPlaneFrameOf = (source: MessageEventSource | null) =>
  * A Control Plane page's sentence goes into the composer of Buddy's thread, never sent: only from
  * its own frame, while the person's input to it is the window's transient activation (C3).
  */
-export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null): void {
-  const previous = useRef<string | null>(null);
+export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null, czech: boolean): void {
+  const previous = useRef<ControlPlaneInsertion | null>(null);
   const environmentId = threadRef?.environmentId ?? null;
   const threadId = threadRef?.threadId ?? null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens to messages from the Control Plane's sandboxed frame
@@ -108,6 +111,20 @@ export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null): void {
     if (environmentId === null || threadId === null) return;
     const ref = scopeThreadRef(environmentId, threadId);
     previous.current = null;
+    // The person's last input the parent saw itself; input inside the page never reaches it.
+    let parentInputAt = Number.NEGATIVE_INFINITY;
+    const onInput = (event: Event) => {
+      if (event.isTrusted) parentInputAt = performance.now();
+    };
+    const inputs = ["pointerdown", "keydown", "touchstart"] as const;
+    for (const type of inputs) window.addEventListener(type, onInput, true);
+    const insert = (sentence: string) => {
+      const drafts = useComposerDraftStore.getState();
+      const prompt = drafts.getComposerDraft(ref)?.prompt ?? "";
+      const inserted = withControlPlaneSentence(prompt, previous.current, sentence);
+      drafts.setPrompt(ref, inserted.prompt);
+      previous.current = inserted;
+    };
     const onMessage = (event: MessageEvent) => {
       const sentence = parseControlPlaneDraft(event.data);
       if (sentence === null) return;
@@ -119,12 +136,23 @@ export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null): void {
         userActivation: navigator.userActivation,
       });
       if (!accepted) return;
-      const drafts = useComposerDraftStore.getState();
-      const prompt = drafts.getComposerDraft(ref)?.prompt ?? "";
-      drafts.setPrompt(ref, withControlPlaneSentence(prompt, previous.current, sentence));
-      previous.current = sentence;
+      if (!needsParentConfirmation(performance.now() - parentInputAt)) {
+        insert(sentence);
+        return;
+      }
+      // The activation may be the person's input outside the page: the app asks them itself.
+      if (isConfirmDialogActive()) return;
+      const question = czech
+        ? `Vložit tuto větu z Control Plane do pole chatu?\n${sentence}`
+        : `Put this sentence from the Control Plane into the chat field?\n${sentence}`;
+      void requestConfirmDialog(question)?.then((approved) => {
+        if (approved) insert(sentence);
+      });
     };
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [environmentId, threadId]);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      for (const type of inputs) window.removeEventListener(type, onInput, true);
+    };
+  }, [environmentId, threadId, czech]);
 }

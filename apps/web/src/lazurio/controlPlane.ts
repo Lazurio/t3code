@@ -129,19 +129,37 @@ export function acceptsControlPlaneDraft(input: {
 }
 
 /**
- * The composer after a request: the new sentence replaces the one the Control Plane put there
- * before, if it is still there, so repeated requests never pile up; otherwise it follows what the
- * person wrote, on its own line.
+ * The window's transient activation lasts a few seconds (5 in Chromium). Input the parent saw in
+ * that time may be what activates the window, and a page can take the focus while it lasts, so
+ * the parent then asks the person before it puts anything into the composer.
+ */
+const BORROWABLE_ACTIVATION_MS = 10_000;
+
+export const needsParentConfirmation = (sinceParentInputMs: number): boolean =>
+  sinceParentInputMs < BORROWABLE_ACTIVATION_MS;
+
+/** Where the Control Plane last put its sentence, and the whole composer it left. */
+export interface ControlPlaneInsertion {
+  readonly prompt: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * The composer after a request. While the composer is exactly as the Control Plane left it, the
+ * new sentence replaces the earlier one at its place, so repeated requests never pile up; once the
+ * person changed anything, their text stays as it is and the sentence follows on its own line.
  */
 export function withControlPlaneSentence(
   prompt: string,
-  previous: string | null,
+  previous: ControlPlaneInsertion | null,
   sentence: string,
-): string {
-  if (previous !== null) {
-    const at = prompt.lastIndexOf(previous);
-    if (at >= 0) return prompt.slice(0, at) + sentence + prompt.slice(at + previous.length);
+): ControlPlaneInsertion {
+  if (previous !== null && previous.prompt === prompt) {
+    const next = prompt.slice(0, previous.start) + sentence + prompt.slice(previous.end);
+    return { prompt: next, start: previous.start, end: previous.start + sentence.length };
   }
-  if (prompt.trim().length === 0) return sentence;
-  return `${prompt}${prompt.endsWith("\n") ? "" : "\n"}${sentence}`;
+  if (prompt.trim().length === 0) return { prompt: sentence, start: 0, end: sentence.length };
+  const before = `${prompt}${prompt.endsWith("\n") ? "" : "\n"}`;
+  return { prompt: before + sentence, start: before.length, end: before.length + sentence.length };
 }

@@ -6,6 +6,7 @@ import {
   acceptsControlPlaneDraft,
   CONTROL_PLANE_NAME,
   controlPlaneAttachment,
+  needsParentConfirmation,
   parseControlPlaneDraft,
   parseControlPlaneSnapshot,
   withControlPlaneOpen,
@@ -98,14 +99,33 @@ describe("a Control Plane page's sentence for the composer", () => {
     expect(acceptsControlPlaneDraft({ ...base, origin: "https://example.com" })).toBe(false);
   });
 
-  it("replaces the sentence it put there before instead of adding another", () => {
-    expect(withControlPlaneSentence("", null, "A: yes")).toBe("A: yes");
-    const first = withControlPlaneSentence("Please also check", null, "A: yes");
-    expect(first).toBe("Please also check\nA: yes");
-    expect(withControlPlaneSentence(first, "A: yes", "A: no")).toBe("Please also check\nA: no");
-    // The person removed it: the new one is added again, once.
-    expect(withControlPlaneSentence("Please also check", "A: yes", "A: no")).toBe(
+  it("asks the person in the app while their input outside the page may be the activation", () => {
+    // Input the parent saw a moment ago, e.g. on Buddy's header: a page could borrow it.
+    expect(needsParentConfirmation(0)).toBe(true);
+    expect(needsParentConfirmation(9_999)).toBe(true);
+    // Nothing outside the page for longer than an activation lasts: the input was in the page.
+    expect(needsParentConfirmation(10_000)).toBe(false);
+    expect(needsParentConfirmation(Number.POSITIVE_INFINITY)).toBe(false);
+  });
+
+  it("replaces only its own untouched sentence, never the person's words", () => {
+    const first = withControlPlaneSentence("", null, "A: yes");
+    expect(first.prompt).toBe("A: yes");
+    // Untouched: the next answer takes its place.
+    expect(withControlPlaneSentence(first.prompt, first, "A: no").prompt).toBe("A: no");
+    // After the person's own words, on its own line; then replaced there.
+    const after = withControlPlaneSentence("Please also check", null, "A: yes");
+    expect(after.prompt).toBe("Please also check\nA: yes");
+    expect(withControlPlaneSentence(after.prompt, after, "A: no").prompt).toBe(
       "Please also check\nA: no",
+    );
+    // The person edited it ("yes" to "yesterday"): their text stays, the answer follows.
+    expect(withControlPlaneSentence("A: yesterday", first, "A: no").prompt).toBe(
+      "A: yesterday\nA: no",
+    );
+    // The same phrase typed again by the person is not taken for the inserted one.
+    expect(withControlPlaneSentence("A: yes\nA: yes", first, "A: no").prompt).toBe(
+      "A: yes\nA: yes\nA: no",
     );
   });
 });

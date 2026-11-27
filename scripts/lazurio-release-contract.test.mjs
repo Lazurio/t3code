@@ -3909,7 +3909,16 @@ NodeTest.test(
     NodeAssert.match(rules, /input\.origin === "null"/);
     NodeAssert.match(rules, /input\.userActivation\?\.isActive === true/);
     NodeAssert.match(rules, /keys\.length !== 3/);
-    NodeAssert.match(hook, /drafts\.setPrompt\(ref, withControlPlaneSentence\(/);
+    NodeAssert.match(hook, /withControlPlaneSentence\(prompt, previous\.current, sentence\)/);
+    NodeAssert.match(hook, /drafts\.setPrompt\(ref, inserted\.prompt\)/);
+    // Input the parent saw within an activation's life may be what a page borrows: then the app
+    // asks the person in its own dialog before anything goes into the composer.
+    NodeAssert.match(hook, /if \(event\.isTrusted\) parentInputAt = performance\.now\(\);/);
+    NodeAssert.match(hook, /needsParentConfirmation\(performance\.now\(\) - parentInputAt\)/);
+    NodeAssert.match(
+      hook,
+      /requestConfirmDialog\(question\)\?\.then\(\(approved\) => \{\n\s+if \(approved\) insert\(sentence\);/,
+    );
     NodeAssert.doesNotMatch(hook, /onSend|sendMessage|dispatchCommand|submit/i);
   },
 );
