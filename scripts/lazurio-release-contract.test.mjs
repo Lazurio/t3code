@@ -3863,7 +3863,11 @@ NodeTest.test(
     );
     NodeAssert.match(
       overlay,
-      /id: `attachment:\$\{attachment\.id\}`,\n {2}kind: "file",\n {2}relativePath: attachment\.name,/,
+      /id: controlPlaneSurfaceId\(attachment\.id\),\n {2}kind: "file",\n {2}relativePath: attachment\.name,/,
+    );
+    NodeAssert.match(
+      overlay,
+      /export const controlPlaneSurfaceId = \(attachmentId: string\) =>\s*`attachment:\$\{attachmentId\}` as const;/,
     );
     // Upstream's file surface renders an HTML attachment marked `htmlRender` as an agent page, in a
     // frame without allow-same-origin.
@@ -3881,5 +3885,45 @@ NodeTest.test(
       "apps/web/src/components/files/AttachmentFilePreview.tsx",
     ])
       NodeAssert.ok(!overlayMayChange(file), `${file} stays upstream's`);
+  },
+);
+
+NodeTest.test(
+  "a Control Plane answer is the app's own button that only puts its sentence into the composer",
+  async () => {
+    const [hook, rules, header, tool] = await Promise.all(
+      [
+        "apps/web/src/lazurio/LazurioControlPlane.tsx",
+        "apps/web/src/lazurio/controlPlane.ts",
+        "apps/web/src/lazurio/BuddySurface.tsx",
+        "apps/server/src/lazurio/controlPlaneTool.ts",
+      ].map(read),
+    );
+    // No way from the page to the app: the app listens to no message, and the page has no answers.
+    for (const source of [hook, rules])
+      NodeAssert.doesNotMatch(source, /addEventListener\("message"|postMessage|userActivation/);
+    // The answers travel with the published revision, as plain label and sentence.
+    NodeAssert.match(tool, /answers: Schema\.optional\(/);
+    NodeAssert.match(rules, /answers: answersOf\(answers\)/);
+    // Drawn by the app under Buddy's header, marked where they come from, for the tab looked at.
+    NodeAssert.match(header, /<ControlPlaneAnswers\s+czech=\{czech\}\s+overWindow=\{wholeWindow\}/);
+    NodeAssert.match(hook, /cs: "Návrh z Control Plane"/);
+    // While the sentence stands untouched in the composer, the app says where it came from.
+    NodeAssert.match(hook, /cs: "V poli je návrh z Control Plane"/);
+    NodeAssert.match(
+      hook,
+      /panel\.isOpen && panel\.activeSurfaceId === controlPlaneSurfaceId\(snapshot\.attachmentId\)/,
+    );
+    // A click puts the sentence into the composer, unsent; the record of it is the thread's.
+    NodeAssert.match(hook, /onClick=\{\(\) => \{\n\s+insert\(answer\);/);
+    NodeAssert.match(
+      hook,
+      /withControlPlaneSentence\(current, insertionOf\(thread\), answer\.sentence\)/,
+    );
+    NodeAssert.match(hook, /drafts\.setPrompt\(ref, next\.prompt\)/);
+    // Kept beside the composer draft, so a reload keeps the sentence's origin.
+    NodeAssert.match(hook, /`lazurio:control-plane-insertion:v1:\$\{thread\}`/);
+    NodeAssert.match(hook, /\}, \[environmentId, threadId, thread\]\);/);
+    NodeAssert.doesNotMatch(hook, /onSend|sendMessage|dispatchCommand|submit/i);
   },
 );

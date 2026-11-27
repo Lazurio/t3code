@@ -37,12 +37,27 @@ import * as ThreadLifecycle from "./threadLifecycle.ts";
 export const CONTROL_PLANE_MAX_HTML_BYTES = 512_000;
 const STABLE_KEY = "lazurio-control-plane";
 
+export const CONTROL_PLANE_MAX_ANSWERS = 12;
+const CONTROL_PLANE_MAX_ANSWER_LABEL = 80;
+const CONTROL_PLANE_MAX_ANSWER_BYTES = 2048;
+
+/** An answer the app shows as its own button; a click puts `sentence` into the composer. */
+export const ControlPlaneAnswer = Schema.Struct({
+  label: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(CONTROL_PLANE_MAX_ANSWER_LABEL),
+  ),
+  sentence: Schema.String.check(Schema.isMinLength(1)),
+});
+export type ControlPlaneAnswer = typeof ControlPlaneAnswer.Type;
+
 export const ControlPlaneSnapshot = Schema.Struct({
   threadId: ThreadId,
   attachmentId: Schema.String,
   title: Schema.String,
   revision: Schema.String,
   publishedAt: Schema.String,
+  answers: Schema.optional(Schema.Array(ControlPlaneAnswer)),
 });
 export type ControlPlaneSnapshot = typeof ControlPlaneSnapshot.Type;
 
@@ -72,6 +87,7 @@ export class ControlPlane extends Context.Service<
       readonly threadId: ThreadId;
       readonly html: string;
       readonly title: string;
+      readonly answers?: ReadonlyArray<ControlPlaneAnswer> | undefined;
     }) => Effect.Effect<ControlPlaneSnapshot, ControlPlaneError>;
     /** The thread's page as last published, or null. */
     readonly read: (threadId: ThreadId) => Effect.Effect<ControlPlaneSnapshot | null>;
@@ -93,8 +109,13 @@ const pageAttachmentId = (threadId: string, revision: string): string | null => 
 };
 
 /** Changes with every different page. */
-const controlPlaneRevision = (html: string): string =>
-  NodeCrypto.createHash("sha256").update(html).digest("hex").slice(0, 16);
+const controlPlaneRevision = (html: string, answers: ReadonlyArray<ControlPlaneAnswer>): string =>
+  NodeCrypto.createHash("sha256")
+    .update(html)
+    .update("\u0000")
+    .update(JSON.stringify(answers))
+    .digest("hex")
+    .slice(0, 16);
 
 /** Buddy's thread without making it: the fixed one of Buddy's T3 Code, or the shared server's. */
 const buddysThreadId = Effect.gen(function* () {
@@ -161,6 +182,7 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly html: string;
     readonly title: string;
+    readonly answers?: ReadonlyArray<ControlPlaneAnswer> | undefined;
   }) {
     if (Buffer.byteLength(input.html, "utf8") > CONTROL_PLANE_MAX_HTML_BYTES)
       return yield* new ControlPlaneError({
@@ -169,6 +191,24 @@ const make = Effect.gen(function* () {
       });
     if (input.html.trim().length === 0)
       return yield* new ControlPlaneError({ reason: "invalid-page", detail: "The page is empty." });
+    const answers = (input.answers ?? []).map((answer) => ({
+      label: answer.label.trim(),
+      sentence: answer.sentence.trim(),
+    }));
+    if (
+      answers.length > CONTROL_PLANE_MAX_ANSWERS ||
+      answers.some(
+        (answer) =>
+          answer.label.length === 0 ||
+          answer.label.length > CONTROL_PLANE_MAX_ANSWER_LABEL ||
+          answer.sentence.length === 0 ||
+          Buffer.byteLength(answer.sentence, "utf8") > CONTROL_PLANE_MAX_ANSWER_BYTES,
+      )
+    )
+      return yield* new ControlPlaneError({
+        reason: "invalid-page",
+        detail: `At most ${CONTROL_PLANE_MAX_ANSWERS} answers, each with a label of 1 to ${CONTROL_PLANE_MAX_ANSWER_LABEL} characters and a sentence of 1 to ${CONTROL_PLANE_MAX_ANSWER_BYTES} bytes.`,
+      });
     const buddys = yield* buddysThreadId;
     if (buddys === null || buddys !== input.threadId)
       return yield* new ControlPlaneError({
@@ -176,7 +216,7 @@ const make = Effect.gen(function* () {
         detail: "Only Buddy's thread has a Control Plane.",
       });
     const html = injectHtmlRenderBootstrap(input.html);
-    const revision = controlPlaneRevision(html);
+    const revision = controlPlaneRevision(html, answers);
     const attachmentId = pageAttachmentId(input.threadId, revision);
     const page = attachmentId === null ? null : pageOf(attachmentId);
     const record = recordOf(input.threadId);
@@ -201,6 +241,7 @@ const make = Effect.gen(function* () {
         title,
         revision,
         publishedAt: DateTime.formatIso(yield* DateTime.now),
+        ...(answers.length === 0 ? {} : { answers }),
       };
       const previousAttachmentId =
         before === null || before.attachmentId === attachmentId

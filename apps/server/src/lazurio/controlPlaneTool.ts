@@ -19,7 +19,7 @@ const CONTROL_PLANE_TOOL_NAME = "control_plane_publish";
 
 const ControlPlanePublishTool = Tool.make(CONTROL_PLANE_TOOL_NAME, {
   description:
-    "Replace the Control Plane of Buddy's thread: one self-contained HTML page in the right panel, overwritten in place on every call and reloaded live. Only Buddy's thread has one. Inline <style> and <script>; nothing in the page can send or approve anything.",
+    "Replace the Control Plane of Buddy's thread: one self-contained HTML page in the right panel, overwritten in place on every call and reloaded live. Only Buddy's thread has one. Inline <style> and <script>. The page cannot answer or send anything; put the sentences the user may answer with in `answers`.",
   parameters: Schema.Struct({
     html: Schema.String.check(
       Schema.isMinLength(1),
@@ -29,6 +29,14 @@ const ControlPlanePublishTool = Tool.make(CONTROL_PLANE_TOOL_NAME, {
       Schema.isMinLength(1),
       Schema.isMaxLength(HTML_RENDER_MAX_TITLE_LENGTH),
     ),
+    answers: Schema.optional(
+      Schema.Array(ControlPlane.ControlPlaneAnswer).check(
+        Schema.isMaxLength(ControlPlane.CONTROL_PLANE_MAX_ANSWERS),
+      ),
+    ).annotate({
+      description:
+        "Answers the app shows as its own buttons beside the page; a click puts the exact sentence into the user's composer, never sent. The page itself cannot answer.",
+    }),
   }),
   success: Schema.Struct({
     attachmentId: Schema.String,
@@ -68,7 +76,12 @@ export const handlersLayer = McpToolAccess.toLayer(ControlPlaneToolkit, {
         CONTROL_PLANE_TOOL_NAME,
       );
       const snapshot = yield* (yield* ControlPlane.ControlPlane)
-        .publish({ threadId: thread.threadId, html: input.html, title: input.title })
+        .publish({
+          threadId: thread.threadId,
+          html: input.html,
+          title: input.title,
+          answers: input.answers,
+        })
         .pipe(
           Effect.mapError(
             (error) =>

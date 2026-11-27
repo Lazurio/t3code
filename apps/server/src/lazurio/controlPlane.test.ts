@@ -208,6 +208,40 @@ describe("Control Plane", () => {
     ),
   );
 
+  it.effect("answers travel with the page, change its revision and are checked", () =>
+    withControlPlane(() =>
+      Effect.gen(function* () {
+        const controlPlane = yield* ControlPlane.ControlPlane;
+        const html = "<!doctype html><p>Decide</p>";
+        const plain = yield* controlPlane.publish({
+          threadId: BUDDY_THREAD_ID,
+          html,
+          title: "Control Plane",
+        });
+        const answered = yield* controlPlane.publish({
+          threadId: BUDDY_THREAD_ID,
+          html,
+          title: "Control Plane",
+          answers: [{ label: " Yes ", sentence: " Example: yes " }],
+        });
+        assert.isUndefined(plain.answers);
+        assert.deepStrictEqual(answered.answers, [{ label: "Yes", sentence: "Example: yes" }]);
+        assert.notStrictEqual(answered.revision, plain.revision);
+        assert.deepStrictEqual(yield* controlPlane.read(BUDDY_THREAD_ID), answered);
+        const refused = yield* controlPlane
+          .publish({
+            threadId: BUDDY_THREAD_ID,
+            html,
+            title: "Control Plane",
+            answers: [{ label: "x", sentence: "é".repeat(1025) }],
+          })
+          .pipe(Effect.flip);
+        assert.strictEqual(refused.reason, "invalid-page");
+        assert.deepStrictEqual(yield* controlPlane.read(BUDDY_THREAD_ID), answered);
+      }),
+    ),
+  );
+
   it.effect("only Buddy's thread has one", () =>
     withControlPlane(() =>
       Effect.gen(function* () {
