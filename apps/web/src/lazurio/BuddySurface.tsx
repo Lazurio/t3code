@@ -616,7 +616,7 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
       ? null
       : scopeThreadRef(environmentId, threadId as ThreadId);
   const controlPlane = useControlPlane(threadRef);
-  useControlPlaneDrafts(threadRef, useCzech(true));
+  useControlPlaneDrafts(threadRef, controlPlane, useCzech(true));
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />

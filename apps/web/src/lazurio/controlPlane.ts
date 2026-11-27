@@ -9,6 +9,10 @@ import type { ChatFileAttachment } from "~/types";
 export const CONTROL_PLANE_ROUTE = "/api/lazurio/control-plane";
 export const CONTROL_PLANE_NAME = "Control Plane";
 
+/** A Control Plane revision's panel surface: upstream's attachment surface id. */
+export const controlPlaneSurfaceId = (attachmentId: string) =>
+  `attachment:${attachmentId}` as const;
+
 export interface ControlPlaneSnapshot {
   readonly threadId: string;
   readonly attachmentId: string;
@@ -42,7 +46,7 @@ type Surface = ThreadRightPanelState["surfaces"][number];
 
 /** The same shape as upstream's attachment surface (rightPanelStore.ts `attachmentSurface`). */
 const surfaceOf = (attachment: ChatFileAttachment): Surface => ({
-  id: `attachment:${attachment.id}`,
+  id: controlPlaneSurfaceId(attachment.id),
   kind: "file",
   relativePath: attachment.name,
   revealLine: null,
@@ -116,12 +120,14 @@ export function parseControlPlaneDraft(data: unknown): string | null {
  */
 export function acceptsControlPlaneDraft(input: {
   readonly fromControlPlaneFrame: boolean;
+  readonly currentSurface: boolean;
   readonly frameFocused: boolean;
   readonly origin: string;
   readonly userActivation: { readonly isActive: boolean } | undefined;
 }): boolean {
   return (
     input.fromControlPlaneFrame &&
+    input.currentSurface &&
     input.frameFocused &&
     input.origin === "null" &&
     input.userActivation?.isActive === true

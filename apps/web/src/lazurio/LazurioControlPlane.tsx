@@ -4,14 +4,16 @@ import { LayoutDashboard } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { isConfirmDialogActive, requestConfirmDialog } from "~/confirmDialog";
-import { useRightPanelStore } from "~/rightPanelStore";
+import { selectThreadRightPanelState, useRightPanelStore } from "~/rightPanelStore";
 
 import {
   acceptsControlPlaneDraft,
   CONTROL_PLANE_NAME,
   type ControlPlaneInsertion,
+  controlPlaneSurfaceId,
   needsParentConfirmation,
   CONTROL_PLANE_ROUTE,
   type ControlPlaneSnapshot,
@@ -90,22 +92,29 @@ export function ControlPlaneButton(props: {
   );
 }
 
-/** The Control Plane frame of this window a message came from, if any. */
+/** The Control Plane frame in the right panel a message came from, if any; never one in the thread. */
 const controlPlaneFrameOf = (source: MessageEventSource | null) =>
   source === null
     ? undefined
     : [
-        ...document.querySelectorAll<HTMLIFrameElement>(`iframe[title="${CONTROL_PLANE_NAME}"]`),
+        ...document.querySelectorAll<HTMLIFrameElement>(
+          `[data-right-panel-surface-content] iframe[title="${CONTROL_PLANE_NAME}"]`,
+        ),
       ].find((frame) => frame.contentWindow === source);
 
 /**
  * A Control Plane page's sentence goes into the composer of Buddy's thread, never sent: only from
  * its own frame, while the person's input to it is the window's transient activation (C3).
  */
-export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null, czech: boolean): void {
+export function useControlPlaneDrafts(
+  threadRef: ScopedThreadRef | null,
+  snapshot: ControlPlaneSnapshot | null,
+  czech: boolean,
+): void {
   const previous = useRef<ControlPlaneInsertion | null>(null);
   const environmentId = threadRef?.environmentId ?? null;
   const threadId = threadRef?.threadId ?? null;
+  const attachmentId = snapshot?.attachmentId ?? null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens to messages from the Control Plane's sandboxed frame
   useEffect(() => {
     if (environmentId === null || threadId === null) return;
@@ -124,13 +133,25 @@ export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null, czech: 
       const inserted = withControlPlaneSentence(prompt, previous.current, sentence);
       drafts.setPrompt(ref, inserted.prompt);
       previous.current = inserted;
+      // The composer shows plain text, so where it came from is said beside it.
+      toastManager.add({
+        type: "info",
+        title: czech
+          ? "Návrh z Control Plane je v poli chatu"
+          : "A Control Plane proposal is in the chat field",
+        description: czech ? `Odešlete ho sami: ${sentence}` : `Send it yourself: ${sentence}`,
+      });
     };
     const onMessage = (event: MessageEvent) => {
       const sentence = parseControlPlaneDraft(event.data);
       if (sentence === null) return;
       const frame = controlPlaneFrameOf(event.source);
+      // The frame shows the thread's Control Plane as published now, not a same-named attachment.
+      const panel = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, ref);
       const accepted = acceptsControlPlaneDraft({
         fromControlPlaneFrame: frame !== undefined,
+        currentSurface:
+          attachmentId !== null && panel.activeSurfaceId === controlPlaneSurfaceId(attachmentId),
         frameFocused: frame !== undefined && document.activeElement === frame,
         origin: event.origin,
         userActivation: navigator.userActivation,
@@ -154,5 +175,5 @@ export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null, czech: 
       window.removeEventListener("message", onMessage);
       for (const type of inputs) window.removeEventListener(type, onInput, true);
     };
-  }, [environmentId, threadId, czech]);
+  }, [environmentId, threadId, attachmentId, czech]);
 }

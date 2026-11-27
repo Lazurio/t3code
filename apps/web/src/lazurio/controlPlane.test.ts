@@ -83,6 +83,7 @@ describe("a Control Plane page's sentence for the composer", () => {
     const active = { isActive: true };
     const base = {
       fromControlPlaneFrame: true,
+      currentSurface: true,
       frameFocused: true,
       origin: "null",
       userActivation: active,
@@ -93,6 +94,8 @@ describe("a Control Plane page's sentence for the composer", () => {
     // A browser that cannot tell.
     expect(acceptsControlPlaneDraft({ ...base, userActivation: undefined })).toBe(false);
     // Another frame, or a frame that is not sandboxed to an opaque origin.
+    // A same-named attachment, or an older revision: not the thread's Control Plane as published now.
+    expect(acceptsControlPlaneDraft({ ...base, currentSurface: false })).toBe(false);
     // The person's input elsewhere in the window: the focus is not in the page.
     expect(acceptsControlPlaneDraft({ ...base, frameFocused: false })).toBe(false);
     expect(acceptsControlPlaneDraft({ ...base, fromControlPlaneFrame: false })).toBe(false);
@@ -123,6 +126,11 @@ describe("a Control Plane page's sentence for the composer", () => {
     expect(withControlPlaneSentence("A: yesterday", first, "A: no").prompt).toBe(
       "A: yesterday\nA: no",
     );
+    // The person wrote "yes", the page added "yes", the person deleted the added line: their own
+    // "yes" stays, the answer follows it.
+    const added = withControlPlaneSentence("yes", null, "yes");
+    expect(added.prompt).toBe("yes\nyes");
+    expect(withControlPlaneSentence("yes", added, "no").prompt).toBe("yes\nno");
     // The same phrase typed again by the person is not taken for the inserted one.
     expect(withControlPlaneSentence("A: yes\nA: yes", first, "A: no").prompt).toBe(
       "A: yes\nA: yes\nA: no",

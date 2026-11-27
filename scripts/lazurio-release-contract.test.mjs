@@ -3863,7 +3863,11 @@ NodeTest.test(
     );
     NodeAssert.match(
       overlay,
-      /id: `attachment:\$\{attachment\.id\}`,\n {2}kind: "file",\n {2}relativePath: attachment\.name,/,
+      /id: controlPlaneSurfaceId\(attachment\.id\),\n {2}kind: "file",\n {2}relativePath: attachment\.name,/,
+    );
+    NodeAssert.match(
+      overlay,
+      /export const controlPlaneSurfaceId = \(attachmentId: string\) =>\s*`attachment:\$\{attachmentId\}` as const;/,
     );
     // Upstream's file surface renders an HTML attachment marked `htmlRender` as an agent page, in a
     // frame without allow-same-origin.
@@ -3906,6 +3910,9 @@ NodeTest.test(
       /frameFocused: frame !== undefined && document\.activeElement === frame/,
     );
     NodeAssert.match(hook, /userActivation: navigator\.userActivation/);
+    // Only the frame in the right panel that shows the thread's Control Plane as published now.
+    NodeAssert.match(hook, /\[data-right-panel-surface-content\] iframe\[title=/);
+    NodeAssert.match(hook, /panel\.activeSurfaceId === controlPlaneSurfaceId\(attachmentId\)/);
     NodeAssert.match(rules, /input\.origin === "null"/);
     NodeAssert.match(rules, /input\.userActivation\?\.isActive === true/);
     NodeAssert.match(rules, /keys\.length !== 3/);
