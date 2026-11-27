@@ -43,12 +43,14 @@ export async function openBuddyThread(): Promise<
   return body?.error === "no-project" ? "not-ready" : "failed";
 }
 
-/** Asks once at a time when the thread is not known yet; it never navigates. */
-export async function knowBuddysThread(): Promise<void> {
-  if (buddysThread !== null || asking) return;
+/** Asks once at a time when the thread is not known yet; it never navigates. True once known. */
+export async function knowBuddysThread(): Promise<boolean> {
+  if (buddysThread !== null) return true;
+  if (asking) return false;
   asking = true;
   const outcome = await openBuddyThread();
   asking = false;
   if (buddysThread === null && outcome !== "not-ready" && outcome !== "failed")
     setBuddysThread(outcome.threadId);
+  return buddysThread !== null;
 }

@@ -588,6 +588,9 @@ export function useBuddyQueuedRunCount(
 
 type DaySheet = { readonly open: boolean; readonly setOpen: (open: boolean) => void };
 
+const BUDDY_THREAD_RETRIES = 5;
+const BUDDY_THREAD_RETRY_MS = 5000;
+
 function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
   const { offered } = useBuddyPanels();
@@ -596,10 +599,18 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   // Buddy's own T3 Code (GEN3) keeps the right panel closed, so the Control Plane is GEN4's only.
   const panelsKept = useBuddyHermesControls(environmentId ?? undefined);
   const threadId = useSyncExternalStore(subscribeBuddysThread, knownBuddysThread, noTarget);
+  const [asked, setAsked] = useState(0);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server for Buddy's thread when the window opened on it directly
   useEffect(() => {
-    if (environmentId !== null && threadId === null && !panelsKept) void knowBuddysThread();
-  }, [environmentId, threadId, panelsKept]);
+    if (environmentId === null || threadId !== null || panelsKept) return;
+    let timer: number | undefined;
+    void knowBuddysThread().then((known) => {
+      // A failed answer is asked again a few times, five seconds apart, not for ever.
+      if (!known && asked < BUDDY_THREAD_RETRIES)
+        timer = window.setTimeout(() => setAsked(asked + 1), BUDDY_THREAD_RETRY_MS);
+    });
+    return () => window.clearTimeout(timer);
+  }, [environmentId, threadId, panelsKept, asked]);
   const threadRef =
     environmentId === null || threadId === null || panelsKept
       ? null

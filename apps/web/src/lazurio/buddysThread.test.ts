@@ -17,7 +17,7 @@ describe("Buddy's thread, as the window knows it", () => {
       const heard = vi.fn();
       const stop = subscribeBuddysThread(heard);
       // Buddy's project is not there yet: still unknown, and the next open asks again.
-      await knowBuddysThread();
+      expect(await knowBuddysThread()).toBe(false);
       expect(knownBuddysThread()).toBeNull();
       // Two controls asking at once make one request.
       await Promise.all([knowBuddysThread(), knowBuddysThread()]);
@@ -25,7 +25,7 @@ describe("Buddy's thread, as the window knows it", () => {
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(heard).toHaveBeenCalledTimes(1);
       // Known: no more requests.
-      await knowBuddysThread();
+      expect(await knowBuddysThread()).toBe(true);
       expect(fetcher).toHaveBeenCalledTimes(2);
       stop();
     } finally {
