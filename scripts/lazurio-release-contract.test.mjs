@@ -3918,10 +3918,12 @@ NodeTest.test(
     NodeAssert.match(hook, /onClick=\{\(\) => \{\n\s+insert\(answer\);/);
     NodeAssert.match(
       hook,
-      /withControlPlaneSentence\(prompt, previous\.current, answer\.sentence\)/,
+      /withControlPlaneSentence\(current, insertionOf\(thread\), answer\.sentence\)/,
     );
     NodeAssert.match(hook, /drafts\.setPrompt\(ref, next\.prompt\)/);
-    NodeAssert.match(hook, /\}, \[environmentId, threadId\]\);/);
+    // Kept beside the composer draft, so a reload keeps the sentence's origin.
+    NodeAssert.match(hook, /`lazurio:control-plane-insertion:v1:\$\{thread\}`/);
+    NodeAssert.match(hook, /\}, \[environmentId, threadId, thread\]\);/);
     NodeAssert.doesNotMatch(hook, /onSend|sendMessage|dispatchCommand|submit/i);
   },
 );

@@ -51,6 +51,7 @@ async function setup(overWindow = false) {
       snapshot={snapshot("a")}
       threadRef={ref}
     />,
+    // The row has no links or navigation.
     { router: false },
   );
   return screen;
@@ -115,5 +116,37 @@ describe("the Control Plane's answers in a real browser", () => {
     // Once the person changes the composer, the text is theirs and the note goes.
     await setPrompt("Example: yes, but later");
     await expect.element(status).not.toBeInTheDocument();
+  });
+
+  it("keep the sentence's origin across a reload, until the person edits it", async () => {
+    {
+      await using screen = await setup();
+      await userEvent.click(screen.getByRole("button", { name: "Yes" }));
+    }
+    // The window comes back with the panel closed and the composer draft as it was.
+    await act(() =>
+      useRightPanelStore
+        .getState()
+        .lazurio(ref, false, (current) => ({ ...current, isOpen: false })),
+    );
+    await using screen = await render(
+      <ControlPlaneAnswers
+        czech={false}
+        overWindow={false}
+        snapshot={snapshot("a")}
+        threadRef={ref}
+      />,
+      // The row has no links or navigation.
+      { router: false },
+    );
+    const status = screen.getByRole("status");
+    await expect
+      .element(status)
+      .toHaveTextContent("The chat field holds a proposal from the Control Plane: Yes");
+    await setPrompt("Example: yes, later");
+    await expect.element(status).not.toBeInTheDocument();
+    // Typing the same text again does not make it the Control Plane's.
+    await setPrompt("Example: yes");
+    await expect.element(screen.getByRole("status")).not.toBeInTheDocument();
   });
 });

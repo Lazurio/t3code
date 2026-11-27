@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { LayoutDashboard } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { Button } from "~/components/ui/button";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -88,42 +88,91 @@ export function ControlPlaneButton(props: {
   );
 }
 
+/** The last answer the Control Plane put into a thread's composer, kept beside the composer draft. */
+type StoredInsertion = ControlPlaneInsertion & { readonly label: string };
+
+const insertionKey = (thread: string) => `lazurio:control-plane-insertion:v1:${thread}`;
+const insertions = new Map<string, StoredInsertion | null>();
+const insertionListeners = new Set<() => void>();
+
+function readStoredInsertion(thread: string): StoredInsertion | null {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(insertionKey(thread)) ?? "null");
+    if (typeof value !== "object" || value === null) return null;
+    const { prompt, start, end, label } = value as Record<string, unknown>;
+    return typeof prompt === "string" &&
+      typeof start === "number" &&
+      typeof end === "number" &&
+      typeof label === "string"
+      ? { prompt, start, end, label }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The thread's record: read from storage once per page, then held here, so without storage too. */
+function insertionOf(thread: string): StoredInsertion | null {
+  if (!insertions.has(thread)) insertions.set(thread, readStoredInsertion(thread));
+  return insertions.get(thread) ?? null;
+}
+
+function setInsertion(thread: string, value: StoredInsertion | null) {
+  insertions.set(thread, value);
+  try {
+    if (value === null) localStorage.removeItem(insertionKey(thread));
+    else localStorage.setItem(insertionKey(thread), JSON.stringify(value));
+  } catch {
+    // Without storage the record lasts until the page reloads.
+  }
+  for (const listener of insertionListeners) listener();
+}
+
+function subscribeInsertions(listener: () => void) {
+  insertionListeners.add(listener);
+  return () => insertionListeners.delete(listener);
+}
+
 /**
  * The Control Plane's sentences go into the composer of Buddy's thread, never sent (C3). The
- * record of the last one is the thread's, so a new revision keeps it; once the person changes the
- * composer, it is gone and their text stays as it is. `pending` is the label of the answer whose
- * sentence still stands untouched in the composer.
+ * record of the last one is the thread's and is kept beside the composer draft, so a new revision
+ * and a reload keep it; once the person changes the composer, it is gone and their text stays as
+ * it is. `pending` is the label of the answer whose sentence still stands untouched there.
  */
 function useControlPlaneInsert(threadRef: ScopedThreadRef | null) {
-  const previous = useRef<ControlPlaneInsertion | null>(null);
-  const [inserted, setInserted] = useState<{ thread: string; label: string } | null>(null);
   const environmentId = threadRef?.environmentId ?? null;
   const threadId = threadRef?.threadId ?? null;
-  const thread = `${environmentId}:${threadId}`;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- forgets the last sentence once the person edits the composer
+  const thread =
+    environmentId === null || threadId === null ? null : `${environmentId}:${threadId}`;
+  const record = useSyncExternalStore(subscribeInsertions, () =>
+    thread === null ? null : insertionOf(thread),
+  );
+  const prompt = useComposerDraftStore((state) =>
+    threadRef === null ? "" : (state.getComposerDraft(threadRef)?.prompt ?? ""),
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- forgets the record once the person edits the composer
   useEffect(() => {
-    previous.current = null;
-    if (environmentId === null || threadId === null) return;
+    if (environmentId === null || threadId === null || thread === null) return;
     const ref = scopeThreadRef(environmentId, threadId);
-    return useComposerDraftStore.subscribe((state) => {
-      const last = previous.current;
-      if (last === null || (state.getComposerDraft(ref)?.prompt ?? "") === last.prompt) return;
-      previous.current = null;
-      setInserted(null);
-    });
-  }, [environmentId, threadId]);
+    const forgetIfEdited = () => {
+      const last = insertionOf(thread);
+      const now = useComposerDraftStore.getState().getComposerDraft(ref)?.prompt ?? "";
+      if (last !== null && now !== last.prompt) setInsertion(thread, null);
+    };
+    forgetIfEdited();
+    return useComposerDraftStore.subscribe(forgetIfEdited);
+  }, [environmentId, threadId, thread]);
   const insert = (answer: ControlPlaneAnswer) => {
-    if (environmentId === null || threadId === null) return;
+    if (environmentId === null || threadId === null || thread === null) return;
     const ref = scopeThreadRef(environmentId, threadId);
     const drafts = useComposerDraftStore.getState();
-    const prompt = drafts.getComposerDraft(ref)?.prompt ?? "";
-    const next = withControlPlaneSentence(prompt, previous.current, answer.sentence);
+    const current = drafts.getComposerDraft(ref)?.prompt ?? "";
+    const next = withControlPlaneSentence(current, insertionOf(thread), answer.sentence);
     // Recorded first: the store tells its listeners while `setPrompt` runs.
-    previous.current = next;
+    setInsertion(thread, { ...next, label: answer.label });
     drafts.setPrompt(ref, next.prompt);
-    setInserted({ thread, label: answer.label });
   };
-  return { insert, pending: inserted?.thread === thread ? inserted.label : null };
+  return { insert, pending: record !== null && record.prompt === prompt ? record.label : null };
 }
 
 const ORIGIN = { cs: "Návrh z Control Plane", en: "Proposal from the Control Plane" } as const;
