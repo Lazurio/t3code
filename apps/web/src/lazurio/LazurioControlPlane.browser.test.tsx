@@ -107,5 +107,13 @@ describe("the Control Plane's answers in a real browser", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, ref).isOpen).toBe(
       false,
     );
+    // The buttons are gone with the panel; where the sentence came from is still said.
+    const status = screen.getByRole("status");
+    await expect
+      .element(status)
+      .toHaveTextContent("The chat field holds a proposal from the Control Plane: Yes");
+    // Once the person changes the composer, the text is theirs and the note goes.
+    await setPrompt("Example: yes, but later");
+    await expect.element(status).not.toBeInTheDocument();
   });
 });
