@@ -1,9 +1,9 @@
 # Lazurio T3 Code: vydávání
 
 Runbook vydávání T3 Code v Lazuriu. Vydání spouští bot, který vydání vlastní,
-účtem Organization Admina `immakermatty`, a schvaluje ho persona
-`agentrozjedemeai` po ověření zalogovaných vstupů (rozhodnutí Organization
-Admina z 2026-11-03 k 0218, viz [Schválení](#schválení)).
+spouštěcím účtem `lazurio-dev`, a schvaluje ho persona po ověření zalogovaných
+vstupů, nebo Organization Admin svým účtem (viz [Schválení](#schválení)). Bot
+vydání nikdy neschvaluje.
 
 `Lazurio/t3code` je distribuce **Lazurio T3 Code** (rozhodnutí 0200), upravená
 distribuce T3 Code pro Environmenty Lazuria: server a web klient přesného
@@ -2412,9 +2412,9 @@ Udělej přestavbu end to end:
 
 Mandát (ponech jen, co platí):
 - Etapy 6–8 smíš udělat sám. Výměnu main děláš jen přesně podle runbooku na ověřená SHA.
-- Vydání smíš spustit mým účtem podle Schválení (komentář `Release dispatch request:`, pak
-  dispatch), vždy jen na přesné SHA a verzi, které jsi sám ověřil. Schvaluje ho persona
-  (prevent_self_review); mým účtem schvaluješ jen při přechodu podle Schválení.
+- Vydání smíš spustit podle Schválení (komentář `Release dispatch request:` mým účtem, pak
+  dispatch účtem `lazurio-dev`), vždy jen na přesné SHA a verzi, které jsi sám ověřil.
+  Schvaluje ho persona nebo já; ty běh vydání nikdy neschvaluješ.
 - Rozhodnutí, která by schvaloval Admin, ber jako schválená tímto zadáním a zapiš je do issue
   se zdůvodněním a zdrojem.
 - Na Ring 0 smíš instalovat preview a stable bez souhlasu lidí, kteří ho používají. Než tam
@@ -2726,13 +2726,19 @@ rulesetu nepřidávejte jiného aktéra.
 ## Schválení
 
 Vydání spouští bot, který vydání vlastní (bot T3 Release v Prostředí
-Organization Admina), účtem Organization Admina `immakermatty`, a schvaluje ho
-persona `agentrozjedemeai` v environmentu `lazurio-t3code-release`, až její
-GitHub příjem ověří zalogované vstupy (rozhodnutí Organization Admina
-z 2026-11-03, které upřesňuje 0218, druhý dodatek z 2026-11-01). Oba účty jsou
-povinnými schvalovateli a environment má `prevent_self_review`: účet, který
-běh spustil, ho neschválí, takže běh spuštěný `immakermatty` schválí jen
-persona. Bot smí vydání spustit bez dalšího pokynu člověka, když prošla
+Organization Admina), spouštěcím účtem `lazurio-dev`. Bot ho používá jen
+k dispatchi `lazurio-release.yml`, přes token omezený na tento repozitář
+(Actions zápis, Contents čtení), a `lazurio-dev` není schvalovatelem
+environmentu `lazurio-t3code-release`. Schvaluje persona, až její GitHub
+příjem ověří zalogované vstupy, nebo Organization Admin svým účtem po stejných
+kontrolách (rozhodnutí Organization Admina
+z 2026-11-03, které upřesňuje 0218, druhý dodatek z 2026-11-01, a změna
+spouštěcího účtu z <DOPLNIT datum a odkaz>). Oba účty jsou povinnými
+schvalovateli a environment má `prevent_self_review`: účet, který běh spustil,
+ho neschválí. Protože běh spouští třetí účet, schválit ho může kterýkoli
+z nich. **Bot vydání nikdy neschvaluje**, ani když jeho Prostředí má
+přihlášení schvalovatele; to drží toto pravidlo a pokyny bota, ne technická
+hranice. Bot smí vydání spustit bez dalšího pokynu člověka, když prošla
 testovací procedura: zelená Fork CI na přesném commitu a u stable preview ze
 stejného commitu na Ring 0 (Testování před vydáním,
 [Náhled na canary](#7-náhled-na-canary)).
@@ -2740,8 +2746,8 @@ stejného commitu na Ring 0 (Testování před vydáním,
 1. **Vlastní práce persony.** Když mezi předchozím release tagem
    a `source_sha` přibyl kterýkoli pull request, jehož autorem je
    `agentrozjedemeai`, vydání nespouštěj: persona vlastní práci neschvaluje
-   (0169 bod 5) a `immakermatty` běh, který spustil, neschválí. Zastav se
-   a zeptej se Organization Admina; o takovém vydání rozhodne on.
+   (0169 bod 5), takže takový běh může schválit jen Organization Admin. Zastav
+   se a zeptej se ho; o takovém vydání rozhodne on.
 2. **Žádost.** Do issue tohoto repozitáře, ke kterému vydání patří (issue
    přestavby nebo vydání), napiš účtem `immakermatty` komentář, který začíná
    `Release dispatch request:` a obsahuje přesně ten příkaz, který vzápětí
@@ -2752,12 +2758,13 @@ stejného commitu na Ring 0 (Testování před vydáním,
    gh workflow run lazurio-release.yml --repo Lazurio/t3code --ref main -f version=0.1.6-lazurio.2 -f source_sha=<40 znaků špičky main> -f upstream_tag=v0.1.6 -f upstream_sha=<40 znaků commitu tagu upstreamu>
    ```
 
-3. **Dispatch.** Až je komentář venku, ten příkaz beze změny spusť stejným
-   účtem.
+3. **Dispatch.** Až je komentář venku, ten příkaz beze změny spusť účtem
+   `lazurio-dev` (`GH_TOKEN` s jeho tokenem jen pro tento příkaz; token se
+   nevypisuje ani neukládá mimo trezor Prostředí).
 4. **Schválení persony.** Čekající běh přinese personě její GitHub příjem
    v Lazurio MausBotu (`OMB_GITHUB_INTAKE_DEPLOYMENTS` s `Lazurio/t3code`,
    Lazurio/OpenMausBot#93). Persona ho schválí, jen když workflow je
-   `lazurio-release.yml`, běh spustil `immakermatty`, `head_sha` je špička
+   `lazurio-release.yml`, běh spustil `lazurio-dev`, `head_sha` je špička
    `main`, všechny dokončené úlohy jsou zelené a vstupy zalogované úlohou
    „Verify source and version“ se do jednoho rovnají žádosti: nejnovějšímu
    komentáři `Release dispatch request:` od `immakermatty` v issue tohoto
@@ -2766,22 +2773,22 @@ stejného commitu na Ring 0 (Testování před vydáním,
    workflow, jiný spouštějící účet nebo chybějící žádost nechají běh čekat
    s komentářem v issue. Komentář každého rozhodnutí začíná
    `Run <id> attempt <n>:`. Persona nic nespouští ani znovu nespouští.
+   Organization Admin schvaluje podle stejných kontrol, viz Ručně níže.
 5. **Výsledek.** Bot běh hlídá. Odmítnutý běh se neopakuje: oprav příčinu
    a spusť nové vydání s novou žádostí. Ztracený runner (třeba macOS) smí bot
-   spustit znovu (Re-run); každý pokus persona posoudí znovu proti téže
-   žádosti.
+   spustit znovu (Re-run) účtem `lazurio-dev`; každý pokus schvalovatel
+   posoudí znovu proti téže žádosti.
 
-- **Přechod.** Dokud Prostředí persony nemá vydání Lazurio MausBotu
-  s Lazurio/OpenMausBot#93 a `Lazurio/t3code` v
-  `OMB_GITHUB_INTAKE_DEPLOYMENTS`, platí dosavadní cesta: vydání spouští
-  účet persony a schvaluje ho účet `immakermatty` (vlákno, které vydání
-  vlastní, nebo Organization Admin).
+- **Přechod.** Dokud bot nemá token `lazurio-dev`, spouští vydání účtem
+  Organization Admina, kterým píše i žádost, a takový běh schválí jen persona
+  (`prevent_self_review`). Persona pak v kroku 4 přijme jako spouštěcí účet
+  i autora žádosti; jiný účet nechá běh čekat.
 - **Vlastní práce persony.** Když vydání mezi předchozím release tagem
   a vydávaným commitem obsahuje kterýkoli pull request persony, persona běh
   neschválí a nechá ho čekat s komentářem; bot takové vydání podle kroku 1
   vůbec nespustí. Rozhodne Organization Admin.
 
-Ručně (při přechodu), když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
+Ručně (Organization Admin), když jsou první dva kroky zelené, schvalovatel ověří přesné SHA a verzi, zelené
 kontroly a kroky běhu, že vychází jen to, co má, a u stable preview na Ring 0,
 a běh schválí v GitHubu (běh →
 Review deployments → `lazurio-t3code-release` → Approve), nebo z příkazové
