@@ -4,7 +4,7 @@ import { userEvent } from "vite-plus/test/browser";
 import { describe, expect, it } from "vite-plus/test";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
-import { useRightPanelStore } from "~/rightPanelStore";
+import { selectThreadRightPanelState, useRightPanelStore } from "~/rightPanelStore";
 import { act, render } from "../../test/render";
 import {
   type ControlPlaneSnapshot,
@@ -41,11 +41,16 @@ const showRevision = (revision: string, open: boolean) =>
       ),
   );
 
-async function setup() {
+async function setup(overWindow = false) {
   await setPrompt("");
   await showRevision("a", true);
   const screen = await render(
-    <ControlPlaneAnswers czech={false} snapshot={snapshot("a")} threadRef={ref} />,
+    <ControlPlaneAnswers
+      czech={false}
+      overWindow={overWindow}
+      snapshot={snapshot("a")}
+      threadRef={ref}
+    />,
     { router: false },
   );
   return screen;
@@ -84,9 +89,23 @@ describe("the Control Plane's answers in a real browser", () => {
     await userEvent.click(screen.getByRole("button", { name: "Yes" }));
     await showRevision("b", false);
     await screen.rerender(
-      <ControlPlaneAnswers czech={false} snapshot={snapshot("b")} threadRef={ref} />,
+      <ControlPlaneAnswers
+        czech={false}
+        overWindow={false}
+        snapshot={snapshot("b")}
+        threadRef={ref}
+      />,
     );
     await userEvent.click(screen.getByRole("button", { name: "No" }));
     expect(prompt()).toBe("Example: no");
+  });
+
+  it("go back to the conversation when the panel covers the whole window", async () => {
+    await using screen = await setup(true);
+    await userEvent.click(screen.getByRole("button", { name: "Yes" }));
+    expect(prompt()).toBe("Example: yes");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, ref).isOpen).toBe(
+      false,
+    );
   });
 });

@@ -593,7 +593,7 @@ const BUDDY_THREAD_RETRY_MS = 5000;
 
 function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
-  const { offered } = useBuddyPanels();
+  const { offered, wholeWindow } = useBuddyPanels();
   const czech = useCzech(true);
   const text = czech ? TEXT.cs : TEXT.en;
   const environmentId = usePrimaryEnvironmentId();
@@ -654,7 +654,12 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
           </>
         ) : null}
       </header>
-      <ControlPlaneAnswers czech={czech} snapshot={controlPlane} threadRef={threadRef} />
+      <ControlPlaneAnswers
+        czech={czech}
+        overWindow={wholeWindow}
+        snapshot={controlPlane}
+        threadRef={threadRef}
+      />
     </>
   );
 }

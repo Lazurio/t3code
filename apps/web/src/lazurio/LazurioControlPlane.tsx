@@ -127,6 +127,8 @@ export function ControlPlaneAnswers(props: {
   readonly threadRef: ScopedThreadRef | null;
   readonly snapshot: ControlPlaneSnapshot | null;
   readonly czech: boolean;
+  /** The panel covers the whole window: after a click, back to the conversation to see the sentence. */
+  readonly overWindow: boolean;
 }) {
   const { snapshot, threadRef } = props;
   const insert = useControlPlaneInsert(threadRef);
@@ -149,7 +151,13 @@ export function ControlPlaneAnswers(props: {
           className="max-w-full"
           // oxlint-disable-next-line react/no-array-index-key -- a revision's answers are a fixed list in its order
           key={index}
-          onClick={() => insert(answer.sentence)}
+          onClick={() => {
+            insert(answer.sentence);
+            if (props.overWindow && threadRef !== null) {
+              useRightPanelStore.getState().setMaximized(threadRef, false);
+              useRightPanelStore.getState().close(threadRef);
+            }
+          }}
           size="sm"
           title={answer.sentence}
           variant="outline"

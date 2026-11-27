@@ -3906,14 +3906,14 @@ NodeTest.test(
     NodeAssert.match(tool, /answers: Schema\.optional\(/);
     NodeAssert.match(rules, /answers: answersOf\(answers\)/);
     // Drawn by the app under Buddy's header, marked where they come from, for the tab looked at.
-    NodeAssert.match(header, /<ControlPlaneAnswers czech=\{czech\} snapshot=\{controlPlane\}/);
+    NodeAssert.match(header, /<ControlPlaneAnswers\s+czech=\{czech\}\s+overWindow=\{wholeWindow\}/);
     NodeAssert.match(hook, /"Návrh z Control Plane"/);
     NodeAssert.match(
       hook,
       /panel\.isOpen && panel\.activeSurfaceId === controlPlaneSurfaceId\(snapshot\.attachmentId\)/,
     );
     // A click puts the sentence into the composer, unsent; the record of it is the thread's.
-    NodeAssert.match(hook, /onClick=\{\(\) => insert\(answer\.sentence\)\}/);
+    NodeAssert.match(hook, /onClick=\{\(\) => \{\n\s+insert\(answer\.sentence\);/);
     NodeAssert.match(hook, /withControlPlaneSentence\(prompt, previous\.current, sentence\)/);
     NodeAssert.match(hook, /drafts\.setPrompt\(ref, inserted\.prompt\)/);
     NodeAssert.match(hook, /\}, \[environmentId, threadId\]\);/);
