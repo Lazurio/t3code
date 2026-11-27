@@ -3889,43 +3889,34 @@ NodeTest.test(
 );
 
 NodeTest.test(
-  "a Control Plane page only puts a sentence into the composer, on the person's input",
+  "a Control Plane answer is the app's own button that only puts its sentence into the composer",
   async () => {
-    const [preview, frame, hook, rules] = await Promise.all(
+    const [hook, rules, header, tool] = await Promise.all(
       [
-        "apps/web/src/components/files/AttachmentFilePreview.tsx",
-        "apps/web/src/components/files/BrowserDocumentFrame.tsx",
         "apps/web/src/lazurio/LazurioControlPlane.tsx",
         "apps/web/src/lazurio/controlPlane.ts",
+        "apps/web/src/lazurio/BuddySurface.tsx",
+        "apps/server/src/lazurio/controlPlaneTool.ts",
       ].map(read),
     );
-    // The overlay finds the page's frame by its title, which upstream takes from the attachment name.
-    NodeAssert.match(preview, /title=\{props\.name\}/);
-    NodeAssert.match(frame, /title=\{props\.title\}/);
-    NodeAssert.match(hook, /iframe\[title="\$\{CONTROL_PLANE_NAME\}"\]/);
-    // Its own frame, focused, sandboxed to an opaque origin, while the window has the person's
-    // activation; a request is the sentence and nothing more; it goes into the composer, unsent.
+    // No way from the page to the app: the app listens to no message, and the page has no answers.
+    for (const source of [hook, rules])
+      NodeAssert.doesNotMatch(source, /addEventListener\("message"|postMessage|userActivation/);
+    // The answers travel with the published revision, as plain label and sentence.
+    NodeAssert.match(tool, /answers: Schema\.optional\(/);
+    NodeAssert.match(rules, /answers: answersOf\(answers\)/);
+    // Drawn by the app under Buddy's header, marked where they come from, for the tab looked at.
+    NodeAssert.match(header, /<ControlPlaneAnswers czech=\{czech\} snapshot=\{controlPlane\}/);
+    NodeAssert.match(hook, /"Návrh z Control Plane"/);
     NodeAssert.match(
       hook,
-      /frameFocused: frame !== undefined && document\.activeElement === frame/,
+      /panel\.isOpen && panel\.activeSurfaceId === controlPlaneSurfaceId\(snapshot\.attachmentId\)/,
     );
-    NodeAssert.match(hook, /userActivation: navigator\.userActivation/);
-    // Only the frame in the right panel that shows the thread's Control Plane as published now.
-    NodeAssert.match(hook, /\[data-right-panel-surface-content\] iframe\[title=/);
-    NodeAssert.match(hook, /panel\.activeSurfaceId === controlPlaneSurfaceId\(attachmentId\)/);
-    NodeAssert.match(rules, /input\.origin === "null"/);
-    NodeAssert.match(rules, /input\.userActivation\?\.isActive === true/);
-    NodeAssert.match(rules, /keys\.length !== 3/);
+    // A click puts the sentence into the composer, unsent; the record of it is the thread's.
+    NodeAssert.match(hook, /onClick=\{\(\) => insert\(answer\.sentence\)\}/);
     NodeAssert.match(hook, /withControlPlaneSentence\(prompt, previous\.current, sentence\)/);
     NodeAssert.match(hook, /drafts\.setPrompt\(ref, inserted\.prompt\)/);
-    // Input the parent saw within an activation's life may be what a page borrows: then the app
-    // asks the person in its own dialog before anything goes into the composer.
-    NodeAssert.match(hook, /if \(event\.isTrusted\) parentInputAt = performance\.now\(\);/);
-    NodeAssert.match(hook, /needsParentConfirmation\(performance\.now\(\) - parentInputAt\)/);
-    NodeAssert.match(
-      hook,
-      /requestConfirmDialog\(question\)\?\.then\(\(approved\) => \{\n\s+if \(approved\) insert\(sentence\);/,
-    );
+    NodeAssert.match(hook, /\}, \[environmentId, threadId\]\);/);
     NodeAssert.doesNotMatch(hook, /onSend|sendMessage|dispatchCommand|submit/i);
   },
 );

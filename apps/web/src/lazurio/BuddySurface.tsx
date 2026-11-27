@@ -43,7 +43,7 @@ import { applyThemePalette } from "~/themePalette";
 import { selectThreadRightPanelState } from "~/rightPanelStore";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
-import { ControlPlaneButton, useControlPlane, useControlPlaneDrafts } from "./LazurioControlPlane";
+import { ControlPlaneAnswers, ControlPlaneButton, useControlPlane } from "./LazurioControlPlane";
 import {
   knowBuddysThread,
   knownBuddysThread,
@@ -594,7 +594,8 @@ const BUDDY_THREAD_RETRY_MS = 5000;
 function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
   const { framed, layout, requestLayout } = useBuddyFrame(true);
   const { offered } = useBuddyPanels();
-  const text = useCzech(true) ? TEXT.cs : TEXT.en;
+  const czech = useCzech(true);
+  const text = czech ? TEXT.cs : TEXT.en;
   const environmentId = usePrimaryEnvironmentId();
   // Buddy's own T3 Code (GEN3) keeps the right panel closed, so the Control Plane is GEN4's only.
   const panelsKept = useBuddyHermesControls(environmentId ?? undefined);
@@ -616,43 +617,45 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
       ? null
       : scopeThreadRef(environmentId, threadId as ThreadId);
   const controlPlane = useControlPlane(threadRef);
-  useControlPlaneDrafts(threadRef, controlPlane, useCzech(true));
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-      <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />
-      <span className="min-w-0 flex-1 truncate font-medium text-sm">Buddy</span>
-      {daySheet === null ? null : <BuddyDaySheet {...daySheet} />}
-      {panelsKept ? null : (
-        <ControlPlaneButton
-          panelsOffered={offered}
-          requestFullscreen={() => requestLayout("fullscreen")}
-          snapshot={controlPlane}
-          threadRef={threadRef}
-        />
-      )}
-      {framed ? (
-        <>
-          <Button
-            aria-label={layout === "fullscreen" ? text.panel : text.fullscreen}
-            onClick={() => requestLayout(layout === "fullscreen" ? "panel" : "fullscreen")}
-            size="icon-sm"
-            title={layout === "fullscreen" ? text.panel : text.fullscreen}
-            variant="ghost"
-          >
-            {layout === "fullscreen" ? <Minimize2 /> : <Maximize2 />}
-          </Button>
-          <Button
-            aria-label={text.close}
-            onClick={() => requestLayout("closed")}
-            size="icon-sm"
-            title={text.close}
-            variant="ghost"
-          >
-            <X />
-          </Button>
-        </>
-      ) : null}
-    </header>
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+        <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />
+        <span className="min-w-0 flex-1 truncate font-medium text-sm">Buddy</span>
+        {daySheet === null ? null : <BuddyDaySheet {...daySheet} />}
+        {panelsKept ? null : (
+          <ControlPlaneButton
+            panelsOffered={offered}
+            requestFullscreen={() => requestLayout("fullscreen")}
+            snapshot={controlPlane}
+            threadRef={threadRef}
+          />
+        )}
+        {framed ? (
+          <>
+            <Button
+              aria-label={layout === "fullscreen" ? text.panel : text.fullscreen}
+              onClick={() => requestLayout(layout === "fullscreen" ? "panel" : "fullscreen")}
+              size="icon-sm"
+              title={layout === "fullscreen" ? text.panel : text.fullscreen}
+              variant="ghost"
+            >
+              {layout === "fullscreen" ? <Minimize2 /> : <Maximize2 />}
+            </Button>
+            <Button
+              aria-label={text.close}
+              onClick={() => requestLayout("closed")}
+              size="icon-sm"
+              title={text.close}
+              variant="ghost"
+            >
+              <X />
+            </Button>
+          </>
+        ) : null}
+      </header>
+      <ControlPlaneAnswers czech={czech} snapshot={controlPlane} threadRef={threadRef} />
+    </>
   );
 }
 

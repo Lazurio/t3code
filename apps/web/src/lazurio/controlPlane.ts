@@ -13,23 +13,53 @@ export const CONTROL_PLANE_NAME = "Control Plane";
 export const controlPlaneSurfaceId = (attachmentId: string) =>
   `attachment:${attachmentId}` as const;
 
+/** An answer the app shows as its own button; a click puts `sentence` into the composer. */
+export interface ControlPlaneAnswer {
+  readonly label: string;
+  readonly sentence: string;
+}
+
 export interface ControlPlaneSnapshot {
   readonly threadId: string;
   readonly attachmentId: string;
   readonly title: string;
   readonly revision: string;
+  readonly answers: ReadonlyArray<ControlPlaneAnswer>;
 }
 
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
+// The server's limits (apps/server/src/lazurio/controlPlane.ts); anything beyond them is not shown.
+const MAX_ANSWERS = 12;
+const MAX_ANSWER_LABEL = 80;
+const MAX_ANSWER_BYTES = 2048;
+
+const isAnswer = (label: unknown, sentence: unknown): label is string =>
+  isText(label) &&
+  label.length <= MAX_ANSWER_LABEL &&
+  isText(sentence) &&
+  new TextEncoder().encode(sentence).length <= MAX_ANSWER_BYTES;
+
+/** The buttons a revision offers: plain label and sentence, nothing the page itself can run. */
+const answersOf = (value: unknown): ReadonlyArray<ControlPlaneAnswer> =>
+  Array.isArray(value)
+    ? value
+        .flatMap((answer: unknown) => {
+          if (typeof answer !== "object" || answer === null) return [];
+          const { label, sentence } = answer as Record<string, unknown>;
+          return isAnswer(label, sentence) ? [{ label, sentence: sentence as string }] : [];
+        })
+        .slice(0, MAX_ANSWERS)
+    : [];
+
 /** A server-sent snapshot, or null for anything else. */
 export function parseControlPlaneSnapshot(data: unknown): ControlPlaneSnapshot | null {
   if (typeof data !== "object" || data === null) return null;
-  const { threadId, attachmentId, title, revision } = data as Record<string, unknown>;
+  const { threadId, attachmentId, title, revision, answers } = data as Record<string, unknown>;
   // The server's page ids end in `-html`, which the asset route serves as a sandboxed document.
   if (!isText(threadId) || !isText(attachmentId) || !attachmentId.endsWith("-html")) return null;
   if (!isText(title) || !isText(revision)) return null;
-  return { threadId, attachmentId, title, revision };
+  return { threadId, attachmentId, title, revision, answers: answersOf(answers) };
 }
 
 /** The revision as an attachment that upstream's file surface renders as an agent page. */
@@ -91,58 +121,6 @@ export function withControlPlaneOpen(
     surfaces: existing === undefined ? [...current.surfaces, surface] : current.surfaces,
   };
 }
-
-/**
- * The one message a Control Plane page may send its parent (plan LZD-0051, C3): a sentence for the
- * composer of Buddy's thread. It is put into the composer and never sent; the person sends it.
- */
-const CONTROL_PLANE_DRAFT_MESSAGE = "lazurio.control-plane.draft";
-const CONTROL_PLANE_DRAFT_MAX_BYTES = 2048;
-
-/** The sentence of a well-formed request, or null; any other field, such as one asking to send, is refused. */
-export function parseControlPlaneDraft(data: unknown): string | null {
-  if (typeof data !== "object" || data === null || Array.isArray(data)) return null;
-  const keys = Object.keys(data);
-  if (keys.length !== 3 || !["type", "v", "text"].every((key) => keys.includes(key))) return null;
-  const { type, v, text } = data as Record<string, unknown>;
-  if (type !== CONTROL_PLANE_DRAFT_MESSAGE || v !== 1 || typeof text !== "string") return null;
-  const sentence = text.trim();
-  if (sentence.length === 0) return null;
-  return new TextEncoder().encode(sentence).length > CONTROL_PLANE_DRAFT_MAX_BYTES
-    ? null
-    : sentence;
-}
-
-/**
- * A request is taken only from a focused Control Plane frame (opaque origin) while the window has
- * transient activation: the person's input inside the page, which the page cannot make and input
- * elsewhere does not lend it. No `navigator.userActivation` means no.
- */
-export function acceptsControlPlaneDraft(input: {
-  readonly fromControlPlaneFrame: boolean;
-  readonly currentSurface: boolean;
-  readonly frameFocused: boolean;
-  readonly origin: string;
-  readonly userActivation: { readonly isActive: boolean } | undefined;
-}): boolean {
-  return (
-    input.fromControlPlaneFrame &&
-    input.currentSurface &&
-    input.frameFocused &&
-    input.origin === "null" &&
-    input.userActivation?.isActive === true
-  );
-}
-
-/**
- * The window's transient activation lasts a few seconds (5 in Chromium). Input the parent saw in
- * that time may be what activates the window, and a page can take the focus while it lasts, so
- * the parent then asks the person before it puts anything into the composer.
- */
-const BORROWABLE_ACTIVATION_MS = 10_000;
-
-export const needsParentConfirmation = (sinceParentInputMs: number): boolean =>
-  sinceParentInputMs < BORROWABLE_ACTIVATION_MS;
 
 /** Where the Control Plane last put its sentence, and the whole composer it left. */
 export interface ControlPlaneInsertion {

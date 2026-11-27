@@ -3,11 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ThreadRightPanelState } from "~/rightPanelStore";
 
 import {
-  acceptsControlPlaneDraft,
   CONTROL_PLANE_NAME,
   controlPlaneAttachment,
-  needsParentConfirmation,
-  parseControlPlaneDraft,
   parseControlPlaneSnapshot,
   withControlPlaneOpen,
   withControlPlaneRevision,
@@ -19,6 +16,7 @@ const snapshot = (revision: string) => ({
   attachmentId: `buddy-0000000${revision}-0000-4000-8000-00000000000${revision}-html`,
   title: "Control Plane",
   revision,
+  answers: [],
 });
 const a = controlPlaneAttachment(snapshot("a"));
 const b = controlPlaneAttachment(snapshot("b"));
@@ -30,6 +28,22 @@ describe("the Control Plane in the right panel", () => {
     expect(parseControlPlaneSnapshot({ ...snapshot("a"), attachmentId: "buddy-x" })).toBeNull();
     expect(parseControlPlaneSnapshot({ ...snapshot("a"), revision: 1 })).toBeNull();
     expect(parseControlPlaneSnapshot(null)).toBeNull();
+  });
+
+  it("reads the answers as plain label and sentence, within the server's limits", () => {
+    const answer = { label: "Yes", sentence: "Example: yes" };
+    const read = (answers: unknown) => parseControlPlaneSnapshot({ ...snapshot("a"), answers });
+    // A snapshot without answers is shown as before.
+    expect(parseControlPlaneSnapshot({ ...snapshot("a"), answers: undefined })?.answers).toEqual(
+      [],
+    );
+    expect(read([answer, { ...answer, send: true }])?.answers).toEqual([answer, answer]);
+    expect(read([{ label: "", sentence: "x" }, { label: "x" }, "x", null])?.answers).toEqual([]);
+    expect(read([{ label: "a".repeat(81), sentence: "x" }])?.answers).toEqual([]);
+    expect(read([{ label: "x", sentence: "é".repeat(1025) }])?.answers).toEqual([]);
+    expect(read([{ label: "x", sentence: "a".repeat(2048) }])?.answers).toHaveLength(1);
+    expect(read(Array.from({ length: 13 }, () => answer))?.answers).toHaveLength(12);
+    expect(read("Yes")?.answers).toEqual([]);
   });
 
   it("puts a new revision in the open tab at its place, without opening or focusing the panel", () => {
@@ -61,56 +75,7 @@ describe("the Control Plane in the right panel", () => {
   });
 });
 
-describe("a Control Plane page's sentence for the composer", () => {
-  const request = (text: unknown, extra: Record<string, unknown> = {}) => ({
-    type: "lazurio.control-plane.draft",
-    v: 1,
-    text,
-    ...extra,
-  });
-
-  it("is read only as a sentence, never with anything that asks to send it", () => {
-    expect(parseControlPlaneDraft(request("  Example: yes  "))).toBe("Example: yes");
-    expect(parseControlPlaneDraft(request("Example: yes", { send: true }))).toBeNull();
-    expect(parseControlPlaneDraft({ ...request("x"), v: 2 })).toBeNull();
-    expect(parseControlPlaneDraft(request("   "))).toBeNull();
-    expect(parseControlPlaneDraft(request("é".repeat(1025)))).toBeNull();
-    expect(parseControlPlaneDraft(request("a".repeat(2048)))).toBe("a".repeat(2048));
-    expect(parseControlPlaneDraft("lazurio.control-plane.draft")).toBeNull();
-  });
-
-  it("is taken only from a Control Plane frame while the person's input activates the window", () => {
-    const active = { isActive: true };
-    const base = {
-      fromControlPlaneFrame: true,
-      currentSurface: true,
-      frameFocused: true,
-      origin: "null",
-      userActivation: active,
-    };
-    expect(acceptsControlPlaneDraft(base)).toBe(true);
-    // No input from the person: a page's script on load or later.
-    expect(acceptsControlPlaneDraft({ ...base, userActivation: { isActive: false } })).toBe(false);
-    // A browser that cannot tell.
-    expect(acceptsControlPlaneDraft({ ...base, userActivation: undefined })).toBe(false);
-    // Another frame, or a frame that is not sandboxed to an opaque origin.
-    // A same-named attachment, or an older revision: not the thread's Control Plane as published now.
-    expect(acceptsControlPlaneDraft({ ...base, currentSurface: false })).toBe(false);
-    // The person's input elsewhere in the window: the focus is not in the page.
-    expect(acceptsControlPlaneDraft({ ...base, frameFocused: false })).toBe(false);
-    expect(acceptsControlPlaneDraft({ ...base, fromControlPlaneFrame: false })).toBe(false);
-    expect(acceptsControlPlaneDraft({ ...base, origin: "https://example.com" })).toBe(false);
-  });
-
-  it("asks the person in the app while their input outside the page may be the activation", () => {
-    // Input the parent saw a moment ago, e.g. on Buddy's header: a page could borrow it.
-    expect(needsParentConfirmation(0)).toBe(true);
-    expect(needsParentConfirmation(9_999)).toBe(true);
-    // Nothing outside the page for longer than an activation lasts: the input was in the page.
-    expect(needsParentConfirmation(10_000)).toBe(false);
-    expect(needsParentConfirmation(Number.POSITIVE_INFINITY)).toBe(false);
-  });
-
+describe("a Control Plane answer's sentence in the composer", () => {
   it("replaces only its own untouched sentence, never the person's words", () => {
     const first = withControlPlaneSentence("", null, "A: yes");
     expect(first.prompt).toBe("A: yes");
@@ -126,7 +91,7 @@ describe("a Control Plane page's sentence for the composer", () => {
     expect(withControlPlaneSentence("A: yesterday", first, "A: no").prompt).toBe(
       "A: yesterday\nA: no",
     );
-    // The person wrote "yes", the page added "yes", the person deleted the added line: their own
+    // The person wrote "yes", an answer added "yes", the person deleted the added line: their own
     // "yes" stays, the answer follows it.
     const added = withControlPlaneSentence("yes", null, "yes");
     expect(added.prompt).toBe("yes\nyes");
