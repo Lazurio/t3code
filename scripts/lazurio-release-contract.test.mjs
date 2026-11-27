@@ -3883,3 +3883,33 @@ NodeTest.test(
       NodeAssert.ok(!overlayMayChange(file), `${file} stays upstream's`);
   },
 );
+
+NodeTest.test(
+  "a Control Plane page only puts a sentence into the composer, on the person's input",
+  async () => {
+    const [preview, frame, hook, rules] = await Promise.all(
+      [
+        "apps/web/src/components/files/AttachmentFilePreview.tsx",
+        "apps/web/src/components/files/BrowserDocumentFrame.tsx",
+        "apps/web/src/lazurio/LazurioControlPlane.tsx",
+        "apps/web/src/lazurio/controlPlane.ts",
+      ].map(read),
+    );
+    // The overlay finds the page's frame by its title, which upstream takes from the attachment name.
+    NodeAssert.match(preview, /title=\{props\.name\}/);
+    NodeAssert.match(frame, /title=\{props\.title\}/);
+    NodeAssert.match(hook, /iframe\[title="\$\{CONTROL_PLANE_NAME\}"\]/);
+    // Its own frame, focused, sandboxed to an opaque origin, while the window has the person's
+    // activation; a request is the sentence and nothing more; it goes into the composer, unsent.
+    NodeAssert.match(
+      hook,
+      /frameFocused: frame !== undefined && document\.activeElement === frame/,
+    );
+    NodeAssert.match(hook, /userActivation: navigator\.userActivation/);
+    NodeAssert.match(rules, /input\.origin === "null"/);
+    NodeAssert.match(rules, /input\.userActivation\?\.isActive === true/);
+    NodeAssert.match(rules, /keys\.length !== 3/);
+    NodeAssert.match(hook, /drafts\.setPrompt\(ref, withControlPlaneSentence\(/);
+    NodeAssert.doesNotMatch(hook, /onSend|sendMessage|dispatchCommand|submit/i);
+  },
+);

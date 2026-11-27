@@ -1,19 +1,23 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { LayoutDashboard } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
 import {
+  acceptsControlPlaneDraft,
   CONTROL_PLANE_NAME,
   CONTROL_PLANE_ROUTE,
   type ControlPlaneSnapshot,
   controlPlaneAttachment,
+  parseControlPlaneDraft,
   parseControlPlaneSnapshot,
   withControlPlaneOpen,
   withControlPlaneRevision,
+  withControlPlaneSentence,
 } from "./controlPlane";
 
 const parseData = (data: unknown): unknown => {
@@ -81,4 +85,46 @@ export function ControlPlaneButton(props: {
       <LayoutDashboard />
     </Button>
   );
+}
+
+/** The Control Plane frame of this window a message came from, if any. */
+const controlPlaneFrameOf = (source: MessageEventSource | null) =>
+  source === null
+    ? undefined
+    : [
+        ...document.querySelectorAll<HTMLIFrameElement>(`iframe[title="${CONTROL_PLANE_NAME}"]`),
+      ].find((frame) => frame.contentWindow === source);
+
+/**
+ * A Control Plane page's sentence goes into the composer of Buddy's thread, never sent: only from
+ * its own frame, while the person's input to it is the window's transient activation (C3).
+ */
+export function useControlPlaneDrafts(threadRef: ScopedThreadRef | null): void {
+  const previous = useRef<string | null>(null);
+  const environmentId = threadRef?.environmentId ?? null;
+  const threadId = threadRef?.threadId ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens to messages from the Control Plane's sandboxed frame
+  useEffect(() => {
+    if (environmentId === null || threadId === null) return;
+    const ref = scopeThreadRef(environmentId, threadId);
+    previous.current = null;
+    const onMessage = (event: MessageEvent) => {
+      const sentence = parseControlPlaneDraft(event.data);
+      if (sentence === null) return;
+      const frame = controlPlaneFrameOf(event.source);
+      const accepted = acceptsControlPlaneDraft({
+        fromControlPlaneFrame: frame !== undefined,
+        frameFocused: frame !== undefined && document.activeElement === frame,
+        origin: event.origin,
+        userActivation: navigator.userActivation,
+      });
+      if (!accepted) return;
+      const drafts = useComposerDraftStore.getState();
+      const prompt = drafts.getComposerDraft(ref)?.prompt ?? "";
+      drafts.setPrompt(ref, withControlPlaneSentence(prompt, previous.current, sentence));
+      previous.current = sentence;
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [environmentId, threadId]);
 }

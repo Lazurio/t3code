@@ -43,7 +43,7 @@ import { applyThemePalette } from "~/themePalette";
 import { selectThreadRightPanelState } from "~/rightPanelStore";
 import { primaryServerConfigAtom } from "~/state/server";
 import { usePrimaryEnvironmentId } from "~/state/environments";
-import { ControlPlaneButton, useControlPlane } from "./LazurioControlPlane";
+import { ControlPlaneButton, useControlPlane, useControlPlaneDrafts } from "./LazurioControlPlane";
 import {
   knowBuddysThread,
   knownBuddysThread,
@@ -616,6 +616,7 @@ function BuddyHeader({ daySheet }: { readonly daySheet: DaySheet | null }) {
       ? null
       : scopeThreadRef(environmentId, threadId as ThreadId);
   const controlPlane = useControlPlane(threadRef);
+  useControlPlaneDrafts(threadRef);
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <img alt="" className="size-8 shrink-0 rounded-full bg-muted object-contain" src={AVATAR} />

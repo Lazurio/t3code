@@ -87,3 +87,61 @@ export function withControlPlaneOpen(
     surfaces: existing === undefined ? [...current.surfaces, surface] : current.surfaces,
   };
 }
+
+/**
+ * The one message a Control Plane page may send its parent (plan LZD-0051, C3): a sentence for the
+ * composer of Buddy's thread. It is put into the composer and never sent; the person sends it.
+ */
+const CONTROL_PLANE_DRAFT_MESSAGE = "lazurio.control-plane.draft";
+const CONTROL_PLANE_DRAFT_MAX_BYTES = 2048;
+
+/** The sentence of a well-formed request, or null; any other field, such as one asking to send, is refused. */
+export function parseControlPlaneDraft(data: unknown): string | null {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return null;
+  const keys = Object.keys(data);
+  if (keys.length !== 3 || !["type", "v", "text"].every((key) => keys.includes(key))) return null;
+  const { type, v, text } = data as Record<string, unknown>;
+  if (type !== CONTROL_PLANE_DRAFT_MESSAGE || v !== 1 || typeof text !== "string") return null;
+  const sentence = text.trim();
+  if (sentence.length === 0) return null;
+  return new TextEncoder().encode(sentence).length > CONTROL_PLANE_DRAFT_MAX_BYTES
+    ? null
+    : sentence;
+}
+
+/**
+ * A request is taken only from a focused Control Plane frame (opaque origin) while the window has
+ * transient activation: the person's input inside the page, which the page cannot make and input
+ * elsewhere does not lend it. No `navigator.userActivation` means no.
+ */
+export function acceptsControlPlaneDraft(input: {
+  readonly fromControlPlaneFrame: boolean;
+  readonly frameFocused: boolean;
+  readonly origin: string;
+  readonly userActivation: { readonly isActive: boolean } | undefined;
+}): boolean {
+  return (
+    input.fromControlPlaneFrame &&
+    input.frameFocused &&
+    input.origin === "null" &&
+    input.userActivation?.isActive === true
+  );
+}
+
+/**
+ * The composer after a request: the new sentence replaces the one the Control Plane put there
+ * before, if it is still there, so repeated requests never pile up; otherwise it follows what the
+ * person wrote, on its own line.
+ */
+export function withControlPlaneSentence(
+  prompt: string,
+  previous: string | null,
+  sentence: string,
+): string {
+  if (previous !== null) {
+    const at = prompt.lastIndexOf(previous);
+    if (at >= 0) return prompt.slice(0, at) + sentence + prompt.slice(at + previous.length);
+  }
+  if (prompt.trim().length === 0) return sentence;
+  return `${prompt}${prompt.endsWith("\n") ? "" : "\n"}${sentence}`;
+}
