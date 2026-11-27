@@ -3837,3 +3837,49 @@ NodeTest.test("the Control Plane is an isolated page of Buddy's thread only", as
   );
   NodeAssert.equal(overlay.match(/Layer\.provide\(controlPlane\)/g)?.length, 2);
 });
+
+NodeTest.test(
+  "the Control Plane opens in upstream's file surface as a sandboxed agent page",
+  async () => {
+    const [store, types, panel, preview, frame, overlay] = await Promise.all(
+      [
+        "apps/web/src/rightPanelStore.ts",
+        "apps/web/src/types.ts",
+        "apps/web/src/components/files/FilePreviewPanel.tsx",
+        "apps/web/src/components/files/AttachmentFilePreview.tsx",
+        "apps/web/src/components/files/BrowserDocumentFrame.tsx",
+        "apps/web/src/lazurio/controlPlane.ts",
+      ].map(read),
+    );
+    // The overlay builds the same surface as upstream's attachment surface and updates the panel
+    // through the overlay's one store update, automatic when a revision arrives.
+    NodeAssert.match(
+      store,
+      /const attachmentSurface = \(attachment: ChatFileAttachment\): RightPanelSurface => \(\{\n {2}id: `attachment:\$\{attachment\.id\}`,\n {2}kind: "file",\n {2}relativePath: attachment\.name,/,
+    );
+    NodeAssert.match(
+      store,
+      /lazurio: \(ref, automatic, update\) =>\n\s+set\(\(state\) =>\n\s+\(automatic \? automaticUpdate : userAction\)\(state, scopedThreadKey\(ref\), update\),/,
+    );
+    NodeAssert.match(
+      overlay,
+      /id: `attachment:\$\{attachment\.id\}`,\n {2}kind: "file",\n {2}relativePath: attachment\.name,/,
+    );
+    // Upstream's file surface renders an HTML attachment marked `htmlRender` as an agent page, in a
+    // frame without allow-same-origin.
+    NodeAssert.match(types, /readonly htmlRender\?: boolean;/);
+    NodeAssert.match(panel, /htmlRender=\{attachment\.htmlRender === true\}/);
+    NodeAssert.match(
+      preview,
+      /kind === "pdf" \|\| kind === "html" \? \(\n\s+<BrowserDocumentFrame/,
+    );
+    NodeAssert.match(preview, /htmlRender=\{props\.htmlRender === true\}/);
+    NodeAssert.match(frame, /sandbox="allow-scripts allow-forms"/);
+    for (const file of [
+      "apps/web/src/types.ts",
+      "apps/web/src/components/files/FilePreviewPanel.tsx",
+      "apps/web/src/components/files/AttachmentFilePreview.tsx",
+    ])
+      NodeAssert.ok(!overlayMayChange(file), `${file} stays upstream's`);
+  },
+);
